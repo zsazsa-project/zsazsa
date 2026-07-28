@@ -1,0 +1,91 @@
+{# "QA check against source": audits a product draft against the report content of
+   its source events and lists what a reviewer should fix before publishing.
+   Included from the flash intel and vulnerability advisory pages, both on the
+   detail view and in the edit wizard. #}
+<script>
+(function() {
+  var VERDICT_CLASS = {
+    'pass': 'text-bg-success',
+    'pass with fixes': 'text-bg-warning',
+    'do not publish': 'text-bg-danger',
+  };
+  var SEVERITY_CLASS = {high: 'text-danger', medium: 'text-warning', low: 'text-muted'};
+
+  function line(cls, label, text) {
+    var el = document.createElement('div');
+    el.className = cls;
+    if (label) {
+      var strong = document.createElement('strong');
+      strong.textContent = label + ' ';
+      el.appendChild(strong);
+    }
+    el.appendChild(document.createTextNode(text));
+    return el;
+  }
+
+  function render(out, review) {
+    out.textContent = '';
+    var verdict = review.verdict || 'unknown';
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + (VERDICT_CLASS[verdict] || 'text-bg-secondary');
+    badge.textContent = verdict;
+    out.appendChild(badge);
+    if (review.summary) out.appendChild(line('small text-muted mt-1', '', review.summary));
+
+    (review.findings || []).forEach(function(f) {
+      var block = document.createElement('div');
+      block.className = 'border-start ps-2 mt-2 small';
+      block.appendChild(line(SEVERITY_CLASS[f.severity] || '', (f.severity || '') + ':', f.issue || ''));
+      if (f.quote) block.appendChild(line('fst-italic text-muted', '', '“' + f.quote + '”'));
+      if (f.source_says) block.appendChild(line('text-muted', 'Source:', f.source_says));
+      if (f.suggestion) block.appendChild(line('text-muted', 'Fix:', f.suggestion));
+      out.appendChild(block);
+    });
+
+    if ((review.verify_manually || []).length) {
+      out.appendChild(line('small fw-semibold mt-2', '', 'Verify manually'));
+      var list = document.createElement('ul');
+      list.className = 'small text-muted mb-0 ps-3';
+      review.verify_manually.forEach(function(item) {
+        var li = document.createElement('li');
+        li.textContent = item;
+        list.appendChild(li);
+      });
+      out.appendChild(list);
+    }
+  }
+
+  document.querySelectorAll('.qa-review-btn').forEach(function(btn) {
+    var out = btn.parentNode.querySelector('.qa-review-output');
+    btn.addEventListener('click', function() {
+      btn.disabled = true;
+      out.textContent = 'Checking the draft against the source events…';
+      out.className = 'qa-review-output mb-2 small text-muted';
+
+      fetch(SCRIPT_ROOT + '/api/qa-review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+        },
+        body: JSON.stringify({kind: btn.dataset.kind, uuid: btn.dataset.uuid}),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        out.className = 'qa-review-output mb-2';
+        if (data.error) {
+          out.textContent = data.error;
+          out.className = 'qa-review-output mb-2 small text-danger';
+          return;
+        }
+        render(out, data.review || {});
+      })
+      .catch(function(err) {
+        out.className = 'qa-review-output mb-2 small text-danger';
+        out.textContent = 'Request failed: ' + err;
+      })
+      .finally(function() { btn.disabled = false; });
+    });
+  });
+})();
+</script>

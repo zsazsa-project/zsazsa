@@ -112,6 +112,23 @@
         </div>
       </div>
 
+      {% if queued %}
+      <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-robot me-2"></i>Draft with AI</div>
+        <div class="card-body">
+          <button type="button" class="btn btn-outline-info w-100" id="tlr-draft-btn">
+            <i class="fas fa-wand-magic-sparkles me-1"></i> Draft sections from the queue
+          </button>
+          <div class="form-text">
+            Reads the {{ queued | length }} queued event{{ '' if queued | length == 1 else 's' }} and fills the
+            sections that are still empty. Trends are counted from the events; the analyst writes what they mean
+            for the organisation, marked <code>[ANALYST]</code>.
+          </div>
+          <div id="tlr-draft-status" class="form-text"></div>
+        </div>
+      </div>
+      {% endif %}
+
       {% if not is_edit and queued %}
       <div class="card content-card mb-4">
         <div class="card-header">
@@ -139,4 +156,66 @@
 
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// "Draft sections from the queue": drafts the report from the queued collection
+// events and fills the sections the analyst has not written yet.
+(function() {
+  var btn = document.getElementById('tlr-draft-btn');
+  var status = document.getElementById('tlr-draft-status');
+  if (!btn) return;
+  var sections = {
+    top_threats: 'Top threats',
+    trending_actors: 'Trending actors',
+    key_incidents: 'Key incidents',
+    recommendations: 'Recommendations',
+    outlook: 'Outlook',
+  };
+
+  // Mark a drafted section so the analyst can see what to review; the mark
+  // clears as soon as they edit it themselves.
+  function markDrafted(el) {
+    el.classList.add('border-info', 'border-2');
+    el.addEventListener('input', function() {
+      el.classList.remove('border-info', 'border-2');
+    }, {once: true});
+  }
+
+  btn.addEventListener('click', function() {
+    btn.disabled = true;
+    status.textContent = 'Reading the queue and drafting…';
+    var body = new FormData();
+    body.append('reporting_period', document.querySelector('[name="reporting_period"]').value.trim());
+
+    fetch('{{ url_for("threat_landscape.draft_trends") }}', {
+      method: 'POST',
+      headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
+      body: body,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { status.textContent = data.error; return; }
+      var drafted = [];
+      Object.keys(sections).forEach(function(name) {
+        var el = document.querySelector('[name="' + name + '"]');
+        if (!el || el.value.trim() || !data.sections[name]) return;
+        el.value = data.sections[name];
+        // Isolated signals belong with the outlook, but only when we wrote it.
+        if (name === 'outlook' && data.sections.isolated_signals) {
+          el.value += '\n\nIsolated signals worth watching:\n' + data.sections.isolated_signals;
+        }
+        markDrafted(el);
+        drafted.push(sections[name]);
+      });
+      status.textContent = drafted.length
+        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' queued events. Review before saving.'
+        : 'Nothing to draft: every section already has content.';
+    })
+    .catch(function(err) { status.textContent = 'Request failed: ' + err; })
+    .finally(function() { btn.disabled = false; });
+  });
+})();
+</script>
 {% endblock %}

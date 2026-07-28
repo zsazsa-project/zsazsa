@@ -70,10 +70,11 @@ def _is_reasoning_model(model: str) -> bool:
     return bool(re.match(r"^o\d", model.strip()))
 
 
-def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", model: str = None,
-          provider: str = None) -> str:
-    effective_provider = _resolve_provider((provider or "").strip())
-    effective_model = (model or "").strip() or _default_model(effective_provider)
+def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", cfg: dict = None) -> str:
+    """Run one completion for a feature, using that feature's provider, model and temperature."""
+    cfg = cfg or {}
+    effective_provider = _resolve_provider((cfg.get("provider") or "").strip())
+    effective_model = (cfg.get("model") or "").strip() or _default_model(effective_provider)
     kwargs = {
         "model": effective_model,
         "messages": [
@@ -81,11 +82,15 @@ def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", mod
             {"role": "user", "content": user},
         ],
     }
+    reasoning_model = effective_provider == "openai" and _is_reasoning_model(effective_model)
     # OpenAI reasoning models reject max_tokens and require max_completion_tokens.
-    if effective_provider == "openai" and _is_reasoning_model(effective_model):
+    if reasoning_model:
         kwargs["max_completion_tokens"] = max_tokens
     else:
         kwargs["max_tokens"] = max_tokens
+    # Reasoning models only accept the default temperature, so leave theirs alone.
+    if cfg.get("temperature") is not None and not reasoning_model:
+        kwargs["temperature"] = cfg["temperature"]
     # Thinking models otherwise spend the whole token budget on reasoning and
     # return an empty answer. Ollama understands 'think'; a server that does not
     # know the field rejects the request, so try again without it.
@@ -119,6 +124,23 @@ def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", mod
     return text
 
 
+def _json_object(text: str, feature: str) -> dict | None:
+    """Parse a model answer that has to be a JSON object, or None when it is not.
+
+    A model that answers with a list, a number or prose has not followed the
+    prompt, and the caller falls back the same way it does for broken JSON.
+    """
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        logger.error("%s returned invalid JSON: %s", feature, text[:200])
+        return None
+    if not isinstance(parsed, dict):
+        logger.error("%s returned %s where a JSON object was asked for", feature, type(parsed).__name__)
+        return None
+    return parsed
+
+
 def _feature_cfg(feature_id: str) -> dict:
     try:
         from core.ai_config import get_feature
@@ -134,12 +156,11 @@ def check_relevance(article_content: str, focus_points: dict, source_reliability
         _resolve_prompt(fc.get("prompt") or "flash_intel_relevance.md"),
         f"Focus points:\n{json.dumps(focus_points, indent=2)}\n\nSource reliability (Admiralty Scale): {source_reliability}",
     )
-    text = _call(system, article_content[:10000], 512, feature="check_relevance", model=fc.get("model"), provider=fc.get("provider"))
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        logger.error("Relevance check returned invalid JSON: %s", text[:200])
+    text = _call(system, article_content[:10000], 512, feature="check_relevance", cfg=fc)
+    parsed = _json_object(text, "check_relevance")
+    if parsed is None:
         return {"relevant": False, "reason": "LLM response parse error"}
+    return parsed
 
 
 def generate_flash_intel(
@@ -169,7 +190,7 @@ def generate_flash_intel(
         f"Event date: {event_date}\n\n"
         f"Article content:\n{article_content[:12000]}"
     )
-    return _call(system, user_message, 2048, feature="generate_flash_intel", model=fc.get("model"), provider=fc.get("provider"))
+    return _call(system, user_message, 2048, feature="generate_flash_intel", cfg=fc)
 
 
 def generate_fia_draft(
@@ -210,7 +231,7 @@ def generate_fia_draft(
         f"Source reliability (Admiralty Scale): {source_reliability or 'unknown'}\n\n"
         f"Article content:\n{content[:12000]}"
     )
-    return _call(system, user_message, 2048, feature="generate_fia_draft", model=fc.get("model"), provider=fc.get("provider"))
+    return _call(system, user_message, 2048, feature="generate_fia_draft", cfg=fc)
 
 
 _ACTOR_TYPE_LINE_RE = re.compile(r'^\s*Threat actor type\s*:\s*(.+?)\s*$', re.IGNORECASE | re.MULTILINE)
@@ -233,7 +254,7 @@ def draft_briefing_story(article_content: str, focus_points: dict = None, threat
         _resolve_prompt(fc.get("prompt") or "daily_briefing_story.md"),
         "\n\n".join(extra_parts),
     )
-    raw = _call(system, article_content[:10000], 512, feature="draft_briefing_story", model=fc.get("model"), provider=fc.get("provider"))
+    raw = _call(system, article_content[:10000], 512, feature="draft_briefing_story", cfg=fc)
 
     suggested_actor_type = ""
     match = _ACTOR_TYPE_LINE_RE.search(raw)
@@ -258,16 +279,14 @@ def review_briefing_relevance(event_title: str, report_title: str, content: str)
         "report_title": (report_title or "").strip(),
         "content": (content or "")[:12000],
     }
-    text = _call(system, json.dumps(payload, ensure_ascii=True), 256, feature="review_briefing_relevance", model=fc.get("model"), provider=fc.get("provider"))
-    try:
-        parsed = json.loads(text)
-        return {
-            "include": bool(parsed.get("include", True)),
-            "reason": (parsed.get("reason") or "").strip(),
-        }
-    except json.JSONDecodeError:
-        logger.warning("review_briefing_relevance returned invalid JSON")
+    text = _call(system, json.dumps(payload, ensure_ascii=True), 256, feature="review_briefing_relevance", cfg=fc)
+    parsed = _json_object(text, "review_briefing_relevance")
+    if parsed is None:
         return {"include": True, "reason": "fallback include on parse error"}
+    return {
+        "include": bool(parsed.get("include", True)),
+        "reason": (parsed.get("reason") or "").strip(),
+    }
 
 
 def detect_story_overlaps(stories: list[dict]) -> dict:
@@ -292,7 +311,7 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
             for idx, s in enumerate(stories or [])
         ]
     }
-    text = _call(system, json.dumps(payload, ensure_ascii=True), 1024, feature="detect_story_overlaps", model=fc.get("model"), provider=fc.get("provider"))
+    text = _call(system, json.dumps(payload, ensure_ascii=True), 1024, feature="detect_story_overlaps", cfg=fc)
     try:
         parsed = json.loads(text)
         overlaps = parsed.get("overlaps") if isinstance(parsed, dict) else []
@@ -366,7 +385,7 @@ def summarise_report(report_content: str, event_info: str = "", tags: list = Non
         ctx_lines.append(f"Event tags: {', '.join(tags)}")
     prefix = "\n".join(ctx_lines)
     user_message = f"{prefix}\n\nReport content:\n{report_content[:12000]}" if prefix else f"Report content:\n{report_content[:12000]}"
-    return _call(system, user_message, 1024, feature="summarise_report", model=fc.get("model"), provider=fc.get("provider"))
+    return _call(system, user_message, 1024, feature="summarise_report", cfg=fc)
 
 
 def draft_vea_sections(cve_id: str, product_info: str = "", article_content: str = "") -> dict:
@@ -378,9 +397,53 @@ def draft_vea_sections(cve_id: str, product_info: str = "", article_content: str
         f"Product/context: {product_info}" if product_info else "",
         f"Article/advisory content:\n{article_content[:10000]}" if article_content else "",
     ]))
-    text = _call(system, user_message, 1024, feature="draft_vea_sections", model=fc.get("model"), provider=fc.get("provider"))
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        logger.error("VEA draft returned invalid JSON: %s", text[:200])
-        return {}
+    text = _call(system, user_message, 1024, feature="draft_vea_sections", cfg=fc)
+    return _json_object(text, "draft_vea_sections") or {}
+
+
+def _flatten_sections(sections: dict) -> dict:
+    """Join list values into newline-separated text, as the product forms expect."""
+    return {
+        k: "\n".join(str(item) for item in v) if isinstance(v, list) else v
+        for k, v in sections.items()
+    }
+
+
+def draft_tap_sections(actors: list, context: dict) -> dict:
+    """Draft threat actor profile fields from the selected actors and the form context.
+
+    context holds whatever the analyst already has on the form (galaxy text, notes),
+    keyed by field name. Only those values are used as source material.
+    """
+    fc = _feature_cfg("draft_tap_sections")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "threat_actor_profile_draft.md"))
+    lines = [f"Threat actor(s): {', '.join(actors)}"] if actors else []
+    for field, value in context.items():
+        if value:
+            lines.append(f"{field}:\n{value}")
+    user_message = "\n\n".join(lines)[:12000]
+    text = _call(system, user_message, 3000, feature="draft_tap_sections", cfg=fc)
+    return _flatten_sections(_json_object(text, "draft_tap_sections") or {})
+
+
+def draft_landscape_trends(reporting_period: str, events: list) -> dict:
+    """Draft threat landscape report sections from the events queued for the period."""
+    fc = _feature_cfg("draft_landscape_trends")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "threat_landscape_trends.md"))
+    payload = {"reporting_period": reporting_period, "events": events}
+    text = _call(system, json.dumps(payload, ensure_ascii=True)[:14000], 4000,
+                 feature="draft_landscape_trends", cfg=fc)
+    return _flatten_sections(_json_object(text, "draft_landscape_trends") or {})
+
+
+def review_product_draft(product_type: str, draft: str, source_material: str) -> dict:
+    """Audit a product draft against its source material before publication."""
+    fc = _feature_cfg("review_product_draft")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "product_qa_review.md"))
+    user_message = (
+        f"Product type: {product_type}\n\n"
+        f"Source material:\n{source_material[:10000]}\n\n"
+        f"Draft under review:\n{draft[:10000]}"
+    )
+    text = _call(system, user_message, 3000, feature="review_product_draft", cfg=fc)
+    return _json_object(text, "review_product_draft") or {}

@@ -58,9 +58,32 @@ FEATURES = {
         "description": "Drafts sections of a Vulnerability advisory from CVE information and optional article content.",
         "default_prompt": "vea_draft.md",
     },
+    "draft_tap_sections": {
+        "label": "Draft threat actor profile",
+        "description": "Drafts the narrative fields of a Threat actor profile from the selected actors, the MISP galaxy context and any notes already on the form.",
+        "default_prompt": "threat_actor_profile_draft.md",
+    },
+    "draft_landscape_trends": {
+        "label": "Draft threat landscape trends",
+        "description": "Drafts the Threat landscape report sections from the collection events queued for the reporting period.",
+        "default_prompt": "threat_landscape_trends.md",
+    },
+    "review_product_draft": {
+        "label": "QA review a product draft",
+        "description": "Audits a product draft against its source material before publication and reports unsupported claims, invented identifiers and overstated confidence.",
+        "default_prompt": "product_qa_review.md",
+    },
 }
 
 PROVIDERS = ["openai", "local"]
+
+
+def _temperature(value):
+    """Sampling temperature as a float, or None to leave it to the model."""
+    try:
+        return min(2.0, max(0.0, float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def load() -> dict:
@@ -80,13 +103,14 @@ def load() -> dict:
             "default_prompt": meta["default_prompt"],
             "provider": saved.get("provider", "openai"),
             "model": saved.get("model", ""),
+            "temperature": _temperature(saved.get("temperature")),
             "prompt": saved.get("prompt", meta["default_prompt"]),
         }
     return result
 
 
 def save(data: dict) -> None:
-    """Persist per-feature overrides (provider, model, prompt) to the JSON file."""
+    """Persist per-feature overrides (provider, model, temperature, prompt) to the JSON file."""
     _AI_CONFIG_FILE.parent.mkdir(exist_ok=True)
     storable = {}
     for fid in FEATURES:
@@ -96,6 +120,7 @@ def save(data: dict) -> None:
             storable[fid] = {
                 "provider": provider if provider in PROVIDERS else "openai",
                 "model": entry.get("model", ""),
+                "temperature": _temperature(entry.get("temperature")),
                 "prompt": entry.get("prompt", FEATURES[fid]["default_prompt"]),
             }
     _AI_CONFIG_FILE.write_text(json.dumps(storable, indent=2))
@@ -106,5 +131,6 @@ def get_feature(feature_id: str) -> dict:
     return load().get(feature_id, {
         "provider": "openai",
         "model": "",
+        "temperature": None,
         "prompt": FEATURES.get(feature_id, {}).get("default_prompt", ""),
     })

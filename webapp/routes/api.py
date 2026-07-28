@@ -241,6 +241,97 @@ def briefing_overlap_check():
         return jsonify({"overlaps": [], "summary": "", "error": "Failed to check overlap."}), 502
 
 
+# The QA review audits what would actually be published, so it reads the same
+# markdown the notifier and the published report use.
+_QA_PRODUCTS = {
+    "fia": {"label": "Flash intel alert", "id_attr": "fia_id",
+            "get": misp_store.get_fia, "render": misp_store.render_fia_markdown},
+    "vea": {"label": "Vulnerability advisory", "id_attr": "vea_id",
+            "get": misp_store.get_vea, "render": misp_store.render_vea_markdown},
+}
+
+
+@bp.route("/qa-review", methods=["POST"])
+@rate_limited("api_qa_review", limit=20, window_s=60)
+def qa_review():
+    """Audit a product draft against its source events before publication.
+
+    POST JSON: {"kind": "fia" | "vea", "uuid": "..."}
+    Returns: {"review": {...}, "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"review": {}, "error": "Invalid JSON payload."}), 400
+    kind = (body.get("kind") or "").strip()
+    uuid = (body.get("uuid") or "").strip()
+    if kind not in _QA_PRODUCTS or not uuid:
+        return jsonify({"review": {}, "error": "Unknown product."}), 400
+    product_type = _QA_PRODUCTS[kind]
+
+    product = product_type["get"](uuid)
+    if product is None:
+        return jsonify({"review": {}, "error": "Product not found."}), 404
+
+    hints = dict(getattr(product, "source_event_hints", {}) or {})
+    source_material = []
+    for source_uuid in (getattr(product, "source_event_uuids", []) or []):
+        hint = hints.get(source_uuid, "")
+        content, _scope = _get_event_content_and_scope(source_uuid, hint)
+        if not content:
+            # An advisory often has attributes and no article report.
+            event, _client, _sid = misp_store.resolve_source_event(source_uuid, hint)
+            content = misp_store.format_event_attributes_text(event) if event else ""
+        if content:
+            source_material.append(content)
+    if not source_material:
+        return jsonify({"review": {}, "error": "No source event content to review the draft against."})
+
+    try:
+        from analyser import llm
+        draft = product_type["render"](product)
+        review = llm.review_product_draft(product_type["label"], draft, "\n\n---\n\n".join(source_material))
+    except Exception as exc:
+        logger.warning("qa_review LLM call failed: %s", exc)
+        return jsonify({"review": {}, "error": "Failed to run the QA review."}), 502
+
+    if not review:
+        return jsonify({"review": {}, "error": "The model returned no usable review. Check the LLM settings and the analyser log."}), 502
+    audit.record("generate", "ai_qa_review", entity_id=uuid,
+                 entity_label=getattr(product, product_type["id_attr"], ""),
+                 details=review.get("verdict", ""))
+    return jsonify({"review": review, "error": None})
+
+
+@bp.route("/draft-tap", methods=["POST"])
+@rate_limited("api_draft_tap", limit=30, window_s=60)
+def draft_tap():
+    """Draft threat actor profile fields from the actors and context on the form.
+
+    POST JSON: {"actors": ["APT29"], "context": {"summary": "...", "capabilities": "..."}}
+    Returns: {"sections": {...}, "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"sections": {}, "error": "Invalid JSON payload."}), 400
+    actors = [str(a).strip() for a in (body.get("actors") or []) if str(a).strip()]
+    context = body.get("context")
+    if not isinstance(context, dict):
+        context = {}
+    context = {str(k): str(v).strip() for k, v in context.items() if str(v).strip()}
+    if not actors and not context:
+        return jsonify({"sections": {}, "error": "Select a threat actor or add some notes first."})
+
+    try:
+        from analyser import llm
+        sections = llm.draft_tap_sections(actors, context)
+        if not sections:
+            return jsonify({"sections": {}, "error": "The model returned no usable draft. Check the LLM settings and the analyser log."}), 502
+        return jsonify({"sections": sections, "error": None})
+    except Exception as exc:
+        logger.warning("draft_tap LLM call failed: %s", exc)
+        return jsonify({"sections": {}, "error": "Failed to draft the profile."}), 502
+
+
 @bp.route("/draft-vea", methods=["POST"])
 @rate_limited("api_draft_vea", limit=30, window_s=60)
 def draft_vea():

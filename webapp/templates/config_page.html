@@ -525,11 +525,12 @@
 
       <div class="d-flex justify-content-between align-items-center mb-3">
         <p class="text-muted small mb-0">
-          Configure the LLM provider, model, and prompt for each AI-assisted feature.
-          Per-feature model fields override the default model; leave them empty to use the default.
+          Configure the LLM provider, model, temperature and prompt for each AI-assisted feature.
+          Empty model and temperature fields fall back to the provider's default model and the model's
+          own temperature. Low temperatures keep the strictly parsed output of these features stable.
         </p>
-        <button class="btn btn-primary" id="save-ai-btn" type="button">
-          <i class="fas fa-floppy-disk me-1"></i> Save AI settings
+        <button class="btn btn-primary ms-3 flex-shrink-0" id="save-ai-btn" type="button">
+          <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
 
@@ -654,10 +655,11 @@
           <table class="table table-sm mb-0 align-middle" id="ai-features-table">
             <thead class="table-light">
               <tr>
-                <th style="width:30%">Feature</th>
-                <th style="width:15%">Provider</th>
-                <th style="width:20%">Model</th>
-                <th style="width:35%">Prompt</th>
+                <th style="width:28%">Feature</th>
+                <th style="width:13%">Provider</th>
+                <th style="width:18%">Model</th>
+                <th style="width:8%">Temp.</th>
+                <th style="width:33%">Prompt</th>
               </tr>
             </thead>
             <tbody>
@@ -686,6 +688,12 @@
                   <input type="text" class="form-control form-control-sm font-monospace ai-model-input"
                          placeholder="{{ cfg.LOCAL_LLM_MODEL if feat.provider == 'local' else cfg.OPENAI_MODEL }}"
                          value="{{ feat.model }}">
+                </td>
+                <td>
+                  <input type="number" class="form-control form-control-sm ai-temperature-input"
+                         min="0" max="2" step="0.1" placeholder="model"
+                         value="{{ feat.temperature if feat.temperature is not none else '' }}"
+                         title="Sampling temperature. Leave empty to use whatever the model or provider defaults to. Low values (0 to 0.2) keep structured output stable.">
                 </td>
                 <td>
                   <select class="form-select form-select-sm ai-prompt-select">
@@ -1611,6 +1619,16 @@
                     + '. Point those features to another provider before disabling it.', 'warning');
         return;
       }
+      // A disabled provider cannot stay the default, or features that do not
+      // choose one themselves would have nowhere to go.
+      if (!provider.enabled.checked && defaultProviderInput.value === name) {
+        const fallback = Object.keys(providers).find((other) => providers[other].enabled.checked);
+        if (fallback) {
+          defaultProviderInput.value = fallback;
+          paintDefaultProvider();
+          showAiAlert(providers[fallback].label + ' is now the default provider.', 'info');
+        }
+      }
       paintFeatureRows();
     });
     provider.model.addEventListener('input', paintFeatureRows);
@@ -1639,6 +1657,7 @@
         features[fid] = {
           provider: row.querySelector('.ai-provider-select').value,
           model: (row.querySelector('.ai-model-input')?.value || '').trim(),
+          temperature: (row.querySelector('.ai-temperature-input')?.value || '').trim(),
           prompt: row.querySelector('.ai-prompt-select')?.value || '',
         };
       });
@@ -1656,7 +1675,7 @@
       .then(data => {
         saveAiBtn.disabled = false;
         if (data.ok) {
-          showAiAlert('AI settings saved.', 'success');
+          showAiAlert('Configuration saved.', 'success');
           window.cfgDirty?.clean('ai');
         } else {
           showAiAlert('Error: ' + (data.error || 'unknown'), 'warning');

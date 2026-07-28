@@ -1,42 +1,68 @@
 {
   "check_relevance": {
-    "provider": "openai",
+    "provider": "local",
     "model": "",
+    "temperature": 0.1,
     "prompt": "flash_intel_relevance.md"
   },
   "generate_flash_intel": {
     "provider": "openai",
     "model": "gpt-4o-mini",
+    "temperature": 0.2,
     "prompt": "flash_intel_generate.md"
   },
   "generate_fia_draft": {
     "provider": "openai",
     "model": "gpt-4o-mini",
+    "temperature": 0.2,
     "prompt": "flash_intel_generate.md"
   },
   "draft_briefing_story": {
-    "provider": "openai",
+    "provider": "local",
     "model": "",
+    "temperature": 0.2,
     "prompt": "daily_briefing_story.md"
   },
   "review_briefing_relevance": {
-    "provider": "openai",
+    "provider": "local",
     "model": "",
+    "temperature": 0.1,
     "prompt": "daily_briefing_relevance.md"
   },
   "detect_story_overlaps": {
-    "provider": "openai",
+    "provider": "local",
     "model": "",
+    "temperature": 0.1,
     "prompt": "daily_briefing_overlap.md"
   },
   "summarise_report": {
     "provider": "local",
-    "model": "hf.co/Qwen/Qwen3-4B-GGUF:Q4_K_M",
+    "model": "",
+    "temperature": 0.2,
     "prompt": "summarise_misp_report.md"
   },
   "draft_vea_sections": {
     "provider": "openai",
     "model": "gpt-4o-mini",
+    "temperature": 0.1,
     "prompt": "vea_draft.md"
+  },
+  "draft_tap_sections": {
+    "provider": "local",
+    "model": "",
+    "temperature": 0.2,
+    "prompt": "threat_actor_profile_draft.md"
+  },
+  "draft_landscape_trends": {
+    "provider": "local",
+    "model": "",
+    "temperature": 0.2,
+    "prompt": "threat_landscape_trends.md"
+  },
+  "review_product_draft": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "temperature": 0.1,
+    "prompt": "product_qa_review.md"
   }
 }

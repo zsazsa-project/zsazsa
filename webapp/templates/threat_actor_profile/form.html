@@ -44,6 +44,10 @@
         <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="tap-enrich-btn" style="display:none;">
           <i class="fas fa-wand-magic-sparkles me-1"></i> Complete profile with MISP galaxy data
         </button>
+        <button type="button" class="btn btn-sm btn-outline-info mt-2" id="tap-draft-btn"
+                title="Draft the narrative fields from the galaxy data and the notes already on this form. Empty fields only.">
+          <i class="fas fa-robot me-1"></i> Draft profile with AI
+        </button>
         <div id="tap-enrich-status" class="form-text"></div>
       </div>
     </div>
@@ -519,6 +523,84 @@ document.querySelectorAll('.actor-type-pill').forEach(function(pill) {
       btn.disabled = false;
     })
     .catch(function() { status.textContent = 'Could not fetch galaxy data.'; btn.disabled = false; });
+  });
+})();
+
+// "Draft profile with AI": sends the selected actors and whatever is already on
+// the form as source material, and fills the narrative fields that are still empty.
+(function() {
+  var btn = document.getElementById('tap-draft-btn');
+  var status = document.getElementById('tap-enrich-status');
+  if (!btn) return;
+  var fields = {
+    summary: 'Summary',
+    synonyms: 'Synonyms',
+    suspected_origin: 'Suspected origin',
+    motivation: 'Motivation',
+    sponsorship: 'Sponsorship',
+    capabilities: 'Capabilities',
+    mode_of_operation: 'Mode of operation',
+    infrastructure: 'Infrastructure',
+    attribution_rationale: 'Attribution rationale',
+    rec_prevention: 'Prevention',
+    rec_detection: 'Detection',
+    rec_response: 'Response',
+  };
+
+  function field(name) { return document.querySelector('[name="' + name + '"]'); }
+
+  // Mark a drafted field so the analyst can see what to review; the mark clears
+  // as soon as they edit it themselves.
+  function markDrafted(el) {
+    el.classList.add('border-info', 'border-2');
+    el.addEventListener('input', function() {
+      el.classList.remove('border-info', 'border-2');
+    }, {once: true});
+  }
+
+  btn.addEventListener('click', function() {
+    var actors = Array.from(document.querySelectorAll('input[name="threat_actors"]:checked')).map(function(c){ return c.value; });
+    var context = {};
+    Object.keys(fields).forEach(function(name) {
+      var el = field(name);
+      if (el && el.value.trim()) context[name] = el.value.trim();
+    });
+    btn.disabled = true;
+    status.textContent = 'Drafting with AI…';
+
+    fetch(SCRIPT_ROOT + '/api/draft-tap', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+      },
+      body: JSON.stringify({actors: actors, context: context}),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { status.textContent = data.error; return; }
+      var sections = data.sections || {};
+      var drafted = [];
+      Object.keys(fields).forEach(function(name) {
+        var el = field(name);
+        if (el && !el.value.trim() && sections[name]) {
+          el.value = sections[name];
+          markDrafted(el);
+          drafted.push(fields[name]);
+        }
+      });
+      var confidence = field('assessment_confidence');
+      if (confidence && !confidence.value && sections.assessment_confidence) {
+        confidence.value = sections.assessment_confidence;
+        markDrafted(confidence);
+        drafted.push('Assessment confidence');
+      }
+      status.textContent = drafted.length
+        ? 'Drafted and highlighted: ' + drafted.join(', ') + '. Review before saving.'
+        : 'Nothing to draft: every field already has content.';
+    })
+    .catch(function(err) { status.textContent = 'Request failed: ' + err; })
+    .finally(function() { btn.disabled = false; });
   });
 })();
 </script>

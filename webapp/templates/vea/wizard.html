@@ -546,6 +546,14 @@
         <i class="fas fa-floppy-disk me-1"></i> Save draft
       </button>
       {% if is_edit %}
+      <button type="button" class="btn btn-outline-info qa-review-btn"
+              data-kind="vea" data-uuid="{{ vea.uuid }}"
+              title="Audit the last saved version against the source events. Save your edits first.">
+        <i class="fas fa-clipboard-check me-1"></i> QA check against source
+      </button>
+      <div class="qa-review-output"></div>
+      {% endif %}
+      {% if is_edit %}
       <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-vea-publish">
         <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
       </button>
@@ -558,6 +566,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_qa_review_js.html" %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>

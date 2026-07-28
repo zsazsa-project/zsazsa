@@ -191,8 +191,11 @@ This tab lists every prompt template file found in `zsazsaprompts/`. New prompt 
 |---|---|
 | `summarise_misp_report` | Must keep its `**Targeted sector:**`, `**Geographic scope:**`, `**MITRE ATT&CK techniques:**`, `**Threat actor:**` and `**Vendor/Technology:**` headings |
 | `flash_intel_generate` | Must keep its overall section and field structure, since the "Generate AI draft" feature reads it line by line |
+| `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, since each key fills a named form field or panel |
 
 Changing these headings or structure will cause the corresponding feature to fail silently.
+
+Three prompts back the drafting and review buttons on the products themselves. `threat_actor_profile_draft` fills the narrative fields of a threat actor profile from the selected actors, the MISP galaxy context and any notes already on the form, and only ever writes into fields the analyst left empty. `threat_landscape_trends` drafts the threat landscape report from the collection events queued for it, counting the events behind each trend and leaving `[ANALYST]` markers where the organisational judgement belongs. `product_qa_review` backs the "QA check against source" button on flash intel alert and vulnerability advisory drafts: it audits the draft against the report content of its source events and returns a verdict with the claims a reviewer should fix before publishing.
 
 ### AI
 
@@ -200,7 +203,7 @@ The AI tab starts with the LLM providers card, holding one section per provider.
 
 Each provider has its own enable switch, and one provider is marked as the default with the "Default provider" button. The default is used by any feature that does not choose a provider itself, and marking one provider as default clears the mark on the other. A provider cannot be disabled while features still point at it.
 
-Below the providers, a table lists each AI-assisted feature (for example summarising a report or generating a Flash Intel Alert draft) with the provider it uses, an optional per-feature model override, and the prompt file it uses. An empty model field means the feature uses the default model of its provider. This feature-level configuration is stored separately, in `data/ai_features.json`, rather than in `config/__init__.py`.
+Below the providers, a table lists each AI-assisted feature (for example summarising a report or generating a Flash Intel Alert draft) with the provider it uses, an optional per-feature model override, a sampling temperature, and the prompt file it uses. An empty model field means the feature uses the default model of its provider. An empty temperature leaves sampling to the model, which for a locally hosted model can mean a value as high as 1.0; since almost every feature here is parsed back into structured data, a low temperature between 0 and 0.2 keeps that output stable. OpenAI reasoning models only accept their own default, so the temperature is not sent to them. This feature-level configuration is stored separately, in `data/ai_features.json`, rather than in `config/__init__.py`.
 
 Because these features send raw MISP event content to the configured LLM, only connect AI features to MISP servers you trust, and review AI-generated output before publishing it. A local LLM keeps that content inside your own infrastructure.
 

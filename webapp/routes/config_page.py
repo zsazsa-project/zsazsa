@@ -1434,7 +1434,13 @@ def save_ai_features():
             prompt = (vals.get("prompt") or "").strip()
             if prompt and ("/" in prompt or "\\" in prompt):
                 return jsonify({"ok": False, "error": f"Invalid prompt filename: {prompt!r}"}), 400
-            clean[fid] = {"provider": (vals.get("provider") or "").strip(), "model": model, "prompt": prompt}
+            clean[fid] = {
+                "provider": (vals.get("provider") or "").strip(),
+                "model": model,
+                # ai_config.save() drops anything that is not a usable number.
+                "temperature": vals.get("temperature"),
+                "prompt": prompt,
+            }
         _ai_save(clean)
 
         # Persist provider settings and the default model to config/__init__.py.
