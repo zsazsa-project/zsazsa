@@ -26,8 +26,12 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("api", __name__, url_prefix="/api")
 
 
-def _get_event_content_and_scope(event_uuid: str):
-    """Fetch report content and scope tags from a scraper MISP event.
+def _get_event_content_and_scope(event_uuid: str, source_id: str = ""):
+    """Fetch report content and scope tags from a source MISP event.
+
+    The event is looked up on whichever configured MISP instance holds it (the
+    scraper, an external MISP_SERVERS instance, or the webapp MISP), trying the
+    given source hint first.
 
     Returns (content: str | None, scope: dict) where scope has keys
     sectors, geo, techniques - each a list of strings.
@@ -35,13 +39,12 @@ def _get_event_content_and_scope(event_uuid: str):
     empty_scope = {"sectors": [], "geo": [], "techniques": []}
     if not event_uuid:
         return None, empty_scope
-    misp = misp_store._scraper_misp()
     try:
-        event = misp.get_event(event_uuid, pythonify=True)
+        event, _client, _sid = misp_store.resolve_source_event(event_uuid, source_id)
     except Exception as exc:
-        logger.warning("api: get_event %s failed: %s", event_uuid, exc)
+        logger.warning("api: resolve_source_event %s failed: %s", event_uuid, exc)
         return None, empty_scope
-    if not event or isinstance(event, dict):
+    if event is None:
         return None, empty_scope
     # Extract content
     reports = getattr(event, "event_reports", []) or []
@@ -79,7 +82,7 @@ def _get_event_content_and_scope(event_uuid: str):
 
 
 def _get_event_content(event_uuid: str) -> str | None:
-    """Fetch the first event report content from the scraper MISP."""
+    """Fetch the first event report content from the MISP instance holding the event."""
     content, _ = _get_event_content_and_scope(event_uuid)
     return content
 
@@ -96,16 +99,18 @@ def misp_status():
 def draft_story():
     """Draft a 5-line daily briefing story from a scraper event.
 
-    POST JSON: {"event_uuid": "...", "context_hint": "optional extra context"}
+    POST JSON: {"event_uuid": "...", "source_id": "optional source hint",
+                "context_hint": "optional extra context"}
     Returns: {"story": "...", "error": null}
     """
     body, err = _json_object()
     if err:
         return jsonify({"story": "", "scope": {}, "error": "Invalid JSON payload."}), 400
     event_uuid = (body.get("event_uuid") or "").strip()
+    source_id = (body.get("source_id") or "").strip()
     context_hint = (body.get("context_hint") or "").strip()
 
-    content, scope = _get_event_content_and_scope(event_uuid)
+    content, scope = _get_event_content_and_scope(event_uuid, source_id)
     if not content and not context_hint:
         return jsonify({"story": "", "scope": {}, "error": "No content found for this event."})
 
@@ -157,6 +162,41 @@ def event_attributes_text():
     return jsonify({"text": text, "error": None})
 
 
+@bp.route("/event-reports", methods=["POST"])
+@rate_limited("api_event_reports", limit=60, window_s=60)
+def event_reports():
+    """Return the MISP reports attached to a source event, for viewing in the UI.
+
+    POST JSON: {"event_uuid": "...", "source_id": "optional source hint"}
+    Returns: {"reports": [{"name": "...", "content": "..."}], "event_info": "...",
+              "event_url": "...", "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"reports": [], "error": "Invalid JSON payload."}), 400
+    event_uuid = (body.get("event_uuid") or "").strip()
+    source_id = (body.get("source_id") or "").strip()
+    if not event_uuid:
+        return jsonify({"reports": [], "error": "event_uuid is required"}), 400
+
+    event, misp_client, _sid = misp_store.resolve_source_event(event_uuid, source_id)
+    if event is None:
+        return jsonify({"reports": [], "error": "Event not found on any configured MISP instance."}), 404
+
+    reports = [
+        {"name": getattr(r, "name", "") or "(untitled report)",
+         "content": getattr(r, "content", "") or ""}
+        for r in (getattr(event, "event_reports", []) or [])
+    ]
+    base_url = (getattr(misp_client, "root_url", "") or "").rstrip("/")
+    return jsonify({
+        "reports": reports,
+        "event_info": getattr(event, "info", "") or "",
+        "event_url": f"{base_url}/events/view/{event.uuid}" if base_url else "",
+        "error": None,
+    })
+
+
 @bp.route("/briefing-overlap-check", methods=["POST"])
 @rate_limited("api_briefing_overlap_check", limit=20, window_s=60)
 def briefing_overlap_check():
@@ -199,6 +239,97 @@ def briefing_overlap_check():
     except Exception as exc:
         logger.warning("briefing_overlap_check failed: %s", exc)
         return jsonify({"overlaps": [], "summary": "", "error": "Failed to check overlap."}), 502
+
+
+# The QA review audits what would actually be published, so it reads the same
+# markdown the notifier and the published report use.
+_QA_PRODUCTS = {
+    "fia": {"label": "Flash intel alert", "id_attr": "fia_id",
+            "get": misp_store.get_fia, "render": misp_store.render_fia_markdown},
+    "vea": {"label": "Vulnerability advisory", "id_attr": "vea_id",
+            "get": misp_store.get_vea, "render": misp_store.render_vea_markdown},
+}
+
+
+@bp.route("/qa-review", methods=["POST"])
+@rate_limited("api_qa_review", limit=20, window_s=60)
+def qa_review():
+    """Audit a product draft against its source events before publication.
+
+    POST JSON: {"kind": "fia" | "vea", "uuid": "..."}
+    Returns: {"review": {...}, "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"review": {}, "error": "Invalid JSON payload."}), 400
+    kind = (body.get("kind") or "").strip()
+    uuid = (body.get("uuid") or "").strip()
+    if kind not in _QA_PRODUCTS or not uuid:
+        return jsonify({"review": {}, "error": "Unknown product."}), 400
+    product_type = _QA_PRODUCTS[kind]
+
+    product = product_type["get"](uuid)
+    if product is None:
+        return jsonify({"review": {}, "error": "Product not found."}), 404
+
+    hints = dict(getattr(product, "source_event_hints", {}) or {})
+    source_material = []
+    for source_uuid in (getattr(product, "source_event_uuids", []) or []):
+        hint = hints.get(source_uuid, "")
+        content, _scope = _get_event_content_and_scope(source_uuid, hint)
+        if not content:
+            # An advisory often has attributes and no article report.
+            event, _client, _sid = misp_store.resolve_source_event(source_uuid, hint)
+            content = misp_store.format_event_attributes_text(event) if event else ""
+        if content:
+            source_material.append(content)
+    if not source_material:
+        return jsonify({"review": {}, "error": "No source event content to review the draft against."})
+
+    try:
+        from analyser import llm
+        draft = product_type["render"](product)
+        review = llm.review_product_draft(product_type["label"], draft, "\n\n---\n\n".join(source_material))
+    except Exception as exc:
+        logger.warning("qa_review LLM call failed: %s", exc)
+        return jsonify({"review": {}, "error": "Failed to run the QA review."}), 502
+
+    if not review:
+        return jsonify({"review": {}, "error": "The model returned no usable review. Check the LLM settings and the analyser log."}), 502
+    audit.record("generate", "ai_qa_review", entity_id=uuid,
+                 entity_label=getattr(product, product_type["id_attr"], ""),
+                 details=review.get("verdict", ""))
+    return jsonify({"review": review, "error": None})
+
+
+@bp.route("/draft-tap", methods=["POST"])
+@rate_limited("api_draft_tap", limit=30, window_s=60)
+def draft_tap():
+    """Draft threat actor profile fields from the actors and context on the form.
+
+    POST JSON: {"actors": ["APT29"], "context": {"summary": "...", "capabilities": "..."}}
+    Returns: {"sections": {...}, "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"sections": {}, "error": "Invalid JSON payload."}), 400
+    actors = [str(a).strip() for a in (body.get("actors") or []) if str(a).strip()]
+    context = body.get("context")
+    if not isinstance(context, dict):
+        context = {}
+    context = {str(k): str(v).strip() for k, v in context.items() if str(v).strip()}
+    if not actors and not context:
+        return jsonify({"sections": {}, "error": "Select a threat actor or add some notes first."})
+
+    try:
+        from analyser import llm
+        sections = llm.draft_tap_sections(actors, context)
+        if not sections:
+            return jsonify({"sections": {}, "error": "The model returned no usable draft. Check the LLM settings and the analyser log."}), 502
+        return jsonify({"sections": sections, "error": None})
+    except Exception as exc:
+        logger.warning("draft_tap LLM call failed: %s", exc)
+        return jsonify({"sections": {}, "error": "Failed to draft the profile."}), 502
 
 
 @bp.route("/draft-vea", methods=["POST"])
@@ -808,6 +939,8 @@ def summarise_content():
     try:
         from analyser import llm
         summary = llm.summarise_report(content[:12000], event_info=title)
+        if not summary.strip():
+            return jsonify({"summary": "", "error": "The model returned an empty summary. Check the LLM settings and the analyser log."}), 502
         audit.record("generate", "ai_summary", details=title or f"{len(content)} chars")
         return jsonify({"summary": summary, "error": None})
     except Exception as exc:

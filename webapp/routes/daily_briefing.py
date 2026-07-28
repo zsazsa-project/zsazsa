@@ -138,6 +138,7 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
         "source_event_uuid": ev.uuid,
         "source_id": source_id,
         "ai_summary": _extract_ai_summary(ev),
+        "report_count": len(getattr(ev, "event_reports", []) or []),
     }
     story.update(misp_store.extract_story_context(ev))
     return story

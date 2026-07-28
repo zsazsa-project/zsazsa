@@ -706,6 +706,17 @@
     });
   });
 
+  // Scrolling the page with the pointer over a focused <select> silently changes
+  // its value in most browsers, which quietly rewrites whatever the form saves.
+  // Drop the focus instead; unfocused selects still scroll the page as usual.
+  document.addEventListener('wheel', (e) => {
+    const select = e.target.closest?.('select');
+    if (select && document.activeElement === select) {
+      e.preventDefault();
+      select.blur();
+    }
+  }, {capture: true, passive: false});
+
   // Auto-dismiss flash messages after 4 seconds
   setTimeout(() => {
     try {

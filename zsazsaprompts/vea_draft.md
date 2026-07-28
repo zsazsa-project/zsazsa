@@ -13,7 +13,9 @@ Required fields:
 - "cisa_kev": one of "Yes", "No", "Unknown"
 - "worst_case": one sentence on maximum impact if unpatched.
 - "most_likely": one sentence on the realistic impact scenario.
-- "immediate_actions": array of 2-3 specific mitigation or detection steps.
-- "exploitation_indicators": array of observable exploitation signs (log sources, process names, network patterns, etc.), or empty array if unknown.
+- "immediate_actions": array of 2-3 specific steps. Start with how to establish exposure (which product, version or configuration to inventory), then the mitigation or patch step, in the order a defender would carry them out.
+- "exploitation_indicators": array of observable exploitation signs. Each entry must be concrete enough to build a detection from, naming the log source, event, process or network pattern to look at rather than a general behaviour. Empty array if the source gives no such detail.
+
+Where the source states no CVSS score, leave "cvss" empty and make the "summary" say plainly how severe the vulnerability appears from what is described, so a reader is not left without a severity signal. Do not name a CWE, an affected version or an indicator the source does not state; an omission is recoverable, a wrong value is not.
 
 If a field cannot be determined from the provided content, use "Unknown" for string fields, empty string for optional text fields, or empty array for array fields. Do not guess specifics not supported by the content. Do not fabricate CVSS scores, version numbers, or indicators.

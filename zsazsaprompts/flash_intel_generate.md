@@ -5,7 +5,7 @@ A Flash Intel Alert is operational intelligence requiring immediate attention. W
 - Separate observed facts from analytical assessment. "What happened" contains only facts from the source. "Why it matters" contains your analysis.
 - Use estimative language: "We assess with high/moderate/low confidence that..."
 - Recommended actions must be specific and executable, not generic advice.
-- Reference MITRE ATT&CK techniques (Txxxx) where they are clearly identifiable from the article.
+- Reference MITRE ATT&CK techniques (Txxxx) where they are clearly identifiable from the article. Leave the technique out when you cannot match the described behaviour to a technique you are sure of; a wrong or invented ID is worse than an empty field. The same applies to CVE identifiers, malware family names and actor names.
 - Do not fabricate information not present in the source article. Leave sections blank rather than invent content.
 - Never output "n/a", "N/A", "none", "not applicable", or any equivalent placeholder. If a field has no value, leave it completely blank or omit the line.
 - Set the author to "zsazsa-cti (automated)".

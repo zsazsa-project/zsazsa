@@ -97,6 +97,16 @@
                   title="Draft a 5-line briefing story with AI from the original event content">
             <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
           </button>
+          {# report_count is only known when composing from triage; when editing a
+             saved briefing it is undefined and the modal reports an empty event #}
+          {% if story.source_event_uuid and story.report_count != 0 %}
+          <button type="button" class="btn btn-xs btn-outline-primary btn-view-reports"
+                  data-idx="{{ idx }}"
+                  data-event-uuid="{{ story.source_event_uuid }}"
+                  title="View the MISP reports attached to the source event">
+            <i class="fas fa-file-lines me-1"></i> MISP reports{% if story.report_count %} ({{ story.report_count }}){% endif %}
+          </button>
+          {% endif %}
           <button type="button" class="btn btn-xs btn-outline-secondary btn-include-attributes"
                   data-idx="{{ idx }}"
               data-event-uuid="{{ story.source_event_uuid }}"
@@ -352,9 +362,34 @@
   </div>
 
 </form>
+
+<div class="modal fade" id="misp-reports-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0"><i class="fas fa-file-lines me-2"></i>MISP reports</h5>
+          <div class="text-muted small" id="misp-reports-event"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="misp-reports-body">
+        <div class="text-muted small">Loading...</div>
+      </div>
+      <div class="modal-footer">
+        <a href="#" class="btn btn-sm btn-outline-secondary d-none" id="misp-reports-link" target="_blank" rel="noopener">
+          <i class="fas fa-arrow-up-right-from-square me-1"></i> Open event in MISP
+        </a>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 var storyCount = {{ stories | length }};
 var isEditMode = {{ 'true' if page_mode == 'edit' else 'false' }};
@@ -406,6 +441,10 @@ document.addEventListener('click', function(e) {
     var attrBtn = e.target.closest('.btn-include-attributes');
     includeAttributes(attrBtn.dataset.idx, attrBtn.dataset.eventUuid);
   }
+  if (e.target.closest('.btn-view-reports')) {
+    var reportsBtn = e.target.closest('.btn-view-reports');
+    viewReports(reportsBtn.dataset.idx, reportsBtn.dataset.eventUuid);
+  }
   if (e.target.closest('.btn-use-ai-summary')) {
     var btn = e.target.closest('.btn-use-ai-summary');
     var card = btn.closest('.story-card');
@@ -447,6 +486,8 @@ function renumberStories() {
     if (draftBtn) draftBtn.dataset.idx = idx;
     var attrBtn = card.querySelector('.btn-include-attributes');
     if (attrBtn) attrBtn.dataset.idx = idx;
+    var reportsBtn = card.querySelector('.btn-view-reports');
+    if (reportsBtn) reportsBtn.dataset.idx = idx;
     var collapseEl = card.querySelector('.accordion-collapse');
     if (collapseEl) {
       collapseEl.id = 'story-collapse-' + idx;
@@ -614,6 +655,12 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
                   data-idx="${idx}" data-event-uuid="${sourceUuid}" title="Draft with AI">
             <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
           </button>
+          ${sourceUuid ? `
+          <button type="button" class="btn btn-xs btn-outline-primary btn-view-reports"
+                  data-idx="${idx}" data-event-uuid="${sourceUuid}"
+                  title="View the MISP reports attached to the source event">
+            <i class="fas fa-file-lines me-1"></i> MISP reports
+          </button>` : ''}
           <button type="button" class="btn btn-xs btn-outline-secondary btn-include-attributes"
               data-idx="${idx}" data-event-uuid="${sourceUuid}"
                   title="Add the source event's attributes (value | type | to_ids), and report text if present, to the story">
@@ -690,9 +737,21 @@ function _renderScopeChips(idx, scope) {
   }
 }
 
-function draftStory(idx, eventUuid) {
+function storySourceId(idx) {
+  var input = document.querySelector('[name="story_' + idx + '_source_id"]');
+  return input ? (input.value || '') : '';
+}
+
+function setStoryStatus(idx, message, isError) {
   var statusEl = document.querySelector('.ai-status-' + idx);
-  if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'Drafting with AI...'; }
+  if (!statusEl) return;
+  statusEl.style.display = '';
+  statusEl.className = 'ai-status-' + idx + (isError ? ' text-danger' : ' text-muted') + ' small mt-1';
+  statusEl.textContent = message;
+}
+
+function draftStory(idx, eventUuid) {
+  setStoryStatus(idx, 'Drafting with AI...');
 
   return fetch(SCRIPT_ROOT + '/api/draft-story', {
     method: 'POST',
@@ -700,12 +759,16 @@ function draftStory(idx, eventUuid) {
       'Content-Type': 'application/json',
       'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
     },
-    body: JSON.stringify({event_uuid: eventUuid}),
+    body: JSON.stringify({event_uuid: eventUuid, source_id: storySourceId(idx)}),
   })
   .then(r => r.json())
   .then(data => {
     if (data.error) {
-      if (statusEl) statusEl.textContent = 'Error: ' + data.error;
+      setStoryStatus(idx, 'Error: ' + data.error, true);
+      return;
+    }
+    if (!data.story) {
+      setStoryStatus(idx, 'The model returned an empty draft. Check the LLM settings and the analyser log.', true);
       return;
     }
     var textarea = document.querySelector('[name=story_' + idx + '_content]');
@@ -722,16 +785,75 @@ function draftStory(idx, eventUuid) {
         }
       }
     }
-    if (statusEl) statusEl.textContent = 'AI draft applied. Review before saving.';
+    setStoryStatus(idx, 'AI draft applied. Review before saving.');
   })
   .catch(err => {
-    if (statusEl) statusEl.textContent = 'Request failed: ' + err;
+    setStoryStatus(idx, 'Request failed: ' + err, true);
+  });
+}
+
+function viewReports(idx, eventUuid) {
+  var body = document.getElementById('misp-reports-body');
+  var eventEl = document.getElementById('misp-reports-event');
+  var linkEl = document.getElementById('misp-reports-link');
+
+  function message(cls, text) {
+    var p = document.createElement('p');
+    p.className = cls + ' mb-0';
+    p.textContent = text;
+    body.replaceChildren(p);
+  }
+
+  body.innerHTML = '<div class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin me-1"></i> Loading…</div>';
+  eventEl.textContent = '';
+  linkEl.classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('misp-reports-modal')).show();
+
+  fetch(SCRIPT_ROOT + '/api/event-reports', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+    },
+    body: JSON.stringify({event_uuid: eventUuid, source_id: storySourceId(idx)}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      message('text-danger', data.error);
+      return;
+    }
+    eventEl.textContent = data.event_info || '';
+    if (data.event_url) {
+      linkEl.href = data.event_url;
+      linkEl.classList.remove('d-none');
+    }
+    if (!data.reports.length) {
+      message('text-muted', 'This event has no MISP reports.');
+      return;
+    }
+    body.innerHTML = '';
+    data.reports.forEach(function(report, i) {
+      var block = document.createElement('div');
+      block.className = i ? 'border-top pt-3 mt-3' : '';
+      var name = document.createElement('div');
+      name.className = 'fw-semibold small mb-2';
+      name.textContent = report.name;
+      var content = document.createElement('div');
+      content.className = 'report-md-body';
+      var html = marked.parse(report.content || '');
+      content.innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : html;
+      block.append(name, content);
+      body.appendChild(block);
+    });
+  })
+  .catch(err => {
+    message('text-danger', 'Request failed: ' + err);
   });
 }
 
 function includeAttributes(idx, eventUuid) {
-  var sourceIdInput = document.querySelector('[name="story_' + idx + '_source_id"]');
-  var sourceId = sourceIdInput ? (sourceIdInput.value || '') : '';
+  var sourceId = storySourceId(idx);
   var statusEl = document.querySelector('.ai-status-' + idx);
   if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'Fetching attributes...'; }
 

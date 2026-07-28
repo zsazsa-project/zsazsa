@@ -171,6 +171,11 @@
     <div class="card content-card mb-3">
       <div class="card-header"><strong>Review actions</strong></div>
       <div class="card-body">
+        <button type="button" class="btn btn-outline-info w-100 mb-2 qa-review-btn"
+                data-kind="fia" data-uuid="{{ fia.uuid }}">
+          <i class="fas fa-clipboard-check me-1"></i> QA check against source
+        </button>
+        <div class="qa-review-output mb-2"></div>
         <form method="post" action="{{ url_for('flash_intel.approve', id=fia.uuid) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-success w-100">
@@ -346,6 +351,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_qa_review_js.html" %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>

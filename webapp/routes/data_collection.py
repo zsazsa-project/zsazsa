@@ -539,6 +539,9 @@ def _generate_ai_summary(misp, event, source_id):
         logger.warning("LLM summarise failed for %s: %s", uuid, exc)
         return False, "Failed to generate summary.", 502
 
+    if not summary.strip():
+        return False, "The model returned an empty summary. Check the LLM settings and the analyser log.", 502
+
     if summary.upper().startswith("QUALITY:"):
         return False, summary, 400
 

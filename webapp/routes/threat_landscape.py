@@ -3,9 +3,10 @@
 import logging
 
 import config as _cfg
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from webapp import audit, collection_cache, misp_store
+from webapp.rate_limit import rate_limited
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("threat_landscape", __name__, url_prefix="/products/threat-landscape")
@@ -74,6 +75,37 @@ def wizard_new():
     )
 
 
+@bp.route("/draft-trends", methods=["POST"])
+@rate_limited("tlr_draft_trends", limit=20, window_s=60)
+def draft_trends():
+    """Draft the report sections from the events queued for the landscape report."""
+    # A long queue would be cut mid-way by the prompt's own size limit, so keep
+    # the most recent events rather than an arbitrary slice of one of them.
+    events = [
+        {
+            "title": ev.get("info") or "",
+            "date": ev.get("date") or "",
+            "galaxies": ev.get("galaxy_names") or [],
+            "cves": ev.get("vulnerability_ids") or [],
+            "source": ev.get("source_id") or "",
+        }
+        for ev in _queued_events()[:150]
+    ]
+    if not events:
+        return jsonify({"sections": {}, "error": "No events are queued for a threat landscape report."})
+
+    try:
+        from analyser import llm
+        sections = llm.draft_landscape_trends(request.form.get("reporting_period", "").strip(), events)
+    except Exception as exc:
+        logger.warning("TLR trend draft failed: %s", exc)
+        return jsonify({"sections": {}, "error": "Failed to draft the report."}), 502
+
+    if not sections:
+        return jsonify({"sections": {}, "error": "The model returned no usable draft. Check the LLM settings and the analyser log."}), 502
+    return jsonify({"sections": sections, "event_count": len(events), "error": None})
+
+
 @bp.route("/<string:id>")
 def detail(id):
     tlr = misp_store.get_tlr(id)
@@ -121,6 +153,7 @@ def wizard_edit(id):
         tlr=tlr,
         tlp_levels=misp_store.TLR_TLP_LEVELS,
         is_edit=True,
+        queued=_queued_events(),
     )
 
 

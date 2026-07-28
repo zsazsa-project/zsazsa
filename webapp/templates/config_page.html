@@ -3,6 +3,47 @@
 {% block title %}Configuration · zsazsa CTI{% endblock %}
 {% block page_title %}Configuration{% endblock %}
 
+{% macro token_usage(u) %}
+  <div class="border-top pt-3 mb-3">
+    <div class="mb-2">
+      <span class="text-muted small fw-semibold"><i class="fas fa-chart-bar me-1"></i>Token usage</span>
+    </div>
+    <div>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <span class="badge bg-secondary">Today: {{ u.today_tokens }} tokens ({{ u.today_calls }} calls)</span>
+        <span class="badge bg-secondary">Last 7d: {{ u.week_tokens }} tokens ({{ u.week_calls }} calls)</span>
+        <span class="badge bg-primary">All time: {{ u.total_tokens }} tokens ({{ u.total_calls }} calls)</span>
+      </div>
+      {% if u.by_feature %}
+      <table class="table table-sm table-borderless mb-0" style="width:auto">
+        <thead>
+          <tr>
+            <th class="text-muted small py-1 pe-3">Feature</th>
+            <th class="text-end text-muted small py-1 pe-3">Calls</th>
+            <th class="text-end text-muted small py-1 pe-3">Input</th>
+            <th class="text-end text-muted small py-1 pe-3">Output</th>
+            <th class="text-end text-muted small py-1">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in u.by_feature %}
+          <tr>
+            <td class="text-muted small py-1 pe-3">{{ f.feature }}</td>
+            <td class="text-end small py-1 pe-3">{{ f.calls }}</td>
+            <td class="text-end small py-1 pe-3">{{ f.input_tokens }}</td>
+            <td class="text-end small py-1 pe-3">{{ f.output_tokens }}</td>
+            <td class="text-end small py-1 fw-semibold">{{ f.total_tokens }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <span class="text-muted small">No usage recorded yet.</span>
+      {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+
 {% block content %}
 <form method="post" id="cfg-form">
   <input type="hidden" name="active_tab" id="cfg-active-tab-input" value="{{ active_tab }}">
@@ -83,58 +124,6 @@
               <option value="true" {{ 'selected' if cfg.MISP_WEBAPP_VERIFYCERT }}>Yes</option>
               <option value="false" {{ 'selected' if not cfg.MISP_WEBAPP_VERIFYCERT }}>No</option>
             </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-robot me-2"></i>OpenAI</div>
-        <div class="card-body">
-          <div class="mb-3">
-            <label class="form-label">API key</label>
-            <div class="input-group">
-              <input type="password" name="OPENAI_API_KEY" class="form-control font-monospace api-key-input" value="{{ cfg.OPENAI_API_KEY }}">
-              <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
-            </div>
-          </div>
-          <div class="border-top pt-3">
-            <div class="mb-2">
-              <span class="text-muted small fw-semibold"><i class="fas fa-chart-bar me-1"></i>Token usage</span>
-            </div>
-            <div id="llm-usage-panel">
-              {% set u = cfg.llm_usage %}
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                <span class="badge bg-secondary">Today: {{ u.today_tokens }} tokens ({{ u.today_calls }} calls)</span>
-                <span class="badge bg-secondary">Last 7d: {{ u.week_tokens }} tokens ({{ u.week_calls }} calls)</span>
-                <span class="badge bg-primary">All time: {{ u.total_tokens }} tokens ({{ u.total_calls }} calls)</span>
-              </div>
-              {% if u.by_feature %}
-              <table class="table table-sm table-borderless mb-0" style="width:auto">
-                <thead>
-                  <tr>
-                    <th class="text-muted small py-1 pe-3">Feature</th>
-                    <th class="text-end text-muted small py-1 pe-3">Calls</th>
-                    <th class="text-end text-muted small py-1 pe-3">Input</th>
-                    <th class="text-end text-muted small py-1 pe-3">Output</th>
-                    <th class="text-end text-muted small py-1">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for f in u.by_feature %}
-                  <tr>
-                    <td class="text-muted small py-1 pe-3">{{ f.feature }}</td>
-                    <td class="text-end small py-1 pe-3">{{ f.calls }}</td>
-                    <td class="text-end small py-1 pe-3">{{ f.input_tokens }}</td>
-                    <td class="text-end small py-1 pe-3">{{ f.output_tokens }}</td>
-                    <td class="text-end small py-1 fw-semibold">{{ f.total_tokens }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-              {% else %}
-              <span class="text-muted small">No usage recorded yet.</span>
-              {% endif %}
-            </div>
           </div>
         </div>
       </div>
@@ -536,34 +525,126 @@
 
       <div class="d-flex justify-content-between align-items-center mb-3">
         <p class="text-muted small mb-0">
-          Configure the LLM provider, model, and prompt for each AI-assisted feature.
-          Per-feature model fields override the default model; leave them empty to use the default.
+          Configure the LLM provider, model, temperature and prompt for each AI-assisted feature.
+          Empty model and temperature fields fall back to the provider's default model and the model's
+          own temperature. Low temperatures keep the strictly parsed output of these features stable.
         </p>
-        <button class="btn btn-primary" id="save-ai-btn" type="button">
-          <i class="fas fa-floppy-disk me-1"></i> Save AI settings
+        <button class="btn btn-primary ms-3 flex-shrink-0" id="save-ai-btn" type="button">
+          <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
 
       <div id="ai-save-alert" class="alert d-none mb-3" role="alert"></div>
 
       <div class="card content-card mb-3">
-        <div class="card-header"><i class="fas fa-robot me-2"></i>OpenAI</div>
-        <div class="card-body row g-3">
-          <div class="col-md-6">
-            <label class="form-label small mb-1">Default model</label>
-            <input type="text" id="ai-default-model" class="form-control font-monospace"
-                   value="{{ cfg.OPENAI_MODEL }}" placeholder="gpt-4o-mini">
-            <div class="form-text">Used by any feature whose model field is left empty.</div>
-          </div>
-        </div>
-        <div class="card-body pt-0">
-          <div class="alert alert-info small py-2 mb-0">
-            <i class="fas fa-circle-info me-1"></i>
-            Reasoning models (the <code>o</code>-series, e.g. <code>o4-mini</code>) are supported, but they
-            spend part of their token budget on internal reasoning before producing output. The per-feature
-            token limits in this app are tuned for standard chat models, so a reasoning model may exhaust its
-            budget and return empty or truncated output. Use them only where you know the limit is generous
-            enough; otherwise prefer a <code>gpt-4o</code>-family model.
+        <div class="card-header"><i class="fas fa-robot me-2"></i>LLM providers</div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Enable the providers you want available and mark one as the default. The default provider
+            is used by every feature that does not select one itself.
+          </p>
+          <input type="hidden" id="llm-default-provider" value="{{ cfg.LLM_DEFAULT_PROVIDER }}">
+          {% set local_is_default = cfg.LLM_DEFAULT_PROVIDER == 'local' %}
+
+          <div class="accordion" id="llm-providers-accordion">
+
+            <div class="accordion-item">
+              <h2 class="accordion-header d-flex align-items-center">
+                <button class="accordion-button flex-grow-1 w-auto {{ 'collapsed' if local_is_default }}" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#llm-provider-openai">
+                  <i class="fas fa-cloud me-2"></i>OpenAI
+                </button>
+                <div class="d-flex align-items-center gap-3 px-3 flex-shrink-0 fs-6 fw-normal">
+                  <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="llm-openai-enabled"
+                           {{ 'checked' if cfg.OPENAI_ENABLED }}>
+                    <label class="form-check-label small" for="llm-openai-enabled">Enabled</label>
+                  </div>
+                  <button type="button" class="btn btn-sm llm-default-btn" data-provider="openai">
+                    <i class="fas fa-star me-1"></i>Default provider
+                  </button>
+                </div>
+              </h2>
+              <div id="llm-provider-openai" class="accordion-collapse collapse {{ 'show' if not local_is_default }}">
+                <div class="accordion-body">
+                  <div class="mb-3">
+                    <label class="form-label">API key</label>
+                    <div class="input-group">
+                      <input type="password" id="llm-openai-key" class="form-control font-monospace api-key-input" value="{{ cfg.OPENAI_API_KEY }}">
+                      <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
+                    </div>
+                  </div>
+                  {{ token_usage(cfg.llm_usage) }}
+                  <div class="border-top pt-3">
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <label class="form-label small mb-1">Default model</label>
+                        <input type="text" id="ai-default-model" class="form-control font-monospace"
+                               value="{{ cfg.OPENAI_MODEL }}" placeholder="gpt-4o-mini">
+                        <div class="form-text">Used by any feature whose model field is left empty.</div>
+                      </div>
+                    </div>
+                    <div class="alert alert-info small py-2 mb-0 mt-3">
+                      <i class="fas fa-circle-info me-1"></i>
+                      Reasoning models (the <code>o</code>-series, e.g. <code>o4-mini</code>) are supported, but they
+                      spend part of their token budget on internal reasoning before producing output. The per-feature
+                      token limits in this app are tuned for standard chat models, so a reasoning model may exhaust its
+                      budget and return empty or truncated output. Use them only where you know the limit is generous
+                      enough; otherwise prefer a <code>gpt-4o</code>-family model.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="accordion-item">
+              <h2 class="accordion-header d-flex align-items-center">
+                <button class="accordion-button flex-grow-1 w-auto {{ 'collapsed' if not local_is_default }}" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#llm-provider-local">
+                  <i class="fas fa-server me-2"></i>Local LLM
+                </button>
+                <div class="d-flex align-items-center gap-3 px-3 flex-shrink-0 fs-6 fw-normal">
+                  <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="llm-local-enabled"
+                           {{ 'checked' if cfg.LOCAL_LLM_ENABLED }}>
+                    <label class="form-check-label small" for="llm-local-enabled">Enabled</label>
+                  </div>
+                  <button type="button" class="btn btn-sm llm-default-btn" data-provider="local">
+                    <i class="fas fa-star me-1"></i>Default provider
+                  </button>
+                </div>
+              </h2>
+              <div id="llm-provider-local" class="accordion-collapse collapse {{ 'show' if local_is_default }}">
+                <div class="accordion-body">
+                  <div class="mb-3">
+                    <label class="form-label">Network location</label>
+                    <input type="url" id="llm-local-url" class="form-control font-monospace"
+                           value="{{ cfg.LOCAL_LLM_URL }}" placeholder="http://127.0.0.1:11434/v1">
+                    <div class="form-text">Base URL of the OpenAI-compatible API endpoint.</div>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">API key</label>
+                    <div class="input-group">
+                      <input type="password" id="llm-local-key" class="form-control font-monospace api-key-input" value="{{ cfg.LOCAL_LLM_API_KEY }}">
+                      <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
+                    </div>
+                    <div class="form-text">Leave empty if the endpoint does not require authentication.</div>
+                  </div>
+                  {{ token_usage(cfg.llm_usage_local) }}
+                  <div class="border-top pt-3">
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <label class="form-label small mb-1">Default model</label>
+                        <input type="text" id="llm-local-model" class="form-control font-monospace"
+                               value="{{ cfg.LOCAL_LLM_MODEL }}" placeholder="llama3.1:8b">
+                        <div class="form-text">Used by any feature whose model field is left empty.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -574,10 +655,11 @@
           <table class="table table-sm mb-0 align-middle" id="ai-features-table">
             <thead class="table-light">
               <tr>
-                <th style="width:30%">Feature</th>
-                <th style="width:15%">Provider</th>
-                <th style="width:20%">Model</th>
-                <th style="width:35%">Prompt</th>
+                <th style="width:28%">Feature</th>
+                <th style="width:13%">Provider</th>
+                <th style="width:18%">Model</th>
+                <th style="width:8%">Temp.</th>
+                <th style="width:33%">Prompt</th>
               </tr>
             </thead>
             <tbody>
@@ -597,13 +679,21 @@
                   <div class="text-muted" style="font-size:.78rem;">{{ feat.description }}</div>
                 </td>
                 <td>
-                  <span class="badge bg-secondary">OpenAI</span>
+                  <select class="form-select form-select-sm ai-provider-select">
+                    <option value="openai" {% if feat.provider != 'local' %}selected{% endif %}>OpenAI</option>
+                    <option value="local" {% if feat.provider == 'local' %}selected{% endif %}>Local LLM</option>
+                  </select>
                 </td>
                 <td>
                   <input type="text" class="form-control form-control-sm font-monospace ai-model-input"
-                         placeholder="{{ cfg.OPENAI_MODEL }}"
-                         value="{{ feat.model }}"
-                         title="Leave empty to use the global model ({{ cfg.OPENAI_MODEL }})">
+                         placeholder="{{ cfg.LOCAL_LLM_MODEL if feat.provider == 'local' else cfg.OPENAI_MODEL }}"
+                         value="{{ feat.model }}">
+                </td>
+                <td>
+                  <input type="number" class="form-control form-control-sm ai-temperature-input"
+                         min="0" max="2" step="0.1" placeholder="model"
+                         value="{{ feat.temperature if feat.temperature is not none else '' }}"
+                         title="Sampling temperature. Leave empty to use whatever the model or provider defaults to. Low values (0 to 0.2) keep structured output stable.">
                 </td>
                 <td>
                   <select class="form-select form-select-sm ai-prompt-select">
@@ -1460,15 +1550,114 @@
     setTimeout(() => { aiAlert.classList.add('d-none'); }, 4000);
   }
 
+  // ── LLM providers ────────────────────────────────────────────────────
+  // The fields of each provider card, plus the label used in messages. A
+  // provider can only be picked for a feature while it is enabled, and it
+  // cannot be switched off while features still point at it.
+  const providers = {
+    openai: {
+      label: 'OpenAI',
+      enabled: document.getElementById('llm-openai-enabled'),
+      apiKey: document.getElementById('llm-openai-key'),
+      model: document.getElementById('ai-default-model'),
+    },
+    local: {
+      label: 'Local LLM',
+      enabled: document.getElementById('llm-local-enabled'),
+      apiKey: document.getElementById('llm-local-key'),
+      url: document.getElementById('llm-local-url'),
+      model: document.getElementById('llm-local-model'),
+    },
+  };
+  const defaultProviderInput = document.getElementById('llm-default-provider');
+  const defaultProviderBtns = document.querySelectorAll('.llm-default-btn');
+  const featureProviders = document.querySelectorAll('.ai-provider-select');
+
+  function paintDefaultProvider() {
+    defaultProviderBtns.forEach((btn) => {
+      const isDefault = btn.dataset.provider === defaultProviderInput.value;
+      btn.classList.toggle('btn-primary', isDefault);
+      btn.classList.toggle('btn-outline-secondary', !isDefault);
+    });
+  }
+
+  // Per feature: hide providers that are switched off unless this feature still
+  // uses one, and show the chosen provider's default model as the model hint.
+  function paintFeatureRows() {
+    featureProviders.forEach((sel) => {
+      Array.from(sel.options).forEach((opt) => {
+        const available = providers[opt.value].enabled.checked || sel.value === opt.value;
+        opt.hidden = !available;
+        opt.disabled = !available;
+      });
+      const input = sel.closest('tr').querySelector('.ai-model-input');
+      input.placeholder = providers[sel.value].model.value.trim() || 'no default model set';
+    });
+  }
+
+  function featuresUsing(provider) {
+    return Array.from(featureProviders).filter((sel) => sel.value === provider).length;
+  }
+
+  paintDefaultProvider();
+  paintFeatureRows();
+
+  defaultProviderBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      defaultProviderInput.value = btn.dataset.provider;
+      paintDefaultProvider();
+      window.cfgDirty?.dirty('ai');
+    });
+  });
+
+  Object.entries(providers).forEach(([name, provider]) => {
+    provider.enabled.addEventListener('change', () => {
+      const inUse = provider.enabled.checked ? 0 : featuresUsing(name);
+      if (inUse) {
+        provider.enabled.checked = true;
+        showAiAlert(provider.label + ' is in use by ' + inUse + ' feature' + (inUse === 1 ? '' : 's')
+                    + '. Point those features to another provider before disabling it.', 'warning');
+        return;
+      }
+      // A disabled provider cannot stay the default, or features that do not
+      // choose one themselves would have nowhere to go.
+      if (!provider.enabled.checked && defaultProviderInput.value === name) {
+        const fallback = Object.keys(providers).find((other) => providers[other].enabled.checked);
+        if (fallback) {
+          defaultProviderInput.value = fallback;
+          paintDefaultProvider();
+          showAiAlert(providers[fallback].label + ' is now the default provider.', 'info');
+        }
+      }
+      paintFeatureRows();
+    });
+    provider.model.addEventListener('input', paintFeatureRows);
+  });
+
+  featureProviders.forEach((sel) => sel.addEventListener('change', paintFeatureRows));
+
   if (saveAiBtn) {
     saveAiBtn.addEventListener('click', () => {
-      const defaultModel = (document.getElementById('ai-default-model')?.value || '').trim();
+      const providerSettings = {
+        default: defaultProviderInput.value,
+        openai: {
+          enabled: providers.openai.enabled.checked,
+          api_key: providers.openai.apiKey.value,
+        },
+        local: {
+          enabled: providers.local.enabled.checked,
+          url: providers.local.url.value,
+          api_key: providers.local.apiKey.value,
+          model: providers.local.model.value,
+        },
+      };
       const features = {};
       document.querySelectorAll('#ai-features-table tbody tr[data-feature-id]').forEach(row => {
         const fid = row.dataset.featureId;
         features[fid] = {
-          provider: 'openai',
+          provider: row.querySelector('.ai-provider-select').value,
           model: (row.querySelector('.ai-model-input')?.value || '').trim(),
+          temperature: (row.querySelector('.ai-temperature-input')?.value || '').trim(),
           prompt: row.querySelector('.ai-prompt-select')?.value || '',
         };
       });
@@ -1476,13 +1665,17 @@
       fetch(SCRIPT_ROOT + '/config/save-ai-features', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
-        body: JSON.stringify({default_model: defaultModel, features}),
+        body: JSON.stringify({
+          default_model: providers.openai.model.value.trim(),
+          providers: providerSettings,
+          features,
+        }),
       })
       .then(r => r.json())
       .then(data => {
         saveAiBtn.disabled = false;
         if (data.ok) {
-          showAiAlert('AI settings saved.', 'success');
+          showAiAlert('Configuration saved.', 'success');
           window.cfgDirty?.clean('ai');
         } else {
           showAiAlert('Error: ' + (data.error || 'unknown'), 'warning');
@@ -2537,7 +2730,10 @@ window.cfgDirty = (function() {
     if (Object.values(groups).some((g) => g.dirty)) { e.preventDefault(); e.returnValue = ''; }
   });
 
-  return { clean: (name) => setDirty(name, false) };
+  return {
+    clean: (name) => setDirty(name, false),
+    dirty: (name) => setDirty(name, true),
+  };
 })();
 
 </script>

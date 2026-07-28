@@ -22,6 +22,8 @@ The output is rendered through a Markdown renderer, so write it as Markdown usin
 - **Threat actor:** <named threat actor, group, or alias from the article, e.g. Lazarus Group, UNC3753 - or "None identified">
 - **Vendor/Technology:** <specific vendor or product name from the article, e.g. Check Point, Apache Log4j - or "None identified">
 
+State only what the source supports. Write "None identified" rather than filling a line with a plausible guess, and do this in particular for the MISP context lines: name a MITRE ATT&CK technique, a threat actor or a sector only when the article describes it, since these values are applied to the MISP event as tags. Keep "What happened" to facts from the source and confine your own judgement to "Why it matters".
+
 Quality check: if the report content appears to be entirely non-intelligence content (only navigation elements, marketing copy, or generic boilerplate with no actual threat information), output only this single line:
 QUALITY: insufficient content for analysis
 
