@@ -83,8 +83,8 @@ MIGRATIONS = [
 _MIGRATIONS_BY_ID = {m["id"]: m for m in MIGRATIONS}
 
 
-def _llm_usage_stats() -> dict:
-    """Return token usage totals from the analyser DB. Never raises."""
+def _llm_usage_stats(provider: str) -> dict:
+    """Return token usage totals for one provider from the analyser DB. Never raises."""
     empty = {"total_calls": 0, "total_tokens": 0,
              "today_calls": 0, "today_tokens": 0,
              "week_calls": 0, "week_tokens": 0, "by_feature": []}
@@ -97,22 +97,27 @@ def _llm_usage_stats() -> dict:
         with closing(_sq.connect(db_path)) as conn:
             conn.row_factory = _sq.Row
             r = conn.execute(
-                "SELECT COUNT(*) AS calls, COALESCE(SUM(total_tokens),0) AS tokens FROM llm_usage"
+                "SELECT COUNT(*) AS calls, COALESCE(SUM(total_tokens),0) AS tokens"
+                " FROM llm_usage WHERE provider = ?",
+                (provider,),
             ).fetchone()
             r_today = conn.execute(
                 "SELECT COUNT(*) AS calls, COALESCE(SUM(total_tokens),0) AS tokens"
-                " FROM llm_usage WHERE date(called_at) = date('now')"
+                " FROM llm_usage WHERE provider = ? AND date(called_at) = date('now')",
+                (provider,),
             ).fetchone()
             r_week = conn.execute(
                 "SELECT COUNT(*) AS calls, COALESCE(SUM(total_tokens),0) AS tokens"
-                " FROM llm_usage WHERE called_at >= datetime('now', '-7 days')"
+                " FROM llm_usage WHERE provider = ? AND called_at >= datetime('now', '-7 days')",
+                (provider,),
             ).fetchone()
             features = conn.execute(
                 "SELECT feature, COUNT(*) AS calls,"
                 " COALESCE(SUM(input_tokens),0) AS input_tokens,"
                 " COALESCE(SUM(output_tokens),0) AS output_tokens,"
                 " COALESCE(SUM(total_tokens),0) AS total_tokens"
-                " FROM llm_usage GROUP BY feature ORDER BY total_tokens DESC"
+                " FROM llm_usage WHERE provider = ? GROUP BY feature ORDER BY total_tokens DESC",
+                (provider,),
             ).fetchall()
         return {
             "total_calls": r["calls"], "total_tokens": r["tokens"],
@@ -184,6 +189,12 @@ def _read() -> dict:
         "MISP_EVENT_DISTRIBUTION": getattr(_config, "MISP_EVENT_DISTRIBUTION", 0),
         "OPENAI_API_KEY": openai_api_key,
         "OPENAI_MODEL": openai_model,
+        "OPENAI_ENABLED": bool(getattr(_config, "OPENAI_ENABLED", True)),
+        "LOCAL_LLM_ENABLED": bool(getattr(_config, "LOCAL_LLM_ENABLED", False)),
+        "LOCAL_LLM_URL": getattr(_config, "LOCAL_LLM_URL", ""),
+        "LOCAL_LLM_API_KEY": getattr(_config, "LOCAL_LLM_API_KEY", ""),
+        "LOCAL_LLM_MODEL": getattr(_config, "LOCAL_LLM_MODEL", ""),
+        "LLM_DEFAULT_PROVIDER": getattr(_config, "LLM_DEFAULT_PROVIDER", "openai"),
         "NOTIFICATION_CHANNELS": _read_notification_channels(),
         "SMTP_HOST": getattr(_config, "SMTP_HOST", ""),
         "SMTP_PORT": getattr(_config, "SMTP_PORT", 587),
@@ -240,7 +251,8 @@ def _read() -> dict:
         "MISP_SESSION_REDIS_PASSWORD": getattr(_config, "MISP_SESSION_REDIS_PASSWORD", ""),
         "MISP_SESSION_REDIRECT_TO_LOGIN": getattr(_config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
         "prompts": _list_prompts(),
-        "llm_usage": _llm_usage_stats(),
+        "llm_usage": _llm_usage_stats("openai"),
+        "llm_usage_local": _llm_usage_stats("local"),
         "ai_features": _load_ai_features(),
         "BRAND_COMPANY": getattr(_config, "BRAND_COMPANY", ""),
         "BRAND_DEPARTMENT": getattr(_config, "BRAND_DEPARTMENT", ""),
@@ -360,9 +372,20 @@ MISP_WEBAPP_VERIFYCERT = {bool(values['MISP_WEBAPP_VERIFYCERT'])}
 # 1 = this community, 2 = connected communities, 3 = all communities.
 MISP_EVENT_DISTRIBUTION = {int(values.get('MISP_EVENT_DISTRIBUTION') or 0)}
 
+# LLM providers. LLM_DEFAULT_PROVIDER is the provider used by features that do
+# not pick one themselves: 'openai' or 'local'.
+LLM_DEFAULT_PROVIDER = {values.get('LLM_DEFAULT_PROVIDER', 'openai')!r}
+
 # OpenAI
+OPENAI_ENABLED = {bool(values.get('OPENAI_ENABLED', True))}
 OPENAI_API_KEY = {values['OPENAI_API_KEY']!r}
 OPENAI_MODEL = {values['OPENAI_MODEL']!r}
+
+# Local LLM, reachable over an OpenAI-compatible API endpoint.
+LOCAL_LLM_ENABLED = {bool(values.get('LOCAL_LLM_ENABLED', False))}
+LOCAL_LLM_URL = {values.get('LOCAL_LLM_URL', '')!r}
+LOCAL_LLM_API_KEY = {values.get('LOCAL_LLM_API_KEY', '')!r}
+LOCAL_LLM_MODEL = {values.get('LOCAL_LLM_MODEL', '')!r}
 
 # Notification channels
 NOTIFICATION_CHANNELS = {channels_repr}
@@ -565,8 +588,15 @@ def index():
             "MISP_WEBAPP_KEY": request.form.get("MISP_WEBAPP_KEY", ""),
             "MISP_WEBAPP_VERIFYCERT": request.form.get("MISP_WEBAPP_VERIFYCERT") == "true",
             "MISP_EVENT_DISTRIBUTION": int(request.form.get("MISP_EVENT_DISTRIBUTION", 0) or 0),
-            "OPENAI_API_KEY": request.form.get("OPENAI_API_KEY", ""),
+            # LLM provider settings live on the AI tab and are saved over AJAX.
+            "OPENAI_API_KEY": getattr(_config, "OPENAI_API_KEY", getattr(_config, "ANTHROPIC_API_KEY", "")),
             "OPENAI_MODEL": getattr(_config, "OPENAI_MODEL", getattr(_config, "ANTHROPIC_MODEL", "")),
+            "OPENAI_ENABLED": bool(getattr(_config, "OPENAI_ENABLED", True)),
+            "LOCAL_LLM_ENABLED": bool(getattr(_config, "LOCAL_LLM_ENABLED", False)),
+            "LOCAL_LLM_URL": getattr(_config, "LOCAL_LLM_URL", ""),
+            "LOCAL_LLM_API_KEY": getattr(_config, "LOCAL_LLM_API_KEY", ""),
+            "LOCAL_LLM_MODEL": getattr(_config, "LOCAL_LLM_MODEL", ""),
+            "LLM_DEFAULT_PROVIDER": getattr(_config, "LLM_DEFAULT_PROVIDER", "openai"),
             "NOTIFICATION_CHANNELS": _read_notification_channels(),
             "SMTP_HOST": request.form.get("SMTP_HOST", "").strip(),
             "SMTP_PORT": int(request.form.get("SMTP_PORT", 587) or 587),
@@ -1393,8 +1423,9 @@ def save_ai_features():
     if not isinstance(features, dict):
         return jsonify({"ok": False, "error": "Invalid payload"}), 400
     try:
-        from core.ai_config import save as _ai_save, FEATURES
-        # Validate: only accept known feature IDs and safe field values
+        from core.ai_config import save as _ai_save, FEATURES, PROVIDERS
+        # Validate: only accept known feature IDs and safe field values.
+        # ai_config.save() falls back to OpenAI for an unknown provider.
         clean = {}
         for fid, vals in features.items():
             if fid not in FEATURES or not isinstance(vals, dict):
@@ -1403,14 +1434,28 @@ def save_ai_features():
             prompt = (vals.get("prompt") or "").strip()
             if prompt and ("/" in prompt or "\\" in prompt):
                 return jsonify({"ok": False, "error": f"Invalid prompt filename: {prompt!r}"}), 400
-            clean[fid] = {"provider": "openai", "model": model, "prompt": prompt}
+            clean[fid] = {"provider": (vals.get("provider") or "").strip(), "model": model, "prompt": prompt}
         _ai_save(clean)
 
-        # Persist default model to config/__init__.py so it remains the fallback
+        # Persist provider settings and the default model to config/__init__.py.
+        providers = data.get("providers")
         default_model = (data.get("default_model") or "").strip()
-        if default_model:
+        if default_model or isinstance(providers, dict):
             current = _read()
-            current["OPENAI_MODEL"] = default_model
+            if default_model:
+                current["OPENAI_MODEL"] = default_model
+            if isinstance(providers, dict):
+                openai_p = providers.get("openai") or {}
+                local_p = providers.get("local") or {}
+                current["OPENAI_ENABLED"] = bool(openai_p.get("enabled"))
+                current["OPENAI_API_KEY"] = (openai_p.get("api_key") or "").strip()
+                current["LOCAL_LLM_ENABLED"] = bool(local_p.get("enabled"))
+                current["LOCAL_LLM_URL"] = (local_p.get("url") or "").strip()
+                current["LOCAL_LLM_API_KEY"] = (local_p.get("api_key") or "").strip()
+                current["LOCAL_LLM_MODEL"] = (local_p.get("model") or "").strip()
+                default_provider = (providers.get("default") or "").strip()
+                if default_provider in PROVIDERS:
+                    current["LLM_DEFAULT_PROVIDER"] = default_provider
             _write(current)
             importlib.reload(_config)
 

@@ -26,8 +26,12 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("api", __name__, url_prefix="/api")
 
 
-def _get_event_content_and_scope(event_uuid: str):
-    """Fetch report content and scope tags from a scraper MISP event.
+def _get_event_content_and_scope(event_uuid: str, source_id: str = ""):
+    """Fetch report content and scope tags from a source MISP event.
+
+    The event is looked up on whichever configured MISP instance holds it (the
+    scraper, an external MISP_SERVERS instance, or the webapp MISP), trying the
+    given source hint first.
 
     Returns (content: str | None, scope: dict) where scope has keys
     sectors, geo, techniques - each a list of strings.
@@ -35,13 +39,12 @@ def _get_event_content_and_scope(event_uuid: str):
     empty_scope = {"sectors": [], "geo": [], "techniques": []}
     if not event_uuid:
         return None, empty_scope
-    misp = misp_store._scraper_misp()
     try:
-        event = misp.get_event(event_uuid, pythonify=True)
+        event, _client, _sid = misp_store.resolve_source_event(event_uuid, source_id)
     except Exception as exc:
-        logger.warning("api: get_event %s failed: %s", event_uuid, exc)
+        logger.warning("api: resolve_source_event %s failed: %s", event_uuid, exc)
         return None, empty_scope
-    if not event or isinstance(event, dict):
+    if event is None:
         return None, empty_scope
     # Extract content
     reports = getattr(event, "event_reports", []) or []
@@ -79,7 +82,7 @@ def _get_event_content_and_scope(event_uuid: str):
 
 
 def _get_event_content(event_uuid: str) -> str | None:
-    """Fetch the first event report content from the scraper MISP."""
+    """Fetch the first event report content from the MISP instance holding the event."""
     content, _ = _get_event_content_and_scope(event_uuid)
     return content
 
@@ -96,16 +99,18 @@ def misp_status():
 def draft_story():
     """Draft a 5-line daily briefing story from a scraper event.
 
-    POST JSON: {"event_uuid": "...", "context_hint": "optional extra context"}
+    POST JSON: {"event_uuid": "...", "source_id": "optional source hint",
+                "context_hint": "optional extra context"}
     Returns: {"story": "...", "error": null}
     """
     body, err = _json_object()
     if err:
         return jsonify({"story": "", "scope": {}, "error": "Invalid JSON payload."}), 400
     event_uuid = (body.get("event_uuid") or "").strip()
+    source_id = (body.get("source_id") or "").strip()
     context_hint = (body.get("context_hint") or "").strip()
 
-    content, scope = _get_event_content_and_scope(event_uuid)
+    content, scope = _get_event_content_and_scope(event_uuid, source_id)
     if not content and not context_hint:
         return jsonify({"story": "", "scope": {}, "error": "No content found for this event."})
 
@@ -155,6 +160,41 @@ def event_attributes_text():
     if not text:
         return jsonify({"text": "", "error": "This event has no attributes or report content."})
     return jsonify({"text": text, "error": None})
+
+
+@bp.route("/event-reports", methods=["POST"])
+@rate_limited("api_event_reports", limit=60, window_s=60)
+def event_reports():
+    """Return the MISP reports attached to a source event, for viewing in the UI.
+
+    POST JSON: {"event_uuid": "...", "source_id": "optional source hint"}
+    Returns: {"reports": [{"name": "...", "content": "..."}], "event_info": "...",
+              "event_url": "...", "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"reports": [], "error": "Invalid JSON payload."}), 400
+    event_uuid = (body.get("event_uuid") or "").strip()
+    source_id = (body.get("source_id") or "").strip()
+    if not event_uuid:
+        return jsonify({"reports": [], "error": "event_uuid is required"}), 400
+
+    event, misp_client, _sid = misp_store.resolve_source_event(event_uuid, source_id)
+    if event is None:
+        return jsonify({"reports": [], "error": "Event not found on any configured MISP instance."}), 404
+
+    reports = [
+        {"name": getattr(r, "name", "") or "(untitled report)",
+         "content": getattr(r, "content", "") or ""}
+        for r in (getattr(event, "event_reports", []) or [])
+    ]
+    base_url = (getattr(misp_client, "root_url", "") or "").rstrip("/")
+    return jsonify({
+        "reports": reports,
+        "event_info": getattr(event, "info", "") or "",
+        "event_url": f"{base_url}/events/view/{event.uuid}" if base_url else "",
+        "error": None,
+    })
 
 
 @bp.route("/briefing-overlap-check", methods=["POST"])
@@ -808,6 +848,8 @@ def summarise_content():
     try:
         from analyser import llm
         summary = llm.summarise_report(content[:12000], event_info=title)
+        if not summary.strip():
+            return jsonify({"summary": "", "error": "The model returned an empty summary. Check the LLM settings and the analyser log."}), 502
         audit.record("generate", "ai_summary", details=title or f"{len(content)} chars")
         return jsonify({"summary": summary, "error": None})
     except Exception as exc:

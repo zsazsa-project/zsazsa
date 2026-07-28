@@ -30,8 +30,8 @@
     "prompt": "daily_briefing_overlap.md"
   },
   "summarise_report": {
-    "provider": "openai",
-    "model": "gpt-4o",
+    "provider": "local",
+    "model": "hf.co/Qwen/Qwen3-4B-GGUF:Q4_K_M",
     "prompt": "summarise_misp_report.md"
   },
   "draft_vea_sections": {

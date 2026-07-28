@@ -191,7 +191,15 @@ The statistics pages combine operational metrics with CTI maturity info.
 
 AI-assisted features support analyst efficiency in triage, relevance checking and drafting.
 
+zsazsa works with two kinds of LLM provider: **OpenAI**, and a **local LLM** reached over an OpenAI-compatible API such as the one [Ollama](https://ollama.com/) exposes. Both are set up on the AI tab of the configuration page. Each provider can be enabled or disabled on its own, and one of the two is marked as the default provider, which is the one every feature uses unless it picks a provider itself. Running a local model keeps event content on your own infrastructure, which matters because these features send raw MISP event text to whichever provider is configured.
+
+The OpenAI card holds the API key, the token usage counters and the default model. The local LLM card holds the network location of the server, an API key for servers that ask for one, and its own default model. The network location is the base URL of the endpoint, for example `http://127.0.0.1:11434`, and the `/v1` path is added for you if you leave it off. Token usage is recorded per provider, so local calls are counted separately from OpenAI ones.
+
 ![docs/8-ai.png](docs/8-ai.png)
+
+Each feature (relevance checking, briefing stories, report summaries, advisory and alert drafts) chooses its own provider, model and prompt in the feature table under the provider cards. An empty model field means the feature uses the default model of the provider it points at. A provider that is switched off is no longer offered in that table, and it cannot be switched off while features are still pointing at it.
+
+One thing to watch with a local model: reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets in zsazsa are sized for a straight answer. zsazsa asks the server to skip the thinking step, which Ollama honours, but on a server that ignores the request a reasoning model can use the whole budget and return nothing. Empty answers are logged with the model, the finish reason and the budget, and are reported in the interface instead of being saved as an empty summary.
 
 ### Collection source management
 

@@ -53,6 +53,7 @@ def init_db() -> None:
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
                 called_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
                 feature          TEXT NOT NULL,
+                provider         TEXT NOT NULL DEFAULT 'openai',
                 model            TEXT NOT NULL,
                 input_tokens     INTEGER NOT NULL DEFAULT 0,
                 output_tokens    INTEGER NOT NULL DEFAULT 0,
@@ -80,6 +81,8 @@ def init_db() -> None:
         ])
         _ensure_columns(conn, "llm_usage", [
             ("feature", "TEXT NOT NULL DEFAULT ''"),
+            # Rows written before local LLM support all came from OpenAI.
+            ("provider", "TEXT NOT NULL DEFAULT 'openai'"),
             ("model", "TEXT NOT NULL DEFAULT ''"),
             ("input_tokens", "INTEGER NOT NULL DEFAULT 0"),
             ("output_tokens", "INTEGER NOT NULL DEFAULT 0"),
@@ -87,12 +90,14 @@ def init_db() -> None:
         ])
 
 
-def log_llm_usage(feature: str, model: str, input_tokens: int, output_tokens: int, total_tokens: int) -> None:
+def log_llm_usage(feature: str, model: str, input_tokens: int, output_tokens: int, total_tokens: int,
+                  provider: str = "openai") -> None:
     try:
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO llm_usage (feature, model, input_tokens, output_tokens, total_tokens) VALUES (?, ?, ?, ?, ?)",
-                (feature, model, input_tokens, output_tokens, total_tokens),
+                "INSERT INTO llm_usage (feature, provider, model, input_tokens, output_tokens, total_tokens)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (feature, provider, model, input_tokens, output_tokens, total_tokens),
             )
     except sqlite3.Error as e:
         logger.error("DB write failed for llm_usage: %s", e)

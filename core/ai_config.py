@@ -60,7 +60,7 @@ FEATURES = {
     },
 }
 
-_PROVIDERS = ["openai"]
+PROVIDERS = ["openai", "local"]
 
 
 def load() -> dict:
@@ -92,8 +92,9 @@ def save(data: dict) -> None:
     for fid in FEATURES:
         if fid in data:
             entry = data[fid]
+            provider = entry.get("provider", "openai")
             storable[fid] = {
-                "provider": entry.get("provider", "openai"),
+                "provider": provider if provider in PROVIDERS else "openai",
                 "model": entry.get("model", ""),
                 "prompt": entry.get("prompt", FEATURES[fid]["default_prompt"]),
             }
