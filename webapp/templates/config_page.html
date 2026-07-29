@@ -849,6 +849,17 @@
           <div class="form-text">
             Added as a <strong>local</strong> tag when an analyst flags an event for follow-up from the data-collection page.
           </div>
+
+          <label class="form-label mt-3">Dismissed event tag</label>
+          <div class="input-group">
+            <input type="text" name="TAG_COLLECTION_DISMISSED" class="form-control font-monospace" value="{{ cfg.TAG_COLLECTION_DISMISSED }}">
+            {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_COLLECTION_DISMISSED | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
+          </div>
+          <div class="form-text">
+            Added as a <strong>local</strong> tag when an analyst dismisses an event coming from another MISP server,
+            whose workflow state belongs to that server. Events on your own MISP are rejected through their workflow
+            state instead. The data-collection page hides tagged events while "Ignore dismissed events" is on.
+          </div>
         </div>
       </div>
 

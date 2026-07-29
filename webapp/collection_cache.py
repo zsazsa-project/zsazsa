@@ -191,7 +191,9 @@ def _extract_row(e, source_id: str) -> dict:
         org_name = getattr(org_obj, "name", "") or ""
     if orgc_obj:
         orgc_name = getattr(orgc_obj, "name", "") or ""
-    reports = getattr(e, "event_reports", []) or []
+    # An event carries its soft-deleted reports too; those are not shown anywhere,
+    # so leave them out of the count and the AI-summary marker.
+    reports = [r for r in (getattr(e, "event_reports", []) or []) if not getattr(r, "deleted", False)]
     has_ai = any(
         (getattr(r, "name", "") or "").startswith(AI_SUMMARY_PREFIX)
         for r in reports

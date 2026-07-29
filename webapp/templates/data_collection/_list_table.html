@@ -125,7 +125,8 @@
                 <button type="button" class="btn btn-xs btn-outline-warning" id="selection-flag-btn" title="Flag selected events for follow-up">
                   <i class="fas fa-flag"></i>
                 </button>
-                <button type="button" class="btn btn-xs btn-outline-danger" id="selection-reject-btn" title="Reject selected events">
+                <button type="button" class="btn btn-xs btn-outline-danger" id="selection-reject-btn"
+                        title="Reject selected events on your own MISP, dismiss the ones from other MISP servers">
                   <i class="fas fa-ban"></i>
                 </button>
                 <button type="button" class="btn btn-xs btn-outline-secondary" id="selection-summarise-btn" title="Generate AI summaries for selected events">
@@ -138,7 +139,8 @@
         </thead>
         <tbody id="events-tbody">
           {% for e in events %}
-          <tr class="event-row{% if 'workflow:state="rejected"' in e.tags %} wf-rejected-row{% endif %}{% if e.uuid in briefing_excluded_uuids %} briefing-excluded-row{% endif %}"
+          {% set _dismissed = dismissed_tag in e.tags %}
+          <tr class="event-row{% if 'workflow:state="rejected"' in e.tags %} wf-rejected-row{% endif %}{% if _dismissed %} event-dismissed-row{% endif %}{% if e.uuid in briefing_excluded_uuids %} briefing-excluded-row{% endif %}"
               data-date="{{ e.date or '' }}"
               data-title="{{ e.info or '' | lower }}"
               data-search-text="{{ ((e.info or '') ~ ' ' ~ (e.galaxy_names | join(' ') if e.galaxy_names is defined else '') ~ ' ' ~ (e.req_matches | map(attribute='id') | join(' '))) | lower | e }}"
@@ -166,7 +168,10 @@
               <a href="#" class="event-preview-link"
                  data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}">{{ e.info or '(untitled)' }}</a>
               {%- if 'workflow:state="rejected"' in e.tags %}
-              <i class="fas fa-ban ms-1" style="font-size:.6rem;color:var(--neutral-500);cursor:default;vertical-align:middle;" title="Grayed out: workflow state is rejected"></i>
+              <i class="fas fa-ban ms-1 reject-state-marker" style="font-size:.6rem;color:var(--neutral-500);cursor:default;vertical-align:middle;" title="Grayed out: workflow state is rejected"></i>
+              {%- endif %}
+              {%- if _dismissed %}
+              <i class="fas fa-eye-slash ms-1 dismiss-state-marker" style="font-size:.6rem;color:var(--neutral-500);cursor:default;vertical-align:middle;" title="Grayed out: dismissed by an analyst"></i>
               {%- endif %}
               {%- if e.uuid in briefing_excluded_uuids %}
               <i class="fas fa-newspaper ms-1" style="font-size:.6rem;color:var(--icon-warn-muted);cursor:default;vertical-align:middle;" title="Grayed out: title matches a daily briefing exclusion pattern. This event is skipped from automated briefings."></i>
@@ -318,7 +323,7 @@
               {% else %}<i class="fas fa-server me-1"></i>{% endif %}
               {{ e.source_label or '-' }}
             </td>
-            <td class="text-end">
+            <td class="text-end report-count-cell">
               {% if e.report_count and e.report_count > 0 %}
               <a href="#" class="reports-cell-link text-decoration-none fw-semibold"
                  data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}"
@@ -343,11 +348,19 @@
                         title="{{ 'Remove follow-up flag' if _flagged else 'Flag for follow-up review' }}">
                   <i class="fas fa-flag"></i>
                 </button>
+                {% if e.source_kind != 'misp' %}
                 {% if _workflow_incomplete %}
                 <button class="btn btn-xs btn-outline-danger reject-event-btn"
                         data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}"
                         title="Reject this event (workflow:state=rejected). Only shown while the event is still in 'incomplete' state.">
                   <i class="fas fa-ban"></i>
+                </button>
+                {% endif %}
+                {% elif not _dismissed %}
+                <button class="btn btn-xs btn-outline-danger dismiss-event-btn"
+                        data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}"
+                        title="Dismiss this event ({{ dismissed_tag }}). The workflow state of events from another MISP server belongs to that server, so they are set aside with a local tag instead.">
+                  <i class="fas fa-eye-slash"></i>
                 </button>
                 {% endif %}
                 <button class="btn btn-xs btn-outline-primary cti-eval-btn"

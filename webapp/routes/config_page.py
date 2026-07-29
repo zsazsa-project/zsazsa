@@ -225,6 +225,7 @@ def _read() -> dict:
         "TAG_BRIEFING": _config.TAG_BRIEFING,
         "TAG_TLR": getattr(_config, "TAG_TLR", 'zsazsa:ctiproduct="threat-landscape-report"'),
         "TAG_COLLECTION_FOLLOWUP": getattr(_config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
+        "TAG_COLLECTION_DISMISSED": getattr(_config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"'),
         "RECOMMENDED_ACTIONS_IMMEDIATE": getattr(_config, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
         "RECOMMENDED_ACTIONS_NEAR_TERM": getattr(_config, "RECOMMENDED_ACTIONS_NEAR_TERM", []),
         "POLL_WINDOW_HOURS": _config.POLL_WINDOW_HOURS,
@@ -455,6 +456,7 @@ TAG_TLR         = {values['TAG_TLR']!r}
 TAG_INDICATOR_FEED = 'zsazsa:ctiproduct="indicator-feed"'
 TAG_THREAT_ACTOR_PROFILE = 'zsazsa:ctiproduct="threat-actor-profile"'
 TAG_COLLECTION_FOLLOWUP = {values['TAG_COLLECTION_FOLLOWUP']!r}
+TAG_COLLECTION_DISMISSED = {values['TAG_COLLECTION_DISMISSED']!r}
 
 # Data collection tag display settings
 COLLECTION_TAG_STRIP_PREFIXES = {tag_strip_repr}
@@ -624,6 +626,7 @@ def index():
             "TAG_BRIEFING": request.form.get("TAG_BRIEFING", "").strip(),
             "TAG_TLR": request.form.get("TAG_TLR", "").strip(),
             "TAG_COLLECTION_FOLLOWUP": request.form.get("TAG_COLLECTION_FOLLOWUP", "").strip(),
+            "TAG_COLLECTION_DISMISSED": request.form.get("TAG_COLLECTION_DISMISSED", "").strip(),
             "RECOMMENDED_ACTIONS_IMMEDIATE": [l.strip() for l in request.form.get("RECOMMENDED_ACTIONS_IMMEDIATE", "").splitlines() if l.strip()],
             "RECOMMENDED_ACTIONS_NEAR_TERM": [l.strip() for l in request.form.get("RECOMMENDED_ACTIONS_NEAR_TERM", "").splitlines() if l.strip()],
             "POLL_WINDOW_HOURS": int(request.form.get("POLL_WINDOW_HOURS", 24) or 24),

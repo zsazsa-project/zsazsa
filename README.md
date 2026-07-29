@@ -108,6 +108,8 @@ This is the **central location for the daily work**, where you navigate everythi
 
 ![docs/6-ctievaluation.png](docs/6-ctievaluation.png)
 
+Events an analyst has looked at and does not want to see again can be **set aside**. For events on your own MISP, meaning the scraper and manual entries, this is the existing reject action, which sets `workflow:state="rejected"` and keeps them out of the analyser pipeline. Events pulled from another MISP server carry that server's workflow state, which is not ours to change, so they are dismissed instead with a local tag, `zsazsa:event="dismiss"` by default and configurable under Configuration > Context elements. Each row shows whichever of the two applies to its source, and the multi-select action and the "set aside events matching exclusions" action decide the same way per event. Dismissed events stay in the cache but are hidden while "Ignore dismissed events" is on under Event properties, which is the default. To bring one back, remove the tag in MISP.
+
 An analyst can **enrich an event** on the spot with scope: geographic reach, targeted sector, threat actor and the techniques used, all drawn from the [MISP galaxies](https://misp-galaxy.org/).
 
 ![docs/6-addscope.png](docs/6-addscope.png)
@@ -186,6 +188,8 @@ The statistics pages combine operational metrics with CTI maturity info.
 ![docs/7-statistics.png](docs/7-statistics.png)
 
 ![docs/7a-statistics.png](docs/7a-statistics.png)
+
+The scope statistics show how often each scope value is used across PIRs, GIRs, threat actor profiles and daily briefings. Clicking a value opens the entries behind the number, each one linking to its detail page, so you can see straight away which requirements and products claim a given country, sector or technique.
 
 ### AI support
 
@@ -329,7 +333,7 @@ Every product and requirement detail page links to the MISP event's history (its
 
 Manual collection entries are stored on the webapp MISP server. They carry the scraper marker tag (`zsazsa:source="misp-scraper"` by default), a TLP tag, `zsazsa:source-type="manual"`, and a local `zsazsa:source="<source-name>"` tag linking the entry to the configured manual source. Galaxy-backed scope tags (geography, sector, threat actor, MITRE ATT&CK) are applied as regular MISP tags. The entry description is stored as a MISP event report in Markdown, and file attachments are added as attachment attributes in the External analysis category.
 
-Events that need analyst follow-up are flagged with `zsazsa:collection="follow-up"` as a local tag.
+Events that need analyst follow-up are flagged with `zsazsa:collection="follow-up"` as a local tag. Events an analyst set aside without owning their workflow state carry `zsazsa:event="dismiss"`, also as a local tag, and both tag names are configurable.
 
 Focus points are stored as event-level text attributes with the comment `zsazsa:fp` and the value format `category|value|notes`. This keeps add and delete operations simple and lets scope values be regenerated safely without losing other attribute data.
 

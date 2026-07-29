@@ -250,7 +250,7 @@ def _build_list_context() -> dict:
             title = (ev.get("info") or "").lower()
             if any(p in title for p in excl_patterns):
                 briefing_excluded_uuids.add(ev["uuid"])
-                if 'workflow:state="rejected"' not in ev.get("tags", []):
+                if not _is_set_aside(ev.get("tags", [])):
                     briefing_pending_reject_uuids.add(ev["uuid"])
 
     return dict(
@@ -260,6 +260,7 @@ def _build_list_context() -> dict:
         limit=_DEFAULT_LIMIT,
         marker_tag=config.SCRAPER_MARKER_TAG,
         followup_tag=getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
+        dismissed_tag=_dismissed_tag(),
         total_reports=sum(ev.get("report_count", 0) for ev in events),
         sources=sources,
         has_manual_sources=any(s.get("kind") == "manual" for s in sources),
@@ -961,6 +962,12 @@ def _misp_for_source(source_id):
     return misp_store._scraper_misp(), None
 
 
+def _is_remote_source(source_id: str) -> bool:
+    """True when the source is another MISP server, whose workflow states are
+    not ours to change. Scraper and manual events live on our own MISP."""
+    return (_find_source(source_id) or {}).get("kind") == "misp"
+
+
 def _refresh_cached_event(uuid: str, source_id: str, misp, context: str = "", row_mutator=None) -> None:
     """Refresh one event row in the local collection cache after a MISP write."""
     try:
@@ -1075,6 +1082,20 @@ _WORKFLOW_STATE_PREFIX = "workflow:state="
 _WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
 
 
+def _dismissed_tag() -> str:
+    """Local tag marking an event an analyst set aside.
+
+    Used for events from another MISP server, whose workflow state belongs to
+    that server. Configurable under Configuration > Context elements.
+    """
+    return getattr(config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"')
+
+
+def _is_set_aside(tags) -> bool:
+    """True when an analyst already rejected or dismissed the event."""
+    return _WORKFLOW_REJECTED_TAG in tags or _dismissed_tag() in tags
+
+
 def _force_workflow_tag(row: dict, tag_name: str) -> None:
     """Overwrite the cached row's workflow:state tag with the one we just applied.
 
@@ -1086,6 +1107,49 @@ def _force_workflow_tag(row: dict, tag_name: str) -> None:
     tags = [t for t in row.get("tags", []) if not t.startswith(_WORKFLOW_STATE_PREFIX)]
     tags.append(tag_name)
     row["tags"] = tags
+
+
+def _force_dismissed_tag(row: dict, tag_name: str) -> None:
+    """Make sure the cached row carries the dismiss tag we just applied.
+
+    Same reason as _force_workflow_tag: MISP may still return the old tag list
+    when the row is refetched right after the write.
+    """
+    tags = row.get("tags", [])
+    if tag_name not in tags:
+        row["tags"] = tags + [tag_name]
+
+
+def _apply_dismiss_tag(misp, event, source_id: str) -> tuple[bool, str]:
+    """Tag a single event as dismissed.
+
+    Returns (changed, error). A False without an error means the event already
+    carried the tag.
+    """
+    uuid = event.uuid
+    tag_name = _dismissed_tag()
+    if any(getattr(t, "name", "") == tag_name for t in (getattr(event, "tags", []) or [])):
+        return False, ""
+
+    try:
+        resp = misp.tag(uuid, tag_name, local=True)
+        err_text = _misp_response_errors(resp)
+        if err_text:
+            logger.warning("dismiss: MISP refused the tag on %s: %s", uuid, err_text)
+            return False, "Could not apply the dismiss tag."
+    except Exception as exc:
+        logger.warning("dismiss: could not tag %s: %s", uuid, exc)
+        return False, "Could not apply the dismiss tag."
+
+    audit.record(
+        "dismiss", "misp-event", entity_id=uuid, entity_label=event.info or uuid,
+        details=f"applied {tag_name}",
+    )
+    _refresh_cached_event(
+        uuid, source_id, misp, context="dismiss",
+        row_mutator=lambda row: _force_dismissed_tag(row, tag_name),
+    )
+    return True, ""
 
 
 @bp.route("/queue-for-tlr", methods=["POST"])
@@ -1131,10 +1195,14 @@ def queue_for_tlr():
 
 @bp.route("/bulk-reject-excluded", methods=["POST"])
 def bulk_reject_excluded():
-    """Apply workflow:state="rejected" to every cached event whose title matches
-    DAILY_BRIEFING_TITLE_EXCLUSIONS, skipping those already rejected.
+    """Set aside every cached event whose title matches DAILY_BRIEFING_TITLE_EXCLUSIONS.
 
-    Returns JSON: {ok, rejected, already_rejected, errors, message}
+    Events on our own MISP get workflow:state="rejected", events from another
+    MISP server get the dismiss tag, the same split as the reject button on a
+    single event. Events already set aside are skipped.
+
+    Returns JSON: {ok, rejected, dismissed, already_rejected, already_dismissed,
+                   errors, message}
     """
     excl_raw = getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", []) or []
     if isinstance(excl_raw, str):
@@ -1142,7 +1210,8 @@ def bulk_reject_excluded():
     excl_patterns = [str(p).strip().lower() for p in excl_raw if str(p).strip()]
 
     if not excl_patterns:
-        return jsonify({"ok": True, "rejected": 0, "already_rejected": 0, "errors": 0,
+        return jsonify({"ok": True, "rejected": 0, "dismissed": 0, "already_rejected": 0,
+                        "already_dismissed": 0, "errors": 0,
                         "message": "No exclusion patterns configured."})
 
     data, err = _json_object()
@@ -1162,22 +1231,31 @@ def bulk_reject_excluded():
     def _title_matches(ev):
         return any(p in (ev.get("info") or "").lower() for p in excl_patterns)
 
-    to_reject = [ev for ev in events
-                 if _title_matches(ev) and _WORKFLOW_REJECTED_TAG not in ev.get("tags", [])]
-    already_rejected = sum(1 for ev in events
-                           if _title_matches(ev) and _WORKFLOW_REJECTED_TAG in ev.get("tags", []))
+    dismissed_tag = _dismissed_tag()
+    to_set_aside = []
+    already_rejected = already_dismissed = 0
+    for ev in events:
+        if not _title_matches(ev):
+            continue
+        tags = ev.get("tags", [])
+        if _WORKFLOW_REJECTED_TAG in tags:
+            already_rejected += 1
+        elif dismissed_tag in tags:
+            already_dismissed += 1
+        else:
+            to_set_aside.append(ev)
 
-    misp_cache: dict[str, object] = {}
-    rejected = errors = 0
+    source_cache: dict[str, tuple] = {}
+    rejected = dismissed = errors = 0
 
-    for ev in to_reject:
+    for ev in to_set_aside:
         src_id = ev.get("source_id") or _SCRAPER_SOURCE_ID
-        if src_id not in misp_cache:
+        if src_id not in source_cache:
             m, err_msg = _misp_for_source(src_id)
             if m is None:
                 logger.warning("bulk_reject_excluded: cannot connect to %s: %s", src_id, err_msg)
-            misp_cache[src_id] = m
-        misp = misp_cache[src_id]
+            source_cache[src_id] = (m, _is_remote_source(src_id))
+        misp, remote = source_cache[src_id]
         if misp is None:
             errors += 1
             continue
@@ -1188,6 +1266,13 @@ def bulk_reject_excluded():
                 logger.warning("bulk_reject_excluded: cannot load event %s", uuid)
                 errors += 1
                 continue
+            if remote:
+                changed, error = _apply_dismiss_tag(misp, event, src_id)
+                if error:
+                    errors += 1
+                elif changed:
+                    dismissed += 1
+                continue
             from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             rejected += 1
@@ -1197,13 +1282,20 @@ def bulk_reject_excluded():
             logger.warning("bulk_reject_excluded: failed to tag %s: %s", uuid, exc)
             errors += 1
 
-    parts = [f"{rejected} event(s) set to rejected"]
+    parts = []
+    if rejected:
+        parts.append(f"{rejected} event(s) set to rejected")
+    if dismissed:
+        parts.append(f"{dismissed} event(s) dismissed")
     if already_rejected:
         parts.append(f"{already_rejected} already rejected")
+    if already_dismissed:
+        parts.append(f"{already_dismissed} already dismissed")
     if errors:
         parts.append(f"{errors} error(s)")
-    return jsonify({"ok": True, "rejected": rejected, "already_rejected": already_rejected,
-                    "errors": errors, "message": ", ".join(parts)})
+    return jsonify({"ok": True, "rejected": rejected, "dismissed": dismissed,
+                    "already_rejected": already_rejected, "already_dismissed": already_dismissed,
+                    "errors": errors, "message": ", ".join(parts) or "No events changed"})
 
 
 _BULK_SUMMARISE_LIMIT = 10
@@ -1272,11 +1364,16 @@ def bulk_flag():
 
 @bp.route("/bulk-reject", methods=["POST"])
 def bulk_reject():
-    """Set workflow:state="rejected" on one or more selected collection events.
+    """Set aside one or more selected collection events.
+
+    Events on our own MISP get workflow:state="rejected"; events from another
+    MISP server get the local dismiss tag instead, since their workflow state
+    belongs to that server.
 
     POST JSON: {"events": [{"uuid": "...", "sourceId": "..."}]}
-    Events already rejected are left untouched.
-    Returns JSON: {ok, rejected, already_rejected, errors, message}
+    Events already rejected or dismissed are left untouched.
+    Returns JSON: {ok, rejected, already_rejected, dismissed, already_dismissed,
+                   errors, message}
     """
     data, err = _json_object()
     if err:
@@ -1285,8 +1382,10 @@ def bulk_reject():
     if not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
 
-    misp_cache: dict[str, object] = {}
-    rejected = already_rejected = errors = 0
+    # Client and kind per source, so listing the sources (a MISP call) happens
+    # once per source rather than once per event.
+    source_cache: dict[str, tuple] = {}
+    rejected = already_rejected = dismissed = already_dismissed = errors = 0
 
     for ev in events:
         uuid = (ev.get("uuid") or "").strip()
@@ -1294,12 +1393,12 @@ def bulk_reject():
         if not uuid:
             continue
 
-        if source_id not in misp_cache:
+        if source_id not in source_cache:
             m, err_msg = _misp_for_source(source_id)
             if m is None:
                 logger.warning("bulk_reject: no MISP client for %s: %s", source_id, err_msg)
-            misp_cache[source_id] = m
-        misp = misp_cache[source_id]
+            source_cache[source_id] = (m, _is_remote_source(source_id))
+        misp, remote = source_cache[source_id]
         if misp is None:
             errors += 1
             continue
@@ -1312,6 +1411,16 @@ def bulk_reject():
             continue
         if not event or isinstance(event, dict):
             errors += 1
+            continue
+
+        if remote:
+            changed, error = _apply_dismiss_tag(misp, event, source_id)
+            if error:
+                errors += 1
+            elif changed:
+                dismissed += 1
+            else:
+                already_dismissed += 1
             continue
 
         currently_rejected = any(
@@ -1338,13 +1447,20 @@ def bulk_reject():
             logger.warning("bulk_reject: failed to reject %s: %s", uuid, exc)
             errors += 1
 
-    parts = [f"{rejected} event(s) rejected"]
+    parts = []
+    if rejected:
+        parts.append(f"{rejected} event(s) rejected")
+    if dismissed:
+        parts.append(f"{dismissed} event(s) dismissed")
     if already_rejected:
         parts.append(f"{already_rejected} already rejected")
+    if already_dismissed:
+        parts.append(f"{already_dismissed} already dismissed")
     if errors:
         parts.append(f"{errors} error(s)")
     return jsonify({"ok": True, "rejected": rejected, "already_rejected": already_rejected,
-                    "errors": errors, "message": ", ".join(parts)})
+                    "dismissed": dismissed, "already_dismissed": already_dismissed,
+                    "errors": errors, "message": ", ".join(parts) or "No events changed"})
 
 
 @bp.route("/bulk-summarise", methods=["POST"])
@@ -1511,6 +1627,51 @@ def reject_event(uuid):
     return jsonify({
         "ok": True,
         "rejected": True,
+        "event_title": event_title,
+        "message": message,
+    })
+
+
+@bp.route("/<string:uuid>/dismiss", methods=["POST"])
+def dismiss_event(uuid):
+    """Mark a single event as dismissed with the configured local tag.
+
+    Events pulled from another MISP server carry that server's workflow state,
+    which is not ours to change, so an analyst sets them aside with this tag
+    instead of rejecting them.
+
+    POST JSON: {"source": "<source_id>"}
+    Returns JSON: {ok, dismissed: bool, message: str, event_title: str}
+    """
+    data, err = _json_object()
+    if err:
+        return err
+    source_id = (data.get("source") or _SCRAPER_SOURCE_ID).strip()
+
+    misp, err_msg = _misp_for_source(source_id)
+    if misp is None:
+        return jsonify({"ok": False, "error": err_msg or "Source not available"}), 502
+
+    try:
+        event = misp.get_event(uuid, pythonify=True)
+    except Exception as exc:
+        logger.warning("dismiss_event: cannot load %s: %s", uuid, exc)
+        return jsonify({"ok": False, "error": "Could not load event from source"}), 502
+    if not event or isinstance(event, dict):
+        return jsonify({"ok": False, "error": "Event not found"}), 404
+
+    event_title = (getattr(event, "info", "") or "").strip() or uuid
+    changed, error = _apply_dismiss_tag(misp, event, source_id)
+    if error:
+        return jsonify({"ok": False, "error": error}), 502
+
+    if changed:
+        message = f"Event '{event_title[:80]}' dismissed."
+    else:
+        message = f"Event '{event_title[:80]}' was already dismissed."
+    return jsonify({
+        "ok": True,
+        "dismissed": True,
         "event_title": event_title,
         "message": message,
     })

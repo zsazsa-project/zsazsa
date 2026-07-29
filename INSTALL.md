@@ -225,7 +225,7 @@ Reasoning models spend part of their token budget thinking before answering, and
 
 ### Context elements
 
-This tab covers zsazsa's MISP tags and tag presets. The entity type markers `TAG_STAKEHOLDER`, `TAG_PIR`, `TAG_GIR` and `TAG_RFI` identify the corresponding zsazsa entities in MISP. The product classification tags `TAG_FLASH_INTEL`, `TAG_VEA`, `TAG_BRIEFING`, `TAG_TLR`, `TAG_INDICATOR_FEED` and `TAG_THREAT_ACTOR_PROFILE` mark products by type. `SCRAPER_MARKER_TAG` is the tag the analyser and the data collection page use to recognise events coming from the misp-scraper instance, and `TAG_COLLECTION_FOLLOWUP` flags collection items for analyst follow-up. `RECOMMENDED_ACTIONS_IMMEDIATE` and `RECOMMENDED_ACTIONS_NEAR_TERM` are organisation-wide presets offered as one-click insert buttons in the Flash Intel and VEA wizards. Finally, `COLLECTION_TAG_STRIP_PREFIXES` and `COLLECTION_TAG_HIDE_PREFIXES` control how tags are shortened or hidden when displaying events on the data collection page.
+This tab covers zsazsa's MISP tags and tag presets. The entity type markers `TAG_STAKEHOLDER`, `TAG_PIR`, `TAG_GIR` and `TAG_RFI` identify the corresponding zsazsa entities in MISP. The product classification tags `TAG_FLASH_INTEL`, `TAG_VEA`, `TAG_BRIEFING`, `TAG_TLR`, `TAG_INDICATOR_FEED` and `TAG_THREAT_ACTOR_PROFILE` mark products by type. `SCRAPER_MARKER_TAG` is the tag the analyser and the data collection page use to recognise events coming from the misp-scraper instance, `TAG_COLLECTION_FOLLOWUP` flags collection items for analyst follow-up, and `TAG_COLLECTION_DISMISSED` marks events from another MISP server that an analyst set aside, since their workflow state belongs to that server. `RECOMMENDED_ACTIONS_IMMEDIATE` and `RECOMMENDED_ACTIONS_NEAR_TERM` are organisation-wide presets offered as one-click insert buttons in the Flash Intel and VEA wizards. Finally, `COLLECTION_TAG_STRIP_PREFIXES` and `COLLECTION_TAG_HIDE_PREFIXES` control how tags are shortened or hidden when displaying events on the data collection page.
 
 | Setting | Description |
 |---|---|
@@ -241,6 +241,7 @@ This tab covers zsazsa's MISP tags and tag presets. The entity type markers `TAG
 | `TAG_THREAT_ACTOR_PROFILE` | Marks threat actor profile products |
 | `SCRAPER_MARKER_TAG` | Identifies events coming from the misp-scraper instance |
 | `TAG_COLLECTION_FOLLOWUP` | Flags collection items for analyst follow-up |
+| `TAG_COLLECTION_DISMISSED` | Marks events from another MISP server that an analyst set aside |
 | `RECOMMENDED_ACTIONS_IMMEDIATE` | Preset immediate actions offered as one-click inserts |
 | `RECOMMENDED_ACTIONS_NEAR_TERM` | Preset near-term actions offered as one-click inserts |
 | `COLLECTION_TAG_STRIP_PREFIXES` | Tag prefixes shortened on the data collection page |

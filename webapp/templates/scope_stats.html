@@ -12,11 +12,26 @@
   .scope-bar-track { height: 8px; border-radius: 4px; background: var(--surface-muted); overflow: hidden; margin-top: 2px; }
   .scope-bar-fill { height: 100%; border-radius: 4px; background: var(--accent-blue); }
   .scope-list { max-height: 340px; overflow-y: auto; }
+  .scope-bar-link { display: block; color: inherit; text-decoration: none; }
+  .scope-bar-link:hover .scope-val { text-decoration: underline; }
+  .scope-entries { list-style: none; margin: .25rem 0 .5rem; padding-left: .25rem; font-size: .78rem; }
+  .scope-entries li { display: flex; align-items: baseline; gap: .35rem; padding: .1rem 0; }
+  .scope-entries .badge { font-weight: 400; flex-shrink: 0; }
+  .scope-entries a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+  .scope-entries a:hover { text-decoration: underline; }
 </style>
+
+{% set scope_kinds = {
+     'pir':      {'label': 'PIR',      'endpoint': 'requirements.pir_detail'},
+     'gir':      {'label': 'GIR',      'endpoint': 'requirements.gir_detail'},
+     'tap':      {'label': 'Profile',  'endpoint': 'threat_actor_profile.detail'},
+     'briefing': {'label': 'Briefing', 'endpoint': 'daily_briefing.detail'},
+   } %}
 
 <p class="text-muted mb-3">
   Frequency of each scope value across PIRs, GIRs, threat actor profiles and daily briefings.
   Geography, sectors and MITRE ATT&amp;CK techniques come from MISP galaxies; the rest are curated free-text scope items.
+  Click a value to see which entries carry it.
 </p>
 
 <div class="row g-4">
@@ -32,14 +47,31 @@
         {% set top = cat['items'][0].count %}
         <div class="scope-list">
           {% for item in cat['items'] %}
+          {% set entries_id = 'scope-' ~ cat.attr ~ '-' ~ loop.index %}
           <div class="scope-bar-row">
-            <div class="scope-bar-head">
-              <span class="scope-val" title="{{ item.value }}">{{ item.value }}</span>
-              <span class="scope-cnt">{{ item.count }}</span>
-            </div>
-            <div class="scope-bar-track">
-              <div class="scope-bar-fill" style="width: {{ (item.count / top * 100) | round(1) }}%;"></div>
-            </div>
+            <a class="scope-bar-link" data-bs-toggle="collapse" href="#{{ entries_id }}"
+               role="button" aria-expanded="false" aria-controls="{{ entries_id }}">
+              <div class="scope-bar-head">
+                <span class="scope-val" title="{{ item.value }}">{{ item.value }}</span>
+                <span class="scope-cnt">{{ item.count }}</span>
+              </div>
+              <div class="scope-bar-track">
+                <div class="scope-bar-fill" style="width: {{ (item.count / top * 100) | round(1) }}%;"></div>
+              </div>
+            </a>
+            <ul class="collapse scope-entries" id="{{ entries_id }}">
+              {% for entry in item.entries %}
+              {% set kind = scope_kinds.get(entry.kind) %}
+              <li>
+                <span class="badge text-bg-light">{{ kind.label if kind else entry.kind }}</span>
+                {% if kind %}
+                <a href="{{ url_for(kind.endpoint, id=entry.uuid) }}" title="{{ entry.label }}">{{ entry.label }}</a>
+                {% else %}
+                {{ entry.label }}
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
           </div>
           {% endfor %}
         </div>

@@ -610,14 +610,14 @@
   <span class="exclusion-actions">
     <!-- Preview: filter table to pending-reject events -->
         <button type="button" class="action-pill" id="preview-excluded-btn"
-            title="Preview: show only events that would be rejected ({{ briefing_pending_reject_uuids | length }} event{{ 's' if briefing_pending_reject_uuids | length != 1 }})">
+            title="Preview: show only events that would be set aside ({{ briefing_pending_reject_uuids | length }} event{{ 's' if briefing_pending_reject_uuids | length != 1 }})">
       <i class="fas fa-eye" style="font-size:.75rem;"></i>
     </button>
-    <!-- Bulk-reject events matching briefing exclusions (not yet rejected) -->
+    <!-- Bulk action on events matching briefing exclusions that are not set aside yet -->
         <button type="button" class="action-pill action-pill-danger" id="bulk-reject-btn"
-            title="Set workflow:state=rejected on every event matching a daily briefing title exclusion pattern that is not yet rejected">
+            title="Set aside every event matching a daily briefing title exclusion pattern: workflow:state=rejected on your own MISP, the dismiss tag for events from another MISP server">
       <i class="fas fa-ban" style="font-size:.75rem;"></i>
-      Reject <span id="bulk-reject-count">{{ briefing_pending_reject_uuids | length }}</span> event{{ 's' if briefing_pending_reject_uuids | length != 1 }} matching exclusions
+      Set aside <span id="bulk-reject-count">{{ briefing_pending_reject_uuids | length }}</span> event{{ 's' if briefing_pending_reject_uuids | length != 1 }} matching exclusions
     </button>
   </span>
   <span id="bulk-reject-result" class="small d-none"></span>
@@ -772,6 +772,11 @@
     <div class="d-flex flex-wrap align-items-center gap-2">
       <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn" data-toggle-key="vulnFilter">
         <i class="fas fa-shield-halved me-1"></i>Covers a CVE
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn"
+              data-toggle-key="dismissedFilter" data-toggle-value="without"
+              title="Hide events tagged {{ dismissed_tag }}. Analysts dismiss events from other MISP servers the way events on your own MISP are rejected.">
+        <i class="fas fa-eye-slash me-1"></i>Ignore dismissed events
       </button>
       <div class="d-flex align-items-center gap-1">
         <span class="text-muted small" style="white-space:nowrap;"><i class="fas fa-flag fa-xs me-1"></i>Flagged</span>
@@ -1030,7 +1035,7 @@
   var previewBtn = document.getElementById('preview-excluded-btn');
   var bulkRejectCount = document.getElementById('bulk-reject-count');
 
-  // Events matching an exclusion that would be rejected, given the current
+  // Events matching an exclusion that would be set aside, given the current
   // filters but ignoring the row display cap, so the preview tooltip and the
   // reject button always report (and act on) the same set.
   function getMatchingPendingRejectUuids() {
@@ -1048,7 +1053,7 @@
     if (bulkRejectCount) bulkRejectCount.textContent = String(n);
     if (previewBtn) {
       previewBtn.setAttribute('title',
-        'Preview: show only events that would be rejected (' + n + ' event' + (n === 1 ? '' : 's') + ')');
+        'Preview: show only events that would be set aside (' + n + ' event' + (n === 1 ? '' : 's') + ')');
     }
   }
 
@@ -1078,6 +1083,7 @@
         includeOrgs: new Set(s.includeOrgs),
         excludeOrgs: new Set(s.excludeOrgs),
         hideRejected: s.hideRejected,
+        dismissedFilter: s.dismissedFilter,
         flagFilter: s.flagFilter,
         dateFilter: s.dateFilter,
         aiFilter: s.aiFilter,
@@ -1105,6 +1111,7 @@
       s.includeOrgs = preserved.includeOrgs;
       s.excludeOrgs = preserved.excludeOrgs;
       s.hideRejected = preserved.hideRejected;
+      s.dismissedFilter = preserved.dismissedFilter;
       s.flagFilter = preserved.flagFilter;
       s.dateFilter = preserved.dateFilter;
       s.aiFilter = preserved.aiFilter;
@@ -1147,12 +1154,12 @@
         }
         return;
       }
-      if (!confirm('Set workflow:state=rejected on all events matching the daily briefing exclusion patterns under the current filters?\n\nThis will tag ' + targetUuids.length + ' event(s) in MISP. The action cannot be undone from here.')) {
+      if (!confirm('Set aside all events matching the daily briefing exclusion patterns under the current filters?\n\nThis tags ' + targetUuids.length + ' event(s) in MISP: workflow:state=rejected for events on your own MISP, the dismiss tag for events from another MISP server. The action cannot be undone from here.')) {
         return;
       }
       var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
       bulkRejectBtn.disabled = true;
-      bulkRejectBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:.75rem;"></i> Rejecting…';
+      bulkRejectBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:.75rem;"></i> Working…';
       if (bulkRejectResult) { bulkRejectResult.className = 'small d-none'; bulkRejectResult.textContent = ''; }
 
       fetch('{{ url_for("data_collection.bulk_reject_excluded") }}', {
@@ -1163,18 +1170,18 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         bulkRejectBtn.disabled = false;
-        bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Reject events matching exclusions';
+        bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Set aside events matching exclusions';
         if (bulkRejectResult) {
           bulkRejectResult.textContent = data.message || (data.ok ? 'Done.' : 'Error.');
           bulkRejectResult.className = 'small ms-1 ' + (data.ok ? 'text-success' : 'text-danger');
         }
-        if (data.ok && data.rejected > 0) {
+        if (data.ok && (data.rejected > 0 || data.dismissed > 0)) {
           setTimeout(function() { window.location.reload(); }, 1500);
         }
       })
       .catch(function() {
         bulkRejectBtn.disabled = false;
-        bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Reject events matching exclusions';
+        bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Set aside events matching exclusions';
         if (bulkRejectResult) {
           bulkRejectResult.textContent = 'Request failed.';
           bulkRejectResult.className = 'small ms-1 text-danger';
@@ -1667,6 +1674,7 @@
       reqMatchFilter: s.reqMatchFilter, vulnFilter: s.vulnFilter,
       anyProductFilter: s.anyProductFilter, ctiPredicate: s.ctiPredicate,
       ctiOperator: s.ctiOperator, ctiValue: s.ctiValue, hideRejected: s.hideRejected,
+      dismissedFilter: s.dismissedFilter,
     };
   }
 

@@ -24,7 +24,7 @@ import threading
 import time
 import urllib3
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -4264,29 +4264,45 @@ def scope_stats() -> list[dict]:
     GIRs, threat actor profiles and daily briefings).
 
     Returns one entry per category: {"label", "attr", "items", "total", "distinct"},
-    where items is [{"value", "count"}] sorted by count descending.
+    where items is [{"value", "count", "entries"}] sorted by count descending and
+    entries is the [{"kind", "label", "uuid"}] the value was counted from.
     """
+    # Entity types that carry scope, with the description shown in the drill-down
+    # list. The kind is what the template maps to a detail page.
+    sources = [
+        ("pir", list_pirs, lambda e: f"{e.pir_id} {e.question}"),
+        ("gir", list_girs, lambda e: f"{e.gir_id} {e.topic}"),
+        ("tap", list_threat_actor_profiles, lambda e: f"{e.tap_id} {e.title}"),
+        ("briefing", list_briefings, lambda e: f"{e.date} {e.title}"),
+    ]
+
     entities = []
-    for fetch in (list_pirs, list_girs, list_threat_actor_profiles, list_briefings):
+    for kind, fetch, describe in sources:
         try:
-            entities += fetch() or []
+            for entity in fetch() or []:
+                entities.append((entity, {
+                    "kind": kind,
+                    "label": describe(entity).strip() or entity.uuid,
+                    "uuid": entity.uuid,
+                }))
         except Exception:
             logger.warning("scope_stats: %s failed", fetch.__name__)
 
     result = []
     for label, attr in SCOPE_CATEGORIES:
-        counter = Counter()
-        for entity in entities:
+        entries = defaultdict(list)
+        for entity, ref in entities:
             for value in (getattr(entity, attr, None) or []):
                 value = (value or "").strip()
                 if value:
-                    counter[value] += 1
-        items = [{"value": v, "count": c} for v, c in counter.most_common()]
+                    entries[value].append(ref)
+        items = [{"value": v, "count": len(refs), "entries": refs} for v, refs in entries.items()]
+        items.sort(key=lambda i: (-i["count"], i["value"].lower()))
         result.append({
             "label": label,
             "attr": attr,
             "items": items,
-            "total": sum(counter.values()),
+            "total": sum(i["count"] for i in items),
             "distinct": len(items),
         })
     return result

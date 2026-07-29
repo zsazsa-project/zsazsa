@@ -45,8 +45,8 @@
 .wf-complete  { background:var(--wf-complete-bg); color:var(--wf-complete-fg); border-color:var(--wf-complete-border); }
 .wf-published { background:var(--wf-published-bg); color:var(--wf-published-fg); border-color:var(--wf-published-border); }
 .wf-other     { background:var(--neutral-200); color:var(--neutral-700); border-color:var(--neutral-300); }
-.wf-rejected-row { opacity:.45; }
-.wf-rejected-row:hover { opacity:.8; }
+.wf-rejected-row, .event-dismissed-row { opacity:.45; }
+.wf-rejected-row:hover, .event-dismissed-row:hover { opacity:.8; }
 .briefing-excluded-row { opacity:.4; filter:grayscale(.6); }
 .briefing-excluded-row:hover { opacity:.75; filter:none; }
 .cti-pred-row {
@@ -77,6 +77,11 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
 
   var _filterStatePersistReady = false;
 
+  /* Events an analyst set aside: rejected through the workflow state on our own
+     MISP, dismissed with a local tag when the event came from another server. */
+  var REJECTED_TAG = 'workflow:state="rejected"';
+  var DISMISSED_TAG = {{ dismissed_tag | tojson }};
+
   var state = {
     q: '',
     include: new Set(),
@@ -88,6 +93,8 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     excludeOrgs: new Set(),
     displayLimit: 100,
     hideRejected: true,
+    /* 'without' hides events an analyst dismissed, 'any' shows them */
+    dismissedFilter: 'without',
     flagFilter: 'any',
     pendingRejectUuids: null,
     dateFilter: 'none',
@@ -379,6 +386,51 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     return badge;
   }
 
+  /* Rebuild the reports count and the AI-summary marker of a row from the
+     reports the preview endpoint returned, so a summary created from the list
+     shows up without reloading the page. */
+  function updateReportCells(row, reports) {
+    var count = reports.length;
+    row.dataset.reportCount = String(count);
+
+    var hasAi = reports.some(function(r) { return (r.name || '').indexOf('[AI-Summary]') === 0; });
+    row.dataset.hasAiSummary = hasAi ? '1' : '0';
+
+    var aiCell = row.querySelector('.ai-summary-cell');
+    if (aiCell) {
+      var icon = aiCell.querySelector('.ai-summary-icon');
+      if (hasAi && !icon) {
+        icon = document.createElement('i');
+        icon.className = 'fas fa-wand-magic-sparkles text-success ai-summary-icon';
+        icon.style.fontSize = '.8rem';
+        icon.title = 'AI summary available';
+        aiCell.appendChild(icon);
+      } else if (!hasAi && icon) {
+        icon.remove();
+      }
+    }
+
+    var reportCell = row.querySelector('.report-count-cell');
+    if (!reportCell) return;
+    reportCell.textContent = '';
+    if (count) {
+      var link = document.createElement('a');
+      link.href = '#';
+      link.className = 'reports-cell-link text-decoration-none fw-semibold';
+      link.title = 'View ' + count + ' attached report' + (count !== 1 ? 's' : '');
+      link.textContent = count;
+      link.dataset.uuid = row.dataset.uuid;
+      link.dataset.sourceId = row.dataset.sourceId;
+      bindReportsCellLink(link);
+      reportCell.appendChild(link);
+    } else {
+      var zero = document.createElement('span');
+      zero.className = 'text-muted';
+      zero.textContent = '0';
+      reportCell.appendChild(zero);
+    }
+  }
+
   async function refreshEventRowTags(uuid, sourceId) {
     var row = rows.find(function(r) { return r.dataset.uuid === uuid && r.dataset.sourceId === sourceId; });
     if (!row) return;
@@ -387,6 +439,10 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     if (!data.ok || !data.event) return;
     var tagNames = (data.event.tags || []).map(function(t) { return t.name; }).filter(Boolean);
     row.dataset.tags = JSON.stringify(tagNames);
+    updateReportCells(row, data.reports || []);
+    /* The offcanvas caches what it last fetched for this event; drop it so the
+       panel shows the new state instead of the one from before this call. */
+    delete previewCache[previewCacheKey(uuid, sourceId)];
     var ctiTags = tagNames.filter(function(t) { return t.startsWith('cti-evaluation:'); });
     var container = row.querySelector('.tag-cell-inner');
     if (!container && ctiTags.length) container = ensureCtiBadgeContainer(row);
@@ -411,6 +467,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         sortCol: state.sortCol,
         sortDir: state.sortDir,
         dateFilter: state.dateFilter,
+        dismissedFilter: state.dismissedFilter,
         aiFilter: state.aiFilter,
         reportsFilter: state.reportsFilter,
         reqMatchFilter: state.reqMatchFilter,
@@ -452,8 +509,9 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       var orgc = row.dataset.orgc || '';
       var date = row.dataset.date || '';
 
-      var rejectedHidden = state.hideRejected && tagSet.has('workflow:state="rejected"');
-      if (!rejectedHidden) {
+      var setAsideHidden = (state.hideRejected && tagSet.has(REJECTED_TAG)) ||
+                           (state.dismissedFilter === 'without' && tagSet.has(DISMISSED_TAG));
+      if (!setAsideHidden) {
         activeTotal++;
         sourceActiveCounts[srcId] = (sourceActiveCounts[srcId] || 0) + 1;
       }
@@ -461,7 +519,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       var ok = true;
       if (!state.activeSources.has(srcId)) ok = false;
       if (ok && q && title.indexOf(q) === -1) ok = false;
-      if (ok && rejectedHidden) ok = false;
+      if (ok && setAsideHidden) ok = false;
       if (ok) state.include.forEach(function(t) { if (!tagSet.has(t)) ok = false; });
       if (ok) state.exclude.forEach(function(t) { if (tagSet.has(t)) ok = false; });
       if (ok && state.includeOrgs.size && !state.includeOrgs.has(orgc)) ok = false;
@@ -584,6 +642,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     var hasFilter = q || state.include.size || state.exclude.size ||
       state.activeSources.size < allSourceIds.length ||
       state.includeOrgs.size || state.excludeOrgs.size || !state.hideRejected ||
+      state.dismissedFilter !== 'without' ||
       state.flagFilter !== 'any' || !!state.pendingRejectUuids ||
       state.dateFilter !== 'none' || state.aiFilter !== 'any' || state.reportsFilter !== 'any' ||
       state.reqMatchFilter !== 'any' || state.vulnFilter !== 'any' ||
@@ -781,7 +840,8 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     state.q = ''; state.include.clear(); state.exclude.clear();
     state.includeOrgs.clear(); state.excludeOrgs.clear();
     state.activeSources = new Set(allSourceIds);
-    state.hideRejected = true; state.flagFilter = 'any'; state.pendingRejectUuids = null; state.dateFilter = 'none';
+    state.hideRejected = true; state.dismissedFilter = 'without';
+    state.flagFilter = 'any'; state.pendingRejectUuids = null; state.dateFilter = 'none';
     state.aiFilter = 'any'; state.reportsFilter = 'any';
     state.reqMatchFilter = 'any'; state.vulnFilter = 'any';
     state.anyProductFilter = false;
@@ -790,9 +850,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     document.querySelectorAll('.date-filter-btn').forEach(function(b) {
       b.classList.toggle('active', b.dataset.dateFilter === 'none');
     });
-    document.querySelectorAll('.filter-toggle-btn').forEach(function(b) {
-      b.classList.remove('btn-secondary'); b.classList.add('btn-outline-secondary');
-    });
+    syncFilterToggleBtns();
     document.querySelectorAll('.tristate-filter-btn').forEach(function(b) {
       var isAny = b.dataset.filterValue === 'any';
       b.classList.toggle('btn-secondary', isAny); b.classList.toggle('btn-outline-secondary', !isAny);
@@ -961,13 +1019,25 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     });
   });
 
+  /* On/off filter buttons. The value the button stands for is 'with' unless the
+     button names another one, so "Ignore dismissed events" can switch its own
+     key between 'without' and 'any'. */
+  function syncFilterToggleBtns() {
+    document.querySelectorAll('.filter-toggle-btn').forEach(function(btn) {
+      var on = state[btn.dataset.toggleKey] === (btn.dataset.toggleValue || 'with');
+      btn.classList.toggle('btn-secondary', on);
+      btn.classList.toggle('btn-outline-secondary', !on);
+    });
+  }
+
   document.querySelectorAll('.filter-toggle-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var key = btn.dataset.toggleKey;
       if (!key || !(key in state)) return;
-      var active = state[key] === 'with';
-      state[key] = active ? 'any' : 'with';
-      btn.classList.toggle('btn-secondary', !active); btn.classList.toggle('btn-outline-secondary', active); applyAll();
+      var onValue = btn.dataset.toggleValue || 'with';
+      state[key] = state[key] === onValue ? 'any' : onValue;
+      syncFilterToggleBtns();
+      applyAll();
     });
   });
 
@@ -1030,6 +1100,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     if (CLOUD_HIDDEN_PREFIXES.some(function(p) { return tag.startsWith(p); })) pill.classList.add('tag-pill-hidden');
   });
   document.querySelectorAll('.scraper-meta-tooltip').forEach(function(el) { new bootstrap.Tooltip(el); });
+  syncFilterToggleBtns();
   updateOrgPillVisibility(); sortRows(); applyAll(); updateTagCountLabel(); updateOrgCountLabel();
 
   /* ── Select all ── */
@@ -1183,25 +1254,12 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.ok) {
-          var row = btn.closest('tr');
-          var aiCell = row ? row.querySelector('.ai-summary-cell') : null;
-          if (aiCell && !aiCell.querySelector('.ai-summary-icon')) {
-            var icon = document.createElement('i');
-            icon.className = 'fas fa-wand-magic-sparkles text-success ai-summary-icon';
-            icon.style.fontSize = '.8rem'; icon.title = 'AI summary available'; aiCell.appendChild(icon);
-          }
-          // Creating a summary adds one MISP report. Update the count in the row and the total.
-          if (row) {
-            var newCount = parseInt(row.dataset.reportCount || '0', 10) + 1;
-            row.dataset.reportCount = String(newCount);
-            var reportCell = aiCell ? aiCell.previousElementSibling : null;
-            if (reportCell) reportCell.textContent = newCount;
-          }
-          var statReports = document.getElementById('stat-reports');
-          if (statReports) {
-            statReports.textContent = String(parseInt(statReports.textContent || '0', 10) + 1);
-          }
           btn.remove();
+          /* The summary is a new MISP report and the event moved to workflow
+             state 'draft', so pull the row back from the source to show both. */
+          refreshEventRowTags(uuid, sourceId).catch(function() {
+            showFeedback('The summary was created, but the row could not be refreshed. Reload the page to see it.', 'warning');
+          });
         } else {
           btn.disabled = false; btn.innerHTML = originalHtml;
           btn.title = 'Error: ' + (data.error || 'unknown');
@@ -1289,9 +1347,11 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     });
   }
 
+  function previewCacheKey(uuid, sourceId) { return uuid + '|' + sourceId; }
+
   function openPreview(uuid, sourceId) {
     if (!previewOffcanvas) return;
-    var cacheKey = uuid + '|' + sourceId;
+    var cacheKey = previewCacheKey(uuid, sourceId);
     if (previewTitle) previewTitle.textContent = '…';
     if (previewMeta) previewMeta.textContent = '';
     if (previewContent) previewContent.innerHTML = '';
@@ -1326,14 +1386,15 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     a.addEventListener('click', function(e) { e.preventDefault(); openPreview(a.dataset.uuid, a.dataset.sourceId); });
   });
 
-  /* ── Reports cell: clicking the report count opens the preview offcanvas,
-        which already shows the reports as its first section. ── */
-  document.querySelectorAll('.reports-cell-link').forEach(function(a) {
-    a.addEventListener('click', function(e) {
+  /* Clicking the report count opens the preview offcanvas, which already shows
+     the reports as its first section. */
+  function bindReportsCellLink(link) {
+    link.addEventListener('click', function(e) {
       e.preventDefault();
-      openPreview(a.dataset.uuid, a.dataset.sourceId);
+      openPreview(link.dataset.uuid, link.dataset.sourceId);
     });
-  });
+  }
+  document.querySelectorAll('.reports-cell-link').forEach(bindReportsCellLink);
 
   /* ── Flag for review ── */
   document.querySelectorAll('.flag-review-btn').forEach(function(btn) {
@@ -1362,9 +1423,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     });
   });
 
-  /* ── Reject event (set workflow:state="rejected") ── */
-  var REJECTED_TAG = 'workflow:state="rejected"';
-
+  /* ── Reject and dismiss ── */
   function showFeedback(message, category) {
     /* Append a dismissible alert to #flash-container; reuse auto-dismiss logic from base.html */
     var container = document.getElementById('flash-container');
@@ -1403,25 +1462,81 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     row.dataset.tags = JSON.stringify(tags);
 
     /* Toggle the small ban icon next to the title */
-    var titleCell = row.querySelector('td:nth-child(4)');
-    if (titleCell) {
-      var marker = titleCell.querySelector('.reject-state-marker');
-      if (rejected && !marker) {
-        marker = document.createElement('i');
-        marker.className = 'fas fa-ban ms-1 reject-state-marker';
-        marker.style.cssText = 'font-size:.6rem;color:var(--neutral-500);cursor:default;vertical-align:middle;';
-        marker.title = 'Grayed out: workflow state is rejected';
-        var firstLink = titleCell.querySelector('a.event-preview-link');
-        if (firstLink && firstLink.nextSibling) {
-          titleCell.insertBefore(marker, firstLink.nextSibling);
-        } else {
-          titleCell.appendChild(marker);
-        }
-      } else if (!rejected && marker) {
-        marker.remove();
-      }
+    if (rejected) {
+      addRowStateMarker(row, 'reject-state-marker', 'fa-ban', 'Grayed out: workflow state is rejected');
+    } else {
+      var marker = row.querySelector('.reject-state-marker');
+      if (marker) marker.remove();
     }
   }
+
+  /* Small icon after the event title saying why the row is greyed out. */
+  function addRowStateMarker(row, markerClass, iconClass, title) {
+    var titleCell = row.querySelector('td:nth-child(4)');
+    if (!titleCell || titleCell.querySelector('.' + markerClass)) return;
+    var marker = document.createElement('i');
+    marker.className = 'fas ' + iconClass + ' ms-1 ' + markerClass;
+    marker.style.cssText = 'font-size:.6rem;color:var(--neutral-500);cursor:default;vertical-align:middle;';
+    marker.title = title;
+    var titleLink = titleCell.querySelector('a.event-preview-link');
+    if (titleLink && titleLink.nextSibling) titleCell.insertBefore(marker, titleLink.nextSibling);
+    else titleCell.appendChild(marker);
+  }
+
+  /* Dismissing is one-way in the interface: to bring an event back, remove the
+     tag in MISP. */
+  function markRowDismissed(row) {
+    if (!row) return;
+    row.classList.add('event-dismissed-row');
+
+    var tags = [];
+    try { tags = JSON.parse(row.dataset.tags || '[]'); } catch (e) { tags = []; }
+    if (tags.indexOf(DISMISSED_TAG) === -1) tags.push(DISMISSED_TAG);
+    row.dataset.tags = JSON.stringify(tags);
+
+    addRowStateMarker(row, 'dismiss-state-marker', 'fa-eye-slash', 'Grayed out: dismissed by an analyst');
+
+    var dismissBtn = row.querySelector('.dismiss-event-btn');
+    if (dismissBtn) dismissBtn.remove();
+  }
+
+  document.querySelectorAll('.dismiss-event-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var uuid = btn.dataset.uuid;
+      var sourceId = btn.dataset.sourceId;
+
+      if (!confirm('Dismiss this event?\n\nThis applies the local tag ' + DISMISSED_TAG + ' on the source MISP server. The event stays in the list but is hidden while "Ignore dismissed events" is on. To bring it back, remove the tag in MISP.')) {
+        return;
+      }
+
+      btn.disabled = true;
+      var originalHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+      fetch(SCRIPT_ROOT + '/collection/' + uuid + '/dismiss', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+        body: JSON.stringify({source: sourceId}),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+          showFeedback(data.error || 'Could not dismiss the event.', 'danger');
+          return;
+        }
+        markRowDismissed(btn.closest('tr.event-row'));
+        showFeedback(data.message || 'Event dismissed.', 'warning');
+        applyAll();
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        showFeedback('Request failed. The event was not dismissed.', 'danger');
+      });
+    });
+  });
 
   document.querySelectorAll('.reject-event-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -1543,14 +1658,18 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       runBulkAction(
         selectionRejectBtn,
         SCRIPT_ROOT + '/collection/bulk-reject',
-        'Reject the selected events?\n\nThis sets workflow:state="rejected" in MISP for each one. They will be greyed out and excluded from product workflows. To restore them, change the workflow state directly in MISP.',
+        'Set the selected events aside?\n\nEvents on your own MISP get ' + REJECTED_TAG + ', which keeps them out of the analyser pipeline. Events from another MISP server get the local tag ' + DISMISSED_TAG + ' and stay hidden while "Ignore dismissed events" is on. To bring them back, change the workflow state or remove the tag directly in MISP.',
         function(selected) {
           selected.forEach(function(s) {
             var row = findEventRow(s.uuid, s.sourceId);
             if (!row) return;
-            updateRowRejectedState(row, true);
-            var rejectBtn = row.querySelector('.reject-event-btn');
-            if (rejectBtn) rejectBtn.remove();
+            if (row.dataset.sourceKind === 'misp') {
+              markRowDismissed(row);
+            } else {
+              updateRowRejectedState(row, true);
+              var rejectBtn = row.querySelector('.reject-event-btn');
+              if (rejectBtn) rejectBtn.remove();
+            }
             var cb = row.querySelector('.event-row-cb');
             if (cb) cb.checked = false;
           });
@@ -1592,6 +1711,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     if (saved.sortCol) state.sortCol = saved.sortCol;
     if (saved.sortDir) state.sortDir = saved.sortDir;
     if (saved.dateFilter) state.dateFilter = saved.dateFilter;
+    if (saved.dismissedFilter) state.dismissedFilter = saved.dismissedFilter;
     if (saved.aiFilter) state.aiFilter = saved.aiFilter;
     if (saved.reportsFilter) state.reportsFilter = saved.reportsFilter;
     if (saved.reqMatchFilter) state.reqMatchFilter = saved.reqMatchFilter;
@@ -1654,13 +1774,14 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       }
     });
 
-    /* Sync tristate buttons */
+    /* Sync tristate and on/off buttons */
     document.querySelectorAll('.tristate-filter-btn').forEach(function(b) {
       var key = b.dataset.filterKey; var val = b.dataset.filterValue;
       if (!key) return;
       b.classList.toggle('btn-secondary', state[key] === val);
       b.classList.toggle('btn-outline-secondary', state[key] !== val);
     });
+    syncFilterToggleBtns();
 
     /* Sync CTI dropdowns */
     var ctiPredEl = document.getElementById('cti-predicate-filter');
