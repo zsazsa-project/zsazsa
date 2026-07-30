@@ -71,6 +71,11 @@ def init_db() -> None:
                 result_json  TEXT
             )
         """)
+        # The pipeline page reads this table newest first, page by page.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_log_processed_at"
+            " ON event_log (processed_at DESC, id DESC)"
+        )
         # Forward migration: add any columns introduced after initial deployment.
         _ensure_columns(conn, "event_log", [
             ("event_uuid", "TEXT NOT NULL DEFAULT ''"),

@@ -43,880 +43,218 @@
 {% endblock %}
 
 {% block content %}
-<style>
-/* ── Alt 4 layout ──────────────────────────────────────────────── */
-.alt4-l1, .alt4-l2 {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: .35rem;
-}
-.alt4-l1 {
-  padding: .4rem 0 .55rem;
-  border-bottom: 1px solid var(--alt4-divider);
-  margin-bottom: .4rem;
-}
-.alt4-l2 {
-  padding: .35rem 0 .55rem;
-  border-bottom: 1px solid var(--alt4-divider);
-  margin-bottom: .5rem;
-}
-
-/* Rounded search pill */
-.alt4-search {
-  display: flex;
-  align-items: center;
-  gap: .3rem;
-  background: var(--card-bg);
-  border: 1.5px solid var(--form-border);
-  border-radius: 999px;
-  padding: .22rem .75rem;
-  transition: border-color .15s, box-shadow .15s;
-}
-.alt4-search:focus-within {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent-blue) 13%, transparent);
-}
-.alt4-search input {
-  border: 0;
-  outline: 0;
-  box-shadow: none !important;
-  font-size: .85rem;
-  background: transparent;
-  min-width: 160px;
-  max-width: 220px;
-}
-.alt4-search .search-icon { font-size: .76rem; color: var(--alt4-icon-muted); flex-shrink: 0; }
-
-/* Panel toggle buttons - shared class for open-state CSS */
-.alt4-panel-toggle[aria-expanded="true"] {
-  background: var(--alt4-toggle-active-bg);
-  border-color: var(--alt4-toggle-active-border);
-  color: var(--chip-source-fg);
-}
-.alt4-panel-toggle.has-filter {
-  background: var(--accent-blue);
-  border-color: var(--alt4-blue-dark);
-  color: var(--text-on-accent);
-}
-.alt4-panel-toggle.has-filter[aria-expanded="true"] {
-  background: var(--alt4-blue-dark);
-  border-color: var(--alt4-blue-darker);
-}
-
-/* Collapsible filter panels */
-.alt4-panel {
-  background: var(--alt4-panel-bg);
-  border: 1px solid var(--alt4-panel-border);
-  border-radius: .45rem;
-  padding: .7rem 1rem .65rem;
-  margin-bottom: .4rem;
-}
-.alt4-panel-head {
-  font-size: .64rem;
-  font-weight: 700;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-  color: var(--neutral-600);
-  margin-bottom: .45rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Source toggles on line 2 */
-.alt4-l2 .source-toggle {
-  font-size: .8rem;
-  padding: .28rem .65rem;
-}
-
-/* Hide-rejected toggle */
-/* Hide-rejected toggle: uses action-pill for sizing, only overrides state colours */
-.hide-rej-btn.is-hiding {
-  background: var(--alt4-hide-rej-bg);
-  border-color: var(--alt4-hide-rej-border);
-  color: var(--alt4-hide-rej-fg);
-}
-.hide-rej-btn.is-hiding:hover { background: var(--alt4-hide-rej-hover-bg); border-color: var(--alt4-hide-rej-hover-border); }
-.hide-rej-btn.is-showing {
-  /* neutral: inherits action-pill defaults */
-  border-style: dashed;
-}
-
-/* Active preset indicator */
-.preset-active-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  padding: .28rem .55rem;
-  border: 1px solid var(--alt4-preset-border);
-  border-radius: .4rem;
-  background: var(--neutral-100);
-  color: var(--alt4-preset-fg);
-  font-size: .72rem;
-  line-height: 1;
-  max-width: 320px;
-}
-.preset-active-indicator .preset-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 220px;
-}
-.preset-active-indicator.modified {
-  background: var(--vuln-advisory-bg);
-  border-color: var(--vuln-advisory-border);
-  color: var(--vuln-advisory-fg);
-}
-.preset-clear-btn {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  opacity: .62;
-  padding: 0;
-  line-height: 1;
-  cursor: pointer;
-}
-.preset-clear-btn:hover {
-  opacity: .95;
-}
-
-/* Scope tagger buttons */
-.scope-btn-group {
-  display: inline-flex;
-  gap: .2rem;
-  flex-wrap: wrap;
-}
-.scope-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border: 1px solid var(--neutral-300);
-  border-radius: .3rem;
-  background: var(--card-bg);
-  color: var(--alt4-icon-muted);
-  cursor: pointer;
-  font-size: .6rem;
-  transition: border-color .12s, background .12s, color .12s;
-  padding: 0;
-}
-.scope-btn:hover { border-color: var(--accent-blue); background: var(--source-toggle-hover-bg); color: var(--accent-blue); }
-.scope-btn.active { border-color: var(--accent-blue); background: var(--source-toggle-on-bg); color: var(--pill-active-fg); }
-
-/* Scope panel (inserted as a table row below the event) */
-.scope-panel-row > td { padding: 0 !important; border-top: 0 !important; }
-.scope-panel-container {
-  background: var(--alt4-panel-bg);
-  border-top: 2px solid var(--accent-blue);
-  padding: .65rem .75rem;
-}
-.scope-panel-header {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  margin-bottom: .5rem;
-}
-.scope-panel-type-label {
-  font-size: .7rem;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: var(--accent-blue);
-}
-.scope-panel-search {
-  flex: 1;
-  max-width: 220px;
-  font-size: .78rem;
-  padding: .2rem .5rem;
-  border: 1px solid var(--neutral-300);
-  border-radius: .3rem;
-}
-.scope-selected-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .25rem;
-  min-height: 0;
-  margin-bottom: .4rem;
-}
-.scope-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: .25rem;
-  padding: .15rem .45rem;
-  border-radius: 999px;
-  background: var(--source-toggle-on-bg);
-  color: var(--pill-active-fg);
-  border: 1px solid var(--alt4-scope-chip-border);
-  font-size: .68rem;
-  font-weight: 500;
-}
-.scope-chip-remove {
-  cursor: pointer;
-  opacity: .6;
-  padding: 0 .1rem;
-}
-.scope-chip-remove:hover { opacity: 1; }
-.scope-item-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .2rem .4rem;
-  max-height: 160px;
-  overflow-y: auto;
-}
-.scope-item {
-  display: flex;
-  align-items: center;
-  gap: .25rem;
-  padding: .12rem .35rem;
-  font-size: .72rem;
-  cursor: pointer;
-  border-radius: .25rem;
-  color: var(--neutral-700);
-  white-space: nowrap;
-  user-select: none;
-}
-.scope-item:hover { background: var(--neutral-200); }
-.scope-item input { cursor: pointer; margin: 0; }
-.scope-item.hidden { display: none; }
-.scope-custom-add {
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-  margin-bottom: .45rem;
-}
-.scope-custom-add input {
-  flex: 1;
-  min-width: 220px;
-  font-size: .78rem;
-}
-
-/* CTI Evaluation inline panel */
-.cti-eval-panel-row > td { padding: 0 !important; border-top: 0 !important; }
-.cti-eval-panel-container {
-  background: var(--alt4-panel-bg);
-  border-top: 2px solid var(--accent-blue);
-  padding: .65rem .75rem .75rem;
-}
-.cti-eval-panel-header {
-  display: flex;
-  align-items: center;
-  gap: .45rem;
-  margin-bottom: .35rem;
-}
-.cti-eval-panel-title {
-  font-size: .7rem;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: var(--accent-blue);
-}
-.cti-eval-panel-event-name {
-  font-size: .75rem;
-  color: var(--text-muted);
-  flex: 1;
-  min-width: 0;
-}
-.cti-eval-panel-close {
-  background: none;
-  border: none;
-  font-size: 1rem;
-  line-height: 1;
-  color: var(--alt4-icon-muted);
-  cursor: pointer;
-  padding: 0 .15rem;
-  flex-shrink: 0;
-}
-.cti-eval-panel-close:hover { color: var(--text-primary); }
-.cti-eval-predicates {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .15rem .75rem;
-}
-.cti-pred-item {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex: 1 1 calc(50% - .375rem);
-  min-width: 220px;
-  padding: .18rem 0;
-}
-.cti-pred-label {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.cti-pred-desc { font-size: .68rem; }
-.cti-pred-item .form-select { width: 8rem; flex-shrink: 0; }
-
-/* Active chips bar */
-.alt4-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .3rem;
-  align-items: center;
-  min-height: 0;
-  margin-bottom: .5rem;
-}
-
-/* Action pills (below sources) */
-.alt4-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .35rem;
-  padding: .3rem 0 .55rem;
-  border-bottom: 1px solid var(--alt4-divider);
-  margin-bottom: .5rem;
-}
-/* Creation actions (pull / add / import) pushed to the right so they stand out. */
-.alt4-actions-right {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .35rem;
-}
-.action-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .26rem .6rem;
-  border: 1.5px solid var(--neutral-300);
-  border-radius: .4rem;
-  background: var(--card-bg);
-  font-size: .78rem;
-  color: var(--neutral-600);
-  cursor: pointer;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: border-color .12s, background .12s, color .12s;
-  line-height: 1.4;
-  vertical-align: middle;
-}
-.action-pill:hover {
-  border-color: var(--neutral-500);
-  background: var(--neutral-50);
-  color: var(--neutral-700);
-  text-decoration: none;
-}
-.action-pill:disabled, .action-pill.disabled {
-  opacity: .55;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-.action-pill-danger {
-  border-color: var(--alt4-danger-border);
-  color: var(--alt4-danger-fg);
-  background: var(--alt4-danger-bg);
-}
-.action-pill-danger:hover {
-  border-color: var(--danger-red);
-  background: var(--tag-exclude-bg);
-  color: var(--tag-exclude-fg);
-}
-.action-pill-refresh-meta {
-  font-size: .7rem;
-  color: var(--alt4-icon-muted);
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, monospace;
-}
-.action-pill-preview-active {
-  border-color: var(--accent-blue);
-  background: var(--chip-source-bg);
-  color: var(--chip-source-fg);
-}
-.action-pill-preview-active:hover {
-  border-color: var(--alt4-blue-dark);
-  background: var(--alt4-preview-active-hover-bg);
-  color: var(--alt4-preview-active-hover-fg);
-}
-.exclusion-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  flex-wrap: nowrap;
-}
-</style>
-
-<!-- ── Line 1: search + filter toggles ─────────────────────────── -->
-<div class="alt4-l1">
-
-  <!-- Rounded search -->
-  <div class="alt4-search">
-    <i class="fas fa-search search-icon"></i>
-    <input type="text" id="search-input" placeholder="Search events…" autocomplete="off" spellcheck="false">
-    <button class="btn btn-xs btn-link text-muted p-0" id="search-clear" style="display:none;">
-      <i class="fas fa-xmark fa-xs"></i>
-    </button>
-  </div>
-
-  <!-- Date (dropdown, auto-closes on selection) -->
-  <div class="dropdown">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" id="date-dd-btn" data-bs-toggle="dropdown">
-      <i class="fas fa-calendar me-1 text-muted"></i><span id="date-btn-label">Date</span>
-    </button>
-    <div class="dropdown-menu p-2" style="min-width:150px;">
-      <div class="d-flex flex-column gap-1">
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn active text-start"
-                data-date-filter="none" data-date-label="Date">No filter</button>
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
-                data-date-filter="today" data-date-label="Today">Today</button>
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
-                data-date-filter="48h" data-date-label="Last 48h">Last 48h</button>
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
-                data-date-filter="7d" data-date-label="Last 7d">Last 7d</button>
-        <hr class="my-1">
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
-                data-date-filter="older-48h" data-date-label="Older than 48h">Older than 48h</button>
-        <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
-                data-date-filter="older-7d" data-date-label="Older than 7d">Older than 7d</button>
-      </div>
+{% include "data_collection/_toolbar_css.html" %}
+<div class="action-panel action-bar">
+  <div class="action-panel-head">
+    <span class="action-panel-title"><i class="fas fa-layer-group me-1"></i> Filters and actions</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+      <span class="text-muted small" style="font-variant-numeric:tabular-nums;white-space:nowrap;">
+        <span id="visible-count">{{ events | length }}</span>
+        <span id="total-count-note" style="font-size:.85em;color:var(--neutral-500);"></span>
+        events
+      </span>
+      <button class="btn btn-xs btn-link text-danger p-0" id="clear-filters-btn"
+              style="display:none;white-space:nowrap;font-size:.78rem;">
+        <i class="fas fa-xmark me-1"></i>Clear
+      </button>
+      <span class="text-muted" style="font-size:.7rem;user-select:none;">·</span>
+      <button class="action-pill" id="refresh-btn" title="Trigger background cache refresh">
+        <i class="fas fa-arrows-rotate" style="font-size:.75rem;"></i> Refresh cache
+      </button>
+      <small id="refresh-countdown"
+             data-interval-s="{{ cache_interval_s }}"
+             data-last-fetch="{{ cache_last_fetch_ts or '' }}"
+             class="action-pill-refresh-meta"></small>
+      <i class="fas fa-circle-info" id="refresh-info" role="button" tabindex="0"
+         style="font-size:.75rem;color:var(--alt4-info-icon);cursor:help;"
+         data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-placement="bottom" data-bs-html="true"
+         data-bs-title="How cache refresh works"
+         data-bs-content="The cache is refreshed automatically every <strong>{{ (cache_interval_s // 60) }} minutes</strong> by a background worker that polls every configured source. Clicking <strong>Refresh cache</strong> wakes the worker early without changing the schedule."></i>
     </div>
   </div>
 
-  <!-- Tags (collapse toggle) -->
-  <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="tags-toggle-btn"
-          data-bs-toggle="collapse" data-bs-target="#alt4-tags-panel" aria-expanded="false">
-    <i class="fas fa-tags me-1"></i>Tags
-    <span class="badge ms-1 d-none" id="tags-active-badge"
-          style="font-size:.58rem;padding:.15em .4em;background:var(--overlay-black-15);">0</span>
-  </button>
+  <div class="action-panel-body">
 
-  <!-- Org (collapse toggle) -->
-  <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="org-toggle-btn"
-          data-bs-toggle="collapse" data-bs-target="#alt4-org-panel" aria-expanded="false">
-    <i class="fas fa-building me-1"></i>Org
-    <span class="badge ms-1 d-none" id="org-active-badge"
-          style="font-size:.58rem;padding:.15em .4em;background:var(--overlay-black-15);">0</span>
-  </button>
-
-  <!-- More: event properties (collapse toggle) -->
-  <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="more-toggle-btn"
-          data-bs-toggle="collapse" data-bs-target="#alt4-more-panel" aria-expanded="false">
-    <i class="fas fa-sliders me-1"></i>More
-  </button>
-
-  <!-- CTI Evaluation (collapse toggle) -->
-  <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="cti-toggle-btn"
-          data-bs-toggle="collapse" data-bs-target="#alt4-cti-panel" aria-expanded="false">
-    <i class="fas fa-microscope me-1"></i>CTI Eval
-  </button>
-
-  <!-- Right: count + clear -->
-  <div class="ms-auto d-flex align-items-center gap-2">
-    <span class="text-muted small" style="font-variant-numeric:tabular-nums;white-space:nowrap;">
-      <span id="visible-count">{{ events | length }}</span>
-      <span id="total-count-note" style="font-size:.85em;color:var(--neutral-500);"></span>
-      events
-    </span>
-    <button class="btn btn-xs btn-link text-danger p-0" id="clear-filters-btn"
-            style="display:none;white-space:nowrap;font-size:.78rem;">
-      <i class="fas fa-xmark me-1"></i>Clear
-    </button>
-  </div>
-</div>
-
-<!-- ── Line 2: sources ──────────────────────────────────────────── -->
-<div class="alt4-l2">
-  <div id="style-current" class="d-flex flex-wrap gap-2">
-    {% for s in sources %}
-    {% set st = cache_status.get(s.id) %}
-    {% set has_err = source_errors.get(s.id) %}
-    <div class="source-toggle source-toggle-on {{ 'source-toggle-err' if has_err else '' }}"
-         data-source-id="{{ s.id }}"
-         title="{{ s.url or '' }}{% if has_err %} · Error: {{ has_err }}{% endif %}">
-      <span class="source-toggle-icon">
-        {% if s.kind == 'scraper' %}<i class="fas fa-spider"></i>
-        {% elif s.kind == 'manual' %}<i class="fas fa-file-import"></i>
-        {% else %}<i class="fas fa-server"></i>{% endif %}
-      </span>
-      <span class="d-flex flex-column" style="line-height:1.2;">
-        <span class="source-toggle-label">{{ s.label }}</span>
-        {% if s.kind == 'misp' %}<span style="font-size:.6rem;font-weight:400;color:var(--neutral-600);">last {{ s.since_days }}d</span>
-        {% elif s.kind == 'manual' %}<span style="font-size:.6rem;font-weight:400;color:var(--neutral-600);">manual</span>
-        {% elif s.kind == 'scraper' and s.imap_sources %}
-          {% for imp in s.imap_sources %}
-          <span style="font-size:.58rem;font-weight:400;color:var(--neutral-600);white-space:nowrap;"
-                title="Collected from an IMAP mailbox via the scraper">
-            <i class="fas fa-envelope fa-xs me-1" style="opacity:.6;"></i>{{ imp }}
-          </span>
-          {% endfor %}
-        {% endif %}
-      </span>
-      {% if has_err %}
-        <span class="source-toggle-badge text-bg-danger"><i class="fas fa-triangle-exclamation"></i></span>
-      {% elif st %}
-        <span class="source-toggle-badge text-bg-light text-muted">{{ st.event_count }}</span>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
-</div>
-
-<!-- ── Line 3: action pills ────────────────────────────────────────── -->
-<div class="alt4-actions">
-
-  <!-- Filter presets: Save + Load -->
-  <button class="action-pill" id="save-preset-btn" title="Save current filters as a named preset">
-    <i class="fas fa-floppy-disk" style="font-size:.75rem;"></i> Save preset
-  </button>
-  <div class="dropdown">
-    <button class="action-pill" id="load-preset-btn" data-bs-toggle="dropdown"
-            title="Load a saved filter preset">
-      <i class="fas fa-folder-open" style="font-size:.75rem;"></i> Load preset
-    </button>
-    <div class="dropdown-menu p-2" id="preset-dropdown-content" style="min-width:300px;"></div>
-  </div>
-  <span id="preset-active-indicator" class="preset-active-indicator d-none" title="Current loaded filter preset status">
-    <i class="fas fa-bookmark"></i>
-    <span>Preset:</span>
-    <strong class="preset-name"></strong>
-    <span class="preset-state text-muted"></span>
-    <button type="button" class="preset-clear-btn" id="preset-clear-btn" title="Detach this preset" aria-label="Detach preset">
-      <i class="fas fa-xmark"></i>
-    </button>
-  </span>
-
-  <span class="text-muted" style="font-size:.7rem;user-select:none;">·</span>
-
-  <!-- Hide/show rejected events (toggle, active by default) -->
-  <button class="action-pill hide-rej-btn is-hiding" id="hide-rejected-btn"
-          title="Toggle visibility of rejected events (workflow:state=rejected)">
-    <i class="fas fa-eye" style="font-size:.75rem;"></i>
-    <span class="hide-rej-label">Show rejected</span>
-  </button>
-
-  <span class="text-muted" style="font-size:.7rem;user-select:none;">·</span>
-
-  <!-- Refresh cache -->
-  <button class="action-pill" id="refresh-btn" title="Trigger background cache refresh">
-    <i class="fas fa-arrows-rotate" style="font-size:.75rem;"></i> Refresh cache
-  </button>
-  <small id="refresh-countdown"
-         data-interval-s="{{ cache_interval_s }}"
-         data-last-fetch="{{ cache_last_fetch_ts or '' }}"
-         class="action-pill-refresh-meta"></small>
-  <i class="fas fa-circle-info" id="refresh-info" role="button" tabindex="0"
-     style="font-size:.75rem;color:var(--alt4-info-icon);cursor:help;"
-     data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-placement="bottom" data-bs-html="true"
-     data-bs-title="How cache refresh works"
-     data-bs-content="The cache is refreshed automatically every <strong>{{ (cache_interval_s // 60) }} minutes</strong> by a background worker that polls every configured source. Clicking <strong>Refresh cache</strong> wakes the worker early without changing the schedule."></i>
-
-  {% if briefing_pending_reject_uuids %}
-  <span class="text-muted" style="font-size:.7rem;user-select:none;">·</span>
-  <span class="exclusion-actions">
-    <!-- Preview: filter table to pending-reject events -->
-        <button type="button" class="action-pill" id="preview-excluded-btn"
-            title="Preview: show only events that would be set aside ({{ briefing_pending_reject_uuids | length }} event{{ 's' if briefing_pending_reject_uuids | length != 1 }})">
-      <i class="fas fa-eye" style="font-size:.75rem;"></i>
-    </button>
-    <!-- Bulk action on events matching briefing exclusions that are not set aside yet -->
-        <button type="button" class="action-pill action-pill-danger" id="bulk-reject-btn"
-            title="Set aside every event matching a daily briefing title exclusion pattern: workflow:state=rejected on your own MISP, the dismiss tag for events from another MISP server">
-      <i class="fas fa-ban" style="font-size:.75rem;"></i>
-      Set aside <span id="bulk-reject-count">{{ briefing_pending_reject_uuids | length }}</span> event{{ 's' if briefing_pending_reject_uuids | length != 1 }} matching exclusions
-    </button>
-  </span>
-  <span id="bulk-reject-result" class="small d-none"></span>
-  {% endif %}
-
-  <!-- Creation actions, right-aligned -->
-  <div class="alt4-actions-right">
-    <!-- Pull event from MISP -->
-    <button class="action-pill" id="pull-event-btn"
-            data-bs-toggle="modal" data-bs-target="#pull-event-modal"
-            title="Pull a specific event from a MISP source into the cache">
-      <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP"
-           style="height:12px;width:auto;vertical-align:middle;opacity:.65;">
-      Pull event
-    </button>
-
-    <!-- Add manual entry -->
-    {% if has_manual_sources %}
-    <a href="{{ url_for('data_collection.manual_new') }}" class="action-pill"
-       title="Manually add intelligence from a configured source">
-      <i class="fas fa-file-import" style="font-size:.75rem;"></i> Add manual entry
-    </a>
-    {% else %}
-    <button class="action-pill disabled" disabled
-            title="No enabled manual sources configured. Add them under Configuration › Collection sources › Manual sources">
-      <i class="fas fa-file-import" style="font-size:.75rem;"></i> Add manual entry
-    </button>
-    {% endif %}
-
-    <!-- Import from newsletter -->
-    <a href="{{ url_for('data_collection.newsletter_new') }}" class="action-pill"
-       title="Paste a security newsletter and pick which articles to collect">
-      <i class="fas fa-envelope-open-text" style="font-size:.75rem;"></i> Import from newsletter
-    </a>
-
-    <!-- Email sources awaiting review (from IMAP mailboxes) -->
-    <a href="{{ url_for('data_collection.newsletter_pending') }}" class="action-pill"
-       title="Review email sources collected from mailboxes">
-      <i class="fas fa-inbox" style="font-size:.75rem;"></i> Email sources
-    </a>
-  </div>
-
-</div>
-
-<!-- ── Collapsible: Tags ─────────────────────────────────────────── -->
-<div class="collapse" id="alt4-tags-panel">
-  <div class="alt4-panel">
-    <div class="alt4-panel-head">
-      <span>
-        Tags
-        <small class="fw-normal ms-2 text-muted" id="tag-count-label"
-               style="text-transform:none;letter-spacing:0;font-size:.7rem;"></small>
-      </span>
-      <div class="d-flex align-items-center gap-3">
-        <span class="text-muted fw-normal" style="font-size:.65rem;text-transform:none;letter-spacing:0;">
-          <span class="badge text-bg-success" style="font-size:.55rem;">+</span> include ·
-          <span class="badge text-bg-danger ms-1" style="font-size:.55rem;">–</span> exclude ·
-          click again to clear
-        </span>
-        <button type="button" class="btn btn-xs btn-link text-muted p-0" id="deselect-all-tags-btn"
-                style="font-size:.7rem;white-space:nowrap;">
-          <i class="fas fa-xmark me-1"></i>Deselect all
+    <!-- Line 1: filters left, "bring data in" actions right -->
+    <div class="toolbar-row">
+      <div class="alt4-search">
+        <i class="fas fa-search search-icon"></i>
+        <input type="text" id="search-input" placeholder="Search events…" autocomplete="off" spellcheck="false">
+        <button class="btn btn-xs btn-link text-muted p-0" id="search-clear" style="display:none;">
+          <i class="fas fa-xmark fa-xs"></i>
         </button>
       </div>
-    </div>
 
-    <!-- Quick filters: used in products -->
-    <div class="mb-1 d-flex align-items-center flex-wrap gap-1">
-      <span class="text-muted me-1" style="font-size:.7rem;white-space:nowrap;font-weight:600;color:var(--chip-product-strong-bg);">Used in:</span>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="daily-briefing"' data-state="neutral">
-        <i class="fas fa-newspaper fa-xs me-1"></i>daily briefing
-      </button>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="flash-intel"' data-state="neutral">
-        <i class="fas fa-bolt fa-xs me-1"></i>flash intel
-      </button>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="vea"' data-state="neutral">
-        <i class="fas fa-shield-halved fa-xs me-1"></i>vuln advisory
-      </button>
-    </div>
-
-    <!-- Quick filters: product events -->
-    <div class="mb-2 d-flex align-items-center flex-wrap gap-1">
-      <span class="text-muted me-1" style="font-size:.7rem;white-space:nowrap;font-weight:600;color:var(--accent-blue);">Products:</span>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_briefing }}" data-state="neutral">
-        <i class="fas fa-newspaper fa-xs me-1"></i>daily threat briefing
-      </button>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_flash_intel }}" data-state="neutral">
-        <i class="fas fa-bolt fa-xs me-1"></i>flash intel product
-      </button>
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_vea }}" data-state="neutral">
-        <i class="fas fa-shield-halved fa-xs me-1"></i>vulnerability advisory product
-      </button>
-    </div>
-
-    <!-- Tag search input -->
-    <input type="text" id="tag-search" class="form-control form-control-sm mb-2"
-           placeholder="Find tag…" style="max-width:240px;">
-
-    <!-- Tag cloud: cti-evaluation tags excluded from display here -->
-    <div id="tag-cloud" class="d-flex flex-wrap gap-1" style="max-height:7rem;overflow:hidden;">
-      {% for t in all_tags %}
-      {% if not t.startswith('cti-evaluation:') %}
-      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ t }}" data-state="neutral">{{ t }}</button>
-      {% endif %}
-      {% endfor %}
-    </div>
-    <div class="mt-1 d-flex justify-content-end">
-      <button type="button" class="btn btn-xs btn-link text-muted p-0" id="tag-cloud-toggle"
-              style="font-size:.72rem;">
-        <i class="fas fa-chevron-down me-1"></i>Show all
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- ── Collapsible: Org ──────────────────────────────────────────── -->
-<div class="collapse" id="alt4-org-panel">
-  <div class="alt4-panel">
-    <div class="alt4-panel-head">
-      <span>
-        Creator organisation
-        <small class="fw-normal ms-2 text-muted" id="org-count-label"
-               style="text-transform:none;letter-spacing:0;font-size:.7rem;"></small>
-      </span>
-      <button type="button" class="btn btn-xs btn-link text-muted p-0" id="deselect-all-orgs-btn"
-              style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0;">
-        <i class="fas fa-xmark me-1"></i>Deselect all
-      </button>
-    </div>
-    <div id="org-cloud" class="d-flex flex-wrap gap-1">
-      {% if org_list %}
-        {% for o in org_list %}
-        <button type="button" class="tag-pill tag-pill-neutral org-pill"
-                data-org="{{ o.name }}"
-                data-sources='{{ o.sources.keys() | list | tojson }}'
-                data-state="neutral"
-                title="Sources: {{ o.sources.values() | join(', ') }}">
-          {{ o.name }}<span class="ms-1" style="font-size:.62rem;opacity:.55;font-weight:400;">({{ o.sources.values() | join(', ') }})</span>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" id="date-dd-btn" data-bs-toggle="dropdown">
+          <i class="fas fa-calendar me-1 text-muted"></i><span id="date-btn-label">Date</span>
         </button>
-        {% endfor %}
-      {% else %}
-        <p class="text-muted small mb-0"><em>No organisations in cache yet.</em></p>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
-<!-- ── Collapsible: More (event properties + sort) ──────────────── -->
-<div class="collapse" id="alt4-more-panel">
-  <div class="alt4-panel">
-    <div class="alt4-panel-head">Event properties</div>
-    <div class="d-flex flex-wrap align-items-center gap-2">
-      <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn" data-toggle-key="vulnFilter">
-        <i class="fas fa-shield-halved me-1"></i>Covers a CVE
-      </button>
-      <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn"
-              data-toggle-key="dismissedFilter" data-toggle-value="without"
-              title="Hide events tagged {{ dismissed_tag }}. Analysts dismiss events from other MISP servers the way events on your own MISP are rejected.">
-        <i class="fas fa-eye-slash me-1"></i>Ignore dismissed events
-      </button>
-      <div class="d-flex align-items-center gap-1">
-        <span class="text-muted small" style="white-space:nowrap;"><i class="fas fa-flag fa-xs me-1"></i>Flagged</span>
-        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="any">Any</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="flagged">Yes</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="not-flagged">No</button>
-      </div>
-      <div class="vr mx-1" style="height:1.4rem;"></div>
-      <div class="d-flex align-items-center gap-1">
-        <span class="text-muted small" style="white-space:nowrap;">
-          <i class="fas fa-wand-magic-sparkles fa-xs me-1"></i>AI summary
-        </span>
-        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="any">Any</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="with">With</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="without">Without</button>
-      </div>
-      <div class="d-flex align-items-center gap-1">
-        <span class="text-muted small" style="white-space:nowrap;">
-          <i class="fas fa-file-lines fa-xs me-1"></i>Has reports
-        </span>
-        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="any">Any</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="with">With</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="without">Without</button>
-      </div>
-      <div class="d-flex align-items-center gap-1">
-        <span class="text-muted small" style="white-space:nowrap;">
-          <i class="fas fa-crosshairs fa-xs me-1"></i>PIR/GIR match
-        </span>
-        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="any">Any</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="with">With</button>
-        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="without">Without</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── Collapsible: CTI Evaluation ──────────────────────────────── -->
-<div class="collapse" id="alt4-cti-panel">
-  <div class="alt4-panel">
-    <div class="alt4-panel-head">CTI Evaluation filter</div>
-    <div class="row g-2 align-items-end mb-2">
-      <div class="col-md-3 col-lg-2">
-        <label class="form-label small fw-semibold mb-1">Predicate</label>
-        <select id="cti-predicate-filter" class="form-select form-select-sm">
-          <option value="">None</option>
-          <option value="overall-score">Overall score</option>
-          <option value="relevance">Relevance</option>
-          <option value="accuracy">Accuracy</option>
-          <option value="timeliness">Timeliness</option>
-          <option value="clarity">Clarity</option>
-          <option value="specificity">Specificity</option>
-          <option value="usefulness">Usefulness</option>
-          <option value="format-validity">Format validity</option>
-          <option value="conversion-fidelity">Conversion fidelity</option>
-          <option value="source-reliability">Source reliability</option>
-          <option value="evidence-strength">Evidence strength</option>
-          <option value="confidence">Confidence</option>
-        </select>
-      </div>
-      <div class="col-md-3 col-lg-2">
-        <label class="form-label small fw-semibold mb-1">Comparison</label>
-        <select id="cti-operator-filter" class="form-select form-select-sm">
-          <option value="gte">Above or equal</option>
-          <option value="lte">Below or equal</option>
-          <option value="with">Has any value</option>
-          <option value="without">No value</option>
-        </select>
-      </div>
-      <div class="col-md-2 col-lg-1">
-        <label class="form-label small fw-semibold mb-1">Value</label>
-        <select id="cti-value-filter" class="form-select form-select-sm">
-          <option value="very-low">Very low</option>
-          <option value="low">Low</option>
-          <option value="moderate" selected>Moderate</option>
-          <option value="high">High</option>
-          <option value="very-high">Very high</option>
-        </select>
-      </div>
-      <div class="col-md-4 col-lg-7">
-        <label class="form-label small fw-semibold mb-1">Quick presets</label>
-        <div class="d-flex flex-wrap gap-1" style="font-size:.65rem;">
-          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
-                  data-predicate="overall-score" data-operator="gte" data-value="high">Overall score ≥ High</button>
-          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
-                  data-predicate="overall-score" data-operator="lte" data-value="low">Overall score ≤ Low</button>
-          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
-                  data-predicate="relevance" data-operator="gte" data-value="moderate">Relevance ≥ Moderate</button>
-          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
-                  data-predicate="confidence" data-operator="gte" data-value="high">Confidence ≥ High</button>
-          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
-                  data-predicate="overall-score" data-operator="without">No overall score</button>
-          <button type="button" class="btn btn-xs btn-outline-secondary" id="cti-preset-clear">Clear</button>
+        <div class="dropdown-menu p-2" style="min-width:150px;">
+          <div class="d-flex flex-column gap-1">
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn active text-start"
+                    data-date-filter="none" data-date-label="Date">No filter</button>
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
+                    data-date-filter="today" data-date-label="Today">Today</button>
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
+                    data-date-filter="48h" data-date-label="Last 48h">Last 48h</button>
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
+                    data-date-filter="7d" data-date-label="Last 7d">Last 7d</button>
+            <hr class="my-1">
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
+                    data-date-filter="older-48h" data-date-label="Older than 48h">Older than 48h</button>
+            <button class="btn btn-sm btn-outline-secondary date-filter-btn text-start"
+                    data-date-filter="older-7d" data-date-label="Older than 7d">Older than 7d</button>
+          </div>
         </div>
       </div>
+
+      <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="tags-toggle-btn"
+              data-bs-toggle="collapse" data-bs-target="#alt4-tags-panel" aria-expanded="false">
+        <i class="fas fa-tags me-1"></i>Tags
+        <span class="badge ms-1 d-none" id="tags-active-badge"
+              style="font-size:.58rem;padding:.15em .4em;background:var(--overlay-black-15);">0</span>
+      </button>
+
+      <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="org-toggle-btn"
+              data-bs-toggle="collapse" data-bs-target="#alt4-org-panel" aria-expanded="false">
+        <i class="fas fa-building me-1"></i>Org
+        <span class="badge ms-1 d-none" id="org-active-badge"
+              style="font-size:.58rem;padding:.15em .4em;background:var(--overlay-black-15);">0</span>
+      </button>
+
+      <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="more-toggle-btn"
+              data-bs-toggle="collapse" data-bs-target="#alt4-more-panel" aria-expanded="false">
+        <i class="fas fa-sliders me-1"></i>More
+      </button>
+
+      <button class="btn btn-sm btn-outline-secondary alt4-panel-toggle" id="cti-toggle-btn"
+              data-bs-toggle="collapse" data-bs-target="#alt4-cti-panel" aria-expanded="false">
+        <i class="fas fa-microscope me-1"></i>CTI Eval
+      </button>
+
+      <div class="toolbar-actions">
+        <button type="button" class="action-chip" id="pull-event-btn" style="--tile-accent: var(--accent-blue);"
+                data-bs-toggle="modal" data-bs-target="#pull-event-modal"
+                title="Pull a specific event from a MISP source into the cache">
+          <span class="action-chip-icon"><i class="fas fa-download"></i></span>Pull event
+        </button>
+        {% if has_manual_sources %}
+        <a href="{{ url_for('data_collection.manual_new') }}" class="action-chip" style="--tile-accent: var(--accent-green);"
+           title="Manually add intelligence from a configured source">
+          <span class="action-chip-icon"><i class="fas fa-file-import"></i></span>Manual entry
+        </a>
+        {% else %}
+        <span class="action-chip disabled" style="--tile-accent: var(--accent-green);"
+              title="No enabled manual sources configured. Add them under Configuration › Collection sources › Manual sources">
+          <span class="action-chip-icon"><i class="fas fa-file-import"></i></span>Manual entry
+        </span>
+        {% endif %}
+        <a href="{{ url_for('data_collection.newsletter_new') }}" class="action-chip" style="--tile-accent: var(--accent-orange);"
+           title="Paste a security newsletter and pick which articles to collect">
+          <span class="action-chip-icon"><i class="fas fa-envelope-open-text"></i></span>Newsletter
+        </a>
+        <a href="{{ url_for('data_collection.newsletter_pending') }}" class="action-chip" style="--tile-accent: #7c5cd6;"
+           title="Review email sources collected from mailboxes">
+          <span class="action-chip-icon"><i class="fas fa-inbox"></i></span>Email sources
+        </a>
+      </div>
     </div>
+
+    <!-- Line 2: sources left, view options right -->
+    {% set source_accents = {'scraper': 'var(--accent-blue)', 'misp': '#7c5cd6', 'manual': 'var(--accent-green)'} %}
+    <div class="toolbar-row">
+      <div id="style-current" class="chip-sources d-flex flex-wrap gap-2">
+        {% for s in sources %}
+        {% set st = cache_status.get(s.id) %}
+        {% set has_err = source_errors.get(s.id) %}
+        <div class="source-toggle source-toggle-on {{ 'source-toggle-err' if has_err else '' }}"
+             data-source-id="{{ s.id }}"
+             style="--tile-accent: {{ source_accents.get(s.kind, 'var(--accent-blue)') }};"
+             title="{{ s.url or '' }}{% if has_err %} · Error: {{ has_err }}{% endif %}">
+          <span class="source-toggle-icon">
+            {% if s.kind == 'scraper' %}<i class="fas fa-spider"></i>
+            {% elif s.kind == 'manual' %}<i class="fas fa-file-import"></i>
+            {% else %}<i class="fas fa-server"></i>{% endif %}
+          </span>
+          <span class="source-chip-text">
+            <span class="source-toggle-label">{{ s.label }}</span>
+            {% if s.kind == 'misp' %}<span class="source-chip-sub">last {{ s.since_days }}d</span>
+            {% elif s.kind == 'manual' %}<span class="source-chip-sub">manual</span>
+            {% elif s.kind == 'scraper' and s.imap_sources %}
+              {% for imp in s.imap_sources %}
+              <span class="source-chip-sub" title="Collected from an IMAP mailbox via the scraper">
+                <i class="fas fa-envelope fa-xs me-1" style="opacity:.6;"></i>{{ imp }}
+              </span>
+              {% endfor %}
+            {% endif %}
+          </span>
+          {% if has_err %}
+            <span class="source-toggle-badge text-bg-danger"><i class="fas fa-triangle-exclamation"></i></span>
+          {% elif st %}
+            <span class="source-toggle-badge text-bg-light text-muted">{{ st.event_count }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="toolbar-actions">
+        <button class="action-pill hide-rej-btn is-hiding" id="hide-rejected-btn"
+                title="Toggle visibility of rejected events (workflow:state=rejected)">
+          <i class="fas fa-eye" style="font-size:.75rem;"></i>
+          <span class="hide-rej-label">Show rejected</span>
+        </button>
+        <button class="action-pill" id="save-preset-btn" title="Save current filters as a named preset">
+          <i class="fas fa-floppy-disk" style="font-size:.75rem;"></i> Save preset
+        </button>
+        <div class="dropdown">
+          <button class="action-pill" id="load-preset-btn" data-bs-toggle="dropdown"
+                  title="Load a saved filter preset">
+            <i class="fas fa-folder-open" style="font-size:.75rem;"></i> Load preset
+          </button>
+          <div class="dropdown-menu dropdown-menu-end p-2" id="preset-dropdown-content" style="min-width:300px;"></div>
+        </div>
+        <span id="preset-active-indicator" class="preset-active-indicator d-none" title="Current loaded filter preset status">
+          <i class="fas fa-bookmark"></i>
+          <span>Preset:</span>
+          <strong class="preset-name"></strong>
+          <span class="preset-state text-muted"></span>
+          <button type="button" class="preset-clear-btn" id="preset-clear-btn" title="Detach this preset" aria-label="Detach preset">
+            <i class="fas fa-xmark"></i>
+          </button>
+        </span>
+      </div>
+    </div>
+
+    {% if briefing_pending_reject_uuids %}
+    <!-- Line 3: only when the briefing exclusions match something -->
+    <div class="toolbar-row">
+      <span class="exclusion-actions">
+        <button type="button" class="action-pill" id="preview-excluded-btn"
+                title="Preview: show only events that would be set aside ({{ briefing_pending_reject_uuids | length }} event{{ 's' if briefing_pending_reject_uuids | length != 1 }})">
+          <i class="fas fa-eye" style="font-size:.75rem;"></i>
+        </button>
+        <button type="button" class="action-pill action-pill-danger" id="bulk-reject-btn"
+                title="Set aside every event matching a daily briefing title exclusion pattern: workflow:state=rejected on your own MISP, the dismiss tag for events from another MISP server">
+          <i class="fas fa-ban" style="font-size:.75rem;"></i>
+          Set aside <span id="bulk-reject-count">{{ briefing_pending_reject_uuids | length }}</span> event{{ 's' if briefing_pending_reject_uuids | length != 1 }} matching exclusions
+        </button>
+      </span>
+      <span id="bulk-reject-result" class="small d-none"></span>
+    </div>
+    {% endif %}
+
   </div>
 </div>
 
-<!-- ── Active filter chips (always visible, below panels) ─────── -->
-<div class="alt4-chips">
-  <div id="active-tag-summary" style="display:none;"><span id="active-tag-chips"></span></div>
-  <div id="active-org-summary" style="display:none;"><span id="active-org-chips"></span></div>
-</div>
+{% include "data_collection/_filter_panels.html" %}
 
 {% include "data_collection/_list_table.html" %}
-
-<div class="modal fade" id="addToExistingBriefingModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fas fa-newspaper me-2"></i>Add to existing draft briefing</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        {% if draft_briefings %}
-        <p class="text-muted small mb-2">The selected event(s) will be added as new stories to the chosen draft briefing.</p>
-        <select id="add-to-existing-briefing-select" class="form-select form-select-sm">
-          {% for b in draft_briefings %}
-          <option value="{{ b.uuid }}">{{ b.date or '(no date)' }}{% if b.title %} &mdash; {{ b.title }}{% endif %}</option>
-          {% endfor %}
-        </select>
-        {% else %}
-        <p class="text-muted mb-0">No draft briefings available. Use "Add to daily briefing (new)" instead.</p>
-        {% endif %}
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        {% if draft_briefings %}
-        <button type="button" class="btn btn-sm btn-primary" id="add-to-existing-briefing-confirm">Add stories</button>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 {% include "data_collection/_list_js.html" %}
 <script>
-/* ── Alt 4 specific behaviour ──────────────────────────────────── */
+/* ── Toolbar behaviour: filter button states, preview, bulk reject ── */
 (function() {
 
   /* Date dropdown: update button label when a date preset is chosen */
@@ -1167,7 +505,7 @@
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
         body: JSON.stringify({uuids: targetUuids}),
       })
-      .then(function(r) { return r.json(); })
+      .then(zsazsaReadJson)
       .then(function(data) {
         bulkRejectBtn.disabled = false;
         bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Set aside events matching exclusions';
@@ -1179,11 +517,11 @@
           setTimeout(function() { window.location.reload(); }, 1500);
         }
       })
-      .catch(function() {
+      .catch(function(err) {
         bulkRejectBtn.disabled = false;
         bulkRejectBtn.innerHTML = '<i class="fas fa-ban" style="font-size:.75rem;"></i> Set aside events matching exclusions';
         if (bulkRejectResult) {
-          bulkRejectResult.textContent = 'Request failed.';
+          bulkRejectResult.textContent = 'Setting aside did not complete: ' + zsazsaErrorText(err);
           bulkRejectResult.className = 'small ms-1 text-danger';
         }
       });

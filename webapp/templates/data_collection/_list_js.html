@@ -1251,7 +1251,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},
         body:JSON.stringify({source:sourceId}),
       })
-      .then(function(r) { return r.json(); })
+      .then(zsazsaReadJson)
       .then(function(data) {
         if (data.ok) {
           btn.remove();
@@ -1266,7 +1266,11 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
           alert('Could not create summary: ' + (data.error || 'unknown error'));
         }
       })
-      .catch(function() { btn.disabled = false; btn.innerHTML = originalHtml; btn.title = 'Request failed'; });
+      .catch(function(err) {
+        var message = 'Summary did not complete: ' + zsazsaErrorText(err);
+        btn.disabled = false; btn.innerHTML = originalHtml; btn.title = message;
+        showFeedback(message, 'warning');
+      });
     });
   });
 
@@ -1607,7 +1611,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
       body: JSON.stringify({events: selected}),
     })
-    .then(function(r) { return r.json(); })
+    .then(zsazsaReadJson)
     .then(function(data) {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
@@ -1618,10 +1622,10 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       showFeedback(data.message || 'Done.', 'success');
       if (onDone) onDone(selected);
     })
-    .catch(function() {
+    .catch(function(err) {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
-      showFeedback('Request failed. No changes were made.', 'danger');
+      showFeedback('The bulk action did not complete: ' + zsazsaErrorText(err), 'danger');
     });
   }
 

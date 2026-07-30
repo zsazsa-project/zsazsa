@@ -300,12 +300,14 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
     system = _build_system_prompt(
         _resolve_prompt(fc.get("prompt") or "daily_briefing_overlap.md")
     )
+    # Whether two stories cover the same event is clear from their opening, and
+    # sending a dozen full articles makes the call slow enough to time out.
     payload = {
         "stories": [
             {
                 "index": idx + 1,
                 "title": (s.get("title") or "").strip(),
-                "content": (s.get("content") or "").strip(),
+                "content": (s.get("content") or "").strip()[:2000],
                 "source_url": (s.get("source_url") or "").strip(),
             }
             for idx, s in enumerate(stories or [])

@@ -17,30 +17,16 @@
 
 {# Action bar: quick-action tiles (left) and collection-pipeline controls (right). #}
 <style>
+  /* Shared panel look lives in app.css; the two panels sit side by side here,
+     so they stretch to a common height and clip their rounded corners. */
   .action-bar { margin-bottom: 1.5rem; }
   .action-panel {
-    background: var(--card-bg);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--border-radius);
     height: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
-  .action-panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: .65rem .9rem;
-    border-bottom: 1px solid var(--border-faint);
-  }
-  .action-panel-title {
-    font-size: .72rem;
-    font-weight: 700;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
+  .action-panel-head { padding: .65rem .9rem; }
   .action-panel-body { padding: .9rem; flex: 1; }
 
   /* Primary action tiles (left, 75%) */

@@ -6,6 +6,30 @@
   <title>{% block title %}zsazsa CTI{% endblock %}</title>
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <script>const SCRIPT_ROOT = {{ request.script_root | tojson }};</script>
+  <script>
+  // Read a JSON answer from one of our own endpoints. A slow request, an LLM
+  // call above all, can come back as an HTML page instead: an Apache timeout,
+  // a Flask error page, a CSRF 403, or the MISP login page after the session
+  // expired. response.json() then throws "Unexpected token '<'", which tells an
+  // analyst nothing, so say what actually happened.
+  function zsazsaReadJson(response) {
+    var type = response.headers.get('content-type') || '';
+    if (type.indexOf('application/json') !== -1) return response.json();
+    if (response.redirected || response.status === 403) {
+      throw new Error('your session has expired. Reload the page and sign in again.');
+    }
+    if (response.status >= 502 && response.status <= 504) {
+      throw new Error('the server did not answer in time (HTTP ' + response.status
+        + '). The request may still be running, retry in a moment.');
+    }
+    throw new Error('the server answered with a page instead of data (HTTP ' + response.status
+      + '). Check the application log for details.');
+  }
+  // Reason for a rejected request, without the "Error:" prefix the browser adds.
+  function zsazsaErrorText(err) {
+    return (err && err.message) ? err.message : String(err);
+  }
+  </script>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">

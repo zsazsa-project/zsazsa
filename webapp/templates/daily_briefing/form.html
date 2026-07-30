@@ -761,7 +761,7 @@ function draftStory(idx, eventUuid) {
     },
     body: JSON.stringify({event_uuid: eventUuid, source_id: storySourceId(idx)}),
   })
-  .then(r => r.json())
+  .then(zsazsaReadJson)
   .then(data => {
     if (data.error) {
       setStoryStatus(idx, 'Error: ' + data.error, true);
@@ -788,7 +788,7 @@ function draftStory(idx, eventUuid) {
     setStoryStatus(idx, 'AI draft applied. Review before saving.');
   })
   .catch(err => {
-    setStoryStatus(idx, 'Request failed: ' + err, true);
+    setStoryStatus(idx, 'AI draft did not complete: ' + zsazsaErrorText(err), true);
   });
 }
 
@@ -817,7 +817,7 @@ function viewReports(idx, eventUuid) {
     },
     body: JSON.stringify({event_uuid: eventUuid, source_id: storySourceId(idx)}),
   })
-  .then(r => r.json())
+  .then(zsazsaReadJson)
   .then(data => {
     if (data.error) {
       message('text-danger', data.error);
@@ -848,7 +848,7 @@ function viewReports(idx, eventUuid) {
     });
   })
   .catch(err => {
-    message('text-danger', 'Request failed: ' + err);
+    message('text-danger', 'Could not load the MISP reports: ' + zsazsaErrorText(err));
   });
 }
 
@@ -865,7 +865,7 @@ function includeAttributes(idx, eventUuid) {
     },
     body: JSON.stringify({event_uuid: eventUuid, source_id: sourceId}),
   })
-  .then(r => r.json())
+  .then(zsazsaReadJson)
   .then(data => {
     if (data.error) {
       if (statusEl) statusEl.textContent = data.error;
@@ -879,7 +879,7 @@ function includeAttributes(idx, eventUuid) {
     if (statusEl) statusEl.textContent = 'Attributes added. Review before saving.';
   })
   .catch(err => {
-    if (statusEl) statusEl.textContent = 'Request failed: ' + err;
+    if (statusEl) statusEl.textContent = 'Could not add the attributes: ' + zsazsaErrorText(err);
   });
 }
 
@@ -963,7 +963,7 @@ document.getElementById('btn-check-overlap').addEventListener('click', function(
     },
     body: JSON.stringify({stories: stories}),
   })
-    .then(function(r) { return r.json(); })
+    .then(zsazsaReadJson)
     .then(function(data) {
       if (data.error) {
         if (statusEl) {
@@ -977,7 +977,7 @@ document.getElementById('btn-check-overlap').addEventListener('click', function(
     .catch(function(err) {
       if (statusEl) {
         statusEl.style.display = '';
-        statusEl.textContent = 'Request failed: ' + err;
+        statusEl.textContent = 'Overlap check did not complete: ' + zsazsaErrorText(err);
       }
     })
     .finally(function() {

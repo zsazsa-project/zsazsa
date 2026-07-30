@@ -1,0 +1,251 @@
+{# Collapsible filter panels (tags, organisation, event properties, CTI
+   evaluation), the active-filter chip bar and the "add to existing briefing"
+   modal. Kept out of list.html so the toolbar there stays readable. #}
+
+<!-- ── Collapsible: Tags ─────────────────────────────────────────── -->
+<div class="collapse" id="alt4-tags-panel">
+  <div class="alt4-panel">
+    <div class="alt4-panel-head">
+      <span>
+        Tags
+        <small class="fw-normal ms-2 text-muted" id="tag-count-label"
+               style="text-transform:none;letter-spacing:0;font-size:.7rem;"></small>
+      </span>
+      <div class="d-flex align-items-center gap-3">
+        <span class="text-muted fw-normal" style="font-size:.65rem;text-transform:none;letter-spacing:0;">
+          <span class="badge text-bg-success" style="font-size:.55rem;">+</span> include ·
+          <span class="badge text-bg-danger ms-1" style="font-size:.55rem;">–</span> exclude ·
+          click again to clear
+        </span>
+        <button type="button" class="btn btn-xs btn-link text-muted p-0" id="deselect-all-tags-btn"
+                style="font-size:.7rem;white-space:nowrap;">
+          <i class="fas fa-xmark me-1"></i>Deselect all
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick filters: used in products -->
+    <div class="mb-1 d-flex align-items-center flex-wrap gap-1">
+      <span class="text-muted me-1" style="font-size:.7rem;white-space:nowrap;font-weight:600;color:var(--chip-product-strong-bg);">Used in:</span>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="daily-briefing"' data-state="neutral">
+        <i class="fas fa-newspaper fa-xs me-1"></i>daily briefing
+      </button>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="flash-intel"' data-state="neutral">
+        <i class="fas fa-bolt fa-xs me-1"></i>flash intel
+      </button>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag='zsazsa:product="vea"' data-state="neutral">
+        <i class="fas fa-shield-halved fa-xs me-1"></i>vuln advisory
+      </button>
+    </div>
+
+    <!-- Quick filters: product events -->
+    <div class="mb-2 d-flex align-items-center flex-wrap gap-1">
+      <span class="text-muted me-1" style="font-size:.7rem;white-space:nowrap;font-weight:600;color:var(--accent-blue);">Products:</span>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_briefing }}" data-state="neutral">
+        <i class="fas fa-newspaper fa-xs me-1"></i>daily threat briefing
+      </button>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_flash_intel }}" data-state="neutral">
+        <i class="fas fa-bolt fa-xs me-1"></i>flash intel product
+      </button>
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ tag_vea }}" data-state="neutral">
+        <i class="fas fa-shield-halved fa-xs me-1"></i>vulnerability advisory product
+      </button>
+    </div>
+
+    <!-- Tag search input -->
+    <input type="text" id="tag-search" class="form-control form-control-sm mb-2"
+           placeholder="Find tag…" style="max-width:240px;">
+
+    <!-- Tag cloud: cti-evaluation tags excluded from display here -->
+    <div id="tag-cloud" class="d-flex flex-wrap gap-1" style="max-height:7rem;overflow:hidden;">
+      {% for t in all_tags %}
+      {% if not t.startswith('cti-evaluation:') %}
+      <button type="button" class="tag-pill tag-pill-neutral" data-tag="{{ t }}" data-state="neutral">{{ t }}</button>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <div class="mt-1 d-flex justify-content-end">
+      <button type="button" class="btn btn-xs btn-link text-muted p-0" id="tag-cloud-toggle"
+              style="font-size:.72rem;">
+        <i class="fas fa-chevron-down me-1"></i>Show all
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Collapsible: Org ──────────────────────────────────────────── -->
+<div class="collapse" id="alt4-org-panel">
+  <div class="alt4-panel">
+    <div class="alt4-panel-head">
+      <span>
+        Creator organisation
+        <small class="fw-normal ms-2 text-muted" id="org-count-label"
+               style="text-transform:none;letter-spacing:0;font-size:.7rem;"></small>
+      </span>
+      <button type="button" class="btn btn-xs btn-link text-muted p-0" id="deselect-all-orgs-btn"
+              style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0;">
+        <i class="fas fa-xmark me-1"></i>Deselect all
+      </button>
+    </div>
+    <div id="org-cloud" class="d-flex flex-wrap gap-1">
+      {% if org_list %}
+        {% for o in org_list %}
+        <button type="button" class="tag-pill tag-pill-neutral org-pill"
+                data-org="{{ o.name }}"
+                data-sources='{{ o.sources.keys() | list | tojson }}'
+                data-state="neutral"
+                title="Sources: {{ o.sources.values() | join(', ') }}">
+          {{ o.name }}<span class="ms-1" style="font-size:.62rem;opacity:.55;font-weight:400;">({{ o.sources.values() | join(', ') }})</span>
+        </button>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted small mb-0"><em>No organisations in cache yet.</em></p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Collapsible: More (event properties + sort) ──────────────── -->
+<div class="collapse" id="alt4-more-panel">
+  <div class="alt4-panel">
+    <div class="alt4-panel-head">Event properties</div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn" data-toggle-key="vulnFilter">
+        <i class="fas fa-shield-halved me-1"></i>Covers a CVE
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary filter-toggle-btn"
+              data-toggle-key="dismissedFilter" data-toggle-value="without"
+              title="Hide events tagged {{ dismissed_tag }}. Analysts dismiss events from other MISP servers the way events on your own MISP are rejected.">
+        <i class="fas fa-eye-slash me-1"></i>Ignore dismissed events
+      </button>
+      <div class="d-flex align-items-center gap-1">
+        <span class="text-muted small" style="white-space:nowrap;"><i class="fas fa-flag fa-xs me-1"></i>Flagged</span>
+        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="any">Any</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="flagged">Yes</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="flagFilter" data-filter-value="not-flagged">No</button>
+      </div>
+      <div class="vr mx-1" style="height:1.4rem;"></div>
+      <div class="d-flex align-items-center gap-1">
+        <span class="text-muted small" style="white-space:nowrap;">
+          <i class="fas fa-wand-magic-sparkles fa-xs me-1"></i>AI summary
+        </span>
+        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="any">Any</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="with">With</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="aiFilter" data-filter-value="without">Without</button>
+      </div>
+      <div class="d-flex align-items-center gap-1">
+        <span class="text-muted small" style="white-space:nowrap;">
+          <i class="fas fa-file-lines fa-xs me-1"></i>Has reports
+        </span>
+        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="any">Any</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="with">With</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reportsFilter" data-filter-value="without">Without</button>
+      </div>
+      <div class="d-flex align-items-center gap-1">
+        <span class="text-muted small" style="white-space:nowrap;">
+          <i class="fas fa-crosshairs fa-xs me-1"></i>PIR/GIR match
+        </span>
+        <button type="button" class="btn btn-xs btn-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="any">Any</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="with">With</button>
+        <button type="button" class="btn btn-xs btn-outline-secondary tristate-filter-btn" data-filter-key="reqMatchFilter" data-filter-value="without">Without</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Collapsible: CTI Evaluation ──────────────────────────────── -->
+<div class="collapse" id="alt4-cti-panel">
+  <div class="alt4-panel">
+    <div class="alt4-panel-head">CTI Evaluation filter</div>
+    <div class="row g-2 align-items-end mb-2">
+      <div class="col-md-3 col-lg-2">
+        <label class="form-label small fw-semibold mb-1">Predicate</label>
+        <select id="cti-predicate-filter" class="form-select form-select-sm">
+          <option value="">None</option>
+          <option value="overall-score">Overall score</option>
+          <option value="relevance">Relevance</option>
+          <option value="accuracy">Accuracy</option>
+          <option value="timeliness">Timeliness</option>
+          <option value="clarity">Clarity</option>
+          <option value="specificity">Specificity</option>
+          <option value="usefulness">Usefulness</option>
+          <option value="format-validity">Format validity</option>
+          <option value="conversion-fidelity">Conversion fidelity</option>
+          <option value="source-reliability">Source reliability</option>
+          <option value="evidence-strength">Evidence strength</option>
+          <option value="confidence">Confidence</option>
+        </select>
+      </div>
+      <div class="col-md-3 col-lg-2">
+        <label class="form-label small fw-semibold mb-1">Comparison</label>
+        <select id="cti-operator-filter" class="form-select form-select-sm">
+          <option value="gte">Above or equal</option>
+          <option value="lte">Below or equal</option>
+          <option value="with">Has any value</option>
+          <option value="without">No value</option>
+        </select>
+      </div>
+      <div class="col-md-2 col-lg-1">
+        <label class="form-label small fw-semibold mb-1">Value</label>
+        <select id="cti-value-filter" class="form-select form-select-sm">
+          <option value="very-low">Very low</option>
+          <option value="low">Low</option>
+          <option value="moderate" selected>Moderate</option>
+          <option value="high">High</option>
+          <option value="very-high">Very high</option>
+        </select>
+      </div>
+      <div class="col-md-4 col-lg-7">
+        <label class="form-label small fw-semibold mb-1">Quick presets</label>
+        <div class="d-flex flex-wrap gap-1" style="font-size:.65rem;">
+          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
+                  data-predicate="overall-score" data-operator="gte" data-value="high">Overall score ≥ High</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
+                  data-predicate="overall-score" data-operator="lte" data-value="low">Overall score ≤ Low</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
+                  data-predicate="relevance" data-operator="gte" data-value="moderate">Relevance ≥ Moderate</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
+                  data-predicate="confidence" data-operator="gte" data-value="high">Confidence ≥ High</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary cti-preset-btn"
+                  data-predicate="overall-score" data-operator="without">No overall score</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary" id="cti-preset-clear">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Active filter chips (always visible, below panels) ─────── -->
+<div class="alt4-chips">
+  <div id="active-tag-summary" style="display:none;"><span id="active-tag-chips"></span></div>
+  <div id="active-org-summary" style="display:none;"><span id="active-org-chips"></span></div>
+</div>
+
+<div class="modal fade" id="addToExistingBriefingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-newspaper me-2"></i>Add to existing draft briefing</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if draft_briefings %}
+        <p class="text-muted small mb-2">The selected event(s) will be added as new stories to the chosen draft briefing.</p>
+        <select id="add-to-existing-briefing-select" class="form-select form-select-sm">
+          {% for b in draft_briefings %}
+          <option value="{{ b.uuid }}">{{ b.date or '(no date)' }}{% if b.title %} &mdash; {{ b.title }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <p class="text-muted mb-0">No draft briefings available. Use "Add to daily briefing (new)" instead.</p>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        {% if draft_briefings %}
+        <button type="button" class="btn btn-sm btn-primary" id="add-to-existing-briefing-confirm">Add stories</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

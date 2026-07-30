@@ -3,7 +3,7 @@ import os
 import sqlite3
 from datetime import date, timedelta
 
-from flask import Blueprint, flash, redirect, render_template, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 import config
 from core.db import get_recent_pipeline_runs, get_latest_pipeline_run
@@ -44,24 +44,6 @@ def _pipeline_stats(source_counts):
             " WHERE processed_at >= datetime('now', '-30 days')"
         ).fetchone()[0]
 
-        recent_raw = [
-            dict(r) for r in cur.execute(
-                "SELECT processed_at, event_uuid, event_info, source_feed, outcome, detail"
-                " FROM event_log ORDER BY processed_at DESC LIMIT 120"
-            ).fetchall()
-        ]
-
-        recent = recent_raw
-        try:
-            candidate_uuids = [r.get("event_uuid") for r in recent_raw if r.get("event_uuid")]
-            existing = misp_store.scraper_existing_uuids(candidate_uuids)
-            recent = [
-                r for r in recent_raw
-                if not r.get("event_uuid") or r["event_uuid"] in existing
-            ]
-        except Exception:
-            recent = recent_raw
-
         con.close()
         return {
             "total": total,
@@ -69,10 +51,95 @@ def _pipeline_stats(source_counts):
             "by_outcome": by_outcome,
             "last_7d": last_7d,
             "last_30d": last_30d,
-            "recent": recent[:25],
         }
     except Exception:
         return None
+
+
+# Relative windows offered by the activity filter, as SQLite date modifiers.
+_ACTIVITY_PERIODS = {"48h": "-2 days", "7d": "-7 days", "30d": "-30 days"}
+_ACTIVITY_PAGE_SIZE = 50
+
+
+def _activity_filters(args):
+    """WHERE clause and parameters for the pipeline activity filters."""
+    clauses, params = [], []
+
+    outcome = (args.get("outcome") or "").strip()
+    if outcome:
+        clauses.append("outcome = ?")
+        params.append(outcome)
+
+    # The failure outcomes the analyser writes: http_error, error, no_content.
+    if args.get("problems") == "1":
+        clauses.append("(outcome LIKE '%error%' OR outcome = 'no_content')")
+
+    source = (args.get("source") or "").strip()
+    if source:
+        clauses.append("source_feed = ?")
+        params.append(source)
+
+    period = (args.get("period") or "").strip()
+    if period == "today":
+        clauses.append("processed_at >= date('now')")
+    elif period in _ACTIVITY_PERIODS:
+        clauses.append("processed_at >= datetime('now', ?)")
+        params.append(_ACTIVITY_PERIODS[period])
+
+    q = (args.get("q") or "").strip()
+    if q:
+        clauses.append("(event_info LIKE ? OR event_uuid LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    return where, params
+
+
+def _activity_page(args, offset, limit):
+    """One page of event_log rows, newest first, for the activity browser.
+
+    Paging is by offset, so an analyser run that inserts rows while someone is
+    reading can push a row from one page onto the next. That is acceptable for a
+    log people scroll; a re-filter or a page reload straightens it out.
+    """
+    if not os.path.exists(config.DB_FILE):
+        return {"rows": [], "total": 0, "has_more": False, "hidden_orphaned": 0}
+
+    where, params = _activity_filters(args)
+    con = sqlite3.connect(config.DB_FILE)
+    con.row_factory = sqlite3.Row
+    try:
+        cur = con.cursor()
+        total = cur.execute(f"SELECT COUNT(*) FROM event_log{where}", params).fetchone()[0]
+        rows = [
+            dict(r) for r in cur.execute(
+                "SELECT processed_at, event_uuid, event_info, source_feed, outcome, detail"
+                f" FROM event_log{where} ORDER BY processed_at DESC, id DESC LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
+        ]
+    finally:
+        con.close()
+
+    # Paging counts database rows, so it stays correct whether or not the
+    # orphaned ones below are dropped from this page.
+    has_more = offset + len(rows) < total
+
+    # Orphaned entries, whose source event no longer exists in the scraper MISP,
+    # are hidden unless asked for, as the card did before it was paged.
+    hidden_orphaned = 0
+    if rows and args.get("include_orphaned") != "1":
+        try:
+            existing = misp_store.scraper_existing_uuids(
+                [r["event_uuid"] for r in rows if r["event_uuid"]]
+            )
+            kept = [r for r in rows if not r["event_uuid"] or r["event_uuid"] in existing]
+            hidden_orphaned = len(rows) - len(kept)
+            rows = kept
+        except Exception as exc:
+            logger.warning("activity MISP existence check failed: %s", exc)
+
+    return {"rows": rows, "total": total, "has_more": has_more, "hidden_orphaned": hidden_orphaned}
 
 
 _IOC_TYPES = frozenset({
@@ -270,6 +337,27 @@ def index():
         source_health=source_health,
         indicator_stats=indicator_stats,
     )
+
+
+@bp.route("/pipeline/activity")
+def activity():
+    """One page of pipeline activity, for the filter and load-more controls."""
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+        limit = min(200, max(1, int(request.args.get("limit", _ACTIVITY_PAGE_SIZE))))
+    except ValueError:
+        offset, limit = 0, _ACTIVITY_PAGE_SIZE
+
+    try:
+        page = _activity_page(request.args, offset, limit)
+    except sqlite3.Error as exc:
+        # The analyser writes to this database from its own process, so a read
+        # can time out waiting for a write lock. Say so in JSON rather than
+        # letting Flask answer an HTML error page.
+        logger.warning("activity query failed: %s", exc)
+        return jsonify({"ok": False, "error": "The analyser database is busy. Retry in a moment."}), 503
+
+    return jsonify({"ok": True, "offset": offset, "limit": limit, **page})
 
 
 @bp.route("/pipeline/purge-orphaned", methods=["POST"])

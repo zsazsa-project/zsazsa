@@ -190,13 +190,53 @@
       </div>
     </div>
 
+    {# Activity can run to thousands of entries a day, so the card filters and
+       pages server side instead of showing a fixed slice of the newest rows.
+       The table keeps its own scrollbar so the page length never changes. #}
     <div class="card content-card">
-      <div class="card-header"><i class="fas fa-clock-rotate-left me-2"></i>Recent pipeline activity</div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-clock-rotate-left me-2"></i>Pipeline activity</span>
+        <span class="text-muted small" id="activity-count">&hellip;</span>
+      </div>
+      <div class="card-body p-2 border-bottom">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <input type="text" id="activity-q" class="form-control form-control-sm" placeholder="Search title or UUID…"
+                 style="max-width:220px;font-size:.8rem;" autocomplete="off">
+          <select id="activity-period" class="form-select form-select-sm" style="max-width:140px;font-size:.8rem;">
+            <option value="">Any time</option>
+            <option value="today">Today</option>
+            <option value="48h">Last 48h</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+          <select id="activity-source" class="form-select form-select-sm" style="max-width:180px;font-size:.8rem;">
+            <option value="">All sources</option>
+            {% for row in pipeline.by_source %}
+            <option value="{{ row.source_feed }}">{{ row.source_feed or 'Unknown' }}</option>
+            {% endfor %}
+          </select>
+          <select id="activity-outcome" class="form-select form-select-sm" style="max-width:170px;font-size:.8rem;">
+            <option value="">All outcomes</option>
+            {% for row in pipeline.by_outcome %}
+            <option value="{{ row.outcome }}">{{ row.outcome or 'Unknown' }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-danger" id="activity-problems"
+                  title="Show only entries that failed: any error outcome, plus no_content">
+            <i class="fas fa-triangle-exclamation me-1"></i>Problems only
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="activity-orphaned"
+                  title="Also list orphaned entries, whose source event no longer exists in MISP">
+            <i class="fas fa-link-slash me-1"></i>Include orphaned
+          </button>
+          <button type="button" class="btn btn-xs btn-link text-muted ms-auto" id="activity-reset"
+                  style="font-size:.78rem;"><i class="fas fa-xmark me-1"></i>Reset</button>
+        </div>
+      </div>
       <div class="card-body p-0">
-        {% if pipeline.recent %}
-        <div style="overflow-x:auto;">
+        <div style="overflow:auto;max-height:26rem;">
           <table class="table table-sm zsazsa-table mb-0" style="font-size:.82rem;">
-            <thead>
+            <thead style="position:sticky;top:0;z-index:1;background:var(--card-bg);">
               <tr>
                 <th style="white-space:nowrap;">Timestamp</th>
                 <th>Source</th>
@@ -204,33 +244,18 @@
                 <th>Outcome</th>
               </tr>
             </thead>
-            <tbody>
-              {% for row in pipeline.recent %}
-              <tr>
-                <td class="text-muted" style="white-space:nowrap;">{{ row.processed_at[:16] if row.processed_at else '-' }}</td>
-                <td><span class="source-tag">{{ row.source_feed or '-' }}</span></td>
-                <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ row.event_info or '' }}">
-                  <span class="text-muted" style="font-family:monospace;font-size:.72rem;">{{ row.event_uuid[:8] if row.event_uuid else '' }}…</span>
-                  {% if row.event_info %}<span class="ms-1">{{ row.event_info | truncate(55) }}</span>{% endif %}
-                </td>
-                <td style="white-space:nowrap;">
-                  {% if row.outcome %}
-                  {% set ok = row.outcome in ('matched', 'processed', 'success', 'product_created') %}
-                  {% set err = 'error' in row.outcome %}
-                  <span class="badge {% if ok %}outcome-success{% elif err %}outcome-error{% else %}outcome-warning{% endif %}" style="font-size:.68rem;">
-                    {{ row.outcome }}
-                  </span>
-                  {% if row.detail %}<span class="text-muted ms-1" title="{{ row.detail }}"><i class="fas fa-circle-info fa-xs"></i></span>{% endif %}
-                  {% else %}-{% endif %}
-                </td>
-              </tr>
-              {% endfor %}
+            <tbody id="activity-tbody">
+              <tr><td colspan="4" class="text-center text-muted py-4">
+                <i class="fas fa-circle-notch fa-spin me-1"></i>Loading activity…
+              </td></tr>
             </tbody>
           </table>
         </div>
-        {% else %}
-        <div class="empty-state py-4"><p class="text-muted mb-0">No pipeline activity recorded yet.</p></div>
-        {% endif %}
+      </div>
+      <div class="card-footer d-flex justify-content-center py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="activity-more">
+          <i class="fas fa-angles-down me-1"></i>Load more
+        </button>
       </div>
     </div>
 
@@ -434,6 +459,161 @@
     extra.forEach(function (el) { el.classList.toggle('d-none', !hidden); });
     btn.textContent = hidden ? 'Show fewer sources' : 'Show all ' + btn.dataset.total + ' sources';
   });
+})();
+
+/* Pipeline activity: filter and page over event_log without leaving the page. */
+(function () {
+  var tbody = document.getElementById('activity-tbody');
+  if (!tbody) return;
+
+  var countEl = document.getElementById('activity-count');
+  var moreBtn = document.getElementById('activity-more');
+  var qEl = document.getElementById('activity-q');
+  var periodEl = document.getElementById('activity-period');
+  var sourceEl = document.getElementById('activity-source');
+  var outcomeEl = document.getElementById('activity-outcome');
+  var problemsBtn = document.getElementById('activity-problems');
+  var orphanedBtn = document.getElementById('activity-orphaned');
+  var resetBtn = document.getElementById('activity-reset');
+
+  var offset = 0;
+  var shown = 0;
+  var problemsOnly = false;
+  var includeOrphaned = false;
+  var hiddenOrphaned = 0;
+  var searchTimer = null;
+  /* Filters can change while a page is still in flight; only the newest
+     request is allowed to write to the table. */
+  var currentRequest = 0;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function filtersActive() {
+    return !!(qEl.value.trim() || periodEl.value || sourceEl.value || outcomeEl.value || problemsOnly);
+  }
+
+  function params() {
+    var p = new URLSearchParams();
+    if (qEl.value.trim()) p.set('q', qEl.value.trim());
+    if (periodEl.value) p.set('period', periodEl.value);
+    if (sourceEl.value) p.set('source', sourceEl.value);
+    if (outcomeEl.value) p.set('outcome', outcomeEl.value);
+    if (problemsOnly) p.set('problems', '1');
+    if (includeOrphaned) p.set('include_orphaned', '1');
+    /* No limit: the endpoint owns the page size and echoes it back. */
+    p.set('offset', String(offset));
+    return p;
+  }
+
+  function rowHtml(row) {
+    var outcome = row.outcome || '';
+    var cls = 'outcome-warning';
+    if (['matched', 'processed', 'success', 'product_created'].indexOf(outcome) !== -1) cls = 'outcome-success';
+    else if (outcome.indexOf('error') !== -1) cls = 'outcome-error';
+    var title = row.event_info || '';
+    var shortTitle = title.length > 55 ? title.slice(0, 55) + '…' : title;
+    return '<tr>'
+      + '<td class="text-muted" style="white-space:nowrap;">' + esc((row.processed_at || '-').slice(0, 16)) + '</td>'
+      + '<td><span class="source-tag">' + esc(row.source_feed || '-') + '</span></td>'
+      + '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(title) + '">'
+      + '<span class="text-muted" style="font-family:monospace;font-size:.72rem;">' + esc((row.event_uuid || '').slice(0, 8)) + '…</span>'
+      + (title ? '<span class="ms-1">' + esc(shortTitle) + '</span>' : '')
+      + '</td>'
+      + '<td style="white-space:nowrap;">'
+      + (outcome
+          ? '<span class="badge ' + cls + '" style="font-size:.68rem;">' + esc(outcome) + '</span>'
+            + (row.detail ? '<span class="text-muted ms-1" title="' + esc(row.detail) + '"><i class="fas fa-circle-info fa-xs"></i></span>' : '')
+          : '-')
+      + '</td></tr>';
+  }
+
+  function load(append) {
+    if (!append) {
+      offset = 0;
+      shown = 0;
+      hiddenOrphaned = 0;
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">'
+        + '<i class="fas fa-circle-notch fa-spin me-1"></i>Loading activity…</td></tr>';
+    }
+    moreBtn.disabled = true;
+    currentRequest += 1;
+    var request = currentRequest;
+
+    fetch(SCRIPT_ROOT + '/pipeline/activity?' + params().toString())
+      .then(zsazsaReadJson)
+      .then(function (data) {
+        if (request !== currentRequest) return;
+        if (!data.ok) throw new Error(data.error || 'the server could not read the activity log.');
+        if (!append) tbody.innerHTML = '';
+        var rows = data.rows;
+        tbody.insertAdjacentHTML('beforeend', rows.map(rowHtml).join(''));
+        shown += rows.length;
+        hiddenOrphaned += data.hidden_orphaned;
+        offset = data.offset + data.limit;
+        if (!shown) {
+          var empty = (data.total === 0 && !filtersActive())
+            ? 'No pipeline activity recorded yet.'
+            : 'No entries match these filters.';
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">' + empty + '</td></tr>';
+        }
+        countEl.textContent = 'showing ' + shown + ' of ' + data.total + ' entries'
+          + (hiddenOrphaned ? ' · ' + hiddenOrphaned + ' orphaned hidden' : '');
+        moreBtn.classList.toggle('d-none', !data.has_more);
+        moreBtn.disabled = false;
+      })
+      .catch(function (err) {
+        if (request !== currentRequest) return;
+        var message = 'Could not load activity: ' + zsazsaErrorText(err);
+        if (append) {
+          /* Keep the pages already loaded; only report that this one failed. */
+          countEl.textContent = message;
+          moreBtn.disabled = false;
+        } else {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-danger small py-3 px-3">' + esc(message) + '</td></tr>';
+          countEl.textContent = '';
+          moreBtn.classList.add('d-none');
+        }
+      });
+  }
+
+  [periodEl, sourceEl, outcomeEl].forEach(function (el) {
+    el.addEventListener('change', function () { load(false); });
+  });
+  qEl.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { load(false); }, 300);
+  });
+  problemsBtn.addEventListener('click', function () {
+    problemsOnly = !problemsOnly;
+    problemsBtn.classList.toggle('btn-danger', problemsOnly);
+    problemsBtn.classList.toggle('btn-outline-danger', !problemsOnly);
+    load(false);
+  });
+  orphanedBtn.addEventListener('click', function () {
+    includeOrphaned = !includeOrphaned;
+    orphanedBtn.classList.toggle('btn-secondary', includeOrphaned);
+    orphanedBtn.classList.toggle('btn-outline-secondary', !includeOrphaned);
+    load(false);
+  });
+  resetBtn.addEventListener('click', function () {
+    qEl.value = '';
+    periodEl.value = '';
+    sourceEl.value = '';
+    outcomeEl.value = '';
+    problemsOnly = false;
+    problemsBtn.classList.remove('btn-danger');
+    problemsBtn.classList.add('btn-outline-danger');
+    includeOrphaned = false;
+    orphanedBtn.classList.remove('btn-secondary');
+    orphanedBtn.classList.add('btn-outline-secondary');
+    load(false);
+  });
+  moreBtn.addEventListener('click', function () { load(true); });
+
+  load(false);
 })();
 </script>
 {% endblock %}

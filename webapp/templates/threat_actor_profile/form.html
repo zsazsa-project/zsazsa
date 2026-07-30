@@ -576,7 +576,7 @@ document.querySelectorAll('.actor-type-pill').forEach(function(pill) {
       },
       body: JSON.stringify({actors: actors, context: context}),
     })
-    .then(function(r) { return r.json(); })
+    .then(zsazsaReadJson)
     .then(function(data) {
       if (data.error) { status.textContent = data.error; return; }
       var sections = data.sections || {};
@@ -599,7 +599,7 @@ document.querySelectorAll('.actor-type-pill').forEach(function(pill) {
         ? 'Drafted and highlighted: ' + drafted.join(', ') + '. Review before saving.'
         : 'Nothing to draft: every field already has content.';
     })
-    .catch(function(err) { status.textContent = 'Request failed: ' + err; })
+    .catch(function(err) { status.textContent = 'AI draft did not complete: ' + zsazsaErrorText(err); })
     .finally(function() { btn.disabled = false; });
   });
 })();

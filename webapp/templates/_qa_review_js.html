@@ -70,7 +70,7 @@
         },
         body: JSON.stringify({kind: btn.dataset.kind, uuid: btn.dataset.uuid}),
       })
-      .then(function(r) { return r.json(); })
+      .then(zsazsaReadJson)
       .then(function(data) {
         out.className = 'qa-review-output mb-2';
         if (data.error) {
@@ -82,7 +82,7 @@
       })
       .catch(function(err) {
         out.className = 'qa-review-output mb-2 small text-danger';
-        out.textContent = 'Request failed: ' + err;
+        out.textContent = 'QA review did not complete: ' + zsazsaErrorText(err);
       })
       .finally(function() { btn.disabled = false; });
     });

@@ -837,7 +837,7 @@ function _renderCvssBadge(cvssVal) {
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
       body: JSON.stringify({cve_ids: cveIds}),
     })
-    .then(function(r) { return r.json(); })
+    .then(zsazsaReadJson)
     .then(function(data) {
       if (!data.ok) { status.textContent = 'Lookup failed: ' + (data.error || 'unknown error'); status.style.display = ''; return; }
 
@@ -903,7 +903,7 @@ function _renderCvssBadge(cvssVal) {
       }
     })
     .catch(function(err) {
-      status.textContent = 'Request failed: ' + err;
+      status.textContent = 'CVE lookup did not complete: ' + zsazsaErrorText(err);
       status.style.display = '';
     })
     .finally(function() {
@@ -939,7 +939,7 @@ document.getElementById('btn-draft-vea').addEventListener('click', function() {
     },
     body: JSON.stringify({cve_id: cveId, product_info: product}),
   })
-  .then(r => r.json())
+  .then(zsazsaReadJson)
   .then(data => {
     if (data.error) {
       status.textContent = 'AI draft failed: ' + data.error;
@@ -978,7 +978,7 @@ document.getElementById('btn-draft-vea').addEventListener('click', function() {
     status.style.color = '';
   })
   .catch(err => {
-    status.textContent = 'Request failed: ' + err;
+    status.textContent = 'AI draft did not complete: ' + zsazsaErrorText(err);
     status.style.color = 'var(--bs-danger)';
   })
   .finally(() => {

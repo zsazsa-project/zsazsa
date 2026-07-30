@@ -895,7 +895,7 @@
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
       body: JSON.stringify({source_uuids: sourceUuids, report_mode: mode}),
     })
-    .then(function(r) { return r.json(); })
+    .then(zsazsaReadJson)
     .then(function(data) {
       resetBtn();
       if (data.error) { alert('AI build failed: ' + data.error); return; }
@@ -958,7 +958,7 @@
         buildAiBtn.classList.add('btn-outline-success');
       }, 3000);
     })
-    .catch(function(err) { resetBtn(); alert('Request failed: ' + err); });
+    .catch(function(err) { resetBtn(); alert('AI build did not complete: ' + zsazsaErrorText(err)); });
   }
 
   if (buildAiBtn) {

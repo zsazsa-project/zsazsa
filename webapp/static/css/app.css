@@ -741,6 +741,30 @@ body {
   padding: 1rem;
 }
 
+/* Action panel: the titled shell around the dashboard quick actions and the
+   data collection toolbar. Spacing stays with each page, they are not the same
+   density, so only the shared look lives here. */
+.action-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--border-radius);
+}
+
+.action-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.action-panel-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* ─── Tables ─────────────────────────────────────────────────────────────── */
 .zsazsa-table {
   font-size: 0.875rem;
