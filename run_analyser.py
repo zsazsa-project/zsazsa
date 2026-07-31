@@ -12,6 +12,7 @@ from analyser.products.flash_intel import process as process_flash_intel
 from analyser.reader import get_new_scraper_events, save_last_run
 from core.db import init_db, log_event, log_pipeline_run_start, log_pipeline_run_end
 from core.misp_client import get_misp, get_misp_webapp
+from webapp import job_store
 
 
 def setup_logging() -> None:
@@ -62,7 +63,16 @@ def main() -> None:
 
     counts = {"product_created": 0, "not_relevant": 0, "http_error": 0, "no_content": 0, "error": 0}
 
-    for event in events:
+    # A run with work registers a job, so the web app can show it while it is
+    # going. Scheduled runs that find nothing stay out of the way: they would
+    # otherwise keep the job badge lit with nothing to report.
+    job = None
+    if events:
+        job = job_store.create_job("analyser", label="CLI analyser")
+        job_store.update_job(job["id"], status="running", message=f"Processing {len(events)} event(s)")
+
+    for position, event in enumerate(events, start=1):
+        job_store.update_job(job["id"], message=f"Event {position} of {len(events)}: {event.info or event.uuid[:8]}")
         try:
             result = process_flash_intel(misp, misp_webapp, event, focus_points)
             outcome = result["outcome"]
@@ -93,14 +103,21 @@ def main() -> None:
     # Advance the timestamp unconditionally so events are not reprocessed on
     # the next run, even if some failed. Errored events are visible in the DB log.
     save_last_run(run_start)
-    log_pipeline_run_end(run_id, "completed", {
+    result = {
         "total_events": len(events),
         "product_created": counts.get("product_created", 0),
         "not_relevant": counts.get("not_relevant", 0),
         "http_error": counts.get("http_error", 0),
         "no_content": counts.get("no_content", 0),
         "error": counts.get("error", 0),
-    })
+    }
+    log_pipeline_run_end(run_id, "completed", result)
+    if job:
+        job_store.update_job(
+            job["id"], status="completed", result=result,
+            message=(f"{len(events)} event(s): {counts.get('product_created', 0)} product(s), "
+                     f"{counts.get('not_relevant', 0)} not relevant, {counts.get('error', 0)} error(s)"),
+        )
     logger.info(
         "Analyser complete: %d events - %d products, %d not relevant, %d HTTP errors, %d no content, %d errors",
         len(events),

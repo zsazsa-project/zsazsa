@@ -22,7 +22,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import config
 from core import imap_collector
 from core.db import init_db, log_pipeline_run_start, log_pipeline_run_end
-from webapp import misp_store, newsletter_ingest, newsletter_parsers
+from webapp import job_store, misp_store, newsletter_ingest, newsletter_parsers
 
 logger = logging.getLogger(__name__)
 
@@ -132,9 +132,15 @@ def main() -> None:
         log_pipeline_run_end(run_id, "completed", {"message": "No enabled mailboxes configured", "mailboxes": []})
         return
 
+    # Registered as a job as well, so a scheduled poll is visible in the web app
+    # while it is going, not only in the history once it has finished.
+    job = job_store.create_job("imap-collector", label="Mailbox poll")
+    job_store.update_job(job["id"], status="running", message=f"Polling {len(mailboxes)} mailbox(es)")
+
     records = []
     for mailbox in mailboxes:
         record = {"id": mailbox.get("id"), "name": mailbox.get("name") or mailbox.get("id")}
+        job_store.update_job(job["id"], message=f"Polling {record['name']}")
         try:
             record.update(_poll_mailbox(mailbox))
         except Exception as exc:
@@ -147,8 +153,15 @@ def main() -> None:
     message = f"{processed} message(s) ingested from {len(mailboxes)} mailbox(es)"
     if failures:
         message += f", {failures} mailbox(es) failed"
-    log_pipeline_run_end(run_id, "failed" if failures else "completed",
-                         {"message": message, "mailboxes": records})
+    result = {"message": message, "mailboxes": records}
+    log_pipeline_run_end(run_id, "failed" if failures else "completed", result)
+    if processed or failures:
+        job_store.update_job(job["id"], status="failed" if failures else "completed",
+                             result=result, message=message)
+    else:
+        # Most polls find an empty mailbox. Those are in the run history, but
+        # they have nothing to say to someone watching the job badge.
+        job_store.forget_job(job["id"])
     logger.info("IMAP collector finished: %s", message)
 
 

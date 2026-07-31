@@ -138,6 +138,9 @@
   </div>
 
   <div class="topnav-right">
+    <button type="button" class="job-badge d-none me-2" data-bs-toggle="modal" data-bs-target="#jobs-modal">
+      <span class="job-badge-icon"></span><span class="job-badge-text"></span>
+    </button>
     <a class="misp-status-badge" title="Checking MISP connection…"
        href="{{ self.misp_object_url() }}" target="_blank" rel="noopener">
       <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" class="misp-status-logo">
@@ -337,6 +340,9 @@
         {% endif %}
       </div>
       <div class="topbar-right">
+        <button type="button" class="job-badge d-none me-3" data-bs-toggle="modal" data-bs-target="#jobs-modal">
+          <span class="job-badge-icon"></span><span class="job-badge-text"></span>
+        </button>
         <a class="misp-status-badge me-3" title="Checking MISP connection…"
            href="{% block misp_object_url %}{{ misp_webapp_url }}{% endblock %}" target="_blank" rel="noopener">
           <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" class="misp-status-logo">
@@ -386,6 +392,28 @@
       {% endif %}
     </footer>
 
+  </div>
+</div>
+
+<!-- Background jobs, opened from the badge in the top bar -->
+<div class="modal fade" id="jobs-modal" tabindex="-1" aria-labelledby="jobs-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="jobs-modal-label">
+          <i class="fas fa-list-check me-2"></i>Background jobs
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          Analyser runs, mailbox polls and AI summaries keep going after you leave the page.
+          They are listed here until they age out, and finished runs also appear under
+          Reporting &rsaquo; Pipeline.
+        </p>
+        <div id="jobs-modal-list" class="list-group list-group-flush"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -786,6 +814,131 @@
 
     update();
     setInterval(update, 60000);
+  })();
+</script>
+<script>
+  // Background jobs. The badge is the only place an analyst can see that an
+  // analyser run or a batch of AI summaries is still going after they left the
+  // page that started it, so it lives in the top bar and polls from everywhere.
+  (function() {
+    var badges = document.querySelectorAll('.job-badge');
+    if (!badges.length) return;
+    var list = document.getElementById('jobs-modal-list');
+    var jobs = [];
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function ago(seconds) {
+      var mins = Math.round(seconds / 60);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      if (mins < 1440) return Math.round(mins / 60) + 'h ago';
+      return Math.round(mins / 1440) + 'd ago';
+    }
+
+    function paint() {
+      var running = jobs.filter(function(j) {
+        return (j.status === 'queued' || j.status === 'running') && !j.stale;
+      });
+      var stalled = jobs.filter(function(j) { return j.stale; });
+      // Once nothing runs, keep the outcome of the last hour in view, so an
+      // analyst coming back to the app still learns how it ended.
+      var recent = jobs.filter(function(j) {
+        return j.status !== 'running' && j.status !== 'queued' && j.age < 3600;
+      });
+      var failed = recent.filter(function(j) { return j.status === 'failed'; });
+
+      badges.forEach(function(badge) {
+        var icon = badge.querySelector('.job-badge-icon');
+        var text = badge.querySelector('.job-badge-text');
+        badge.classList.remove('job-badge-running', 'job-badge-done', 'job-badge-failed');
+        if (running.length) {
+          badge.classList.remove('d-none');
+          badge.classList.add('job-badge-running');
+          icon.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+          text.textContent = running.length === 1
+            ? running[0].label + ' running'
+            : running.length + ' jobs running';
+          badge.title = running.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
+        } else if (stalled.length) {
+          badge.classList.remove('d-none');
+          badge.classList.add('job-badge-failed');
+          icon.innerHTML = '<i class="fas fa-triangle-exclamation"></i>';
+          text.textContent = stalled[0].label + ' stalled';
+          badge.title = 'No progress for a while. The app was probably restarted while it ran.';
+        } else if (failed.length) {
+          badge.classList.remove('d-none');
+          badge.classList.add('job-badge-failed');
+          icon.innerHTML = '<i class="fas fa-circle-xmark"></i>';
+          text.textContent = failed.length === 1 ? failed[0].label + ' failed' : failed.length + ' jobs failed';
+          badge.title = failed.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
+        } else if (recent.length) {
+          badge.classList.remove('d-none');
+          badge.classList.add('job-badge-done');
+          icon.innerHTML = '<i class="fas fa-circle-check"></i>';
+          text.textContent = recent[0].label + ' done';
+          badge.title = recent[0].message || '';
+        } else {
+          badge.classList.add('d-none');
+        }
+      });
+
+      if (!list) return;
+      if (!jobs.length) {
+        list.innerHTML = '<p class="text-muted mb-0">No jobs have run recently.</p>';
+        return;
+      }
+      list.innerHTML = jobs.map(function(job) {
+        var state = job.stale ? 'stalled' : job.status;
+        var tone = job.status === 'completed' ? 'text-bg-success'
+                 : (job.status === 'failed' || job.stale) ? 'text-bg-danger'
+                 : job.status === 'running' ? 'text-bg-primary' : 'text-bg-secondary';
+        return '<div class="list-group-item px-0">'
+          + '<div class="d-flex justify-content-between align-items-center gap-2">'
+          + '<span class="fw-semibold">' + esc(job.label) + '</span>'
+          + '<span class="d-flex align-items-center gap-2">'
+          + '<span class="badge ' + tone + '">' + esc(state) + '</span>'
+          + '<span class="text-muted small">' + esc(ago(job.age)) + '</span>'
+          + '</span></div>'
+          + '<div class="text-muted small">' + esc(job.message) + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    // Every request re-reads the MISP session and records an SSO sighting, so
+    // polling is kept to what is useful: quick while a job runs, slow when the
+    // app is idle, and nothing at all in a tab nobody is looking at.
+    var BUSY_MS = 5000;
+    var IDLE_MS = 30000;
+    var timer = null;
+
+    function schedule(delay) {
+      clearTimeout(timer);
+      timer = setTimeout(poll, delay);
+    }
+
+    function poll() {
+      if (document.hidden) { schedule(IDLE_MS); return; }
+      var next = IDLE_MS;
+      fetch(SCRIPT_ROOT + '/pipeline/jobs')
+        .then(zsazsaReadJson)
+        .then(function(data) {
+          if (!data.ok) return;
+          jobs = data.jobs || [];
+          next = data.running ? BUSY_MS : IDLE_MS;
+          paint();
+        })
+        .catch(function() { /* the badge is not worth an error on screen */ })
+        .finally(function() { schedule(next); });
+    }
+
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) schedule(200);
+    });
+    poll();
   })();
 </script>
 <script>

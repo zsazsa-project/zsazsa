@@ -30,7 +30,8 @@ def _read_line(sock) -> bytes:
 
 
 def read_reply(sock):
-    """Read one reply. Handles simple strings, errors, integers and bulk strings."""
+    """Read one reply. Handles simple strings, errors, integers, bulk strings
+    and arrays (HGETALL and friends return one)."""
     line = _read_line(sock)
     kind, rest = line[:1], line[1:]
     if kind == b"+":
@@ -39,6 +40,11 @@ def read_reply(sock):
         raise RedisError(rest.decode("utf-8", "replace"))
     if kind == b":":
         return int(rest)
+    if kind == b"*":
+        count = int(rest)
+        if count == -1:
+            return None
+        return [read_reply(sock) for _ in range(count)]
     if kind == b"$":
         length = int(rest)
         if length == -1:

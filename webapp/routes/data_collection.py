@@ -8,6 +8,7 @@ one event live - a single event fetch is fast; querying hundreds is not.
 import concurrent.futures
 import logging
 import re
+import threading
 import time
 from collections import Counter
 
@@ -20,7 +21,9 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from pymisp import PyMISP, MISPEventReport
 
 import config
-from webapp import audit, collection_cache, matching as _matching, misp_store, newsletter_ingest, newsletter_parsers
+from core.db import log_pipeline_run_start, log_pipeline_run_end
+from webapp import (audit, collection_cache, job_store, matching as _matching, misp_session,
+                    misp_store, newsletter_ingest, newsletter_parsers)
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object
 
@@ -510,10 +513,11 @@ def _apply_scope_tags(misp, event, sectors, geo, techniques):
     return applied
 
 
-def _generate_ai_summary(misp, event, source_id):
+def _generate_ai_summary(misp, event, source_id, user=""):
     """Generate an LLM summary from an event's first MISP report and save it back to MISP.
 
-    Shared by the single-event and bulk summarisation routes.
+    Runs on a worker thread, so ``user`` carries the analyst who asked for it
+    through to the audit entry.
     Returns (ok, message_or_error, http_status).
     """
     uuid = event.uuid
@@ -589,6 +593,7 @@ def _generate_ai_summary(misp, event, source_id):
         entity_id=uuid,
         entity_label=event.info or uuid,
         details=f"LLM summary created from first MISP report; workflow state updated to draft{tag_note}",
+        user=user,
     )
 
     return True, "Summary created and added to MISP event", 200
@@ -597,6 +602,10 @@ def _generate_ai_summary(misp, event, source_id):
 @bp.route("/<string:uuid>/summarise", methods=["POST"])
 @rate_limited("collection_summarise", limit=15, window_s=60)
 def summarise(uuid):
+    """Start the LLM summary for one event, on a background thread like a batch.
+
+    Returns JSON: {ok, job_id}. The row is refreshed once the job reports done.
+    """
     data, err = _json_object()
     if err:
         return err
@@ -604,20 +613,13 @@ def summarise(uuid):
     if source_id != _SCRAPER_SOURCE_ID:
         return jsonify({"ok": False, "error": "Summarisation is only available for scraper events"}), 400
 
-    misp = misp_store._scraper_misp()
-    try:
-        event = misp.get_event(uuid, pythonify=True)
-    except Exception as exc:
-        logger.warning("MISP get_event %s failed: %s", uuid, exc)
-        return jsonify({"ok": False, "error": "Could not fetch event from MISP"}), 502
-
-    if not event or isinstance(event, dict):
-        return jsonify({"ok": False, "error": "Event not found"}), 404
-
-    ok, message, status = _generate_ai_summary(misp, event, source_id)
-    if not ok:
-        return jsonify({"ok": False, "error": message}), status
-    return jsonify({"ok": True, "message": message})
+    job = job_store.create_job("summarise", label="AI summary")
+    threading.Thread(
+        target=_run_summarise_job,
+        args=(job["id"], [{"uuid": uuid, "sourceId": source_id}], misp_session.current_user_email()),
+        daemon=True, name="summarise",
+    ).start()
+    return jsonify({"ok": True, "job_id": job["id"]})
 
 
 @bp.route("/<string:uuid>/preview")
@@ -1463,15 +1465,84 @@ def bulk_reject():
                     "errors": errors, "message": ", ".join(parts) or "No events changed"})
 
 
+def _run_summarise_job(job_id: str, batch: list[dict], user: str,
+                       skipped: int = 0, run_action: str = "") -> None:
+    """Summarise the given events, one LLM call each, reporting progress.
+
+    ``user`` is the analyst who asked, read from the request before this thread
+    started. ``skipped`` is what the caller already left out because the batch
+    was capped. ``run_action`` records the work in the analyser run history under
+    that name; a single event is left out of it, so the history stays about
+    batch runs.
+    """
+    uuids = [(ev.get("uuid") or "").strip() for ev in batch if (ev.get("uuid") or "").strip()]
+    cached_by_uuid = {row["uuid"]: row for row in collection_cache.get_events_by_uuids(uuids)}
+    summarised = errors = 0
+
+    run_id = log_pipeline_run_start(run_action, triggered_by="data collection") if run_action else 0
+    job_store.update_job(job_id, status="running", message=f"Summarising {len(batch)} event(s)...")
+
+    try:
+        misp = misp_store._scraper_misp()
+        for position, ev in enumerate(batch, start=1):
+            uuid = (ev.get("uuid") or "").strip()
+            source_id = (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip()
+            job_store.update_job(job_id, message=f"Event {position} of {len(batch)}: generating summary")
+
+            if not uuid or source_id != _SCRAPER_SOURCE_ID:
+                skipped += 1
+                continue
+            if cached_by_uuid.get(uuid, {}).get("has_ai_summary"):
+                skipped += 1
+                continue
+
+            try:
+                event = misp.get_event(uuid, pythonify=True)
+            except Exception as exc:
+                logger.warning("bulk_summarise: cannot load %s: %s", uuid, exc)
+                job_store.append_log(job_id, f"{uuid[:8]}: could not be loaded from MISP")
+                errors += 1
+                continue
+            if not event or isinstance(event, dict):
+                job_store.append_log(job_id, f"{uuid[:8]}: not found on the scraper MISP")
+                errors += 1
+                continue
+
+            ok, message, _status = _generate_ai_summary(misp, event, source_id, user=user)
+            if ok:
+                summarised += 1
+            else:
+                logger.warning("bulk_summarise: failed for %s: %s", uuid, message)
+                job_store.append_log(job_id, f"{event.info or uuid[:8]}: {message}")
+                errors += 1
+
+        parts = [f"{summarised} summary/summaries created"]
+        if skipped:
+            parts.append(f"{skipped} skipped")
+        if errors:
+            parts.append(f"{errors} error(s)")
+        result = {"summarised": summarised, "skipped": skipped, "errors": errors,
+                  "message": ", ".join(parts)}
+        log_pipeline_run_end(run_id, "completed", result)
+        job_store.update_job(job_id, status="completed", result=result, message=result["message"])
+    except Exception as exc:
+        log_pipeline_run_end(run_id, "failed")
+        job_store.update_job(job_id, status="failed", error=str(exc), message=f"Failed: {exc}")
+        logger.exception("Summarise job %s failed", job_id)
+
+
 @bp.route("/bulk-summarise", methods=["POST"])
 @rate_limited("collection_summarise", limit=15, window_s=60)
 def bulk_summarise():
-    """Generate LLM summaries for a batch of selected scraper-sourced collection events.
+    """Start LLM summaries for a batch of selected scraper-sourced collection events.
 
     POST JSON: {"events": [{"uuid": "...", "sourceId": "..."}]}
-    Non-scraper events and events that already have a summary are skipped. To
-    keep the request bounded, only the first _BULK_SUMMARISE_LIMIT events are processed.
-    Returns JSON: {ok, summarised, skipped, errors, message}
+    One LLM call per event takes long enough that the work runs on a background
+    thread: this answers with a job id, and the job carries the progress and the
+    outcome so they survive the analyst leaving the page. Non-scraper events and
+    events that already have a summary are skipped, and only the first
+    _BULK_SUMMARISE_LIMIT events are processed.
+    Returns JSON: {ok, job_id, message}
     """
     data, err = _json_object()
     if err:
@@ -1480,49 +1551,17 @@ def bulk_summarise():
     if not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
 
-    uuids = [(ev.get("uuid") or "").strip() for ev in events if (ev.get("uuid") or "").strip()]
-    cached_by_uuid = {row["uuid"]: row for row in collection_cache.get_events_by_uuids(uuids)}
+    batch = events[:_BULK_SUMMARISE_LIMIT]
+    job = job_store.create_job("bulk-summarise", label="AI summaries")
+    threading.Thread(
+        target=_run_summarise_job,
+        args=(job["id"], batch, misp_session.current_user_email(),
+              len(events) - len(batch), "bulk-summarise"),
+        daemon=True, name="bulk-summarise",
+    ).start()
 
-    misp = misp_store._scraper_misp()
-    summarised = skipped = errors = 0
-
-    for ev in events[:_BULK_SUMMARISE_LIMIT]:
-        uuid = (ev.get("uuid") or "").strip()
-        source_id = (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip()
-        if not uuid or source_id != _SCRAPER_SOURCE_ID:
-            skipped += 1
-            continue
-        if cached_by_uuid.get(uuid, {}).get("has_ai_summary"):
-            skipped += 1
-            continue
-
-        try:
-            event = misp.get_event(uuid, pythonify=True)
-        except Exception as exc:
-            logger.warning("bulk_summarise: cannot load %s: %s", uuid, exc)
-            errors += 1
-            continue
-        if not event or isinstance(event, dict):
-            errors += 1
-            continue
-
-        ok, message, _status = _generate_ai_summary(misp, event, source_id)
-        if ok:
-            summarised += 1
-        else:
-            logger.warning("bulk_summarise: failed for %s: %s", uuid, message)
-            errors += 1
-
-    skipped_extra = max(0, len(events) - _BULK_SUMMARISE_LIMIT)
-    skipped += skipped_extra
-
-    parts = [f"{summarised} summary/summaries created"]
-    if skipped:
-        parts.append(f"{skipped} skipped")
-    if errors:
-        parts.append(f"{errors} error(s)")
-    return jsonify({"ok": True, "summarised": summarised, "skipped": skipped,
-                    "errors": errors, "message": ", ".join(parts)})
+    return jsonify({"ok": True, "job_id": job["id"],
+                    "message": f"Summarising {len(batch)} event(s) in the background."})
 
 
 @bp.route("/<string:uuid>/flag", methods=["POST"])

@@ -665,13 +665,15 @@ body {
 [data-theme="uibeta"] #topbar,
 [data-theme="overmind"] #topbar  { position: static; }
 
-/* Top-nav themes: MISP status, intel reference and user move into #topnav. */
+/* Top-nav themes: MISP status, jobs, intel reference and user move into #topnav. */
 [data-theme="uibeta"] #topbar .misp-status-badge,
 [data-theme="uibeta"] #topbar .admiralty-ref-btn,
 [data-theme="uibeta"] #topbar .topbar-user,
+[data-theme="uibeta"] #topbar .job-badge,
 [data-theme="overmind"] #topbar .misp-status-badge,
 [data-theme="overmind"] #topbar .admiralty-ref-btn,
-[data-theme="overmind"] #topbar .topbar-user {
+[data-theme="overmind"] #topbar .topbar-user,
+[data-theme="overmind"] #topbar .job-badge {
   display: none;
 }
 
@@ -708,6 +710,29 @@ body {
 .misp-status-checking { color: var(--text-muted); }
 .misp-status-ok       { color: var(--accent-green); }
 .misp-status-error    { color: var(--accent-red); }
+
+/* ─── Background job indicator ──────────────────────────────────────────── */
+.job-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--topbar-border);
+  border-radius: 20px;
+  background: var(--misp-status-bg);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+
+.job-badge:hover { border-color: var(--misp-status-hover-border); }
+.job-badge-running  { color: var(--accent-blue); }
+.job-badge-done     { color: var(--accent-green); }
+.job-badge-failed   { color: var(--accent-red); }
 
 /* ─── Flash messages ────────────────────────────────────────────────────── */
 #flash-container {

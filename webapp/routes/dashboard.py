@@ -5,7 +5,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 from flask import Blueprint, jsonify, render_template
 
@@ -13,15 +12,18 @@ import config
 from analyser.reader import save_last_run
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import analyser_pipeline, audit
-from webapp import misp_store
+from webapp import job_store, misp_session, misp_store
 from webapp.utils import json_body as _json_object
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("dashboard", __name__)
 
 
-_PIPELINE_JOBS = {}
-_PIPELINE_JOBS_LOCK = threading.Lock()
+_ACTION_LABELS = {
+    "daily-briefing": "Daily briefing",
+    "flash-intel": "Flash intel alert",
+    "vea": "Vulnerability advisory",
+}
 
 
 def _steps_for_action(action: str) -> list[dict]:
@@ -51,77 +53,13 @@ def _steps_for_action(action: str) -> list[dict]:
     return common
 
 
-def _new_pipeline_job(action: str) -> dict:
-    job_id = uuid4().hex
-    now = time.time()
-    job = {
-        "id": job_id,
-        "action": action,
-        "status": "queued",
-        "message": "Queued",
-        "steps": _steps_for_action(action),
-        "created_at": now,
-        "updated_at": now,
-        "result": None,
-        "error": None,
-        "log": [{"timestamp": now, "message": "Job queued."}],
-    }
-    with _PIPELINE_JOBS_LOCK:
-        _PIPELINE_JOBS[job_id] = job
-        # Keep memory bounded.
-        if len(_PIPELINE_JOBS) > 40:
-            oldest = sorted(_PIPELINE_JOBS.values(), key=lambda j: j.get("created_at", 0))[:10]
-            for item in oldest:
-                _PIPELINE_JOBS.pop(item["id"], None)
-    return job
-
-
-def _update_job(job_id: str, **fields) -> None:
-    with _PIPELINE_JOBS_LOCK:
-        job = _PIPELINE_JOBS.get(job_id)
-        if not job:
-            return
-        job.update(fields)
-        job["updated_at"] = time.time()
-
-
-def _append_job_log(job_id: str, message: str) -> None:
-    with _PIPELINE_JOBS_LOCK:
-        job = _PIPELINE_JOBS.get(job_id)
-        if not job:
-            return
-        job.setdefault("log", []).append({"timestamp": time.time(), "message": message})
-        if len(job["log"]) > 50:
-            job["log"] = job["log"][-50:]
-        job["updated_at"] = time.time()
-    logger.info("[pipeline:%s] %s", job_id[:8], message)
-
-
-def _update_job_step(job_id: str, step: str, state: str, message: str = "") -> None:
-    with _PIPELINE_JOBS_LOCK:
-        job = _PIPELINE_JOBS.get(job_id)
-        if not job:
-            return
-        for row in job.get("steps", []):
-            if row.get("id") == step:
-                row["state"] = state
-                break
-        if message:
-            job["message"] = message
-            job.setdefault("log", []).append({"timestamp": time.time(), "message": message})
-            if len(job["log"]) > 50:
-                job["log"] = job["log"][-50:]
-        job["updated_at"] = time.time()
-    if message:
-        logger.info("[pipeline:%s] %s: %s", job_id[:8], step, message)
-
-
-def _run_pipeline_job(job_id: str) -> None:
-    with _PIPELINE_JOBS_LOCK:
-        job = _PIPELINE_JOBS.get(job_id)
-        if not job:
-            return
-        action = job["action"]
+def _run_pipeline_job(job_id: str, user: str) -> None:
+    """Run one analyser action. ``user`` is the analyst who started it, read
+    from the request before this thread began, for the audit entries."""
+    job = job_store.get_job(job_id)
+    if not job:
+        return
+    action = job["action"]
     handlers = {
         "daily-briefing": analyser_pipeline.run_daily_briefing_action,
         "flash-intel": analyser_pipeline.run_flash_intel_action,
@@ -129,42 +67,39 @@ def _run_pipeline_job(job_id: str) -> None:
     }
     handler = handlers.get(action)
     if handler is None:
-        _update_job(job_id, status="failed", error="Unknown pipeline action.", message="Unknown pipeline action.")
+        job_store.update_job(job_id, status="failed", error="Unknown pipeline action.",
+                             message="Unknown pipeline action.")
         return
 
     run_id = log_pipeline_run_start(action, triggered_by="dashboard")
-    audit.record("run-start", "pipeline", entity_label=action, details="triggered by dashboard")
-    _update_job(job_id, status="running", message="Running...")
-    _append_job_log(job_id, f"Started action '{action}'.")
+    audit.record("run-start", "pipeline", entity_label=action, details="triggered by dashboard", user=user)
+    job_store.update_job(job_id, status="running", message="Running...")
+    job_store.append_log(job_id, f"Started action '{action}'.")
 
     def _progress(*, step: str, state: str, message: str = ""):
-        _update_job_step(job_id, step=step, state=state, message=message)
+        job_store.set_step(job_id, step=step, state=state, message=message)
 
     try:
         result = handler(progress=_progress)
         # Keep dashboard pipeline freshness in sync with manual runs.
         save_last_run(int(time.time()))
         log_pipeline_run_end(run_id, "completed", result)
-        audit.record("run-complete", "pipeline", entity_label=action, details=(result or {}).get("message") or "")
-        with _PIPELINE_JOBS_LOCK:
-            job = _PIPELINE_JOBS.get(job_id)
-            if job:
-                for row in job.get("steps", []):
-                    if row.get("state") == "in_progress":
-                        row["state"] = "completed"
-        _update_job(
+        audit.record("run-complete", "pipeline", entity_label=action,
+                     details=(result or {}).get("message") or "", user=user)
+        job_store.complete_open_steps(job_id)
+        job_store.update_job(
             job_id,
             status="completed",
             result=result,
             message=(result or {}).get("message") or "Completed.",
             error=None,
         )
-        _append_job_log(job_id, "Action completed.")
+        job_store.append_log(job_id, "Action completed.")
     except Exception as exc:
         log_pipeline_run_end(run_id, "failed")
-        audit.record("run-failed", "pipeline", entity_label=action, details=str(exc))
-        _update_job(job_id, status="failed", error=str(exc), message=f"Failed: {exc}")
-        _append_job_log(job_id, f"Action failed: {exc}")
+        audit.record("run-failed", "pipeline", entity_label=action, details=str(exc), user=user)
+        job_store.update_job(job_id, status="failed", error=str(exc), message=f"Failed: {exc}")
+        job_store.append_log(job_id, f"Action failed: {exc}")
         logger.exception("Pipeline job %s failed", job_id)
 
 
@@ -332,19 +267,52 @@ def run_pipeline_action():
     if action not in {"daily-briefing", "flash-intel", "vea"}:
         return jsonify({"ok": False, "error": "Unknown pipeline action."}), 400
 
-    job = _new_pipeline_job(action)
-    t = threading.Thread(target=_run_pipeline_job, args=(job["id"],), daemon=True, name=f"pipeline-{action}")
+    job = job_store.create_job(action, label=_ACTION_LABELS.get(action, action),
+                               steps=_steps_for_action(action))
+    t = threading.Thread(target=_run_pipeline_job, args=(job["id"], misp_session.current_user_email()),
+                         daemon=True, name=f"pipeline-{action}")
     t.start()
     return jsonify({"ok": True, "job_id": job["id"], "action": action})
 
 
 @bp.route("/pipeline/run/<string:job_id>", methods=["GET"])
 def pipeline_job_status(job_id: str):
-    with _PIPELINE_JOBS_LOCK:
-        job = _PIPELINE_JOBS.get(job_id)
-        if not job:
-            return jsonify({"ok": False, "error": "Job not found."}), 404
-        payload = dict(job)
-        payload["steps"] = [dict(s) for s in job.get("steps", [])]
-        payload["log"] = [dict(l) for l in job.get("log", [])]
-    return jsonify({"ok": True, "job": payload})
+    job = job_store.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."}), 404
+    return jsonify({"ok": True, "job": job})
+
+
+# A job whose worker died with the process keeps its "running" status until it
+# expires, so anything silent for this long is reported as stalled instead of
+# spinning in the top bar for the rest of the day. Well above the slowest step
+# an analyser run takes between two progress messages.
+_JOB_STALE_AFTER_SECONDS = 1800
+
+
+@bp.route("/pipeline/jobs", methods=["GET"])
+def pipeline_jobs():
+    """Jobs this instance knows about, for the indicator in the top bar.
+
+    Only what the indicator needs: the steps and the log stay behind
+    /pipeline/run/<id> so this stays cheap enough to poll from every page.
+    """
+    now = time.time()
+    jobs = []
+    for job in job_store.list_jobs():
+        status = job.get("status", "")
+        unfinished = status in ("queued", "running")
+        # Age is measured here rather than in the browser: how long ago a job
+        # was touched should not depend on how well a laptop keeps time.
+        age = max(0, int(now - job.get("updated_at", 0)))
+        jobs.append({
+            "id": job["id"],
+            "action": job.get("action", ""),
+            "label": job.get("label") or job.get("action", ""),
+            "status": status,
+            "message": job.get("message", ""),
+            "stale": unfinished and age > _JOB_STALE_AFTER_SECONDS,
+            "age": age,
+        })
+    running = [j for j in jobs if j["status"] in ("queued", "running") and not j["stale"]]
+    return jsonify({"ok": True, "jobs": jobs[:20], "running": len(running)})

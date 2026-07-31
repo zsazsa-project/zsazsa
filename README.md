@@ -18,9 +18,10 @@ zsazsa follows the daily CTI workflow, from collection through triage and analys
 - **Stakeholders** record who receives your output, with role, organisation, TLP clearance, product subscriptions and notification channels, plus a power and interest matrix to plan engagement.
 - **Requirements (PIR and GIR)** hold the intelligence questions that drive collection, with their scope, ownership and distribution. Adding scope to a requirement makes matching events light up in the data collection view.
 - **RFIs** handle one-off requests from intake to closure, with an SLA, an owner, a linked PIR or GIR, response confidence, attachments, notes and feedback.
-- **Data collection** is the cached view of everything arriving from the scraper MISP, other MISP servers, and manual or newsletter sources. You browse and triage events, enrich them with scope from the MISP galaxies, generate an AI summary, and start a product straight from a source event.
+- **Data collection** is the cached view of everything arriving from the scraper MISP, other MISP servers, and manual or newsletter sources. You browse and triage events, enrich them with scope from the MISP galaxies, generate an AI summary, which runs in the background so you can carry on elsewhere, and start a product straight from a source event.
 - **Products** are a searchable catalogue of what you publish, with inline preview and feedback. zsazsa produces Flash Intel Alerts, Vulnerability advisories, Daily threat briefings, Threat landscape reports, Indicator feeds and Threat actor profiles, each described below.
 - **Statistics** cover pipeline and program metrics, RFI and feedback figures, and a scope coverage view showing where collection and analysis are concentrated. A CTI-CMM maturity panel maps the program against levels CTI0 to CTI3, so you can see the next gap to close.
+- **Background jobs** carry the slow work: analyser runs, AI summaries and the scheduled collection runs. A badge in the top bar shows what is running and how it ended, on whatever page you happen to be.
 
 ![zsazsa CTI Intelligence Flow](docs/zsazsa-intelligence-flow.png)
 
@@ -207,6 +208,18 @@ Alongside relevance checking, briefing stories, report summaries and advisory dr
 
 Two things to watch with a local model. Reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets are sized for a straight answer; zsazsa asks the server to skip the thinking step, which Ollama honours, but a server that ignores the request can spend the whole budget and return nothing. Empty answers are logged with the model, the finish reason and the budget, and reported in the interface rather than saved. Throughput is the other one: a small model on a CPU-only host runs at roughly ten tokens a second, which is fine for the short triage prompts the analyser runs unattended but turns the long drafting and review prompts into a wait of several minutes. Assign those features to a faster provider, or accept the wait, but measure before moving everything local.
 
+### Background jobs
+
+The work that takes minutes rather than seconds runs in the background: an analyser action started from the dashboard, a batch of AI summaries started from data collection, a single summary on one event, and the scheduled analyser and mailbox runs. None of it holds the browser, so an analyst can start a batch of summaries and carry on somewhere else.
+
+A **badge in the top bar** is where that becomes visible. It appears while something is running, whatever page you are on, naming the job and its progress, and it keeps the outcome in view for an hour afterwards so someone coming back to the app still learns how the run ended. Clicking it lists the recent jobs with their status and message. A job that stops reporting for half an hour, which is what a restart in the middle of a run leaves behind, is shown as stalled rather than spinning forever.
+
+Scheduled runs join the same list, so a cron analyser run is visible while it is going and not only once it appears in the history. Ticks that find nothing to do stay out of the way, since a poll of an empty mailbox has nothing to tell anyone.
+
+Job state is kept in **Redis** (`JOB_REDIS_*` in the configuration, see INSTALL.md), which is what lets it survive a page change, a browser restart and a second analyst looking at the same instance. Without Redis the app falls back to keeping jobs in the process, so everything still works, only the sharing is lost. Finished runs are also written to the analyser database and listed under Reporting > Pipeline, which is the durable record; the badge is the live view.
+
+The **Pipeline page** holds that record. Beside the connectivity and source health panels, its activity list covers every event the analyser has processed, filtered by source, outcome, time window or a search on the title, with a "problems only" switch for the failures and a page at a time loaded on demand. Entries whose source event has since been rotated out of the scraper MISP are hidden until you switch on *Include orphaned*, and *Purge orphaned* drops those rows for good.
+
 ### Collection source management
 
 Source management lets teams manage **data collection sources** centrally, including manual sources and additional MISP instances.
@@ -347,7 +360,7 @@ Sending does two things. Each selected link is handed to the misp-scraper, which
 
 Each newsletter format has its own parser registered in `webapp/newsletter_parsers.py` (the `PARSERS` map), so supporting a new format means writing one parser and registering it; the import screens themselves are format-agnostic. Parsing is pure text processing and never touches MISP.
 
-The hand-off to the scraper uses Redis publish/subscribe: zsazsa publishes one JSON message per selected article on the configured channel, and the scraper's `subscribe` service consumes it. The connection (`SCRAPER_REDIS_HOST`, `SCRAPER_REDIS_PORT`, `SCRAPER_REDIS_PASSWORD`, `SCRAPER_REDIS_CHANNEL`) is set on the "Manual sources pushing to scraper" card, and is separate from the Redis that zsazsa reads MISP login sessions from.
+The hand-off to the scraper uses Redis publish/subscribe: zsazsa publishes one JSON message per selected article on the configured channel, and the scraper's `subscribe` service consumes it. The connection (`SCRAPER_REDIS_HOST`, `SCRAPER_REDIS_PORT`, `SCRAPER_REDIS_PASSWORD`, `SCRAPER_REDIS_CHANNEL`) is set on the "Manual sources pushing to scraper" card, and is separate from the Redis that zsazsa reads MISP login sessions from and from the one that holds background job state.
 
 Each message carries the article link, the title, the newsletter name as the feed title, and `feed_tags` that the scraper applies as local tags on the created event.
 

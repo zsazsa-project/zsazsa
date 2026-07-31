@@ -238,13 +238,6 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
   var activeJobId = null;
   var pollTimer = null;
 
-  function actionLabel(action) {
-    if (action === 'daily-briefing') return 'Daily briefing';
-    if (action === 'flash-intel') return 'Flash intel alert';
-    if (action === 'vea') return 'Vuln advisory';
-    return action || '-';
-  }
-
   function setStatus(kind, text) {
     if (!statusEl) return;
     statusEl.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-danger', 'alert-warning');
@@ -258,7 +251,8 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
 
   function renderProgress(job) {
     if (!job) return;
-    if (progressActionEl) progressActionEl.textContent = actionLabel(job.action);
+    // The job carries its own label, set when it was created.
+    if (progressActionEl) progressActionEl.textContent = job.label || job.action || '-';
 
     var steps = Array.isArray(job.steps) ? job.steps : [];
     var remaining = steps.filter(function(s) { return s.state === 'pending'; }).length;

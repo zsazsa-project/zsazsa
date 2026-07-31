@@ -1,0 +1,222 @@
+"""State of the background jobs the web app runs, kept in Redis.
+
+Analyser runs and bulk AI summaries are started on a worker thread so the
+browser gets an answer straight away. Their state lives in Redis rather than in
+the process, which means an analyst can leave the page, come back, or open the
+app in another tab and still see what is running and how it ended. Settings are
+the JOB_REDIS_* entries in config; when Redis is not reachable the jobs are kept
+in memory instead, so the app still works, only without the sharing. If Redis
+disappears while a job runs, that job's progress stops being updated until it is
+back, which is a status display losing detail rather than work being lost.
+
+Every job is one field of a single Redis hash, holding the JSON below:
+
+    id, action, label, status (queued|running|completed|failed), message,
+    steps [{id, label, state}], log [{timestamp, message}], result, error,
+    created_at, updated_at
+"""
+
+import copy
+import json
+import logging
+import socket
+import threading
+import time
+from uuid import uuid4
+
+import config
+from webapp.redis_client import RedisError, read_reply, send_command
+
+logger = logging.getLogger(__name__)
+
+# Jobs an instance keeps before the oldest are dropped, and how long the hash
+# survives without a write.
+_MAX_JOBS = 40
+_TTL_SECONDS = 24 * 3600
+# After a failed connection, wait before trying Redis again, so a host without
+# it does not pay a connection timeout on every job update and every poll.
+_RETRY_AFTER_SECONDS = 60
+
+_memory: dict[str, dict] = {}
+_memory_lock = threading.Lock()
+_redis_down_until = 0.0
+
+
+def _hash_key() -> str:
+    return getattr(config, "JOB_REDIS_KEY", "zsazsa:jobs")
+
+
+def _connect():
+    """Socket to the job Redis, authenticated and on the right database."""
+    host = getattr(config, "JOB_REDIS_HOST", "127.0.0.1")
+    port = int(getattr(config, "JOB_REDIS_PORT", 6379) or 6379)
+    db = getattr(config, "JOB_REDIS_DB", 0)
+    username = getattr(config, "JOB_REDIS_USERNAME", "")
+    password = getattr(config, "JOB_REDIS_PASSWORD", "")
+
+    sock = socket.create_connection((host, port), timeout=2)
+    try:
+        if password:
+            if username:
+                send_command(sock, "AUTH", username, password)
+            else:
+                send_command(sock, "AUTH", password)
+            read_reply(sock)
+        if db:
+            send_command(sock, "SELECT", db)
+            read_reply(sock)
+        return sock
+    except (OSError, RedisError):
+        sock.close()
+        raise
+
+
+def _command(*args):
+    """Run one Redis command. Returns its reply, or None when Redis is down.
+
+    A missing hash field also answers None, so callers treat "no such job" and
+    "no Redis" the same way: look in memory, then give up.
+    """
+    global _redis_down_until
+    if time.time() < _redis_down_until:
+        return None
+    try:
+        sock = _connect()
+    except (OSError, RedisError) as exc:
+        if not _redis_down_until:
+            logger.warning("Job Redis unavailable (%s); keeping jobs in memory", exc)
+        _redis_down_until = time.time() + _RETRY_AFTER_SECONDS
+        return None
+    try:
+        send_command(sock, *args)
+        reply = read_reply(sock)
+        _redis_down_until = 0.0
+        return reply
+    except (OSError, RedisError) as exc:
+        logger.warning("Job Redis command %s failed: %s", args[0], exc)
+        _redis_down_until = time.time() + _RETRY_AFTER_SECONDS
+        return None
+    finally:
+        sock.close()
+
+
+def _load(job_id: str) -> dict | None:
+    raw = _command("HGET", _hash_key(), job_id)
+    if raw is not None:
+        try:
+            return json.loads(raw)
+        except ValueError:
+            logger.warning("Job %s holds invalid JSON; dropping it", job_id[:8])
+            _command("HDEL", _hash_key(), job_id)
+            return None
+    with _memory_lock:
+        job = _memory.get(job_id)
+        return copy.deepcopy(job) if job else None
+
+
+def _save(job: dict) -> None:
+    job["updated_at"] = time.time()
+    key = _hash_key()
+    if _command("HSET", key, job["id"], json.dumps(job)) is None:
+        with _memory_lock:
+            _memory[job["id"]] = job
+        return
+    _command("EXPIRE", key, _TTL_SECONDS)
+
+
+def forget_job(job_id: str) -> None:
+    """Drop a job, for work that turned out to have nothing to report."""
+    if _command("HDEL", _hash_key(), job_id) is None:
+        with _memory_lock:
+            _memory.pop(job_id, None)
+
+
+def create_job(action: str, label: str = "", steps: list[dict] | None = None) -> dict:
+    """Register a queued job, drop the oldest ones, and return it."""
+    now = time.time()
+    job = {
+        "id": uuid4().hex,
+        "action": action,
+        "label": label or action,
+        "status": "queued",
+        "message": "Queued",
+        "steps": steps or [],
+        "log": [{"timestamp": now, "message": "Job queued."}],
+        "result": None,
+        "error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    _save(job)
+    for old in list_jobs()[_MAX_JOBS:]:
+        forget_job(old["id"])
+    return job
+
+
+def get_job(job_id: str) -> dict | None:
+    return _load(job_id)
+
+
+def update_job(job_id: str, **fields) -> None:
+    job = _load(job_id)
+    if not job:
+        return
+    job.update(fields)
+    _save(job)
+
+
+def append_log(job_id: str, message: str) -> None:
+    job = _load(job_id)
+    if not job:
+        return
+    job.setdefault("log", []).append({"timestamp": time.time(), "message": message})
+    job["log"] = job["log"][-50:]
+    _save(job)
+    logger.info("[job:%s] %s", job_id[:8], message)
+
+
+def set_step(job_id: str, step: str, state: str, message: str = "") -> None:
+    job = _load(job_id)
+    if not job:
+        return
+    for row in job.get("steps", []):
+        if row.get("id") == step:
+            row["state"] = state
+            break
+    if message:
+        job["message"] = message
+        job.setdefault("log", []).append({"timestamp": time.time(), "message": message})
+        job["log"] = job["log"][-50:]
+    _save(job)
+    if message:
+        logger.info("[job:%s] %s: %s", job_id[:8], step, message)
+
+
+def complete_open_steps(job_id: str) -> None:
+    """Mark steps still in progress as done, for a job that has finished."""
+    job = _load(job_id)
+    if not job:
+        return
+    for row in job.get("steps", []):
+        if row.get("state") == "in_progress":
+            row["state"] = "completed"
+    _save(job)
+
+
+def list_jobs() -> list[dict]:
+    """Every known job, newest first."""
+    reply = _command("HGETALL", _hash_key())
+    if reply is None:
+        # No Redis. An empty hash answers with an empty list instead, which must
+        # not fall back to memory or jobs already dropped would come back.
+        with _memory_lock:
+            jobs = copy.deepcopy(list(_memory.values()))
+    else:
+        # HGETALL answers as a flat [field, value, field, value, ...] list.
+        jobs = []
+        for raw in reply[1::2]:
+            try:
+                jobs.append(json.loads(raw))
+            except ValueError:
+                continue
+    return sorted(jobs, key=lambda j: j.get("created_at", 0), reverse=True)

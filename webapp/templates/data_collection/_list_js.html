@@ -1253,18 +1253,30 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       })
       .then(zsazsaReadJson)
       .then(function(data) {
-        if (data.ok) {
-          btn.remove();
-          /* The summary is a new MISP report and the event moved to workflow
-             state 'draft', so pull the row back from the source to show both. */
-          refreshEventRowTags(uuid, sourceId).catch(function() {
-            showFeedback('The summary was created, but the row could not be refreshed. Reload the page to see it.', 'warning');
-          });
-        } else {
+        if (!data.ok) {
           btn.disabled = false; btn.innerHTML = originalHtml;
           btn.title = 'Error: ' + (data.error || 'unknown');
           alert('Could not create summary: ' + (data.error || 'unknown error'));
+          return;
         }
+        /* The summary runs as a job, so the spinner stays until it reports back
+           and the badge in the top bar covers leaving the page meanwhile. */
+        followJob(data.job_id, function(job) {
+          if ((job.result || {}).summarised) {
+            btn.remove();
+            /* The summary is a new MISP report and the event moved to workflow
+               state 'draft', so pull the row back from the source to show both. */
+            refreshEventRowTags(uuid, sourceId).catch(function() {
+              showFeedback('The summary was created, but the row could not be refreshed. Reload the page to see it.', 'warning');
+            });
+            return;
+          }
+          btn.disabled = false; btn.innerHTML = originalHtml;
+          showFeedback('Could not create summary: ' + jobFailureReason(job), 'warning');
+        }, function(reason) {
+          btn.disabled = false; btn.innerHTML = originalHtml; btn.title = reason;
+          showFeedback(reason, 'warning');
+        });
       })
       .catch(function(err) {
         var message = 'Summary did not complete: ' + zsazsaErrorText(err);
@@ -1686,18 +1698,84 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     });
   }
 
+  /* Summaries take one LLM call per event, so the server runs them as a job and
+     answers immediately. This page follows the job to refresh the rows when it
+     ends; the badge in the top bar covers the analyst who navigates away. */
   var selectionSummariseBtn = document.getElementById('selection-summarise-btn');
   if (selectionSummariseBtn) {
     selectionSummariseBtn.addEventListener('click', function() {
-      runBulkAction(
-        selectionSummariseBtn,
-        SCRIPT_ROOT + '/collection/bulk-summarise',
-        'Generate AI summaries for the selected events?\n\nThis only applies to scraper events that do not yet have a summary; the rest are skipped.',
-        function() {
-          setTimeout(function() { window.location.reload(); }, 1200);
+      var selected = getSelectedEvents();
+      if (!selected.length) { alert('Select at least one event using the checkboxes.'); return; }
+      if (!confirm('Generate AI summaries for the selected events?\n\nThis only applies to scraper events that do not yet have a summary; the rest are skipped.')) {
+        return;
+      }
+
+      var originalHtml = selectionSummariseBtn.innerHTML;
+      selectionSummariseBtn.disabled = true;
+      selectionSummariseBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+      fetch(SCRIPT_ROOT + '/collection/bulk-summarise', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+        body: JSON.stringify({events: selected}),
+      })
+      .then(zsazsaReadJson)
+      .then(function(data) {
+        selectionSummariseBtn.disabled = false;
+        selectionSummariseBtn.innerHTML = originalHtml;
+        if (!data.ok) {
+          showFeedback(data.error || 'Could not start the summaries.', 'danger');
+          return;
         }
-      );
+        showFeedback(data.message + ' Progress is shown in the top bar.', 'info');
+        followJob(data.job_id, function(job) {
+          showFeedback(job.message || 'Summaries created.', 'success');
+          setTimeout(function() { window.location.reload(); }, 1500);
+        }, function(reason) {
+          showFeedback('Summaries did not finish: ' + reason, 'danger');
+        });
+      })
+      .catch(function(err) {
+        selectionSummariseBtn.disabled = false;
+        selectionSummariseBtn.innerHTML = originalHtml;
+        showFeedback('Could not start the summaries: ' + zsazsaErrorText(err), 'danger');
+      });
     });
+  }
+
+  /* Watch a background job until it ends. onDone gets the finished job, onFail
+     a sentence saying why the watching itself stopped. */
+  function followJob(jobId, onDone, onFail) {
+    var timer = setInterval(function() {
+      fetch(SCRIPT_ROOT + '/pipeline/run/' + encodeURIComponent(jobId))
+        .then(zsazsaReadJson)
+        .then(function(data) {
+          if (!data.ok || !data.job) {
+            clearInterval(timer);
+            onFail('The job is no longer known to the server.');
+            return;
+          }
+          if (data.job.status === 'completed') {
+            clearInterval(timer);
+            onDone(data.job);
+          } else if (data.job.status === 'failed') {
+            clearInterval(timer);
+            onFail(data.job.error || data.job.message || 'The job failed.');
+          }
+        })
+        .catch(function(err) {
+          clearInterval(timer);
+          onFail('Lost track of the job: ' + zsazsaErrorText(err));
+        });
+    }, 4000);
+  }
+
+  /* Why a summarise job produced nothing. A job always opens with one line of
+     its own, so anything beyond that is what actually went wrong. */
+  function jobFailureReason(job) {
+    var log = job.log || [];
+    if (log.length > 1) return log[log.length - 1].message;
+    return job.message || 'no reason given';
   }
 
   /* ── Export state and applyAll for tab-based variants ── */

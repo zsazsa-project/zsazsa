@@ -134,6 +134,7 @@
                   {% elif run.action == 'vea' %}VEA
                   {% elif run.action == 'analyser' %}CLI analyser
                   {% elif run.action == 'imap-collector' %}Mailbox poll
+                  {% elif run.action == 'bulk-summarise' %}AI summaries
                   {% else %}{{ run.action }}{% endif %}
                   {% if run.triggered_by and run.triggered_by != 'dashboard' %}
                   <span class="text-muted ms-1">({{ run.triggered_by }})</span>

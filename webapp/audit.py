@@ -36,7 +36,14 @@ def init():
         """)
 
 
-def record(action, entity_type, entity_id=None, entity_label=None, details=None):
+def record(action, entity_type, entity_id=None, entity_label=None, details=None, user=None):
+    """Write one audit entry.
+
+    ``user`` is for work that runs on a background thread, where there is no
+    request to read the signed-in analyst from: the caller reads it while still
+    handling the request and passes it in, otherwise the entry would be filed
+    under the fallback account.
+    """
     with _conn() as db:
         db.execute(
             "INSERT INTO audit_log "
@@ -44,7 +51,7 @@ def record(action, entity_type, entity_id=None, entity_label=None, details=None)
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.utcnow().isoformat(timespec="seconds"),
-                misp_session.current_user_email(),
+                user or misp_session.current_user_email(),
                 action,
                 entity_type,
                 entity_id,

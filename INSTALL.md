@@ -291,6 +291,21 @@ A small number of settings are only ever set by editing `config/__init__.py` dir
 | `LOG_FILE` | Path to the log file |
 | `COLLECTION_SOURCES` | Auto-derived list of collection sources, do not edit by hand |
 
+### Background jobs
+
+Analyser runs started from the dashboard and AI summaries started from data collection run on a background thread, so the browser is free to go elsewhere while they finish. Their progress is kept in Redis, which is what lets the job badge in the top bar still show a run that someone else started, or one you started before reloading the page. Finished runs are also written to the analyser database and listed under Reporting > Pipeline.
+
+Without Redis the app falls back to keeping the jobs in the process memory: everything still works, but the state is lost on restart and is not shared between processes. Any Redis instance will do, including the one MISP already uses, as long as the database number is not shared with something that would trip over an extra `zsazsa:jobs` key.
+
+| Setting | Description |
+|---|---|
+| `JOB_REDIS_HOST` | Redis host holding the job state (default `127.0.0.1`) |
+| `JOB_REDIS_PORT` | Redis port (default `6379`) |
+| `JOB_REDIS_DB` | Redis database number (default `0`) |
+| `JOB_REDIS_USERNAME` | Username, when the instance uses ACLs |
+| `JOB_REDIS_PASSWORD` | Password, if the instance requires one |
+| `JOB_REDIS_KEY` | Hash the jobs are stored under (default `zsazsa:jobs`) |
+
 ## Creating data collection sources
 
 The `/config/sources/` page is where every source the analyser and the data collection view can pull from is configured: the misp-scraper connection, any additional MISP servers, and manual collection sources for material that is not collected automatically.
