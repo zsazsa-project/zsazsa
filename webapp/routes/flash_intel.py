@@ -11,7 +11,7 @@ import config as _cfg
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for, Response
 
-from webapp import audit, branding, misp_store, product_log
+from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
 from webapp.utils import md_to_html, sort_products
 from webapp.routes.source_event_utils import (
     flattened_references,
@@ -301,17 +301,11 @@ def approve(id):
         flash("A target audience is required before publishing. Edit the alert and select an audience first.", "warning")
         return redirect(url_for("flash_intel.detail", id=id))
     try:
-        ok, detail = _publish_and_notify(id)
+        misp_store.publish_fia(id)
         audit.record("publish", "fia", entity_id=id, entity_label=fia.fia_id)
-        audit.record(
-            "notify",
-            "fia",
-            entity_id=id,
-            entity_label=fia.fia_id,
-            details=f"publish notification; result={'ok' if ok else 'failed'}; {detail}",
-        )
+        _start_flash_intel_delivery(fia.fia_id, id, "publish")
         flash(f"{fia.fia_id} approved and published.", "success")
-        flash(f"Notifications: {detail}.", "success" if ok else "warning")
+        flash("Notifications are being sent in the background; the job badge reports the result.", "info")
     except Exception as exc:
         flash(f"Could not publish FIA: {exc}", "warning")
     return redirect(url_for("flash_intel.detail", id=id))
@@ -358,53 +352,8 @@ def resend(id):
         flash("Only published alerts can be resent.", "warning")
         return redirect(redirect_target)
 
-    content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
-    stakeholders = _eligible_flash_recipients(fia)
-
-    try:
-        from notifier import dispatcher
-
-        summary = dispatcher.send_flash_intel(fia, content, stakeholders)
-        ok, detail = dispatcher.delivery_outcome(summary)
-        audit.record(
-            "notify",
-            "fia",
-            entity_id=id,
-            entity_label=fia.fia_id,
-            details=(
-                f"resend to stakeholders; recipients={len(stakeholders)}; "
-                f"result={'ok' if ok else 'failed'}; {detail}"
-            ),
-        )
-        flash(f"{fia.fia_id} resend: {detail}.", "success" if ok else "warning")
-    except Exception as exc:
-        flash(f"Could not resend {fia.fia_id}: {exc}", "warning")
-
-    try:
-        from core import flowintel_client
-
-        preview_url = url_for("flash_intel.detail", id=id, _external=True)
-
-        def send_fn(instance):
-            return flowintel_client.send_flash_intel_to_flowintel(instance, fia, content, preview_url=preview_url)
-
-        for instance, result in flowintel_client.send_to_eligible_instances(stakeholders, "Flash intel alert", send_fn):
-            instance_name = instance.get("name") or instance.get("id")
-            if result["ok"]:
-                audit.record(
-                    "notify", "fia", entity_id=id, entity_label=fia.fia_id,
-                    details=f"Flowintel case {result['case_id']} created on {instance_name}",
-                )
-                flash(f"{fia.fia_id} sent to Flowintel ({instance_name}): case {result['case_id']} created.", "success")
-            else:
-                audit.record(
-                    "notify", "fia", entity_id=id, entity_label=fia.fia_id,
-                    details=f"Flowintel case creation on {instance_name} failed: {result.get('error', 'unknown error')}",
-                )
-                flash(f"Could not create Flowintel case on {instance_name}: {result.get('error', 'unknown error')}", "warning")
-    except Exception as exc:
-        flash(f"Could not send {fia.fia_id} to Flowintel: {exc}", "warning")
-
+    _start_flash_intel_delivery(fia.fia_id, id, "resend")
+    flash(f"{fia.fia_id} resend started; the job badge reports the result.", "info")
     return redirect(redirect_target)
 
 
@@ -456,52 +405,45 @@ def pdf(id):
     )
 
 
-def _publish_and_notify(uuid):
-    """Publish the FIA, deliver to message channels and create Flowintel cases.
+def _deliver_flash_intel(uuid, preview_url, reason):
+    """Build the closure that sends an alert to its channels and Flowintel.
 
-    Returns (ok, detail): the message-channel outcome for the caller to surface.
-    Flowintel results are flashed here directly, with their own audit entries.
+    Everything here runs on the job thread, so it re-reads the alert rather than
+    closing over one fetched in the request. `preview_url` is the exception: it
+    needs the request to know the app's external address.
     """
-    from notifier import dispatcher
-
-    misp_store.publish_fia(uuid)
-    fia = misp_store.get_fia(uuid)
-    if fia is None:
-        return False, "the alert could not be reloaded after publishing"
-
-    stakeholders = _eligible_flash_recipients(fia)
-    content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
-
-    ok, detail = False, "delivery error (see the application log)"
-    try:
-        summary = dispatcher.send_flash_intel(fia, content, stakeholders)
-        ok, detail = dispatcher.delivery_outcome(summary)
-    except Exception as exc:
-        logger.warning("notify failed for %s: %s", uuid, exc)
-
-    try:
+    def deliver(log):
+        from notifier import dispatcher
         from core import flowintel_client
 
-        preview_url = url_for("flash_intel.detail", id=uuid, _external=True)
+        fia = misp_store.get_fia(uuid)
+        if fia is None:
+            return False, "the alert could not be loaded"
 
-        def send_fn(instance):
-            return flowintel_client.send_flash_intel_to_flowintel(instance, fia, content, preview_url=preview_url)
+        stakeholders = _eligible_flash_recipients(fia)
+        content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
+        log(f"{reason}: {len(stakeholders)} eligible recipient(s).")
 
-        for instance, result in flowintel_client.send_to_eligible_instances(stakeholders, "Flash intel alert", send_fn):
-            instance_name = instance.get("name") or instance.get("id")
-            if result["ok"]:
-                audit.record(
-                    "notify", "fia", entity_id=uuid, entity_label=fia.fia_id,
-                    details=f"Flowintel case {result['case_id']} created on {instance_name}",
-                )
-                flash(f"{fia.fia_id} sent to Flowintel ({instance_name}): case {result['case_id']} created.", "success")
-            else:
-                audit.record(
-                    "notify", "fia", entity_id=uuid, entity_label=fia.fia_id,
-                    details=f"Flowintel case creation on {instance_name} failed: {result.get('error', 'unknown error')}",
-                )
-                flash(f"Could not create Flowintel case on {instance_name}: {result.get('error', 'unknown error')}", "warning")
-    except Exception as exc:
-        logger.warning("flowintel notify failed for %s: %s", uuid, exc)
+        ok, detail = notify_jobs.to_channels(
+            lambda: dispatcher.send_flash_intel(fia, content, stakeholders), log)
+        notify_jobs.to_flowintel(
+            stakeholders, "Flash intel alert",
+            lambda instance: flowintel_client.send_flash_intel_to_flowintel(
+                instance, fia, content, preview_url=preview_url),
+            log)
+        return ok, detail
 
-    return ok, detail
+    return deliver
+
+
+def _start_flash_intel_delivery(fia_id, uuid, reason):
+    """Hand an alert's delivery to a background job."""
+    return notify_jobs.start(
+        "notify-fia",
+        f"{fia_id} delivery",
+        _deliver_flash_intel(uuid, url_for("flash_intel.detail", id=uuid, _external=True), reason),
+        entity_type="fia",
+        entity_id=uuid,
+        entity_label=fia_id,
+        user=misp_session.current_user_email(),
+    )

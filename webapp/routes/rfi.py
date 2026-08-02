@@ -13,7 +13,7 @@ from urllib.parse import quote
 import config
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 
-from webapp import audit, misp_session, misp_store
+from webapp import audit, misp_session, misp_store, notify_jobs
 from webapp.models import cti_products, TLP_LEVELS
 
 logger = logging.getLogger(__name__)
@@ -416,52 +416,26 @@ def rfi_notify(id):
     md = "\n".join(lines)
     recipients = _rfi_notify_recipients(rfi)
 
+    from notifier import dispatcher
+
     if request.method == "POST":
         try:
-            from notifier import dispatcher
-
             message_md = request.form.get("markdown", "").strip() or md
-            logger.info("RFI notify requested: rfi=%s recipients=%d", rfi.rfi_id, len(recipients))
-            result = dispatcher.send_rfi_preview(
-                rfi,
-                preview_url=preview_url,
-                markdown=message_md,
-                stakeholders=recipients,
+            notify_jobs.start_preview(
+                "notify-rfi",
+                f"{rfi.rfi_id} notification",
+                lambda: dispatcher.send_rfi_preview(
+                    rfi, preview_url=preview_url, markdown=message_md, stakeholders=recipients),
+                entity_type="rfi",
+                entity_id=id,
+                entity_label=rfi.rfi_id,
+                user=misp_session.current_user_email(),
             )
-            if result["sent_types"]:
-                logger.info(
-                    "RFI notify sent: rfi=%s sent_types=%s recipients=%d",
-                    rfi.rfi_id,
-                    ",".join(result["sent_types"]),
-                    result["recipients"],
-                )
-                audit.record(
-                    "notify",
-                    "rfi",
-                    entity_id=id,
-                    entity_label=rfi.rfi_id,
-                    details=f"ok via {', '.join(result['sent_types'])}; recipients={result['recipients']}",
-                )
-                flash(
-                    f"Notification sent to {result['recipients']} stakeholder(s) via {', '.join(result['sent_types'])}.",
-                    "success",
-                )
-            else:
-                logger.warning("RFI notify skipped: rfi=%s recipients=%d no channels", rfi.rfi_id, result["recipients"])
-                audit.record(
-                    "notify",
-                    "rfi",
-                    entity_id=id,
-                    entity_label=rfi.rfi_id,
-                    details=f"skipped; recipients={result['recipients']}; no eligible channels",
-                )
-                flash("No notification sent, no eligible stakeholder channels configured.", "warning")
+            flash("Notification is being sent in the background; the job badge reports the result.", "info")
         except Exception as exc:
             logger.exception("RFI notify failed: rfi=%s", rfi.rfi_id)
-            audit.record("notify", "rfi", entity_id=id, entity_label=rfi.rfi_id, details=f"failed: {exc}")
-            flash(f"Notification failed: {exc}", "warning")
+            flash(f"Could not start the notification: {exc}", "warning")
         return redirect(url_for("rfi.rfi_detail", id=id))
-    from notifier import dispatcher
     diagnostics = dispatcher.describe_delivery(recipients)
     return jsonify({
         "markdown": md,

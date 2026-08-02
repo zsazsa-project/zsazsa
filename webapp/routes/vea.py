@@ -16,7 +16,7 @@ from webapp.routes.source_event_utils import (
 
 _CVE_RE = re.compile(r'\bCVE-\d{4}-\d{4,}\b', re.IGNORECASE)
 
-from webapp import audit, branding, collection_cache, misp_store, product_log
+from webapp import audit, branding, collection_cache, misp_session, misp_store, notify_jobs, product_log
 from webapp.utils import md_to_html, sort_products
 
 logger = logging.getLogger(__name__)
@@ -107,56 +107,48 @@ def _eligible_vea_recipients(vea):
     return [s for s in misp_store.list_stakeholders() if getattr(s, "uuid", None) in allowed]
 
 
-def _publish_and_notify(uuid):
-    """Publish the VEA, deliver to message channels and create Flowintel cases.
+def _deliver_vea(uuid, preview_url, reason):
+    """Build the closure that sends an advisory to its channels and Flowintel.
 
-    Returns (ok, detail): the message-channel outcome for the caller to surface.
-    Flowintel results are flashed here directly, with their own audit entries.
+    Runs on the job thread, so it re-reads the advisory rather than closing over
+    one fetched in the request. `preview_url` is resolved by the caller: only the
+    request knows the app's external address.
     """
-    from notifier import dispatcher
-
-    misp_store.publish_vea(uuid)
-    vea = misp_store.get_vea(uuid)
-    if vea is None:
-        return False, "the advisory could not be reloaded after publishing"
-
-    stakeholders = _eligible_vea_recipients(vea)
-    preview_url = url_for("vea.detail", id=uuid, _external=True)
-    markdown = misp_store.render_vea_markdown(vea, preview_url=preview_url)
-
-    ok, detail = False, "delivery error (see the application log)"
-    try:
-        summary = dispatcher.send_vea(vea, markdown, stakeholders)
-        ok, detail = dispatcher.delivery_outcome(summary)
-    except Exception as exc:
-        logger.warning("notify failed for VEA %s: %s", uuid, exc)
-
-    try:
+    def deliver(log):
+        from notifier import dispatcher
         from core import flowintel_client
 
-        def send_fn(instance):
-            return flowintel_client.send_vea_to_flowintel(instance, vea, markdown, preview_url=preview_url)
+        vea = misp_store.get_vea(uuid)
+        if vea is None:
+            return False, "the advisory could not be loaded"
 
-        for instance, result in flowintel_client.send_to_eligible_instances(
-            stakeholders, "Vulnerability advisory", send_fn
-        ):
-            instance_name = instance.get("name") or instance.get("id")
-            if result["ok"]:
-                audit.record(
-                    "notify", "vea", entity_id=uuid, entity_label=vea.vea_id,
-                    details=f"Flowintel case {result['case_id']} created on {instance_name}",
-                )
-                flash(f"{vea.vea_id} sent to Flowintel ({instance_name}): case {result['case_id']} created.", "success")
-            else:
-                audit.record(
-                    "notify", "vea", entity_id=uuid, entity_label=vea.vea_id,
-                    details=f"Flowintel case creation on {instance_name} failed: {result.get('error', 'unknown error')}",
-                )
-                flash(f"Could not create Flowintel case on {instance_name}: {result.get('error', 'unknown error')}", "warning")
-    except Exception as exc:
-        logger.warning("flowintel notify failed for VEA %s: %s", uuid, exc)
+        stakeholders = _eligible_vea_recipients(vea)
+        markdown = misp_store.render_vea_markdown(vea, preview_url=preview_url)
+        log(f"{reason}: {len(stakeholders)} eligible recipient(s).")
 
-    return ok, detail
+        ok, detail = notify_jobs.to_channels(
+            lambda: dispatcher.send_vea(vea, markdown, stakeholders), log)
+        notify_jobs.to_flowintel(
+            stakeholders, "Vulnerability advisory",
+            lambda instance: flowintel_client.send_vea_to_flowintel(
+                instance, vea, markdown, preview_url=preview_url),
+            log)
+        return ok, detail
+
+    return deliver
+
+
+def _start_vea_delivery(vea_id, uuid, reason):
+    """Hand an advisory's delivery to a background job."""
+    return notify_jobs.start(
+        "notify-vea",
+        f"{vea_id} delivery",
+        _deliver_vea(uuid, url_for("vea.detail", id=uuid, _external=True), reason),
+        entity_type="vea",
+        entity_id=uuid,
+        entity_label=vea_id,
+        user=misp_session.current_user_email(),
+    )
 
 
 @bp.route("/")
@@ -265,16 +257,10 @@ def wizard_edit(id):
             misp_store.update_vea(id, data)
             audit.record("update", "vea", entity_id=id, entity_label=vea.vea_id)
             if action == "publish":
-                ok, detail = _publish_and_notify(id)
-                audit.record(
-                    "notify",
-                    "vea",
-                    entity_id=id,
-                    entity_label=vea.vea_id,
-                    details=f"publish notification; result={'ok' if ok else 'failed'}; {detail}",
-                )
+                misp_store.publish_vea(id)
+                _start_vea_delivery(vea.vea_id, id, "publish")
                 flash(f"{vea.vea_id} published.", "success")
-                flash(f"Notifications: {detail}.", "success" if ok else "warning")
+                flash("Notifications are being sent in the background; the job badge reports the result.", "info")
             else:
                 flash(f"{vea.vea_id} saved.", "success")
             return redirect(url_for("vea.detail", id=id))
@@ -389,17 +375,11 @@ def approve(id):
         flash("A target audience is required before publishing. Edit the advisory and select an audience first.", "warning")
         return redirect(url_for("vea.detail", id=id))
     try:
-        ok, detail = _publish_and_notify(id)
+        misp_store.publish_vea(id)
         audit.record("publish", "vea", entity_id=id, entity_label=vea.vea_id)
-        audit.record(
-            "notify",
-            "vea",
-            entity_id=id,
-            entity_label=vea.vea_id,
-            details=f"publish notification; result={'ok' if ok else 'failed'}; {detail}",
-        )
+        _start_vea_delivery(vea.vea_id, id, "publish")
         flash(f"{vea.vea_id} approved and published.", "success")
-        flash(f"Notifications: {detail}.", "success" if ok else "warning")
+        flash("Notifications are being sent in the background; the job badge reports the result.", "info")
     except Exception as exc:
         flash(f"Could not publish VEA: {exc}", "warning")
     return redirect(url_for("vea.detail", id=id))
@@ -446,54 +426,8 @@ def resend(id):
         flash("Only published advisories can be resent.", "warning")
         return redirect(redirect_target)
 
-    preview_url = url_for("vea.detail", id=id, _external=True)
-    markdown = misp_store.render_vea_markdown(vea, preview_url=preview_url)
-    stakeholders = _eligible_vea_recipients(vea)
-
-    try:
-        from notifier import dispatcher
-
-        summary = dispatcher.send_vea(vea, markdown, stakeholders)
-        ok, detail = dispatcher.delivery_outcome(summary)
-        audit.record(
-            "notify",
-            "vea",
-            entity_id=id,
-            entity_label=vea.vea_id,
-            details=(
-                f"resend to stakeholders; recipients={len(stakeholders)}; "
-                f"result={'ok' if ok else 'failed'}; {detail}"
-            ),
-        )
-        flash(f"{vea.vea_id} resend: {detail}.", "success" if ok else "warning")
-    except Exception as exc:
-        flash(f"Could not resend {vea.vea_id}: {exc}", "warning")
-
-    try:
-        from core import flowintel_client
-
-        def send_fn(instance):
-            return flowintel_client.send_vea_to_flowintel(instance, vea, markdown, preview_url=preview_url)
-
-        for instance, result in flowintel_client.send_to_eligible_instances(
-            stakeholders, "Vulnerability advisory", send_fn
-        ):
-            instance_name = instance.get("name") or instance.get("id")
-            if result["ok"]:
-                audit.record(
-                    "notify", "vea", entity_id=id, entity_label=vea.vea_id,
-                    details=f"Flowintel case {result['case_id']} created on {instance_name}",
-                )
-                flash(f"{vea.vea_id} sent to Flowintel ({instance_name}): case {result['case_id']} created.", "success")
-            else:
-                audit.record(
-                    "notify", "vea", entity_id=id, entity_label=vea.vea_id,
-                    details=f"Flowintel case creation on {instance_name} failed: {result.get('error', 'unknown error')}",
-                )
-                flash(f"Could not create Flowintel case on {instance_name}: {result.get('error', 'unknown error')}", "warning")
-    except Exception as exc:
-        flash(f"Could not send {vea.vea_id} to Flowintel: {exc}", "warning")
-
+    _start_vea_delivery(vea.vea_id, id, "resend")
+    flash(f"{vea.vea_id} resend started; the job badge reports the result.", "info")
     return redirect(redirect_target)
 
 

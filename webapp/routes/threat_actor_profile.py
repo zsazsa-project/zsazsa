@@ -8,7 +8,7 @@ from datetime import datetime
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
 import config
-from webapp import audit, branding, misp_store
+from webapp import audit, branding, misp_session, misp_store, notify_jobs
 from webapp.rate_limit import rate_limited
 from webapp.diamond import render_diamond_png
 from webapp.utils import sort_products
@@ -251,20 +251,32 @@ def notify(id):
         flash("Publish the profile before notifying recipients.", "warning")
         return redirect(url_for("threat_actor_profile.detail", id=id))
     # Deliver to the green set: subscribed, TLP cleared, audience match.
-    green = {r["uuid"] for r in misp_store.recipient_preview(PRODUCT_NAME, tap.tlp, tap.audience)
-             if r["status"] == "green" and r.get("uuid")}
-    recipients = [s for s in misp_store.list_stakeholders() if s.uuid in green]
-    markdown = _markdown(tap) + _linked_feeds_markdown(tap)
-    diamond_png = render_diamond_png(tap)
     diamond_url = url_for("threat_actor_profile.diamond_png", id=id, _external=True)
-    try:
-        summary = dispatcher.send_threat_actor_profile(tap, markdown, recipients,
-                                                       diamond_png=diamond_png, diamond_url=diamond_url)
-        ok, message = dispatcher.delivery_outcome(summary)
-        audit.record("notify", "threat-actor-profile", entity_id=id, entity_label=tap.tap_id, details=message)
-        flash(f"{tap.tap_id}: {message}.", "success" if ok else "warning")
-    except Exception as exc:
-        flash(f"Could not notify: {exc}", "warning")
+
+    def deliver(log):
+        profile = misp_store.get_threat_actor_profile(id)
+        if profile is None:
+            return False, "the profile could not be loaded"
+        # Deliver to the green set: subscribed, TLP cleared, audience match.
+        green = {r["uuid"] for r in misp_store.recipient_preview(
+            PRODUCT_NAME, profile.tlp, profile.audience)
+            if r["status"] == "green" and r.get("uuid")}
+        recipients = [s for s in misp_store.list_stakeholders() if s.uuid in green]
+        markdown = _markdown(profile) + _linked_feeds_markdown(profile)
+        log(f"{len(recipients)} eligible recipient(s).")
+        summary = dispatcher.send_threat_actor_profile(
+            profile, markdown, recipients,
+            diamond_png=render_diamond_png(profile), diamond_url=diamond_url)
+        ok, detail = dispatcher.delivery_outcome(summary)
+        log(f"Channels: {detail}.")
+        return ok, detail
+
+    notify_jobs.start(
+        "notify-tap", f"{tap.tap_id} delivery", deliver,
+        entity_type="threat-actor-profile", entity_id=id, entity_label=tap.tap_id,
+        user=misp_session.current_user_email(),
+    )
+    flash(f"{tap.tap_id} delivery started; the job badge reports the result.", "info")
     return redirect(url_for("threat_actor_profile.detail", id=id))
 
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import config
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from webapp import audit, matching as _matching, misp_store
+from webapp import audit, matching as _matching, misp_session, misp_store, notify_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -1030,66 +1030,26 @@ def pir_notify(id):
     md = _pir_markdown(pir) + f"\n\n[Open PIR preview]({preview_url})"
     recipients = _pir_notify_recipients(pir)
 
+    from notifier import dispatcher
+
     if request.method == "POST":
         try:
-            from notifier import dispatcher
-
             message_md = request.form.get("markdown", "").strip() or md
-            logger.info(
-                "PIR notify requested: pir=%s recipients=%d",
-                pir.pir_id,
-                len(recipients),
-            )
-            result = dispatcher.send_pir_preview(
-                pir,
-                preview_url=preview_url,
-                markdown=message_md,
-                stakeholders=recipients,
-            )
-            if result["sent_types"]:
-                logger.info(
-                    "PIR notify sent: pir=%s sent_types=%s recipients=%d",
-                    pir.pir_id,
-                    ",".join(result["sent_types"]),
-                    result["recipients"],
-                )
-                audit.record(
-                    "notify",
-                    "pir",
-                    entity_id=id,
-                    entity_label=pir.pir_id,
-                    details=f"ok via {', '.join(result['sent_types'])}; recipients={result['recipients']}",
-                )
-                flash(
-                    f"Notification sent to {result['recipients']} stakeholder(s) via {', '.join(result['sent_types'])}.",
-                    "success",
-                )
-            else:
-                logger.warning(
-                    "PIR notify skipped: pir=%s recipients=%d no channels",
-                    pir.pir_id,
-                    result["recipients"],
-                )
-                audit.record(
-                    "notify",
-                    "pir",
-                    entity_id=id,
-                    entity_label=pir.pir_id,
-                    details=f"skipped; recipients={result['recipients']}; no eligible channels",
-                )
-                flash("No notification sent, no eligible stakeholder channels configured.", "warning")
-        except Exception as exc:
-            logger.exception("PIR notify failed: pir=%s", pir.pir_id)
-            audit.record(
-                "notify",
-                "pir",
+            notify_jobs.start_preview(
+                "notify-pir",
+                f"{pir.pir_id} notification",
+                lambda: dispatcher.send_pir_preview(
+                    pir, preview_url=preview_url, markdown=message_md, stakeholders=recipients),
+                entity_type="pir",
                 entity_id=id,
                 entity_label=pir.pir_id,
-                details=f"failed: {exc}",
+                user=misp_session.current_user_email(),
             )
-            flash(f"Notification failed: {exc}", "warning")
+            flash("Notification is being sent in the background; the job badge reports the result.", "info")
+        except Exception as exc:
+            logger.exception("PIR notify failed: pir=%s", pir.pir_id)
+            flash(f"Could not start the notification: {exc}", "warning")
         return redirect(url_for("requirements.pir_detail", id=id))
-    from notifier import dispatcher
     diagnostics = dispatcher.describe_pir_delivery(recipients)
     return jsonify({
         "markdown": md,
@@ -1109,52 +1069,26 @@ def gir_notify(id):
     preview_url = url_for("requirements.gir_detail", id=id, _external=True)
     md = _gir_markdown(gir) + f"\n\n[Open GIR preview]({preview_url})"
     recipients = _gir_notify_recipients(gir)
+    from notifier import dispatcher
+
     if request.method == "POST":
         try:
-            from notifier import dispatcher
-
             message_md = request.form.get("markdown", "").strip() or md
-            logger.info("GIR notify requested: gir=%s recipients=%d", gir.gir_id, len(recipients))
-            result = dispatcher.send_gir_preview(
-                gir,
-                preview_url=preview_url,
-                markdown=message_md,
-                stakeholders=recipients,
+            notify_jobs.start_preview(
+                "notify-gir",
+                f"{gir.gir_id} notification",
+                lambda: dispatcher.send_gir_preview(
+                    gir, preview_url=preview_url, markdown=message_md, stakeholders=recipients),
+                entity_type="gir",
+                entity_id=id,
+                entity_label=gir.gir_id,
+                user=misp_session.current_user_email(),
             )
-            if result["sent_types"]:
-                logger.info(
-                    "GIR notify sent: gir=%s sent_types=%s recipients=%d",
-                    gir.gir_id,
-                    ",".join(result["sent_types"]),
-                    result["recipients"],
-                )
-                audit.record(
-                    "notify",
-                    "gir",
-                    entity_id=id,
-                    entity_label=gir.gir_id,
-                    details=f"ok via {', '.join(result['sent_types'])}; recipients={result['recipients']}",
-                )
-                flash(
-                    f"Notification sent to {result['recipients']} stakeholder(s) via {', '.join(result['sent_types'])}.",
-                    "success",
-                )
-            else:
-                logger.warning("GIR notify skipped: gir=%s recipients=%d no channels", gir.gir_id, result["recipients"])
-                audit.record(
-                    "notify",
-                    "gir",
-                    entity_id=id,
-                    entity_label=gir.gir_id,
-                    details=f"skipped; recipients={result['recipients']}; no eligible channels",
-                )
-                flash("No notification sent, no eligible stakeholder channels configured.", "warning")
+            flash("Notification is being sent in the background; the job badge reports the result.", "info")
         except Exception as exc:
             logger.exception("GIR notify failed: gir=%s", gir.gir_id)
-            audit.record("notify", "gir", entity_id=id, entity_label=gir.gir_id, details=f"failed: {exc}")
-            flash(f"Notification failed: {exc}", "warning")
+            flash(f"Could not start the notification: {exc}", "warning")
         return redirect(url_for("requirements.gir_detail", id=id))
-    from notifier import dispatcher
     diagnostics = dispatcher.describe_delivery(recipients)
     return jsonify({
         "markdown": md,

@@ -16,7 +16,7 @@ from flask import (
     Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for,
 )
 
-from webapp import audit, indicator_meta_store, misp_store
+from webapp import audit, indicator_meta_store, misp_session, misp_store, notify_jobs
 from webapp.rate_limit import rate_limited
 from webapp.models import TLP_LEVELS
 from notifier import dispatcher
@@ -294,23 +294,31 @@ def notify(id):
     rows = _run_search(_merge_filters(feed.query))
     # Deliver to the stakeholders who will actually receive it (subscribed, TLP
     # cleared, audience match) — the green set shown by the Recipients preview.
-    green = {r["uuid"] for r in misp_store.recipient_preview(PRODUCT_NAME, feed.tlp, feed.audience)
-             if r["status"] == "green" and r.get("uuid")}
-    recipients = [s for s in misp_store.list_stakeholders() if s.uuid in green]
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     lines = [f"# {feed.name}", ""]
     if feed.description:
         lines += [feed.description, ""]
     lines += [f"**{len(rows)} indicator(s)** as of {now}.", "", "```", _values_text(rows), "```"]
     markdown = "\n".join(lines)
-    try:
-        summary = dispatcher.send_indicator_feed(feed, markdown, _csv_bytes(rows), recipients)
-        ok, message = dispatcher.delivery_outcome(summary)
-        audit.record("notify", "indicator-feed", entity_id=id, entity_label=feed.feed_id, details=message)
-        flash(f"{feed.feed_id}: {message}.", "success" if ok else "warning")
-    except Exception as exc:
-        logger.exception("Indicator feed notify failed: %s", feed.feed_id)
-        flash(f"Notification failed: {exc}", "warning")
+    csv_bytes = _csv_bytes(rows)
+
+    def deliver(log):
+        green = {r["uuid"] for r in misp_store.recipient_preview(
+            PRODUCT_NAME, feed.tlp, feed.audience)
+            if r["status"] == "green" and r.get("uuid")}
+        recipients = [s for s in misp_store.list_stakeholders() if s.uuid in green]
+        log(f"{len(recipients)} eligible recipient(s), {len(rows)} indicator(s).")
+        summary = dispatcher.send_indicator_feed(feed, markdown, csv_bytes, recipients)
+        ok, detail = dispatcher.delivery_outcome(summary)
+        log(f"Channels: {detail}.")
+        return ok, detail
+
+    notify_jobs.start(
+        "notify-feed", f"{feed.feed_id} delivery", deliver,
+        entity_type="indicator-feed", entity_id=id, entity_label=feed.feed_id,
+        user=misp_session.current_user_email(),
+    )
+    flash(f"{feed.feed_id} delivery started; the job badge reports the result.", "info")
     return redirect(url_for("indicator_feed.detail", id=id))
 
 

@@ -12,7 +12,8 @@ from datetime import datetime
 import config
 import weasyprint
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
-from webapp import audit, branding, collection_cache, misp_store, product_log
+from webapp import (audit, branding, collection_cache, misp_session, misp_store,
+                    notify_jobs, product_log)
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.utils import dedup_lower, md_to_html, sort_products
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
@@ -198,19 +199,36 @@ def _parse_stories_from_form(form):
     return stories
 
 
-def _notify_briefing_stakeholders(briefing, preview_url: str = "") -> tuple[int, bool, str]:
-    """Deliver the briefing to subscribed stakeholders.
+def _start_briefing_delivery(uuid, date_label, preview_url, reason):
+    """Hand a briefing's delivery to a background job.
 
-    Returns (recipient_count, ok, detail) where detail describes which channels
-    were reached and which could not be, for the caller's flash and audit log.
+    The briefing is re-read on the job thread; only the preview URL and the
+    analyst's identity have to be resolved while the request is still alive.
     """
-    from notifier import dispatcher
+    def deliver(log):
+        from notifier import dispatcher
 
-    stakeholders = misp_store.stakeholders_subscribed_to("Daily threat briefing")
-    markdown = misp_store.render_briefing_markdown(briefing, preview_url=preview_url)
-    summary = dispatcher.send_daily_briefing(briefing, markdown, stakeholders, preview_url=preview_url)
-    ok, detail = dispatcher.delivery_outcome(summary)
-    return len(stakeholders), ok, detail
+        briefing = misp_store.get_briefing(uuid)
+        if briefing is None:
+            return False, "the briefing could not be loaded"
+        stakeholders = misp_store.stakeholders_subscribed_to("Daily threat briefing")
+        markdown = misp_store.render_briefing_markdown(briefing, preview_url=preview_url)
+        log(f"{reason}: {len(stakeholders)} subscribed stakeholder(s).")
+        summary = dispatcher.send_daily_briefing(briefing, markdown, stakeholders,
+                                                 preview_url=preview_url)
+        ok, detail = dispatcher.delivery_outcome(summary)
+        log(f"Channels: {detail}.")
+        return ok, detail
+
+    return notify_jobs.start(
+        "notify-briefing",
+        f"Daily briefing {date_label} delivery",
+        deliver,
+        entity_type="daily-briefing",
+        entity_id=uuid,
+        entity_label=f"Daily briefing {date_label}",
+        user=misp_session.current_user_email(),
+    )
 
 
 @bp.route("/")
@@ -520,31 +538,10 @@ def publish(id):
         misp_store.publish_briefing(id)
         audit.record("publish", "daily-briefing", entity_id=id,
                      entity_label=f"Daily briefing {briefing.date}")
-        ok, detail = False, "delivery error (see the application log)"
-        try:
-            preview_url = url_for("daily_briefing.detail", id=id, _external=True)
-            recipient_count, ok, detail = _notify_briefing_stakeholders(briefing, preview_url=preview_url)
-            audit.record(
-                "notify",
-                "daily-briefing",
-                entity_id=id,
-                entity_label=f"Daily briefing {briefing.date}",
-                details=(
-                    f"publish full briefing to stakeholders; recipients={recipient_count}; "
-                    f"result={'ok' if ok else 'failed'}; {detail}"
-                ),
-            )
-        except Exception as exc:
-            logger.warning("notify failed for briefing %s: %s", id, exc)
-            audit.record(
-                "notify",
-                "daily-briefing",
-                entity_id=id,
-                entity_label=f"Daily briefing {briefing.date}",
-                details=f"publish full briefing to stakeholders; result=failed; error={exc}",
-            )
+        _start_briefing_delivery(id, briefing.date,
+                                 url_for("daily_briefing.detail", id=id, _external=True), "publish")
         flash(f"Daily briefing {briefing.date} published.", "success")
-        flash(f"Notifications: {detail}.", "success" if ok else "warning")
+        flash("Notifications are being sent in the background; the job badge reports the result.", "info")
     except Exception as exc:
         flash(f"Could not publish briefing: {exc}", "warning")
     return redirect(url_for("daily_briefing.detail", id=id))
@@ -562,23 +559,9 @@ def resend(id):
     if getattr(briefing, "review_state", None) != misp_store.BRIEFING_REVIEW_PUBLISHED:
         flash("Only published briefings can be resent.", "warning")
         return redirect(redirect_target)
-    try:
-        preview_url = url_for("daily_briefing.detail", id=id, _external=True)
-        recipient_count, ok, detail = _notify_briefing_stakeholders(briefing, preview_url=preview_url)
-        audit.record(
-            "notify",
-            "daily-briefing",
-            entity_id=id,
-            entity_label=f"Daily briefing {briefing.date}",
-            details=(
-                f"resend full briefing to stakeholders; recipients={recipient_count}; "
-                f"result={'ok' if ok else 'failed'}; {detail}"
-            ),
-        )
-        flash(f"Briefing resend: {detail}.", "success" if ok else "warning")
-    except Exception as exc:
-        logger.warning("resend briefing %s failed: %s", id, exc)
-        flash(f"Could not resend briefing: {exc}", "warning")
+    _start_briefing_delivery(id, briefing.date,
+                             url_for("daily_briefing.detail", id=id, _external=True), "resend")
+    flash(f"Briefing {briefing.date} resend started; the job badge reports the result.", "info")
     return redirect(redirect_target)
 
 
