@@ -3,13 +3,12 @@ the MISP threat-actor galaxy with the analyst's own investigation."""
 
 import base64
 import logging
-import os
 from datetime import datetime
 
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
 import config
-from webapp import audit, misp_store
+from webapp import audit, branding, misp_store
 from webapp.diamond import render_diamond_png
 from webapp.utils import sort_products
 from notifier import dispatcher
@@ -157,13 +156,11 @@ def pdf(id):
     tap = misp_store.get_threat_actor_profile(id)
     if tap is None:
         return "Threat actor profile not found", 404
-    # Shared product PDF stylesheet (same look as the flash-intel PDF).
-    css_path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "fia_pdf.css")
-    css_url = "file://" + os.path.abspath(css_path)
     diamond_b64 = base64.b64encode(render_diamond_png(tap)).decode("ascii")
     pir = misp_store.get_pir(tap.linked_pir_uuid) if tap.linked_pir_uuid else None
     linked_feeds = [f for f in (misp_store.get_indicator_feed(u) for u in tap.indicator_feeds) if f]
-    html = render_template("threat_actor_profile/pdf.html", tap=tap, css_url=css_url,
+    html = render_template("threat_actor_profile/pdf.html", tap=tap,
+                           css_url=branding.pdf_css_url(), brand=branding.brand(),
                            diamond_b64=diamond_b64, pir=pir, linked_feeds=linked_feeds)
     try:
         import weasyprint

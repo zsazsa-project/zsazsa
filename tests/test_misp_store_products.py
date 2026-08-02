@@ -15,14 +15,17 @@ class ProductCountsByThreatActorType(unittest.TestCase):
     def setUp(self):
         self._orig_briefings = misp_store.list_briefings
         self._orig_fias = misp_store.list_fias
+        self._orig_taps = misp_store.list_threat_actor_profiles
 
     def tearDown(self):
         misp_store.list_briefings = self._orig_briefings
         misp_store.list_fias = self._orig_fias
+        misp_store.list_threat_actor_profiles = self._orig_taps
 
-    def _run(self, briefings, fias):
+    def _run(self, briefings, fias, taps=None):
         misp_store.list_briefings = lambda: briefings
         misp_store.list_fias = lambda: fias
+        misp_store.list_threat_actor_profiles = lambda: taps or []
         return {r["actor_type"]: r for r in misp_store.product_counts_by_threat_actor_type()}
 
     def test_counts_briefings_and_fias_per_type(self):
@@ -53,6 +56,7 @@ class ProductCountsByThreatActorType(unittest.TestCase):
         fias = [SimpleNamespace(actor_types=[])]
         misp_store.list_briefings = lambda: briefings
         misp_store.list_fias = lambda: fias
+        misp_store.list_threat_actor_profiles = lambda: []
         rows = misp_store.product_counts_by_threat_actor_type()
         self.assertEqual(rows[-1]["actor_type"], "Unspecified")
         self.assertEqual(rows[-1]["total"], 2)

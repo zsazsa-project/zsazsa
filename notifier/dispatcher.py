@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+from types import SimpleNamespace
 
 import config
 
@@ -181,14 +182,19 @@ def send_gir_preview(gir, preview_url: str, markdown: str, stakeholders: list) -
     )
 
 
-def send_daily_briefing(briefing, markdown: str, stakeholders: list) -> dict:
-    """Deliver a full daily briefing to stakeholder channels across all channel types."""
+def send_daily_briefing(briefing, markdown: str, stakeholders: list, preview_url: str = "") -> dict:
+    """Deliver a full daily briefing to stakeholder channels across all channel types.
+
+    The e-mail body is rebuilt from the briefing object rather than the markdown,
+    so `preview_url` is passed on separately for the "Open briefing" link.
+    """
     senders = {
         "mattermost": lambda channel_ids: bool(
             mattermost.send_daily_briefing_notification(briefing, markdown, channel_ids=channel_ids)
         ),
         "email": lambda channel_ids: bool(
-            email.send_daily_briefing_notification(briefing, markdown, channel_ids=channel_ids)
+            email.send_daily_briefing_notification(briefing, markdown, channel_ids=channel_ids,
+                                                   preview_url=preview_url)
         ),
     }
     return _dispatch(stakeholders, senders, "daily briefing", getattr(briefing, "date", ""))
@@ -239,14 +245,22 @@ def send_indicator_feed(feed, markdown: str, csv_bytes: bytes, stakeholders: lis
     return _dispatch(stakeholders, senders, "indicator feed", getattr(feed, "feed_id", ""))
 
 
-def send_flash_intel(product_event, fia_id: str, content: str, stakeholders: list) -> dict:
+def send_flash_intel(fia, content: str, stakeholders: list) -> dict:
     """Deliver a Flash Intel Alert to stakeholder channels across all channel types."""
+    fia_id = getattr(fia, "fia_id", "") or "FIA"
+    event_ref = getattr(fia, "uuid", "") or getattr(fia, "id", "")
+
     senders = {
         "mattermost": lambda channel_ids: bool(
-            mattermost.send_flash_intel_alert(product_event, fia_id, content, channel_ids=channel_ids)
+            mattermost.send_flash_intel_alert(
+                SimpleNamespace(id=event_ref),
+                fia_id,
+                content,
+                channel_ids=channel_ids,
+            )
         ),
         "email": lambda channel_ids: bool(
-            email.send_flash_intel_alert(fia_id, content, channel_ids=channel_ids)
+            email.send_flash_intel_alert(fia, content, channel_ids=channel_ids)
         ),
     }
     return _dispatch(stakeholders, senders, "flash intel", fia_id)

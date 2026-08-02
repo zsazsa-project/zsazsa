@@ -108,20 +108,42 @@ def parse_source_tokens(tokens: list[str]) -> tuple[list[str], dict[str, str], l
     return source_uuids, source_hints, source_pairs
 
 
-def source_event_references(product):
-    """Enriched references for a product's source MISP events.
-
-    Returns a list of dicts with keys: url, info, date, orgc, source_label.
-    The url points at the server each event was collected from. Falls back to a
-    bare URL when the event metadata cannot be fetched.
-    """
+def _product_source_events(product):
+    """The product's source-event UUIDs and their server hints."""
     uuids = list(getattr(product, "source_event_uuids", []) or [])
     if not uuids and getattr(product, "source_event_uuid", ""):
         uuids = [product.source_event_uuid]
-    uuids = [u for u in uuids if u]
+    return [u for u in uuids if u], dict(getattr(product, "source_event_hints", {}) or {})
+
+
+def source_event_urls_only(product):
+    """Source-event references built from config alone, without reading MISP.
+
+    List views show one row per product, so resolving each product's events would
+    mean a MISP round trip per row. They get the event URLs and nothing else.
+    """
+    uuids, hints = _product_source_events(product)
+    return [
+        {"url": url, "info": "", "date": "", "orgc": "", "source_label": "", "links": []}
+        for url in misp_store.source_event_urls(uuids, hints)
+    ]
+
+
+def source_event_references(product):
+    """Enriched references for a product's source MISP events.
+
+    Returns a list of dicts with keys: url, info, date, orgc, source_label, links.
+    The url points at the server each event was collected from; `links` holds the
+    event's link-typed attributes (the article or advisory it was built from),
+    which belong in the product's reference list as well. Falls back to a bare URL
+    when the event metadata cannot be fetched.
+
+    This reads MISP, so it is for single-product views. Use
+    source_event_urls_only() in lists.
+    """
+    uuids, hints = _product_source_events(product)
     if not uuids:
         return []
-    hints = dict(getattr(product, "source_event_hints", {}) or {})
     events = misp_store.fetch_source_events(uuids, hints, strict_source=bool(hints))
     events_by_uuid = {ev.get("uuid"): ev for ev in events}
     refs = []
@@ -135,13 +157,53 @@ def source_event_references(product):
                 "date": ev.get("date", ""),
                 "orgc": ev.get("orgc", ""),
                 "source_label": ev.get("source_label", ""),
+                "links": misp_store.event_link_attributes(ev),
             })
         else:
             refs.append({
                 "url": f"{_cfg.MISP_WEBAPP_URL.rstrip('/')}/events/view/{uid}",
-                "info": "", "date": "", "orgc": "", "source_label": "",
+                "info": "", "date": "", "orgc": "", "source_label": "", "links": [],
             })
     return refs
+
+
+def flattened_references(external_references: list[str] | None, source_event_refs: list[dict] | None) -> list[dict]:
+    """Return a de-duplicated, display-ready reference list.
+
+    Output shape: [{"url", "info", "date", "orgc", "kind"}], where kind is
+    "external", "source-link", or "source-event".
+    """
+    seen = set()
+    out = []
+
+    for url in external_references or []:
+        value = (url or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append({"url": value, "info": "", "date": "", "orgc": "", "kind": "external"})
+
+    for ref in source_event_refs or []:
+        for link in ref.get("links", []) or []:
+            value = (link or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            out.append({"url": value, "info": "", "date": "", "orgc": "", "kind": "source-link"})
+
+        event_url = (ref.get("url") or "").strip()
+        if not event_url or event_url in seen:
+            continue
+        seen.add(event_url)
+        out.append({
+            "url": event_url,
+            "info": ref.get("info", "") or "",
+            "date": ref.get("date", "") or "",
+            "orgc": ref.get("orgc", "") or "",
+            "kind": "source-event",
+        })
+
+    return out
 
 
 def lookup_source_event_meta(request_args):

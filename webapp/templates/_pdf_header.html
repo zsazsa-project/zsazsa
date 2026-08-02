@@ -1,0 +1,59 @@
+{# Shared branded header for every product PDF.
+
+   doc_header() renders the coloured cover strip (logo, company, TLP badge) plus
+   the document title block. meta_item() renders one cell of the meta grid that
+   follows it, wrapped by the caller in <div class="meta-block"><div class="meta-grid">.
+   Keeping these in one place is what makes the briefing, the flash intel alert,
+   the vulnerability advisory and the threat actor profile come out looking like
+   the same publication. #}
+
+{% macro doc_header(brand, doc_label, title, tlp, doc_id, subtitle='') %}
+<span class="doc-id-anchor">{{ doc_id }}</span>
+<span class="tlp-label-anchor">TLP:{{ tlp | upper }}</span>
+
+<div class="cover-header">
+  <div class="cover-header-inner">
+    {% if brand.logo_uri %}
+    <img class="cover-logo" src="{{ brand.logo_uri }}" alt="logo">
+    {% endif %}
+    <div class="cover-identity">
+      {% if brand.company %}<div class="cover-company">{{ brand.company }}</div>{% endif %}
+      {% if brand.department %}<div class="cover-department">{{ brand.department }}</div>{% endif %}
+    </div>
+    <div class="cover-tlp-badge tlp-{{ tlp | slug }}">TLP:{{ tlp | upper }}</div>
+  </div>
+  <div class="cover-accent-bar"></div>
+</div>
+
+<div class="doc-title-block">
+  <div class="doc-label">{{ doc_label }}</div>
+  <h1 class="doc-title">{{ title }}</h1>
+  {% if subtitle %}<p class="doc-subtitle">{{ subtitle }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro meta_item(label, value) %}
+<div class="meta-item">
+  <span class="meta-label">{{ label }}</span>
+  <span class="meta-value">{{ value }}</span>
+</div>
+{% endmacro %}
+
+
+{# For long values (a full audience list) that would wrap one word per line
+   inside a grid column. Place after the closing </div> of .meta-grid. #}
+{% macro wide_meta_item(label, value) %}
+<div class="meta-wide">
+  <span class="meta-label">{{ label }}</span>
+  <span class="meta-value">{{ value }}</span>
+</div>
+{% endmacro %}
+
+
+{% macro tlp_meta_item(tlp) %}
+<div class="meta-item">
+  <span class="meta-label">Classification</span>
+  <span class="meta-value"><span class="tlp-pill tlp-{{ tlp | slug }}">TLP:{{ tlp | upper }}</span></span>
+</div>
+{% endmacro %}

@@ -477,6 +477,43 @@ def galaxy_mitre_attack_patterns() -> list:
     return _fetch_galaxy_clusters(GALAXY_MITRE_ATTACK)
 
 
+# Technique id -> technique name, refreshed on the same cycle as the galaxies so
+# a re-run of scripts/fetch_mitre_galaxy.py is picked up without a restart.
+_mitre_name_cache: dict = {}
+_mitre_name_ts: float = 0.0
+
+
+def mitre_technique_label(value: str) -> str:
+    """Return "T1566 - Phishing" for a bare ATT&CK technique id.
+
+    Briefing stories store bare ids (that is all the galaxy tag carries), which
+    say little on their own; the galaxy list holds "<name> - <id>" strings, so
+    the name can be resolved locally. Anything that is not a bare id is returned
+    untouched: galaxy picks already carry the name, and analyst-written detection
+    notes must not be rewritten.
+    """
+    global _mitre_name_ts
+    raw = (value or "").strip()
+    if not _STORY_TECHNIQUE_RE.fullmatch(raw):
+        return raw
+    now = time.time()
+    if not _mitre_name_cache or now - _mitre_name_ts >= _GALAXY_TTL:
+        entries = galaxy_mitre_attack_patterns()
+        if entries:
+            _mitre_name_cache.clear()
+            for entry in entries:
+                found = _STORY_TECHNIQUE_RE.search(entry or "")
+                if found:
+                    _mitre_name_cache[found.group(0)] = entry[:found.start()].strip(" -")
+            _mitre_name_ts = now
+    name = _mitre_name_cache.get(raw)
+    return f"{raw} - {name}" if name else raw
+
+
+def mitre_technique_labels(values) -> list:
+    """Map a list of technique references through mitre_technique_label()."""
+    return [mitre_technique_label(v) for v in (values or []) if v]
+
 
 # ── Connectivity tests ────────────────────────────────────────────────────────
 
@@ -3876,16 +3913,53 @@ def source_event_urls(uuids, hints=None):
     return urls
 
 
-def render_fia_markdown(fia, fia_id=None):
-    """Render an FIA namespace into the markdown report content."""
+def event_link_attributes(event) -> list:
+    """Return the link-typed attribute values of an event from fetch_source_events().
+
+    A source event usually carries the article, advisory or vendor bulletin it
+    was built from as a link attribute, which is a reference in its own right.
+    """
+    return [
+        a["value"] for a in (event.get("attributes") or [])
+        if a.get("type") == "link" and a.get("value")
+    ]
+
+
+def source_event_link_urls(uuids, hints=None):
+    """Return the link attributes of the given source events, deduplicated.
+
+    Fetches the events from MISP; unreachable ones are skipped rather than
+    failing the caller's render.
+    """
+    if not uuids:
+        return []
+    try:
+        events = fetch_source_events(list(uuids), dict(hints or {}), strict_source=bool(hints))
+    except Exception as exc:
+        logger.warning("Could not fetch source events for link references: %s", exc)
+        return []
+    links = [link for ev in events for link in event_link_attributes(ev)]
+    return list(dict.fromkeys(links))
+
+
+def render_fia_markdown(fia, fia_id=None, include_source_links=False):
+    """Render an FIA namespace into the markdown report content.
+
+    By default this is deterministic and uses only fields already present on the
+    FIA namespace. include_source_links adds the source events' link attributes
+    to the references, at the cost of reading them from MISP, which is worth it
+    on the notification paths but not when re-writing the stored report.
+    """
     fid = fia_id or fia.fia_id or "FIA-#####"
     date_str = (fia.created_at or datetime.utcnow()).strftime("%Y-%m-%d %H:%M UTC")
 
     def bullets(items):
         return "\n".join(f"- {ln}" for ln in items) if items else "- (none recorded)"
 
-    source_refs = source_event_urls(getattr(fia, "source_event_uuids", []) or [],
-                                    getattr(fia, "source_event_hints", {}) or {})
+    source_uuids = getattr(fia, "source_event_uuids", []) or []
+    source_hints = getattr(fia, "source_event_hints", {}) or {}
+    source_refs = source_event_urls(source_uuids, source_hints)
+    source_links = source_event_link_urls(source_uuids, source_hints) if include_source_links else []
 
     parts = [
         f"# Flash intel alert: {fia.title or '(untitled)'}",
@@ -3927,10 +4001,10 @@ def render_fia_markdown(fia, fia_id=None):
         "",
         "## Scope",
         "",
-        *([f"- **Geography:** {', '.join(fia.geographic_scope)}"] if fia.geographic_scope else []),
-        *([f"- **Sectors:** {', '.join(fia.sectors)}"] if fia.sectors else []),
-        *([f"- **Threat actors:** {', '.join(fia.threat_actors)}"] if fia.threat_actors else []),
-        *([f"- **MITRE ATT&CK:** {', '.join(getattr(fia, 'mitre_attack_techniques', []) or [])}"] if getattr(fia, 'mitre_attack_techniques', []) else []),
+        *([f"- **Geographic scope:** {', '.join(fia.geographic_scope)}"] if fia.geographic_scope else []),
+        *([f"- **Sector:** {', '.join(fia.sectors)}"] if fia.sectors else []),
+        *([f"- **Threat actor:** {', '.join(fia.threat_actors)}"] if fia.threat_actors else []),
+        *([f"- **Techniques:** {', '.join(mitre_technique_labels(getattr(fia, 'mitre_attack_techniques', [])))}"] if getattr(fia, 'mitre_attack_techniques', []) else []),
         *([f"- **Threat types:** {', '.join(getattr(fia, 'threat_types', []) or [])}"] if getattr(fia, 'threat_types', []) else []),
         *([f"- **Technology:** {', '.join(getattr(fia, 'technology', []) or [])}"] if getattr(fia, 'technology', []) else []),
         *([f"- **Vendor:** {', '.join(getattr(fia, 'vendor', []) or [])}"] if getattr(fia, 'vendor', []) else []),
@@ -3938,6 +4012,7 @@ def render_fia_markdown(fia, fia_id=None):
         *([f"- **Campaign:** {', '.join(getattr(fia, 'campaign', []) or [])}"] if getattr(fia, 'campaign', []) else []),
         *(['_(No scope data recorded.)_'] if not any([
             fia.geographic_scope, fia.sectors, fia.threat_actors,
+            getattr(fia, 'mitre_attack_techniques', []),
             getattr(fia, 'threat_types', []), getattr(fia, 'technology', []),
             getattr(fia, 'vendor', []), getattr(fia, 'incident', []), getattr(fia, 'campaign', []),
         ]) else []),
@@ -3958,9 +4033,9 @@ def render_fia_markdown(fia, fia_id=None):
         "",
         "## Detection guidance",
         "",
-        "**Relevant MITRE ATT&CK techniques:**",
+        "**Techniques:**",
         "",
-        bullets(fia.mitre_techniques),
+        bullets(mitre_technique_labels(fia.mitre_techniques)),
         "",
         "**Hunting hypotheses:**",
         "",
@@ -3970,7 +4045,7 @@ def render_fia_markdown(fia, fia_id=None):
         "",
         "## References",
         "",
-        bullets((fia.external_references or []) + source_refs),
+        bullets(list(dict.fromkeys((fia.external_references or []) + source_links + source_refs))),
     ]
     if fia.feedback_deadline:
         parts.extend([
@@ -5006,7 +5081,7 @@ _SCOPE_SUMMARY_FIELDS = [
     ("geographic_scope", "Geographic"),
     ("sectors", "Sector"),
     ("threat_actors", "Threat actor"),
-    ("techniques", "Technique"),
+    ("techniques", "Techniques"),
     ("threat_actor_types", "Threat actor type"),
     ("vendor", "Vendor"),
 ]
@@ -5030,6 +5105,8 @@ def briefing_scope_summary(stories):
                     counter[item] += 1
         if counter:
             ranked = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            if field == "techniques":
+                ranked = [(mitre_technique_label(v), count) for v, count in ranked]
             summary.append((label, ranked))
     return summary
 
@@ -5070,7 +5147,7 @@ _COMBINED_SCOPE_FIELDS = [
     ("geographic_scope", "geographic_scope", "Geographic scope"),
     ("sectors", "sectors", "Sectors"),
     ("threat_actors", "threat_actors", "Threat actors"),
-    ("techniques", "mitre_attack_techniques", "MITRE ATT&CK techniques"),
+    ("techniques", "mitre_attack_techniques", "Techniques"),
     ("threat_actor_types", None, "Threat actor types"),
     (None, "threat_types", "Threat types"),
     (None, "technology", "Technology"),
@@ -5112,8 +5189,39 @@ def briefing_combined_scope_summary(briefing):
                 canonical[key] = item
         if counter:
             ranked = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
-            summary.append((label, [(canonical[key], count) for key, count in ranked]))
+            values = [(canonical[key], count) for key, count in ranked]
+            if story_field == "techniques":
+                values = [(mitre_technique_label(v), count) for v, count in values]
+            summary.append((label, values))
     return summary
+
+
+# The scope categories a briefing story carries, in the order every surface
+# renders them: this markdown, the HTML e-mail and the story_scope template macro.
+BRIEFING_STORY_SCOPE_FIELDS = [
+    ("geographic_scope", "Geographic scope"),
+    ("sectors", "Sector"),
+    ("threat_actors", "Threat actor"),
+    ("techniques", "Techniques"),
+    ("threat_actor_types", "Threat actor type"),
+]
+
+
+def briefing_story_scope_rows(story):
+    """Return the (label, values) pairs a story has scope for, empties dropped.
+
+    Takes a story off a saved briefing, where _briefing_ns() has already turned
+    it into a namespace. The compose form's story dicts would come back empty
+    here; those go through briefing_scope_summary() instead.
+    """
+    rows = []
+    for field, label in BRIEFING_STORY_SCOPE_FIELDS:
+        values = getattr(story, field, None) or []
+        if field == "techniques":
+            values = mitre_technique_labels(values)
+        if values:
+            rows.append((label, values))
+    return rows
 
 
 def render_briefing_markdown(briefing, preview_url: str = ""):
@@ -5133,30 +5241,15 @@ def render_briefing_markdown(briefing, preview_url: str = ""):
         title = getattr(s, "title", "") or f"Story {i}"
         content = getattr(s, "content", "") or ""
         source_url = getattr(s, "source_url", "") or ""
-        source_event_uuid = getattr(s, "source_event_uuid", "") or ""
         lines.extend([
             f"### {i}. {title}",
             "",
             content,
             "",
             f"**Source:** {source_url or '-'}",
-            f"**MISP event:** {source_event_uuid or '-'}",
         ])
-        geo = getattr(s, "geographic_scope", None) or []
-        sectors = getattr(s, "sectors", None) or []
-        actors = getattr(s, "threat_actors", None) or []
-        techniques = getattr(s, "techniques", None) or []
-        if geo:
-            lines.append(f"**Geographic scope:** {', '.join(geo)}")
-        if sectors:
-            lines.append(f"**Sector:** {', '.join(sectors)}")
-        if actors:
-            lines.append(f"**Threat actor:** {', '.join(actors)}")
-        if techniques:
-            lines.append(f"**Techniques:** {', '.join(techniques)}")
-        actor_types = getattr(s, "threat_actor_types", None) or []
-        if actor_types:
-            lines.append(f"**Threat actor type:** {', '.join(actor_types)}")
+        for label, values in briefing_story_scope_rows(s):
+            lines.append(f"**{label}:** {', '.join(values)}")
         reliability = getattr(s, "source_reliability", "") or ""
         credibility = getattr(s, "information_credibility", "") or ""
         if reliability or credibility:

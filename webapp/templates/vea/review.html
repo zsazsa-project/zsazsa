@@ -10,8 +10,11 @@
 </a>
 {% endblock %}
 
+{# Short fields are Markdown and render server-side, as they do on the detail
+   page. Prose (the summary) goes through report-md-body instead, so it is
+   sanitised client-side. #}
 {% macro bullets(items) %}
-  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i }}</li>{% endfor %}</ul>
+  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i | md_inline }}</li>{% endfor %}</ul>
   {% else %}<span class="text-muted" style="font-size:.82rem;">none recorded</span>{% endif %}
 {% endmacro %}
 
@@ -167,19 +170,19 @@
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Affected technology</div>
                     <ul class="mb-0 ps-3">
-                      {% if v.affected_product %}<li style="font-size:.82rem;"><strong>Product:</strong> {{ v.affected_product }}</li>{% endif %}
-                      {% if v.affected_versions %}<li style="font-size:.82rem;"><strong>Versions:</strong> {{ v.affected_versions }}</li>{% endif %}
-                      {% if v.fixed_version %}<li style="font-size:.82rem;"><strong>Fixed in:</strong> {{ v.fixed_version }}</li>{% endif %}
-                      {% if v.exposure %}<li style="font-size:.82rem;"><strong>Exposure:</strong> {{ v.exposure }}</li>{% endif %}
+                      {% if v.affected_product %}<li style="font-size:.82rem;"><span class="pretext">Product:</span> {{ v.affected_product | md_inline }}</li>{% endif %}
+                      {% if v.affected_versions %}<li style="font-size:.82rem;"><span class="pretext">Versions:</span> {{ v.affected_versions | md_inline }}</li>{% endif %}
+                      {% if v.fixed_version %}<li style="font-size:.82rem;"><span class="pretext">Fixed in:</span> {{ v.fixed_version | md_inline }}</li>{% endif %}
+                      {% if v.exposure %}<li style="font-size:.82rem;"><span class="pretext">Exposure:</span> {{ v.exposure | md_inline }}</li>{% endif %}
                     </ul>
                   </div>
 
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Exploitation status</div>
                     <ul class="mb-0 ps-3">
-                      {% if v.observed_exploitation %}<li style="font-size:.82rem;"><strong>Observed:</strong> {{ v.observed_exploitation }}</li>{% endif %}
-                      {% if v.exploit_availability %}<li style="font-size:.82rem;"><strong>Availability:</strong> {{ v.exploit_availability }}</li>{% endif %}
-                      {% if v.exploitation_complexity %}<li style="font-size:.82rem;"><strong>Complexity:</strong> {{ v.exploitation_complexity }}</li>{% endif %}
+                      {% if v.observed_exploitation %}<li style="font-size:.82rem;"><span class="pretext">Observed:</span> {{ v.observed_exploitation | md_inline }}</li>{% endif %}
+                      {% if v.exploit_availability %}<li style="font-size:.82rem;"><span class="pretext">Availability:</span> {{ v.exploit_availability | md_inline }}</li>{% endif %}
+                      {% if v.exploitation_complexity %}<li style="font-size:.82rem;"><span class="pretext">Complexity:</span> {{ v.exploitation_complexity | md_inline }}</li>{% endif %}
                     </ul>
                   </div>
 
@@ -188,9 +191,9 @@
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Recommended actions</div>
                     {{ bullets(v.immediate_actions) }}
                     {% if v.patch_sla_internet or v.patch_sla_internal %}
-                    <p class="mt-2 mb-0" style="font-size:.78rem;color:var(--admiralty-section-fg);">
-                      {% if v.patch_sla_internet %}Internet-facing SLA: <strong>{{ v.patch_sla_internet }}</strong>{% endif %}
-                      {% if v.patch_sla_internal %} · Internal SLA: <strong>{{ v.patch_sla_internal }}</strong>{% endif %}
+                    <p class="mt-2 mb-0" style="font-size:.78rem;">
+                      {% if v.patch_sla_internet %}<span class="pretext">Internet-facing SLA:</span> {{ v.patch_sla_internet | md_inline }}{% endif %}
+                      {% if v.patch_sla_internal %} &middot; <span class="pretext">Internal SLA:</span> {{ v.patch_sla_internal | md_inline }}{% endif %}
                     </p>
                     {% endif %}
                   </div>
@@ -201,10 +204,10 @@
                 <div class="col-lg-4">
                   <div class="border rounded p-2 mb-2" style="font-size:.8rem;background:var(--card-bg);">
                     <div class="fw-semibold small mb-2">Risk &amp; severity</div>
-                    {% if v.cvss %}<p class="mb-1"><strong>CVSS:</strong> {{ v.cvss }}</p>{% endif %}
-                    {% if v.cwe %}<p class="mb-1"><strong>CWE:</strong> {{ v.cwe }}</p>{% endif %}
-                    {% if v.worst_case %}<p class="mb-1"><strong>Worst case:</strong> {{ v.worst_case }}</p>{% endif %}
-                    {% if v.most_likely %}<p class="mb-1"><strong>Most likely:</strong> {{ v.most_likely }}</p>{% endif %}
+                    {% if v.cvss %}<p class="mb-1"><span class="pretext">CVSS:</span> {{ v.cvss }}</p>{% endif %}
+                    {% if v.cwe %}<p class="mb-1"><span class="pretext">CWE:</span> {{ v.cwe }}</p>{% endif %}
+                    {% if v.worst_case %}<div class="mb-1"><span class="pretext">Worst case:</span> {{ v.worst_case | md_inline }}</div>{% endif %}
+                    {% if v.most_likely %}<div class="mb-1"><span class="pretext">Most likely:</span> {{ v.most_likely | md_inline }}</div>{% endif %}
                     {% if not v.cvss and not v.cwe and not v.worst_case and not v.most_likely %}
                     <span class="text-muted">No risk data</span>
                     {% endif %}

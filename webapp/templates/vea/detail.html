@@ -84,10 +84,10 @@
             <tr><th>CISA KEV listed</th><td>{% if vea.cisa_kev == 'Yes' %}<strong class="text-danger">Yes</strong>{% else %}{{ vea.cisa_kev or '-' }}{% endif %}</td></tr>
           </tbody>
         </table>
-        <p class="mb-0 small text-muted">
-          Source: {{ (vea.source_description or 'unspecified') | md_inline }} ·
-          Reliability: {{ vea.source_reliability or '-' }} ·
-          Credibility: {{ vea.information_credibility or '-' }}
+        <p class="mb-0 small">
+          <span class="pretext">Source:</span> {{ (vea.source_description or 'unspecified') | md_inline }} &middot;
+          <span class="pretext">Reliability:</span> {{ vea.source_reliability or '-' }} &middot;
+          <span class="pretext">Credibility:</span> {{ vea.information_credibility or '-' }}
         </p>
       </div>
     </div>
@@ -95,8 +95,8 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-scale-balanced me-2"></i>Risk assessment</div>
       <div class="card-body">
-        <p class="mb-1"><strong>Worst case:</strong> {{ (vea.worst_case or '-') | md_inline }}</p>
-        <p class="mb-0"><strong>Most likely:</strong> {{ (vea.most_likely or '-') | md_inline }}</p>
+        <p class="mb-1"><span class="pretext">Worst case:</span> {{ (vea.worst_case or '-') | md_inline }}</p>
+        <p class="mb-0"><span class="pretext">Most likely:</span> {{ (vea.most_likely or '-') | md_inline }}</p>
       </div>
     </div>
 
@@ -107,9 +107,9 @@
         {{ bullets(vea.immediate_actions) }}
         <hr>
         <div class="row g-2 mt-0">
-          <div class="col-md-4"><strong>Internet-facing SLA:</strong> {{ (vea.patch_sla_internet or '-') | md_inline }}</div>
-          <div class="col-md-4"><strong>Internal SLA:</strong> {{ (vea.patch_sla_internal or '-') | md_inline }}</div>
-          <div class="col-md-4"><strong>Target version:</strong> {{ (vea.target_patch_version or '-') | md_inline }}</div>
+          <div class="col-md-4"><span class="pretext">Internet-facing SLA:</span> {{ (vea.patch_sla_internet or '-') | md_inline }}</div>
+          <div class="col-md-4"><span class="pretext">Internal SLA:</span> {{ (vea.patch_sla_internal or '-') | md_inline }}</div>
+          <div class="col-md-4"><span class="pretext">Target version:</span> {{ (vea.target_patch_version or '-') | md_inline }}</div>
         </div>
       </div>
     </div>
@@ -127,19 +127,16 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
       <div class="card-body">
-        {% if external_references or source_event_refs %}
+        {% if reference_items %}
         <ul class="mb-0">
-          {% for r in external_references %}
-            <li><a href="{{ r }}" target="_blank" rel="noopener">{{ r }}</a></li>
-          {% endfor %}
-          {% for ref in source_event_refs %}
+          {% for ref in reference_items %}
             <li>
               <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.url }}</a>
-              {% if ref.info or ref.date or ref.orgc %}
-              <div class="small text-muted">
-                {% if ref.info %}<span><strong>Title:</strong> {{ ref.info }}</span>{% endif %}
-                {% if ref.date %}<span class="ms-2"><strong>Date:</strong> {{ ref.date }}</span>{% endif %}
-                {% if ref.orgc %}<span class="ms-2"><strong>Creator org:</strong> {{ ref.orgc }}</span>{% endif %}
+              {% if ref.kind == 'source-event' and (ref.info or ref.date or ref.orgc) %}
+              <div class="small">
+                {% if ref.info %}<span><span class="pretext">Title:</span> {{ ref.info }}</span>{% endif %}
+                {% if ref.date %}<span class="ms-2"><span class="pretext">Date:</span> {{ ref.date }}</span>{% endif %}
+                {% if ref.orgc %}<span class="ms-2"><span class="pretext">Creator org:</span> {{ ref.orgc }}</span>{% endif %}
               </div>
               {% endif %}
             </li>
@@ -149,7 +146,7 @@
         <span class="text-muted">none recorded</span>
         {% endif %}
         {% if vea.feedback_deadline %}
-        <p class="mt-3 mb-0 small"><i class="fas fa-clock me-1 text-muted"></i><strong>Feedback requested by:</strong>
+        <p class="mt-3 mb-0 small"><i class="fas fa-clock me-1 text-muted"></i><span class="pretext">Feedback requested by:</span>
           {{ vea.feedback_deadline.strftime('%d-%m-%Y') }}</p>
         {% endif %}
       </div>

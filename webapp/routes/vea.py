@@ -1,13 +1,13 @@
 """Vulnerability Exploitation Advisory (VEA) routes."""
 
 import logging
-import os
 import re
 from types import SimpleNamespace
 
 import config as _cfg
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 from webapp.routes.source_event_utils import (
+    flattened_references,
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
@@ -16,7 +16,7 @@ from webapp.routes.source_event_utils import (
 
 _CVE_RE = re.compile(r'\bCVE-\d{4}-\d{4,}\b', re.IGNORECASE)
 
-from webapp import audit, collection_cache, misp_store, product_log
+from webapp import audit, branding, collection_cache, misp_store, product_log
 from webapp.utils import md_to_html, sort_products
 
 logger = logging.getLogger(__name__)
@@ -231,11 +231,11 @@ def detail(id):
             linked_pir = misp_store.get_pir(vea.linked_pir_uuid)
         except Exception:
             linked_pir = None
+    source_refs = source_event_references(vea)
     return render_template(
         "vea/detail.html",
         vea=vea,
-        external_references=list(vea.references or []),
-        source_event_refs=source_event_references(vea),
+        reference_items=flattened_references(list(vea.references or []), source_refs),
         feedback=feedback,
         recipients=recipients,
         notify_status=notify_status,
@@ -520,14 +520,13 @@ def pdf(id):
     vea = misp_store.get_vea(id)
     if vea is None:
         return "VEA not found", 404
-    css_path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "vea_pdf.css")
-    css_url = "file://" + os.path.abspath(css_path)
     html = render_template(
         "vea/pdf.html",
         vea=vea,
-        css_url=css_url,
-        external_references=list(vea.references or []),
-        source_event_refs=source_event_references(vea),
+        css_url=branding.pdf_css_url(),
+        brand=branding.brand(),
+        reference_items=flattened_references(list(vea.references or []),
+                                             source_event_references(vea)),
         summary_html=md_to_html(vea.summary or ""),
     )
     try:

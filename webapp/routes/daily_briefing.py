@@ -5,18 +5,14 @@ selects relevant stories, drafts a 5-line summary per story (optionally
 with LLM assistance), then publishes the briefing.
 """
 
-import base64
 import json
 import logging
-import mimetypes
-import os
 from datetime import datetime
-from pathlib import Path
 
 import config
 import weasyprint
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
-from webapp import audit, collection_cache, misp_store, product_log
+from webapp import audit, branding, collection_cache, misp_store, product_log
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.utils import md_to_html, sort_products
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
@@ -224,7 +220,7 @@ def _notify_briefing_stakeholders(briefing, preview_url: str = "") -> tuple[int,
 
     stakeholders = misp_store.stakeholders_subscribed_to("Daily threat briefing")
     markdown = misp_store.render_briefing_markdown(briefing, preview_url=preview_url)
-    summary = dispatcher.send_daily_briefing(briefing, markdown, stakeholders)
+    summary = dispatcher.send_daily_briefing(briefing, markdown, stakeholders, preview_url=preview_url)
     ok, detail = dispatcher.delivery_outcome(summary)
     return len(stakeholders), ok, detail
 
@@ -241,6 +237,7 @@ def list_briefings():
     return render_template(
         "daily_briefing/list.html",
         briefings=briefings,
+        scope_summaries={b.uuid: misp_store.briefing_combined_scope_summary(b) for b in briefings},
         state_filter=state_filter or "",
         review_states=misp_store.BRIEFING_REVIEW_STATES,
         sort=sort,
@@ -381,22 +378,8 @@ def detail(id):
     )
 
 
-_UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
-
-
 # weasyprint has no JS engine to run marked.js like the HTML views do, so
 # story content is rendered to HTML server-side before going into the PDF.
-
-
-def _logo_data_uri():
-    logo = getattr(config, "BRAND_LOGO", "")
-    if not logo:
-        return ""
-    path = _UPLOADS_DIR / logo
-    if not path.exists():
-        return ""
-    mime = mimetypes.guess_type(str(path))[0] or "image/png"
-    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
 
 
 @bp.route("/<string:id>/pdf")
@@ -404,23 +387,13 @@ def pdf(id):
     briefing = misp_store.get_briefing(id)
     if briefing is None:
         return "Briefing not found", 404
-    css_path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "briefing_pdf.css")
-    css_url = "file://" + os.path.abspath(css_path)
-    brand = {
-        "company": getattr(config, "BRAND_COMPANY", ""),
-        "department": getattr(config, "BRAND_DEPARTMENT", ""),
-        "color1": getattr(config, "BRAND_COLOR_1", "#0f2d52"),
-        "color2": getattr(config, "BRAND_COLOR_2", "#0078f1"),
-        "color3": getattr(config, "BRAND_COLOR_3", "#64748b"),
-        "logo_uri": _logo_data_uri(),
-    }
     for story in briefing.stories:
         story.html = md_to_html(getattr(story, "content", ""))
     document_html = render_template(
         "daily_briefing/pdf.html",
         briefing=briefing,
-        css_url=css_url,
-        brand=brand,
+        css_url=branding.pdf_css_url(),
+        brand=branding.brand(),
         scope_summary=misp_store.briefing_combined_scope_summary(briefing),
     )
     pdf_bytes = weasyprint.HTML(string=document_html).write_pdf()

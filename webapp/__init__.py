@@ -121,6 +121,22 @@ def create_app():
             .replace(" ", "-")
         )
 
+    @app.template_filter("mitre")
+    def _mitre(s):
+        """Expand a bare ATT&CK technique id to "T1566 - Phishing"."""
+        # Imported here: misp_store imports back from this package, so it cannot
+        # be pulled in while this module is still executing.
+        from webapp.misp_store import mitre_technique_label
+
+        return mitre_technique_label(s)
+
+    @app.template_filter("scope_rows")
+    def _scope_rows(story):
+        """A briefing story's (label, values) scope pairs, as the e-mail shows them."""
+        from webapp.misp_store import briefing_story_scope_rows
+
+        return briefing_story_scope_rows(story)
+
     from webapp.routes.dashboard import bp as dashboard_bp
     from webapp.routes.stakeholders import bp as stakeholders_bp
     from webapp.routes.requirements import bp as requirements_bp

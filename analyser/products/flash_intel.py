@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime
+from types import SimpleNamespace
 
 from pymisp import MISPEvent, MISPEventReport
 
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
 _FLASH_INTEL_PRODUCT_NAME = "Flash intel"
+# Classification stamped on every auto-generated alert, and the one its
+# notifications are sent under.
+_AUTO_TLP = "amber"
 
 
 def _get_http_error(event) -> str | None:
@@ -207,7 +211,9 @@ def _auto_publish(misp_webapp, product_event, fia_id, content):
     tagger.set_workflow_state(misp_webapp, product_event, "complete")
     misp_webapp.publish(product_event.uuid)
     send_flash_intel_alert(product_event, fia_id, content)
-    email.send_flash_intel_alert(fia_id, content)
+    # The e-mail sender takes the alert itself so the subject carries the id and
+    # classification; the analyser has no FIA namespace, so name them directly.
+    email.send_flash_intel_alert(SimpleNamespace(fia_id=fia_id, tlp=_AUTO_TLP), content)
 
 
 def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, content, matched):
@@ -222,7 +228,7 @@ def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, co
 
     add("fia-id", fia_id)
     add("title", source_event.info)
-    add("tlp", "amber")
+    add("tlp", _AUTO_TLP)
     add("summary", _extract_section(content, "Summary"))
     add("source-description", f"OSINT feed: {tagger.get_source_feed(source_event)}")
     add("source-reliability", _get_source_reliability(source_event).upper())

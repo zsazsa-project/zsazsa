@@ -4,7 +4,9 @@ from contextlib import contextmanager
 from email.message import EmailMessage
 
 import config
-from webapp.utils import md_to_html, normalize_notification_channels
+from notifier import product_email
+from webapp import branding
+from webapp.utils import normalize_notification_channels
 
 logger = logging.getLogger(__name__)
 
@@ -68,25 +70,41 @@ def test_connection(host: str, port: int, use_tls: bool, username: str, password
         return {"ok": False, "error": str(e)}
 
 
-def _html_document(markdown: str) -> str:
-    """Wrap rendered Markdown in a minimal styled HTML document for email clients."""
-    return (
-        '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
-        "body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;line-height:1.5;"
-        "max-width:720px;margin:0 auto;padding:16px;}"
-        "h1,h2,h3{color:#0f2d52;}a{color:#0078f1;}"
-        "code,pre{background:#f4f6f8;border-radius:4px;padding:2px 4px;}"
-        "table{border-collapse:collapse;}td,th{border:1px solid #ddd;padding:6px;}"
-        "</style></head><body>"
-        f"{md_to_html(markdown)}"
-        "</body></html>"
+def _attach_logo(msg: EmailMessage, body_html: str) -> None:
+    """Attach the brand logo as a related part when the HTML body references it.
+
+    Mail clients block data: URIs in images, so the header logo travels as a
+    Content-ID part alongside the HTML alternative.
+    """
+    if f"cid:{product_email.LOGO_CID}" not in body_html:
+        return
+    logo = branding.logo_bytes()
+    if not logo:
+        return
+    data, maintype, subtype = logo
+    msg.get_payload()[-1].add_related(
+        data, maintype=maintype, subtype=subtype, cid=f"<{product_email.LOGO_CID}>"
     )
 
 
+def _subject(tlp: str, rest: str) -> str:
+    """Build the subject line for a product notification.
+
+    Recipients (and their mail rules) should be able to tell how a product may be
+    handled without opening it, so the TLP sits in the subject next to the tag.
+    Requirements carry no TLP and get the tag alone.
+    """
+    tlp = (tlp or "").strip()
+    return f"[CTI] TLP:{tlp.upper()} - {rest}" if tlp else f"[CTI] {rest}"
+
+
 def send_email(recipients: list[str], subject: str, markdown: str, label: str,
-               attachments: list[tuple] | None = None) -> bool:
+               attachments: list[tuple] | None = None, html_body: str | None = None) -> bool:
     """Send one multipart (plaintext + HTML) email to the given recipients.
 
+    `markdown` is the plaintext alternative; `html_body` is the branded HTML the
+    product senders build, and falls back to a rendering of the markdown for
+    callers that have none (the config page's channel test).
     `attachments` is an optional list of (filename, bytes, maintype, subtype)
     tuples, e.g. ("feed.csv", b"...", "text", "csv") or ("d.png", b"...", "image", "png").
     """
@@ -105,7 +123,9 @@ def send_email(recipients: list[str], subject: str, markdown: str, label: str,
     # visible To is the sender and delivery happens via the explicit list below.
     msg["To"] = recipients[0] if len(recipients) == 1 else cfg["sender"]
     msg.set_content(markdown or "")
-    msg.add_alternative(_html_document(markdown), subtype="html")
+    body_html = html_body or product_email.markdown_html(markdown, "Notification")
+    msg.add_alternative(body_html, subtype="html")
+    _attach_logo(msg, body_html)
     for filename, data, maintype, subtype in attachments or []:
         msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
 
@@ -120,60 +140,82 @@ def send_email(recipients: list[str], subject: str, markdown: str, label: str,
 
 
 # Per-product senders. The markdown already carries the product content (and any
-# preview link), so each only needs to build a subject line. Signatures match the
-# calls the dispatcher makes for each product type.
+# preview link); each builds a subject line and the branded HTML body for its
+# product type. Signatures match the calls the dispatcher makes.
 
 def send_pir_notification(pir, markdown: str, channel_ids: list[str] | None = None) -> bool:
-    subject = f"[CTI] {pir.pir_id}: {(getattr(pir, 'question', '') or '')[:80]}"
-    return send_email(_recipients(channel_ids), subject, markdown, f"PIR {pir.pir_id}")
+    subject = _subject("", f"{pir.pir_id}: {(getattr(pir, 'question', '') or '')[:80]}")
+    html = product_email.markdown_html(markdown, "Priority Intelligence Requirement")
+    return send_email(_recipients(channel_ids), subject, markdown, f"PIR {pir.pir_id}", html_body=html)
 
 
 def send_gir_notification(gir, markdown: str, channel_ids: list[str] | None = None) -> bool:
-    subject = f"[CTI] {gir.gir_id}: {(getattr(gir, 'topic', '') or '')[:80]}"
-    return send_email(_recipients(channel_ids), subject, markdown, f"GIR {gir.gir_id}")
+    subject = _subject("", f"{gir.gir_id}: {(getattr(gir, 'topic', '') or '')[:80]}")
+    html = product_email.markdown_html(markdown, "General Intelligence Requirement")
+    return send_email(_recipients(channel_ids), subject, markdown, f"GIR {gir.gir_id}", html_body=html)
 
 
 def send_rfi_notification(rfi, markdown: str, channel_ids: list[str] | None = None) -> bool:
-    subject = f"[CTI] {rfi.rfi_id}: {(getattr(rfi, 'question', '') or '')[:80]}"
-    return send_email(_recipients(channel_ids), subject, markdown, f"RFI {rfi.rfi_id}")
+    tlp = getattr(rfi, "deliverable_tlp", "") or ""
+    subject = _subject(tlp, f"{rfi.rfi_id}: {(getattr(rfi, 'question', '') or '')[:80]}")
+    html = product_email.markdown_html(markdown, "Request for Information", tlp)
+    return send_email(_recipients(channel_ids), subject, markdown, f"RFI {rfi.rfi_id}", html_body=html)
 
 
-def send_daily_briefing_notification(briefing, markdown: str, channel_ids: list[str] | None = None) -> bool:
+def send_daily_briefing_notification(briefing, markdown: str, channel_ids: list[str] | None = None,
+                                     preview_url: str = "") -> bool:
     date = getattr(briefing, "date", "")
     title = getattr(briefing, "title", "") or ""
-    subject = f"[CTI] Daily briefing {date}" + (f": {title}" if title else "")
-    return send_email(_recipients(channel_ids), subject, markdown, f"Daily briefing {date}")
+    rest = f"Daily briefing {date}" + (f": {title}" if title else "")
+    subject = _subject(getattr(briefing, "tlp", ""), rest)
+    html = product_email.briefing_html(briefing, preview_url)
+    return send_email(_recipients(channel_ids), subject, markdown, f"Daily briefing {date}", html_body=html)
 
 
 def send_vea_notification(vea, markdown: str, channel_ids: list[str] | None = None) -> bool:
     vea_id = getattr(vea, "vea_id", "")
     descriptor = ", ".join(p for p in (getattr(vea, "cve_id", ""), getattr(vea, "title", "")) if p)
-    subject = f"[CTI] {vea_id}: {descriptor}" if descriptor else f"[CTI] {vea_id}"
-    return send_email(_recipients(channel_ids), subject, markdown, f"VEA {vea_id}")
+    tlp = getattr(vea, "tlp", "")
+    subject = _subject(tlp, f"{vea_id}: {descriptor}" if descriptor else vea_id)
+    html = product_email.markdown_html(markdown, "Vulnerability Advisory", tlp)
+    return send_email(_recipients(channel_ids), subject, markdown, f"VEA {vea_id}", html_body=html)
 
 
 def send_threat_actor_profile_notification(tap, markdown: str, channel_ids: list[str] | None = None,
                                            diamond_png: bytes | None = None) -> bool:
     tap_id = getattr(tap, "tap_id", "")
     title = getattr(tap, "title", "")
-    subject = f"[CTI] {tap_id}: {title}" if title else f"[CTI] {tap_id}"
+    tlp = getattr(tap, "tlp", "")
+    subject = _subject(tlp, f"{tap_id}: {title}" if title else tap_id)
+    html = product_email.markdown_html(markdown, "Threat Actor Profile", tlp)
     attachments = [("diamond-model.png", diamond_png, "image", "png")] if diamond_png else None
     return send_email(_recipients(channel_ids), subject, markdown,
-                      f"threat actor profile {tap_id}", attachments)
+                      f"threat actor profile {tap_id}", attachments, html_body=html)
 
 
-def send_flash_intel_alert(fia_id: str, content: str, channel_ids: list[str] | None = None) -> bool:
-    subject = f"[CTI] {fia_id}: Flash Intel Alert"
-    return send_email(_recipients(channel_ids), subject, content, fia_id)
+def send_flash_intel_alert(fia, content: str, channel_ids: list[str] | None = None) -> bool:
+    """Send a flash intel alert e-mail using the FIA object as source of truth.
+
+    Subject classification should come from the product metadata, not by parsing
+    rendered markdown.
+    """
+    fia_id = getattr(fia, "fia_id", "") or "FIA"
+    tlp = getattr(fia, "tlp", "") or ""
+    subject = _subject(tlp, f"{fia_id}: Flash Intel Alert")
+    html = product_email.markdown_html(content, "Flash Intel Alert")
+    return send_email(_recipients(channel_ids), subject, content, fia_id, html_body=html)
 
 
 def send_indicator_feed_notification(feed, markdown: str, channel_ids: list[str] | None = None,
                                      csv_bytes: bytes | None = None) -> bool:
     feed_id = getattr(feed, "feed_id", "")
     name = getattr(feed, "name", "") or ""
-    subject = f"[CTI] {feed_id}: {name}" if name else f"[CTI] {feed_id}"
+    tlp = getattr(feed, "tlp", "")
+    subject = _subject(tlp, f"{feed_id}: {name}" if name else feed_id)
+    html = product_email.markdown_html(markdown, "Indicator Feed", tlp)
     attachments = None
     if csv_bytes:
         slug = (name or feed_id or "indicator-feed").lower().replace(" ", "-")
         attachments = [(f"{slug}.csv", csv_bytes, "text", "csv")]
-    return send_email(_recipients(channel_ids), subject, markdown, f"Indicator feed {feed_id}", attachments)
+    return send_email(_recipients(channel_ids), subject, markdown,
+                      f"Indicator feed {feed_id}", attachments, html_body=html)

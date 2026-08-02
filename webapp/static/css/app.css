@@ -2004,3 +2004,26 @@ body {
 .quadrant-keep-satisfied { background: color-mix(in srgb, var(--accent-orange) 12%, transparent);  color: var(--accent-orange); }
 .quadrant-keep-informed  { background: color-mix(in srgb, var(--accent-green) 12%, transparent);   color: var(--accent-green); }
 .quadrant-monitor        { background: var(--neutral-200);                                          color: var(--neutral-600); }
+
+/* ─── Product field labels ───────────────────────────────────────────────── */
+/* "What happened", "Who is affected", "Source", … introduce content rather than
+   being content, so they stay a step back: smaller, lighter, not bold. Mirrors
+   the .pretext class in the product PDF stylesheet and the HTML e-mail. */
+.pretext {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* Scope values shown next to a pretext label. */
+.scope-row { margin-top: 0.15rem; }
+
+.scope-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin: 1px 3px 1px 0;
+  color: var(--text-primary);
+}

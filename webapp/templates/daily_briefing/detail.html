@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import story_scope %}
 
 {% block title %}Briefing {{ briefing.date }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ briefing.title or ('Daily briefing - ' + (briefing.date or '(no date)')) }}{% endblock %}
@@ -23,10 +24,11 @@
       </div>
       <div class="card-body">
         <div class="report-md-body" data-md="{{ story.content | e }}"></div>
+        {# Scope is labelled per category, matching the e-mail and the PDF. #}
         <div class="mt-3 small" style="border-top:1px solid var(--border-faint);padding-top:.6rem;">
           {% if story.source_url %}
-          <div class="text-muted mb-1">
-            <strong>Source:</strong>
+          <div class="scope-row">
+            <span class="pretext">Source:</span>
             <a href="{{ story.source_url }}" target="_blank" rel="noopener" class="text-decoration-none">
               {{ story.source_url | truncate(90) }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
             </a>
@@ -34,8 +36,8 @@
           {% endif %}
           {% if story.source_event_uuid %}
           {% set ev = source_meta.get(story.source_event_uuid, {}) %}
-          <div class="text-muted mb-1">
-            <strong>MISP event:</strong>
+          <div class="scope-row">
+            <span class="pretext">MISP event:</span>
             <a href="{{ misp_webapp_url }}/events/view/{{ story.source_event_uuid }}"
                target="_blank" rel="noopener" class="font-monospace text-decoration-none">
               {{ story.source_event_uuid }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
@@ -51,29 +53,7 @@
             {% endif %}
           </div>
           {% endif %}
-          {% if story.threat_actor_types %}
-          <div class="text-muted mt-1">
-            <strong>Threat actor type:</strong> {{ story.threat_actor_types | join(', ') }}
-          </div>
-          {% endif %}
-          {% set geo = story.geographic_scope or [] %}
-          {% set sectors = story.sectors or [] %}
-          {% set actors = story.threat_actors or [] %}
-          {% set techniques = story.techniques or [] %}
-          {% set cti_eval = story.cti_evaluation or {} %}
-          {% if geo or sectors or actors or techniques or story.source_reliability or story.information_credibility or cti_eval %}
-          <div class="mt-2">
-            <span class="text-muted me-1">Scope:</span>
-            {% for v in geo %}<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 me-1" title="Geographic scope">{{ v }}</span>{% endfor %}
-            {% for v in sectors %}<span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 me-1" title="Sector">{{ v }}</span>{% endfor %}
-            {% for v in actors %}<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 me-1" title="Threat actor">{{ v }}</span>{% endfor %}
-            {% for v in techniques %}<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 me-1" title="MITRE ATT&amp;CK technique">{{ v }}</span>{% endfor %}
-            {% if story.source_reliability or story.information_credibility %}
-            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 me-1" title="Admiralty scale (source reliability / information credibility)">{{ story.source_reliability or '-' }}/{{ story.information_credibility or '-' }}</span>
-            {% endif %}
-            {% for k, v in cti_eval.items() %}<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 me-1" title="CTI evaluation">{{ k }}={{ v }}</span>{% endfor %}
-          </div>
-          {% endif %}
+          {{ story_scope(story) }}
         </div>
       </div>
     </div>
@@ -88,7 +68,7 @@
       <div class="card-header"><i class="fas fa-layer-group me-2"></i>Scope summary</div>
       <div class="card-body small">
         {% for label, ranked in scope_summary %}
-        <p class="mb-1"><strong>{{ label }}:</strong></p>
+        <p class="mb-1"><span class="pretext">{{ label }}:</span></p>
         <div class="mb-2">
           {% for value, count in ranked %}
           <span class="badge {{ 'bg-warning text-dark' if count > 1 else 'bg-light text-dark border' }} me-1 mb-1"

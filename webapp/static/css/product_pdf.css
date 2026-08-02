@@ -1,5 +1,7 @@
-/* Daily Threat Briefing — PDF stylesheet (WeasyPrint)
-   Brand colours are injected as CSS custom properties from the template:
+/* CTI product - PDF stylesheet (WeasyPrint)
+   Shared by every product PDF (daily briefing, flash intel alert, vulnerability
+   advisory) so they carry one identity. Brand colours are injected as CSS custom
+   properties from the template:
    --c1  primary (header background, headings)
    --c2  accent  (rules, story number chips)
    --c3  secondary (labels, footer, meta text)
@@ -7,9 +9,9 @@
 
 @page {
   size: A4;
-  margin: 0 0 18mm 0;
+  margin: 16mm 0 18mm 0;
   @bottom-left {
-    content: string(briefing-id);
+    content: string(doc-id);
     font-size: 7.5pt;
     color: var(--c3, #64748b);
     margin-left: 18mm;
@@ -30,6 +32,15 @@
   }
 }
 
+/* The cover header bleeds to the top edge, so the first page loses its top
+   margin and, with it, the room for the running classification header. That
+   page carries the TLP on the cover badge instead. Continuation pages keep the
+   margin and show the running header. */
+@page :first {
+  margin-top: 0;
+  @top-right { content: none; }
+}
+
 body {
   font-family: "DejaVu Sans", Arial, sans-serif;
   font-size: 10pt;
@@ -39,8 +50,18 @@ body {
   padding: 0;
 }
 
-.briefing-id-anchor { string-set: briefing-id content(); }
-.tlp-label-anchor   { string-set: tlp-label content(); }
+.doc-id-anchor    { string-set: doc-id content(); }
+.tlp-label-anchor { string-set: tlp-label content(); }
+
+/* The anchors only feed the running header and footer. They must still generate
+   a box for string-set to fire, so they are collapsed rather than display:none. */
+.doc-id-anchor,
+.tlp-label-anchor {
+  display: block;
+  height: 0;
+  overflow: hidden;
+  font-size: 0;
+}
 
 /* ── Cover header ──────────────────────────────────────────────── */
 
@@ -92,10 +113,11 @@ body {
 }
 
 /* TLP badge colours inside the dark header */
-.cover-tlp-badge.tlp-red    { background: #991b1b; color: #fff; }
-.cover-tlp-badge.tlp-amber  { background: #92400e; color: #fff; }
-.cover-tlp-badge.tlp-green  { background: #166534; color: #fff; }
-.cover-tlp-badge.tlp-clear  { background: rgba(255,255,255,0.15); color: #fff; }
+.cover-tlp-badge.tlp-red          { background: #991b1b; color: #fff; }
+.cover-tlp-badge.tlp-amber        { background: #92400e; color: #fff; }
+.cover-tlp-badge.tlp-amber-strict { background: #7c2d12; color: #fff; }
+.cover-tlp-badge.tlp-green        { background: #166534; color: #fff; }
+.cover-tlp-badge.tlp-clear        { background: rgba(255,255,255,0.15); color: #fff; }
 
 .cover-accent-bar {
   height: 3pt;
@@ -127,6 +149,12 @@ h1.doc-title {
   line-height: 1.2;
 }
 
+.doc-subtitle {
+  font-size: 10.5pt;
+  color: #475569;
+  margin: 4pt 0 0;
+}
+
 /* ── Meta block ────────────────────────────────────────────────── */
 
 .meta-block {
@@ -149,6 +177,11 @@ h1.doc-title {
   gap: 2pt;
 }
 
+/* Long values (a full audience list) sit on their own full-width row under the
+   grid; inside a 1/4-wide column they would wrap to one word per line. */
+.meta-wide { margin-top: 6pt; }
+.meta-wide .meta-label { display: block; }
+
 .meta-label {
   font-size: 7.5pt;
   font-weight: 700;
@@ -170,12 +203,13 @@ h1.doc-title {
   font-size: 7.5pt;
   font-weight: 700;
 }
-.tlp-red    { background: #fee2e2; color: #991b1b; }
-.tlp-amber  { background: #fef3c7; color: #92400e; }
-.tlp-green  { background: #dcfce7; color: #166534; }
-.tlp-clear  { background: #f1f5f9; color: #334155; }
+.tlp-red          { background: #fee2e2; color: #991b1b; }
+.tlp-amber        { background: #fef3c7; color: #92400e; }
+.tlp-amber-strict { background: #fed7aa; color: #7c2d12; }
+.tlp-green        { background: #dcfce7; color: #166534; }
+.tlp-clear        { background: #f1f5f9; color: #334155; }
 
-/* ── Story blocks ──────────────────────────────────────────────── */
+/* ── Story blocks (daily briefing) ─────────────────────────────── */
 
 .story-block {
   margin: 0 18mm 10pt;
@@ -290,23 +324,14 @@ h1.doc-title {
   color: var(--c1, #0f2d52);
 }
 
-.story-meta {
-  font-size: 7.5pt;
-  color: var(--c3, #64748b);
-  margin-top: 4pt;
-  display: flex;
-  gap: 12pt;
-  flex-wrap: wrap;
-}
-
-/* ── Escalations / Notes sections ──────────────────────────────── */
+/* ── Sections ──────────────────────────────────────────────────── */
 
 .section-heading {
   font-size: 10pt;
   font-weight: 700;
   color: var(--c1, #0f2d52);
   border-bottom: 1pt solid var(--c2, #0078f1);
-  padding: 0 18mm 3pt;
+  padding: 0 0 3pt;
   margin: 10pt 18mm 6pt;
 }
 
@@ -319,22 +344,110 @@ h1.doc-title {
 }
 
 .section-box p {
-  margin: 0;
+  margin: 0 0 6pt;
   font-size: 9.5pt;
 }
+
+.section-box p:last-child { margin-bottom: 0; }
+
+.section-box h3 {
+  font-size: 9pt;
+  font-weight: 700;
+  color: var(--c1, #0f2d52);
+  margin: 8pt 0 3pt;
+}
+
+.section-box h3:first-child { margin-top: 0; }
+
+.section-box ul,
+.section-box ol {
+  margin: 0 0 6pt;
+  padding-left: 16pt;
+  font-size: 9.5pt;
+}
+
+.section-box ul:last-child,
+.section-box ol:last-child { margin-bottom: 0; }
+
+.section-box li { margin: 0 0 2pt; }
+
+.section-box code {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 8.5pt;
+  background: #f1f5f9;
+  color: #0f2d52;
+  padding: 0.5pt 3pt;
+  border-radius: 2pt;
+}
+
+.section-box a { color: var(--c2, #0078f1); text-decoration: underline; }
 
 .no-content {
   color: #94a3b8;
   font-style: italic;
-  margin: 0 18mm;
+  margin: 0;
+}
+
+/* ── Pretext labels ────────────────────────────────────────────── */
+
+/* Field labels ("What happened", "Who is affected", "Source", …) sit one step
+   back from the content they introduce: smaller, lighter, not bold. */
+.pretext {
+  font-size: 7.5pt;
+  font-weight: 400;
+  color: var(--c3, #64748b);
+  letter-spacing: 0.02em;
+}
+
+/* ── Detail tables (flash intel / vulnerability advisory) ──────── */
+
+.detail-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.detail-table th {
+  text-align: left;
+  font-weight: 400;
+  font-size: 8pt;
+  width: 34%;
+  padding: 2pt 8pt 2pt 0;
+  color: var(--c3, #64748b);
+  vertical-align: top;
+}
+.detail-table td { padding: 2pt 0; vertical-align: top; }
+
+.source-meta {
+  font-size: 7.5pt;
+  color: var(--c3, #64748b);
+  margin-top: 6pt;
+}
+
+.story-meta {
+  font-size: 7.5pt;
+  color: var(--c3, #64748b);
+  margin-top: 4pt;
+}
+
+.adm-badge {
+  display: inline-block;
+  background: #e2e8f0;
+  border-radius: 3pt;
+  padding: 0 4pt;
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 8pt;
+}
+
+.kev-badge {
+  display: inline-block;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+  border-radius: 3pt;
+  padding: 1pt 5pt;
+  font-size: 8pt;
 }
 
 /* ── Scope tags (per story and scope summary) ─────────────────── */
 
-.scope-line {
-  font-size: 7.5pt;
-  color: var(--c3, #64748b);
-  margin-top: 3pt;
+.scope-row {
+  margin-top: 2pt;
 }
 
 .scope-tag {
@@ -357,8 +470,4 @@ h1.doc-title {
   margin-bottom: 6pt;
 }
 
-.scope-summary-label {
-  font-size: 8pt;
-  font-weight: 700;
-  color: var(--c1, #0f2d52);
-}
+.scope-summary-group:last-child { margin-bottom: 0; }

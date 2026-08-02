@@ -13,92 +13,44 @@
   </style>
 </head>
 <body>
+{% import "_pdf_header.html" as header %}
+{% from "_macros.html" import story_scope %}
 
-{# Running header/footer string anchors #}
-<span class="briefing-id-anchor" style="display:none;">Briefing {{ briefing.date or 'draft' }}</span>
-<span class="tlp-label-anchor" style="display:none;">TLP:{{ briefing.tlp | upper }}</span>
+{{ header.doc_header(brand, doc_label='Daily Threat Briefing',
+                     title=briefing.title or briefing.date or 'Briefing',
+                     tlp=briefing.tlp,
+                     doc_id='Briefing ' ~ (briefing.date or 'draft')) }}
 
-{# ── Cover header ─────────────────────────────────────────────── #}
-<div class="cover-header">
-  <div class="cover-header-inner">
-    {% if brand.logo_uri %}
-    <img class="cover-logo" src="{{ brand.logo_uri }}" alt="logo">
-    {% endif %}
-    <div class="cover-identity">
-      {% if brand.company %}<div class="cover-company">{{ brand.company }}</div>{% endif %}
-      {% if brand.department %}<div class="cover-department">{{ brand.department }}</div>{% endif %}
-    </div>
-    <div class="cover-tlp-badge tlp-{{ briefing.tlp }}">TLP:{{ briefing.tlp | upper }}</div>
-  </div>
-  <div class="cover-accent-bar"></div>
-</div>
-
-{# ── Document title block ─────────────────────────────────────── #}
-<div class="doc-title-block">
-  <div class="doc-label">Daily Threat Briefing</div>
-  <h1 class="doc-title">{{ briefing.title or briefing.date or 'Briefing' }}</h1>
-</div>
-
-{# ── Meta summary ─────────────────────────────────────────────── #}
 <div class="meta-block">
   <div class="meta-grid">
-    <div class="meta-item">
-      <span class="meta-label">Date</span>
-      <span class="meta-value">{{ briefing.date or '-' }}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Author</span>
-      <span class="meta-value">{{ briefing.author or '-' }}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Stories</span>
-      <span class="meta-value">{{ briefing.stories | length }}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Classification</span>
-      <span class="meta-value"><span class="tlp-pill tlp-{{ briefing.tlp }}">TLP:{{ briefing.tlp | upper }}</span></span>
-    </div>
+    {{ header.meta_item('Date', briefing.date or '-') }}
+    {{ header.meta_item('Author', briefing.author or '-') }}
+    {{ header.meta_item('Stories', briefing.stories | length) }}
+    {{ header.tlp_meta_item(briefing.tlp) }}
   </div>
 </div>
 
 {# ── Stories ──────────────────────────────────────────────────── #}
 {% for story in briefing.stories %}
-{% set idx = loop.index %}
 <div class="story-block">
   <div class="story-header">
-    <span class="story-number">{{ idx }}</span>
+    <span class="story-number">{{ loop.index }}</span>
     <span class="story-title">{{ story.title or '(untitled)' }}</span>
   </div>
   <div class="story-body">
     {% if story.content %}{{ story.html | safe }}{% else %}<p>(no content)</p>{% endif %}
-    {% if story.source_url or story.threat_actor_types %}
+
     <div class="story-meta">
-      {% if story.source_url %}<span><strong>Source:</strong> {{ story.source_url }}</span>{% endif %}
-      {% if story.threat_actor_types %}<span><strong>Threat actor type:</strong> {{ story.threat_actor_types | join(', ') }}</span>{% endif %}
-    </div>
-    {% endif %}
-    {% set geo = story.geographic_scope or [] %}
-    {% set sectors = story.sectors or [] %}
-    {% set actors = story.threat_actors or [] %}
-    {% set techniques = story.techniques or [] %}
-    {% set cti_eval = story.cti_evaluation or {} %}
-    {% if geo or sectors or actors or techniques or story.source_reliability or story.information_credibility or cti_eval %}
-    <div class="scope-line">
-      <strong>Scope:</strong>
-      {% for v in geo %}<span class="scope-tag">{{ v }}</span>{% endfor %}
-      {% for v in sectors %}<span class="scope-tag">{{ v }}</span>{% endfor %}
-      {% for v in actors %}<span class="scope-tag">{{ v }}</span>{% endfor %}
-      {% for v in techniques %}<span class="scope-tag">{{ v }}</span>{% endfor %}
-      {% if story.source_reliability or story.information_credibility %}
-      <span class="scope-tag">Admiralty {{ story.source_reliability or '-' }}/{{ story.information_credibility or '-' }}</span>
+      {% if story.source_url %}
+      <div class="scope-row"><span class="pretext">Source:</span> {{ story.source_url }}</div>
       {% endif %}
-      {% for k, v in cti_eval.items() %}<span class="scope-tag">{{ k }}={{ v }}</span>{% endfor %}
+      {# Scope is labelled per category, the same way the e-mail presents it. #}
+      {{ story_scope(story, 'scope-tag') }}
     </div>
-    {% endif %}
   </div>
 </div>
 {% else %}
-<p class="no-content">No stories added.</p>
+<div class="section-box"><p class="no-content">No stories added.</p></div>
 {% endfor %}
 
 {# ── Scope summary ────────────────────────────────────────────── #}
@@ -107,7 +59,7 @@
 <div class="section-box">
   {% for label, ranked in scope_summary %}
   <div class="scope-summary-group">
-    <span class="scope-summary-label">{{ label }}:</span><br>
+    <span class="pretext">{{ label }}:</span><br>
     {% for value, count in ranked %}
     <span class="scope-tag {{ 'scope-tag-repeat' if count > 1 else '' }}">{{ value }}{% if count > 1 %} &times;{{ count }}{% endif %}</span>
     {% endfor %}

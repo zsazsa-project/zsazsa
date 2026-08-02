@@ -4,71 +4,76 @@
   <meta charset="utf-8">
   <title>{{ tap.tap_id }} - {{ tap.title }}</title>
   <link rel="stylesheet" href="{{ css_url }}">
+  <style>
+    :root {
+      --c1: {{ brand.color1 }};
+      --c2: {{ brand.color2 }};
+      --c3: {{ brand.color3 }};
+    }
+  </style>
 </head>
 <body>
+{% import "_pdf_header.html" as header %}
 
-{# Running footer / header strings (reuse the shared product PDF anchors). #}
-<span class="fia-id-anchor" style="display:none;">{{ tap.tap_id }}</span>
-<span class="tlp-label-anchor" style="display:none;">TLP:{{ tap.tlp | upper }}</span>
-
-<h1>Threat actor profile: {{ tap.title or '(untitled)' }}</h1>
+{{ header.doc_header(brand, doc_label='Threat Actor Profile',
+                     title=tap.title or '(untitled)',
+                     tlp=tap.tlp, doc_id=tap.tap_id) }}
 
 <div class="meta-block">
-  <table>
-    <tr><td>ID:</td><td>{{ tap.tap_id }}</td></tr>
-    <tr><td>Classification:</td>
-        <td><span class="tlp-pill tlp-{{ tap.tlp | slug }}">TLP:{{ tap.tlp | upper }}</span></td></tr>
-    <tr><td>Date:</td><td>{{ tap.created_at.strftime('%Y-%m-%d') if tap.created_at else '-' }}</td></tr>
-    <tr><td>Author:</td><td>{{ tap.author or '-' }}</td></tr>
-    <tr><td>Audience:</td><td>{{ tap.audience or '-' }}</td></tr>
+  <div class="meta-grid">
+    {{ header.meta_item('ID', tap.tap_id) }}
+    {{ header.meta_item('Date', tap.created_at.strftime('%Y-%m-%d') if tap.created_at else '-') }}
+    {{ header.meta_item('Author', tap.author or '-') }}
+    {{ header.tlp_meta_item(tap.tlp) }}
     {% if tap.assessment_confidence %}
-    <tr><td>Assessment confidence:</td><td>{{ tap.assessment_confidence | capitalize }}</td></tr>
+    {{ header.meta_item('Assessment confidence', tap.assessment_confidence | capitalize) }}
     {% endif %}
-    {% if pir %}<tr><td>Linked PIR:</td><td>{{ pir.pir_id }}: {{ pir.question }}</td></tr>{% endif %}
-    {% if tap.review_date %}<tr><td>Review date:</td><td>{{ tap.review_date.strftime('%Y-%m-%d') }}</td></tr>{% endif %}
-    {% if tap.threat_actors %}<tr><td>Threat actors:</td><td>{{ tap.threat_actors | join(', ') }}</td></tr>{% endif %}
-  </table>
+    {% if tap.review_date %}{{ header.meta_item('Review date', tap.review_date.strftime('%Y-%m-%d')) }}{% endif %}
+    {% if tap.threat_actors %}{{ header.meta_item('Threat actors', tap.threat_actors | join(', ')) }}{% endif %}
+  </div>
+  {{ header.wide_meta_item('Audience', tap.audience or '-') }}
+  {% if pir %}{{ header.wide_meta_item('Linked PIR', pir.pir_id ~ ': ' ~ pir.question) }}{% endif %}
 </div>
 
-<h2>Summary</h2>
+<div class="section-heading">Summary</div>
 <div class="section-box">
   {% if tap.summary %}{{ tap.summary | md }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
-<h2>Threat actor details</h2>
+<div class="section-heading">Threat actor details</div>
 <div class="section-box">
-  <table style="width:100%; font-size:9pt;">
-    {% if tap.actor_types %}<tr><td style="font-weight:700; width:120pt;">Type</td><td>{{ tap.actor_types | join(', ') }}</td></tr>{% endif %}
-    <tr><td style="font-weight:700;">Synonyms</td><td>{{ tap.synonyms or '-' }}</td></tr>
-    <tr><td style="font-weight:700;">Suspected origin</td><td>{{ tap.suspected_origin or '-' }}{% if tap.origin_confidence %} ({{ tap.origin_confidence | capitalize }} confidence){% endif %}</td></tr>
-    <tr><td style="font-weight:700;">Motivation</td><td>{{ tap.motivation or '-' }}</td></tr>
-    <tr><td style="font-weight:700;">Sponsorship</td><td>{{ tap.sponsorship or '-' }}</td></tr>
+  <table class="detail-table">
+    {% if tap.actor_types %}<tr><th>Type</th><td>{{ tap.actor_types | join(', ') }}</td></tr>{% endif %}
+    <tr><th>Synonyms</th><td>{{ tap.synonyms or '-' }}</td></tr>
+    <tr><th>Suspected origin</th><td>{{ tap.suspected_origin or '-' }}{% if tap.origin_confidence %} ({{ tap.origin_confidence | capitalize }} confidence){% endif %}</td></tr>
+    <tr><th>Motivation</th><td>{{ tap.motivation or '-' }}</td></tr>
+    <tr><th>Sponsorship</th><td>{{ tap.sponsorship or '-' }}</td></tr>
   </table>
   {% if tap.capabilities %}<h3>Capabilities</h3>{{ tap.capabilities | md }}{% endif %}
   {% if tap.mode_of_operation %}<h3>Mode of operation</h3>{{ tap.mode_of_operation | md }}{% endif %}
   {% if tap.infrastructure %}<h3>Infrastructure</h3>{{ tap.infrastructure | md }}{% endif %}
 </div>
 
-<h2>Diamond Model</h2>
+<div class="section-heading">Diamond Model</div>
 <div class="section-box" style="text-align:center;">
   <img src="data:image/png;base64,{{ diamond_b64 }}" style="max-width:100%;" alt="Diamond Model">
 </div>
 
-<h2>Attribution</h2>
+<div class="section-heading">Attribution</div>
 <div class="section-box">
   {% if tap.attribution_rationale %}{{ tap.attribution_rationale | md }}{% else %}<p class="no-content">No attribution rationale.</p>{% endif %}
 </div>
 
-<h2>Scope</h2>
+<div class="section-heading">Scope</div>
 <div class="section-box">
-  <table style="width:100%; font-size:9pt;">
-    {% if tap.geographic_scope %}<tr><td style="font-weight:700; width:120pt;">Geographic</td><td>{{ tap.geographic_scope | join(', ') }}</td></tr>{% endif %}
-    {% if tap.sectors %}<tr><td style="font-weight:700;">Sectors</td><td>{{ tap.sectors | join(', ') }}</td></tr>{% endif %}
-    {% if tap.mitre_attack_techniques %}<tr><td style="font-weight:700;">MITRE ATT&amp;CK</td><td>{{ tap.mitre_attack_techniques | join(', ') }}</td></tr>{% endif %}
-    {% if tap.threat_types %}<tr><td style="font-weight:700;">Threat types</td><td>{{ tap.threat_types | join(', ') }}</td></tr>{% endif %}
-    {% if tap.time_frame %}<tr><td style="font-weight:700;">Time frame</td><td>{{ tap.time_frame }}</td></tr>{% endif %}
-    {% if tap.technology %}<tr><td style="font-weight:700;">Technology</td><td>{{ tap.technology | join(', ') }}</td></tr>{% endif %}
-    {% if tap.vendor %}<tr><td style="font-weight:700;">Vendor</td><td>{{ tap.vendor | join(', ') }}</td></tr>{% endif %}
+  <table class="detail-table">
+    {% if tap.geographic_scope %}<tr><th>Geographic scope</th><td>{{ tap.geographic_scope | join(', ') }}</td></tr>{% endif %}
+    {% if tap.sectors %}<tr><th>Sector</th><td>{{ tap.sectors | join(', ') }}</td></tr>{% endif %}
+    {% if tap.mitre_attack_techniques %}<tr><th>Techniques</th><td>{{ tap.mitre_attack_techniques | map('mitre') | join(', ') }}</td></tr>{% endif %}
+    {% if tap.threat_types %}<tr><th>Threat types</th><td>{{ tap.threat_types | join(', ') }}</td></tr>{% endif %}
+    {% if tap.time_frame %}<tr><th>Time frame</th><td>{{ tap.time_frame }}</td></tr>{% endif %}
+    {% if tap.technology %}<tr><th>Technology</th><td>{{ tap.technology | join(', ') }}</td></tr>{% endif %}
+    {% if tap.vendor %}<tr><th>Vendor</th><td>{{ tap.vendor | join(', ') }}</td></tr>{% endif %}
   </table>
   {% if not (tap.geographic_scope or tap.sectors or tap.mitre_attack_techniques or tap.threat_types or tap.time_frame or tap.technology or tap.vendor) %}
   <p class="no-content">No scope defined.</p>
@@ -76,7 +81,7 @@
 </div>
 
 {% if tap.rec_prevention or tap.rec_detection or tap.rec_response %}
-<h2>Recommendations</h2>
+<div class="section-heading">Recommendations</div>
 <div class="section-box">
   {% if tap.rec_prevention %}<h3>Prevention</h3>{{ tap.rec_prevention | md }}{% endif %}
   {% if tap.rec_detection %}<h3>Detection</h3>{{ tap.rec_detection | md }}{% endif %}
@@ -85,14 +90,14 @@
 {% endif %}
 
 {% if tap.external_references %}
-<h2>References</h2>
+<div class="section-heading">References</div>
 <div class="section-box">
   <ul>{% for r in tap.external_references %}<li>{{ r }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
 
 {% if linked_feeds %}
-<h2>Indicator feeds</h2>
+<div class="section-heading">Indicator feeds</div>
 <div class="section-box">
   <ul>{% for f in linked_feeds %}<li>{{ f.feed_id }} - {{ f.name }}{% if f.description %}: {{ f.description }}{% endif %}</li>{% endfor %}</ul>
 </div>

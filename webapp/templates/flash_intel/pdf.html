@@ -4,33 +4,35 @@
   <meta charset="utf-8">
   <title>{{ fia.fia_id }} - {{ fia.title }}</title>
   <link rel="stylesheet" href="{{ css_url }}">
+  <style>
+    :root {
+      --c1: {{ brand.color1 }};
+      --c2: {{ brand.color2 }};
+      --c3: {{ brand.color3 }};
+    }
+  </style>
 </head>
 <body>
+{% import "_pdf_header.html" as header %}
 
-{# Running footer strings #}
-<span class="fia-id-anchor" style="display:none;">{{ fia.fia_id }}</span>
-<span class="tlp-label-anchor" style="display:none;">TLP:{{ fia.tlp | upper }}</span>
-
-<h1>Flash Intel Alert: {{ fia.title or '(untitled)' }}</h1>
+{{ header.doc_header(brand, doc_label='Flash Intel Alert',
+                     title=fia.title or '(untitled)',
+                     tlp=fia.tlp, doc_id=fia.fia_id) }}
 
 <div class="meta-block">
-  <table>
-    <tr><td>ID:</td><td>{{ fia.fia_id }}</td></tr>
-    <tr><td>Classification:</td>
-        <td><span class="tlp-pill tlp-{{ fia.tlp | slug }}">TLP:{{ fia.tlp | upper }}</span></td></tr>
-    <tr><td>Date:</td><td>{{ fia.created_at.strftime('%Y-%m-%d') if fia.created_at else '-' }}</td></tr>
-    <tr><td>Author:</td><td>{{ fia.author or '-' }}</td></tr>
-    <tr><td>Audience:</td><td>{{ fia.audience or '-' }}</td></tr>
-    {% if fia.linked_pir_uuid %}
-    <tr><td>Linked PIR:</td><td>{{ fia.linked_pir_uuid }}</td></tr>
-    {% endif %}
+  <div class="meta-grid">
+    {{ header.meta_item('ID', fia.fia_id) }}
+    {{ header.meta_item('Date', fia.created_at.strftime('%Y-%m-%d') if fia.created_at else '-') }}
+    {{ header.meta_item('Author', fia.author or '-') }}
+    {{ header.tlp_meta_item(fia.tlp) }}
     {% if fia.feedback_deadline %}
-    <tr><td>Feedback by:</td><td>{{ fia.feedback_deadline.strftime('%Y-%m-%d') }}</td></tr>
+    {{ header.meta_item('Feedback by', fia.feedback_deadline.strftime('%Y-%m-%d')) }}
     {% endif %}
     {% if fia.context_tags %}
-    <tr><td>Context tags:</td><td>{{ fia.context_tags | join(', ') }}</td></tr>
+    {{ header.meta_item('Context tags', fia.context_tags | join(', ')) }}
     {% endif %}
-  </table>
+  </div>
+  {{ header.wide_meta_item('Audience', fia.audience or '-') }}
 </div>
 
 {% macro bullets(items) %}
@@ -39,83 +41,87 @@
   {% else %}<p class="no-content">None recorded.</p>{% endif %}
 {% endmacro %}
 
-<h2>Summary</h2>
+<div class="section-heading">Summary</div>
 <div class="section-box">
   {% if summary_html %}{{ summary_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
   {% if action_required_html %}
-  <p style="margin-top:4pt;"><strong>Action required:</strong></p>
+  <p style="margin-top:6pt;"><span class="pretext">Action required:</span></p>
   {{ action_required_html | safe }}
   {% endif %}
 </div>
 
-<h2>What happened</h2>
+<div class="section-heading">What happened</div>
 <div class="section-box">
   {% if what_happened_html %}{{ what_happened_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
   <div class="source-meta">
-    <strong>Source:</strong> {{ (fia.source_description or 'unspecified') | md_inline }}
+    <span class="pretext">Source:</span> {{ (fia.source_description or 'unspecified') | md_inline }}
     {% if fia.source_reliability %}
-    · <strong>Reliability:</strong> <span class="adm-badge">{{ fia.source_reliability }}</span>
+    &middot; <span class="pretext">Reliability:</span> <span class="adm-badge">{{ fia.source_reliability }}</span>
     {% endif %}
     {% if fia.information_credibility %}
-    · <strong>Credibility:</strong> <span class="adm-badge">{{ fia.information_credibility }}</span>
+    &middot; <span class="pretext">Credibility:</span> <span class="adm-badge">{{ fia.information_credibility }}</span>
     {% endif %}
   </div>
 </div>
 
-<h2>Why it matters</h2>
+{# The same four assessments the e-mail carries, so an empty field reads as
+   "unspecified" here too instead of leaving the box blank. #}
+<div class="section-heading">Why it matters</div>
 <div class="section-box">
-  <ul>
-    {% if fia.likely_impact %}<li><strong>Likely impact:</strong> {{ fia.likely_impact | md_inline }}</li>{% endif %}
-    {% if fia.affected_assets %}<li><strong>Affected assets:</strong> {{ fia.affected_assets | md_inline }}</li>{% endif %}
-    {% if fia.actor_types %}<li><strong>Threat actor type:</strong> {{ fia.actor_types | join(', ') }}</li>{% endif %}
-    {% if fia.actor_context %}<li><strong>Actor context:</strong> {{ fia.actor_context | md_inline }}</li>{% endif %}
-    {% if fia.geographic_scope %}<li><strong>Geography:</strong> {{ fia.geographic_scope | join(', ') }}</li>{% endif %}
-    {% if fia.sectors %}<li><strong>Sectors:</strong> {{ fia.sectors | join(', ') }}</li>{% endif %}
-    {% if fia.threat_actors %}<li><strong>Threat actors:</strong> {{ fia.threat_actors | join(', ') }}</li>{% endif %}
-    {% if fia.threat_types %}<li><strong>Threat types:</strong> {{ fia.threat_types | join(', ') }}</li>{% endif %}
-    {% if fia.technology %}<li><strong>Technology:</strong> {{ fia.technology | join(', ') }}</li>{% endif %}
-    {% if fia.vendor %}<li><strong>Vendor:</strong> {{ fia.vendor | join(', ') }}</li>{% endif %}
-    {% if fia.incident %}<li><strong>Incident:</strong> {{ fia.incident | join(', ') }}</li>{% endif %}
-    {% if fia.campaign %}<li><strong>Campaign:</strong> {{ fia.campaign | join(', ') }}</li>{% endif %}
-  </ul>
+  <table class="detail-table">
+    <tr><th>Likely impact</th><td>{{ (fia.likely_impact or 'unspecified') | md_inline }}</td></tr>
+    <tr><th>Affected assets</th><td>{{ (fia.affected_assets or 'unspecified') | md_inline }}</td></tr>
+    <tr><th>Threat actor types</th><td>{{ fia.actor_types | join(', ') if fia.actor_types else 'unspecified' }}</td></tr>
+    <tr><th>Threat actor context</th><td>{{ (fia.actor_context or 'unspecified') | md_inline }}</td></tr>
+  </table>
 </div>
 
-<h2>Recommended actions</h2>
+{% set techniques = (fia.mitre_attack_techniques or []) | map('mitre') | list %}
+{% if fia.geographic_scope or fia.sectors or fia.threat_actors or techniques
+      or fia.threat_types or fia.technology or fia.vendor or fia.incident or fia.campaign %}
+<div class="section-heading">Scope</div>
 <div class="section-box">
-  <h3>Immediate (0–24 hours)</h3>
+  <table class="detail-table">
+    {% if fia.geographic_scope %}<tr><th>Geographic scope</th><td>{{ fia.geographic_scope | join(', ') }}</td></tr>{% endif %}
+    {% if fia.sectors %}<tr><th>Sector</th><td>{{ fia.sectors | join(', ') }}</td></tr>{% endif %}
+    {% if fia.threat_actors %}<tr><th>Threat actor</th><td>{{ fia.threat_actors | join(', ') }}</td></tr>{% endif %}
+    {% if techniques %}<tr><th>Techniques</th><td>{{ techniques | join(', ') }}</td></tr>{% endif %}
+    {% if fia.threat_types %}<tr><th>Threat types</th><td>{{ fia.threat_types | join(', ') }}</td></tr>{% endif %}
+    {% if fia.technology %}<tr><th>Technology</th><td>{{ fia.technology | join(', ') }}</td></tr>{% endif %}
+    {% if fia.vendor %}<tr><th>Vendor</th><td>{{ fia.vendor | join(', ') }}</td></tr>{% endif %}
+    {% if fia.incident %}<tr><th>Incident</th><td>{{ fia.incident | join(', ') }}</td></tr>{% endif %}
+    {% if fia.campaign %}<tr><th>Campaign</th><td>{{ fia.campaign | join(', ') }}</td></tr>{% endif %}
+  </table>
+</div>
+{% endif %}
+
+<div class="section-heading">Recommended actions</div>
+<div class="section-box">
+  <h3>Immediate (0-24 hours)</h3>
   {{ bullets(fia.actions_immediate) }}
-  <h3>Near-term (1–7 days)</h3>
+  <h3>Near-term (1-7 days)</h3>
   {{ bullets(fia.actions_near_term) }}
 </div>
 
-<h2>Detection guidance</h2>
+<div class="section-heading">Detection guidance</div>
 <div class="section-box">
-  <h3>MITRE ATT&CK techniques</h3>
-  {{ bullets(fia.mitre_techniques) }}
+  <h3>Techniques</h3>
+  {{ bullets((fia.mitre_techniques or []) | map('mitre') | list) }}
   <h3>Hunting hypotheses</h3>
   {{ bullets(fia.hunting_hypotheses) }}
 </div>
 
-{% if fia.external_references or source_events or unresolved_source_uuids %}
-<h2>References &amp; feedback</h2>
+{% if reference_items %}
+<div class="section-heading">References &amp; feedback</div>
 <div class="section-box">
   <ul>
-    {% for r in fia.external_references %}
-    <li>{{ r }}</li>
-    {% endfor %}
-    {% for ev in source_events %}
-    {% set event_url = (ev.source_url or misp_webapp_url).rstrip('/') ~ '/events/view/' ~ ev.uuid %}
-    <li>
-      {{ event_url }}
-      {% if ev.info %} | info: {{ ev.info }}{% endif %}
-      {% if ev.date %} | date: {{ ev.date }}{% endif %}
-      {% if ev.orgc %} | org: {{ ev.orgc }}{% endif %}
-    </li>
-    {% endfor %}
-    {% for uid in unresolved_source_uuids %}
-    <li>{{ misp_webapp_url.rstrip('/') ~ '/events/view/' ~ uid }}</li>
+    {% for ref in reference_items %}
+    <li>{{ ref.url }}{% if ref.info %} - {{ ref.info }}{% endif %}{% if ref.date %} ({{ ref.date }}){% endif %}{% if ref.orgc %} &middot; {{ ref.orgc }}{% endif %}</li>
     {% endfor %}
   </ul>
+  {% if fia.feedback_deadline %}
+  <p style="margin-top:6pt;"><span class="pretext">Feedback requested by:</span> {{ fia.feedback_deadline.strftime('%Y-%m-%d') }}</p>
+  {% endif %}
 </div>
 {% endif %}
 

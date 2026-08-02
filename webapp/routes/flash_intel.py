@@ -5,20 +5,21 @@ drafts from the analyser pipeline land in the same review queue.
 """
 
 import logging
-import os
 from types import SimpleNamespace
 
 import config as _cfg
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for, Response
 
-from webapp import audit, misp_store, product_log
+from webapp import audit, branding, misp_store, product_log
 from webapp.utils import md_to_html, sort_products
 from webapp.routes.source_event_utils import (
+    flattened_references,
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
     source_event_references,
+    source_event_urls_only,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,9 +171,19 @@ def review():
     direction = (request.args.get("dir") or "asc").strip()
     fias = misp_store.list_fias(review_state=state_filter)
     sort_products(fias, sort, direction)
+    # The queue can hold dozens of alerts, so the preview rows use the reference
+    # URLs the FIA already carries rather than resolving each one against MISP.
+    reference_items_by_uuid = {
+        f.uuid: flattened_references(
+            list(getattr(f, "external_references", []) or []),
+            source_event_urls_only(f),
+        )
+        for f in fias
+    }
     return render_template(
         "flash_intel/review.html",
         fias=fias,
+        reference_items_by_uuid=reference_items_by_uuid,
         state_filter=state_filter or "",
         review_states=misp_store.FIA_REVIEW_STATES,
         sort=sort,
@@ -224,13 +235,14 @@ def detail(id):
     feedback = misp_store.list_product_feedback(fia.uuid)
     recipients = misp_store.recipient_preview("Flash intel alert", fia.tlp, fia.audience)
     notify_status = audit.latest_notify_status("fia", id)
+    source_refs = source_event_references(fia)
     return render_template(
         "flash_intel/detail.html",
         fia=fia,
         feedback=feedback,
         recipients=recipients,
         notify_status=notify_status,
-        source_event_refs=source_event_references(fia),
+        reference_items=flattened_references(list(fia.external_references or []), source_refs),
     )
 
 
@@ -346,14 +358,13 @@ def resend(id):
         flash("Only published alerts can be resent.", "warning")
         return redirect(redirect_target)
 
-    content = misp_store.render_fia_markdown(fia, fia.fia_id)
+    content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
     stakeholders = _eligible_flash_recipients(fia)
 
     try:
         from notifier import dispatcher
 
-        shim = SimpleNamespace(id=id)
-        summary = dispatcher.send_flash_intel(shim, fia.fia_id, content, stakeholders)
+        summary = dispatcher.send_flash_intel(fia, content, stakeholders)
         ok, detail = dispatcher.delivery_outcome(summary)
         audit.record(
             "notify",
@@ -420,21 +431,13 @@ def pdf(id):
     fia = misp_store.get_fia(id)
     if fia is None:
         return "FIA not found", 404
-    source_uuids = list(getattr(fia, "source_event_uuids", []) or [])
-    source_hints = dict(getattr(fia, "source_event_hints", {}) or {})
-    source_events = misp_store.fetch_source_events(source_uuids, source_hints, strict_source=bool(source_hints))
-    resolved_uuids = {str(ev.get("uuid", "")).lower() for ev in source_events if ev.get("uuid")}
-    unresolved_source_uuids = [u for u in source_uuids if str(u).lower() not in resolved_uuids]
-    css_path = os.path.join(
-        os.path.dirname(__file__), "..", "static", "css", "fia_pdf.css"
-    )
-    css_url = "file://" + os.path.abspath(css_path)
     html = render_template(
         "flash_intel/pdf.html",
         fia=fia,
-        css_url=css_url,
-        source_events=source_events,
-        unresolved_source_uuids=unresolved_source_uuids,
+        css_url=branding.pdf_css_url(),
+        brand=branding.brand(),
+        reference_items=flattened_references(list(fia.external_references or []),
+                                             source_event_references(fia)),
         summary_html=md_to_html(fia.summary or ""),
         action_required_html=md_to_html(fia.action_required or ""),
         what_happened_html=md_to_html("\n".join(fia.what_happened or [])),
@@ -467,12 +470,11 @@ def _publish_and_notify(uuid):
         return False, "the alert could not be reloaded after publishing"
 
     stakeholders = _eligible_flash_recipients(fia)
-    content = misp_store.render_fia_markdown(fia, fia.fia_id)
+    content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
 
     ok, detail = False, "delivery error (see the application log)"
     try:
-        shim = SimpleNamespace(id=uuid)
-        summary = dispatcher.send_flash_intel(shim, fia.fia_id, content, stakeholders)
+        summary = dispatcher.send_flash_intel(fia, content, stakeholders)
         ok, detail = dispatcher.delivery_outcome(summary)
     except Exception as exc:
         logger.warning("notify failed for %s: %s", uuid, exc)

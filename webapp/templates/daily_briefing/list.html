@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_sort_header.html" import sort_th %}
+{% from "_macros.html" import story_scope %}
 
 {% block title %}Daily briefings | zsazsa CTI{% endblock %}
 {% block page_title %}Daily threat briefings{% endblock %}
@@ -128,10 +129,11 @@
                     </div>
                     <div class="report-md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ story.content | e }}"></div>
                     {% if story.source_url %}
-                    <div class="text-muted" style="font-size:.75rem;margin-top:2px;">
+                    <div class="scope-row" style="font-size:.75rem;">
                       <a href="{{ story.source_url }}" target="_blank" rel="noopener">{{ story.source_url | truncate(80) }}</a>
                     </div>
                     {% endif %}
+                    {{ story_scope(story) }}
                   </div>
                   {% else %}
                   <p class="text-muted small">No stories yet.</p>
@@ -144,11 +146,24 @@
                   {% endif %}
                 </div>
                 <div class="col-md-3">
-                  <div class="small text-muted">
-                    <div><strong>Date:</strong> {{ b.date or '-' }}</div>
-                    <div><strong>Author:</strong> {{ b.author or '-' }}</div>
-                    <div><strong>TLP:</strong> <span class="tlp-badge tlp-{{ b.tlp | slug }}">TLP:{{ b.tlp | upper }}</span></div>
+                  <div class="small">
+                    <div class="scope-row"><span class="pretext">Date:</span> {{ b.date or '-' }}</div>
+                    <div class="scope-row"><span class="pretext">Author:</span> {{ b.author or '-' }}</div>
+                    <div class="scope-row"><span class="pretext">TLP:</span> <span class="tlp-badge tlp-{{ b.tlp | slug }}">TLP:{{ b.tlp | upper }}</span></div>
                   </div>
+                  {% set summary = scope_summaries.get(b.uuid) %}
+                  {% if summary %}
+                  <div class="mt-2 small">
+                    <div class="fw-semibold mb-1">Scope summary</div>
+                    {% for label, ranked in summary %}
+                    <div class="scope-row"><span class="pretext">{{ label }}:</span><br>
+                      {% for value, count in ranked %}
+                      <span class="scope-chip">{{ value }}{% if count > 1 %} &times;{{ count }}{% endif %}</span>
+                      {% endfor %}
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
                 </div>
               </div>
             </div>

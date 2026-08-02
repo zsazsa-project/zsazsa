@@ -54,3 +54,23 @@
 {{ tag_input(field, values=values, placeholder="Type and press Enter to add") }}
 {% endif %}
 {% endmacro %}
+
+
+{% macro story_scope(story, chip_class='scope-chip') %}
+{# Labelled scope rows under a briefing story, shared by the detail page, the
+   list preview and the PDF. The rows come from misp_store, so the labels and
+   their order match the markdown and the HTML e-mail. `chip_class` picks the
+   surface's chip style (scope-chip on screen, scope-tag in print). #}
+{% for label, values in story | scope_rows %}
+<div class="scope-row"><span class="pretext">{{ label }}:</span>
+  {% for v in values %}<span class="{{ chip_class }}">{{ v }}</span>{% endfor %}</div>
+{% endfor %}
+{% if story.source_reliability or story.information_credibility %}
+<div class="scope-row"><span class="pretext">Admiralty scale:</span>
+  <span class="{{ chip_class }}" title="source reliability / information credibility">{{ story.source_reliability or '-' }}/{{ story.information_credibility or '-' }}</span></div>
+{% endif %}
+{% if story.cti_evaluation %}
+<div class="scope-row"><span class="pretext">CTI evaluation:</span>
+  {% for k, v in story.cti_evaluation.items() %}<span class="{{ chip_class }}">{{ k }}={{ v }}</span>{% endfor %}</div>
+{% endif %}
+{% endmacro %}

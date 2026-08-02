@@ -10,8 +10,11 @@
 </a>
 {% endblock %}
 
+{# Short fields are Markdown and render server-side, as they do on the detail
+   page. Prose (the summary) goes through report-md-body instead, so it is
+   sanitised client-side. #}
 {% macro bullets(items) %}
-  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i }}</li>{% endfor %}</ul>
+  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i | md_inline }}</li>{% endfor %}</ul>
   {% else %}<span class="text-muted" style="font-size:.82rem;">none recorded</span>{% endif %}
 {% endmacro %}
 
@@ -150,9 +153,9 @@
                   {% if f.summary %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Summary</div>
-                    <p class="mb-1" style="font-size:.88rem;">{{ f.summary }}</p>
+                    <div class="report-md-body mb-1" data-md="{{ f.summary | e }}" style="font-size:.88rem;"></div>
                     {% if f.action_required %}
-                    <p class="mb-0" style="font-size:.85rem;"><strong>Action required:</strong> {{ f.action_required }}</p>
+                    <p class="mb-0" style="font-size:.85rem;"><span class="pretext">Action required:</span> {{ f.action_required | md_inline }}</p>
                     {% endif %}
                   </div>
                   {% endif %}
@@ -162,10 +165,10 @@
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">What happened</div>
                     {{ bullets(f.what_happened) }}
-                    <p class="mt-2 mb-0" style="font-size:.78rem;color:var(--admiralty-section-fg);">
-                      Source: {{ f.source_description or 'unspecified' }}
-                      {% if f.source_reliability %} · Reliability: <strong>{{ f.source_reliability }}</strong>{% endif %}
-                      {% if f.information_credibility %} · Credibility: <strong>{{ f.information_credibility }}</strong>{% endif %}
+                    <p class="mt-2 mb-0" style="font-size:.78rem;">
+                      <span class="pretext">Source:</span> {{ (f.source_description or 'unspecified') | md_inline }}
+                      {% if f.source_reliability %} &middot; <span class="pretext">Reliability:</span> {{ f.source_reliability }}{% endif %}
+                      {% if f.information_credibility %} &middot; <span class="pretext">Credibility:</span> {{ f.information_credibility }}{% endif %}
                     </p>
                   </div>
                   {% endif %}
@@ -174,16 +177,10 @@
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Why it matters</div>
                     <ul class="mb-0 ps-3">
-                      {% if f.likely_impact %}<li style="font-size:.82rem;"><strong>Likely impact:</strong> {{ f.likely_impact }}</li>{% endif %}
-                      {% if f.affected_assets %}<li style="font-size:.82rem;"><strong>Affected assets:</strong> {{ f.affected_assets }}</li>{% endif %}
-                      {% if f.actor_types %}<li style="font-size:.82rem;"><strong>Threat actor type:</strong> {{ f.actor_types | join(', ') }}</li>{% endif %}
-                      {% if f.actor_context %}<li style="font-size:.82rem;"><strong>Actor context:</strong> {{ f.actor_context }}</li>{% endif %}
-                      {% if f.geographic_scope %}<li style="font-size:.82rem;"><strong>Geography:</strong> {{ f.geographic_scope | join(', ') }}</li>{% endif %}
-                      {% if f.sectors %}<li style="font-size:.82rem;"><strong>Sectors:</strong> {{ f.sectors | join(', ') }}</li>{% endif %}
-                      {% if f.threat_actors %}<li style="font-size:.82rem;"><strong>Threat actors:</strong> {{ f.threat_actors | join(', ') }}</li>{% endif %}
-                      {% if f.threat_types %}<li style="font-size:.82rem;"><strong>Threat types:</strong> {{ f.threat_types | join(', ') }}</li>{% endif %}
-                      {% if f.technology %}<li style="font-size:.82rem;"><strong>Technology:</strong> {{ f.technology | join(', ') }}</li>{% endif %}
-                      {% if f.vendor %}<li style="font-size:.82rem;"><strong>Vendor:</strong> {{ f.vendor | join(', ') }}</li>{% endif %}
+                      <li style="font-size:.82rem;"><span class="pretext">Likely impact:</span> {{ (f.likely_impact or 'unspecified') | md_inline }}</li>
+                      <li style="font-size:.82rem;"><span class="pretext">Affected assets:</span> {{ (f.affected_assets or 'unspecified') | md_inline }}</li>
+                      <li style="font-size:.82rem;"><span class="pretext">Threat actor types:</span> {{ f.actor_types | join(', ') if f.actor_types else 'unspecified' }}</li>
+                      <li style="font-size:.82rem;"><span class="pretext">Threat actor context:</span> {{ (f.actor_context or 'unspecified') | md_inline }}</li>
                     </ul>
                   </div>
 
@@ -207,8 +204,8 @@
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Detection guidance</div>
                     {% if f.mitre_techniques %}
-                    <div class="small fw-semibold mb-1">MITRE ATT&CK</div>
-                    {{ bullets(f.mitre_techniques) }}
+                    <div class="small fw-semibold mb-1">Techniques</div>
+                    {{ bullets((f.mitre_techniques or []) | map('mitre') | list) }}
                     {% endif %}
                     {% if f.hunting_hypotheses %}
                     <div class="small fw-semibold mt-2 mb-1">Hunting hypotheses</div>
@@ -222,33 +219,50 @@
                 {# Right column: attribution + metadata #}
                 <div class="col-lg-4">
                   <div class="border rounded p-2 mb-2" style="font-size:.8rem;background:var(--card-bg);">
-                    <div class="fw-semibold small mb-2">Attribution &amp; scope</div>
-                    {% if f.threat_actors %}
-                    <p class="mb-1"><strong>Threat actors:</strong> {{ f.threat_actors | join(', ') }}</p>
-                    {% endif %}
-                    {% if f.threat_types %}
-                    <p class="mb-1"><strong>Threat types:</strong> {{ f.threat_types | join(', ') }}</p>
+                    <div class="fw-semibold small mb-2">Scope</div>
+                    {% set techniques = (f.mitre_attack_techniques or []) | map('mitre') | list %}
+                    {% if f.geographic_scope %}
+                    <p class="mb-1"><span class="pretext">Geographic scope:</span> {{ f.geographic_scope | join(', ') }}</p>
                     {% endif %}
                     {% if f.sectors %}
-                    <p class="mb-1"><strong>Sectors:</strong> {{ f.sectors | join(', ') }}</p>
+                    <p class="mb-1"><span class="pretext">Sector:</span> {{ f.sectors | join(', ') }}</p>
                     {% endif %}
-                    {% if f.geographic_scope %}
-                    <p class="mb-1"><strong>Geography:</strong> {{ f.geographic_scope | join(', ') }}</p>
+                    {% if f.threat_actors %}
+                    <p class="mb-1"><span class="pretext">Threat actor:</span> {{ f.threat_actors | join(', ') }}</p>
                     {% endif %}
-                    {% if not f.threat_actors and not f.threat_types and not f.sectors and not f.geographic_scope %}
-                    <span class="text-muted">No attribution data</span>
+                    {% if techniques %}
+                    <p class="mb-1"><span class="pretext">Techniques:</span> {{ techniques | join(', ') }}</p>
+                    {% endif %}
+                    {% if f.threat_types %}
+                    <p class="mb-1"><span class="pretext">Threat types:</span> {{ f.threat_types | join(', ') }}</p>
+                    {% endif %}
+                    {% if f.technology %}
+                    <p class="mb-1"><span class="pretext">Technology:</span> {{ f.technology | join(', ') }}</p>
+                    {% endif %}
+                    {% if f.vendor %}
+                    <p class="mb-1"><span class="pretext">Vendor:</span> {{ f.vendor | join(', ') }}</p>
+                    {% endif %}
+                    {% if f.incident %}
+                    <p class="mb-1"><span class="pretext">Incident:</span> {{ f.incident | join(', ') }}</p>
+                    {% endif %}
+                    {% if f.campaign %}
+                    <p class="mb-1"><span class="pretext">Campaign:</span> {{ f.campaign | join(', ') }}</p>
+                    {% endif %}
+                    {% if not (f.geographic_scope or f.sectors or f.threat_actors or techniques
+                               or f.threat_types or f.technology or f.vendor or f.incident or f.campaign) %}
+                    <span class="text-muted">No scope data</span>
                     {% endif %}
                   </div>
-                  {% if f.external_references or f.source_event_uuids %}
+                  {% set preview_reference_items = reference_items_by_uuid.get(f.uuid, []) %}
+                  {% if preview_reference_items %}
                   <div class="border rounded p-2" style="font-size:.8rem;background:var(--card-bg);">
+                    {# URLs only: the queue builds these without reading MISP, so
+                       there is no event title or date to show. The detail page has them. #}
                     <div class="fw-semibold small mb-1">References</div>
                     <ul class="mb-0 ps-3">
-                      {% for r in f.external_references %}
-                      <li><a href="{{ r }}" target="_blank" rel="noopener noreferrer" style="word-break:break-all;font-size:.78rem;">{{ r }}</a></li>
-                      {% endfor %}
-                      {% for uid in f.source_event_uuids %}
-                      {% set event_url = misp_webapp_url.rstrip('/') ~ '/events/view/' ~ uid %}
-                      <li><a href="{{ event_url }}" target="_blank" rel="noopener noreferrer" style="word-break:break-all;font-size:.78rem;">{{ event_url }}</a></li>
+                      {% for ref in preview_reference_items %}
+                      <li><a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer"
+                             style="word-break:break-all;font-size:.78rem;">{{ ref.url }}</a></li>
                       {% endfor %}
                     </ul>
                   </div>
@@ -315,8 +329,12 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 (function() {
+  marked.setOptions({ breaks: true, gfm: true });
+
   // Preview row toggle
   document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
@@ -329,6 +347,13 @@
       var icon = btn.querySelector('i');
       if (icon) {
         icon.className = open ? 'fas fa-eye' : 'fas fa-eye-slash';
+      }
+      if (!open) {
+        row.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
+          var raw = el.getAttribute('data-md') || '';
+          el.innerHTML = raw.trim() ? DOMPurify.sanitize(marked.parse(raw)) : '';
+          el.removeAttribute('data-md');
+        });
       }
     });
   });

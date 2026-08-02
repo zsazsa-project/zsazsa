@@ -79,8 +79,28 @@ class SendEmail(unittest.TestCase):
         self.assertEqual(msg["From"], "cti@x.test")
         self.assertEqual(msg["To"], "a@x.test")
         self.assertTrue(msg.is_multipart())
-        subtypes = {p.get_content_subtype() for p in msg.iter_parts()}
-        self.assertEqual(subtypes, {"plain", "html"})
+        # The HTML alternative carries the branded header, whose logo travels as
+        # a related Content-ID part, so it is wrapped in a multipart/related.
+        types = {p.get_content_type() for p in msg.walk()}
+        self.assertIn("text/plain", types)
+        self.assertIn("text/html", types)
+
+    def test_brand_logo_travels_as_a_related_part(self):
+        with mock.patch("notifier.email.smtplib.SMTP") as smtp, \
+             mock.patch("webapp.branding.logo_bytes", return_value=(b"png", "image", "png")):
+            server = smtp.return_value.__enter__.return_value
+            email.send_email(["a@x.test"], "Subject", "# Hello", "label")
+
+        msg = server.send_message.call_args.args[0]
+        logo = [p for p in msg.walk() if p.get("Content-ID") == "<brandlogo>"]
+        self.assertEqual(len(logo), 1)
+        self.assertEqual(logo[0].get_content_type(), "image/png")
+
+    def test_subject_carries_the_classification(self):
+        self.assertEqual(email._subject("clear", "Daily briefing 2026-07-30"),
+                         "[CTI] TLP:CLEAR - Daily briefing 2026-07-30")
+        # Requirements have no TLP and keep a plain subject.
+        self.assertEqual(email._subject("", "PIR-1: question"), "[CTI] PIR-1: question")
 
     def test_multiple_recipients_are_hidden_from_each_other(self):
         recipients = ["a@x.test", "b@x.test"]
@@ -136,20 +156,35 @@ class ProductSenders(unittest.TestCase):
     def test_pir_passes_markdown_through_unchanged(self):
         pir = SimpleNamespace(pir_id="PIR-001", question="What is the threat?")
         md = "# PIR\n\nbody\n\n[Open PIR preview](http://x/p)"
-        with mock.patch("notifier.email.send_email", return_value=True) as send:
+        with mock.patch("notifier.email.send_email", return_value=True) as send, \
+             mock.patch("notifier.email.product_email.markdown_html",
+                        return_value="<html>pir</html>") as markdown_html:
             email.send_pir_notification(pir, md, channel_ids=["em1"])
         _, subject, body, _ = send.call_args.args
         self.assertEqual(body, md)
         self.assertIn("PIR-001", subject)
+        markdown_html.assert_called_once()
 
     def test_vea_subject_includes_cve_and_title(self):
         vea = SimpleNamespace(vea_id="VEA-9", cve_id="CVE-2026-1", title="RCE")
-        with mock.patch("notifier.email.send_email", return_value=True) as send:
+        with mock.patch("notifier.email.send_email", return_value=True) as send, \
+             mock.patch("notifier.email.product_email.markdown_html", return_value="<html>vea</html>") as markdown_html:
             email.send_vea_notification(vea, "body")
         subject = send.call_args.args[1]
         self.assertIn("VEA-9", subject)
         self.assertIn("CVE-2026-1", subject)
         self.assertIn("RCE", subject)
+        markdown_html.assert_called_once()
+
+    def test_flash_intel_subject_uses_fia_tlp_not_markdown_parsing(self):
+        fia = SimpleNamespace(fia_id="FIA-001", tlp="red")
+        content = "# Flash intel alert\n\nBody without classification metadata"
+        with mock.patch("notifier.email.send_email", return_value=True) as send, \
+             mock.patch("notifier.email.product_email.markdown_html", return_value="<html>fia</html>") as markdown_html:
+            email.send_flash_intel_alert(fia, content)
+        subject = send.call_args.args[1]
+        self.assertEqual(subject, "[CTI] TLP:RED - FIA-001: Flash Intel Alert")
+        markdown_html.assert_called_once()
 
 
 if __name__ == "__main__":
