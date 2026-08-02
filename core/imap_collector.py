@@ -12,12 +12,25 @@ import email
 import imaplib
 import logging
 import re
+import ssl as ssl_module
 from email.header import decode_header, make_header
 from email.message import Message
 
 from markdownify import markdownify
 
 logger = logging.getLogger(__name__)
+
+# imaplib's default IMAP4_SSL context is ssl._create_stdlib_context(), which
+# verifies neither the certificate nor the hostname. The collector logs in with
+# stored mailbox credentials, so it builds a verifying context instead.
+_TIMEOUT_SECONDS = 30
+
+
+def _imap_connect(host: str, port: int, use_ssl: bool) -> imaplib.IMAP4:
+    if use_ssl:
+        return imaplib.IMAP4_SSL(host, port, ssl_context=ssl_module.create_default_context(),
+                                 timeout=_TIMEOUT_SECONDS)
+    return imaplib.IMAP4(host, port, timeout=_TIMEOUT_SECONDS)
 
 # Authoritative "already ingested" marker. A dedicated keyword is used instead of
 # \Seen so that a human opening the mailbox cannot cause messages to be skipped
@@ -132,7 +145,7 @@ def _connect(mailbox: dict) -> imaplib.IMAP4:
     host = (mailbox.get("host") or "").strip()
     use_ssl = bool(mailbox.get("ssl", True))
     port = int(mailbox.get("port") or (993 if use_ssl else 143))
-    conn = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
+    conn = _imap_connect(host, port, use_ssl)
     conn.login(mailbox.get("username") or "", mailbox.get("password") or "")
     return conn
 
@@ -190,7 +203,7 @@ def test_connection(host: str, port, ssl: bool, username: str, password: str,
         return {"ok": False, "error": "IMAP host is required"}
     try:
         port = int(port or (993 if ssl else 143))
-        conn = imaplib.IMAP4_SSL(host, port) if ssl else imaplib.IMAP4(host, port)
+        conn = _imap_connect(host, port, ssl)
         try:
             conn.login(username, password)
             typ, _ = conn.select(folder or "INBOX", readonly=True)

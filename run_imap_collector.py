@@ -13,13 +13,12 @@ Run from cron, e.g. every 15 minutes:
 """
 
 import logging
-import logging.handlers
-from pathlib import Path
 
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import config
+from core.logging_setup import setup_logging
 from core import imap_collector
 from core.db import init_db, log_pipeline_run_start, log_pipeline_run_end
 from webapp import job_store, misp_store, newsletter_ingest, newsletter_parsers
@@ -27,19 +26,6 @@ from webapp import job_store, misp_store, newsletter_ingest, newsletter_parsers
 logger = logging.getLogger(__name__)
 
 
-def setup_logging() -> None:
-    Path(config.LOG_FILE).parent.mkdir(exist_ok=True)
-    fmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
-    root = logging.getLogger()
-    root.setLevel(getattr(logging, config.LOG_LEVEL))
-    file_handler = logging.handlers.RotatingFileHandler(
-        config.LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
-    )
-    file_handler.setFormatter(fmt)
-    root.addHandler(file_handler)
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(fmt)
-    root.addHandler(stream_handler)
 
 
 def _ingest_message(source: dict, body: str) -> None:

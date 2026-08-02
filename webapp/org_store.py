@@ -6,25 +6,11 @@ organisation field and cannot be deleted while linked to a stakeholder.
 """
 
 import logging
-import sqlite3
-from contextlib import contextmanager
 from types import SimpleNamespace
 
-import config
+from core.db import row_connection as _conn
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _conn():
-    """Yield a SQLite connection that commits on success and always closes."""
-    c = sqlite3.connect(config.DB_FILE)
-    c.row_factory = sqlite3.Row
-    try:
-        with c:
-            yield c
-    finally:
-        c.close()
 
 
 def init_db():

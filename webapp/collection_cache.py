@@ -175,6 +175,31 @@ def get_events(source_ids: list, tag_filters: list, limit: int) -> list:
     return result
 
 
+def filter_events_by_org(events, org_filter_type: str, org_filter: set):
+    """Keep or drop events by their creator/owner organisation UUID.
+
+    A collection source can include only listed organisations or exclude them.
+    Both the cache refresh and the source-preview count in the API apply it, so
+    a previewed count matches what the refresh will actually store.
+    """
+    if not org_filter_type or not org_filter:
+        return events
+
+    def org_uuids(event):
+        found = set()
+        for attr in ("Org", "org", "Orgc", "orgc"):
+            uuid = (getattr(getattr(event, attr, None), "uuid", "") or "").lower()
+            if uuid:
+                found.add(uuid)
+        return found
+
+    if org_filter_type == "include":
+        return [e for e in events if org_uuids(e) & org_filter]
+    if org_filter_type == "exclude":
+        return [e for e in events if not (org_uuids(e) & org_filter)]
+    return events
+
+
 def _extract_row(e, source_id: str) -> dict:
     tags = [t.name for t in getattr(e, "tags", []) or []]
     galaxies = []
@@ -373,19 +398,7 @@ def refresh_source(src: dict):
                 elif events and not isinstance(events, dict):
                     org_filter_type = src.get("org_filter_type", "")
                     org_filter = {o.lower() for o in (src.get("org_filter") or [])}
-                    if org_filter_type and org_filter:
-                        def _event_org_uuids(e):
-                            uuids = set()
-                            for attr in ("Org", "org", "Orgc", "orgc"):
-                                obj = getattr(e, attr, None)
-                                u = (getattr(obj, "uuid", "") or "").lower()
-                                if u:
-                                    uuids.add(u)
-                            return uuids
-                        if org_filter_type == "include":
-                            events = [e for e in events if _event_org_uuids(e) & org_filter]
-                        elif org_filter_type == "exclude":
-                            events = [e for e in events if not (_event_org_uuids(e) & org_filter)]
+                    events = filter_events_by_org(events, org_filter_type, org_filter)
                     for e in events:
                         rows.append(_extract_row(e, source_id))
             except Exception as exc:

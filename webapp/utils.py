@@ -28,6 +28,22 @@ def md_to_html_inline(text: str) -> str:
     return _md.renderInline(text or "")
 
 
+def dedup_lower(values: list) -> list:
+    """Deduplicate strings case-insensitively, keeping first-occurrence casing.
+
+    Galaxy-backed scope fields arrive from the form with whatever casing the
+    picker used, so the same country can appear twice.
+    """
+    seen = set()
+    result = []
+    for value in values:
+        key = (value or "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(value.strip())
+    return result
+
+
 def json_body():
     """Parse the request body as a JSON object.
 

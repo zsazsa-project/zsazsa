@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlsplit
 
 import requests
 import urllib3
@@ -42,6 +43,25 @@ def _active_webhooks(channel_ids: list | None = None) -> list[dict]:
     return []
 
 
+def _webhook_host(url: str) -> str:
+    """Name a webhook by its host: the path is the shared secret."""
+    parts = urlsplit(url or "")
+    return f"{parts.scheme}://{parts.netloc}" if parts.netloc else "webhook"
+
+
+def _without_secret(message: str, url: str) -> str:
+    """Strip a webhook's secret path out of a message.
+
+    requests puts the failing URL in its exception text, which for a Mattermost
+    webhook is the token itself, and that text goes to the log file.
+    """
+    path = urlsplit(url or "").path
+    for secret in (url, path):
+        if secret and len(secret) > 1:
+            message = message.replace(secret, "/...")
+    return message
+
+
 def _post(targets: list[dict], payload: dict, label: str) -> bool:
     sent_any = False
     for target in targets:
@@ -50,10 +70,11 @@ def _post(targets: list[dict], payload: dict, label: str) -> bool:
         try:
             r = requests.post(url, json=payload, timeout=10, verify=verify_tls)
             r.raise_for_status()
-            logger.info("Mattermost notification sent (%s)", label)
+            logger.info("Mattermost notification sent (%s) to %s", label, _webhook_host(url))
             sent_any = True
         except requests.RequestException as e:
-            logger.error("Mattermost notification failed (%s): %s", label, e)
+            logger.error("Mattermost notification failed (%s) to %s: %s",
+                         label, _webhook_host(url), _without_secret(str(e), url))
     return sent_any
 
 
@@ -65,10 +86,16 @@ def send_text(text: str, label: str, channel_ids: list[str] | None = None) -> bo
     return bool(_post(targets, payload, label))
 
 
+# Room for the "**Part 12/34**\n\n" heading a split message carries, so the
+# pieces still fit the budget once it is prepended.
+_PART_PREFIX_ALLOWANCE = 24
+
+
 def _chunk_and_send(urls, body: str, label: str, max_chars: int = 3500) -> bool:
     """Send body to all urls, splitting into chunks if it exceeds max_chars."""
     if len(body) <= max_chars:
         return bool(_post(urls, {"text": body}, label))
+    max_chars -= _PART_PREFIX_ALLOWANCE
     paragraphs = body.split("\n\n")
     chunks: list[str] = []
     current = ""

@@ -6,27 +6,13 @@ used zsazsa via SSO.
 """
 
 import logging
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 
-import config
+from core.db import row_connection as _conn
 from webapp import org_store
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _conn():
-    """Yield a SQLite connection that commits on success and always closes."""
-    c = sqlite3.connect(config.DB_FILE)
-    c.row_factory = sqlite3.Row
-    try:
-        with c:
-            yield c
-    finally:
-        c.close()
 
 
 def init_db():

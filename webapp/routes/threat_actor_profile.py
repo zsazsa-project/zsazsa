@@ -9,6 +9,7 @@ from flask import Blueprint, Response, flash, jsonify, redirect, render_template
 
 import config
 from webapp import audit, branding, misp_store
+from webapp.rate_limit import rate_limited
 from webapp.diamond import render_diamond_png
 from webapp.utils import sort_products
 from notifier import dispatcher
@@ -176,10 +177,14 @@ def pdf(id):
 
 
 @bp.route("/<string:id>/diamond.png")
+@rate_limited("tap_diamond_png", limit=30, window_s=60)
 def diamond_png(id):
     """Serve the Diamond Model as a PNG. Unauthenticated so notification channels
     (e.g. a Mattermost webhook) can fetch it by image URL; it only reveals the
-    same four-node summary already shown on the profile."""
+    same four-node summary already shown on the profile.
+
+    Rate limited like the other route that reaches MISP without a session: each
+    call costs an event fetch and an image render."""
     tap = misp_store.get_threat_actor_profile(id)
     if tap is None:
         return "Threat actor profile not found", 404

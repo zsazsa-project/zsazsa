@@ -121,14 +121,18 @@ def _save(job: dict) -> None:
         with _memory_lock:
             _memory[job["id"]] = job
         return
+    # Redis holds the job now. Drop any copy left in memory by an earlier
+    # outage, or the next outage would serve that stale version instead.
+    with _memory_lock:
+        _memory.pop(job["id"], None)
     _command("EXPIRE", key, _TTL_SECONDS)
 
 
 def forget_job(job_id: str) -> None:
     """Drop a job, for work that turned out to have nothing to report."""
-    if _command("HDEL", _hash_key(), job_id) is None:
-        with _memory_lock:
-            _memory.pop(job_id, None)
+    with _memory_lock:
+        _memory.pop(job_id, None)
+    _command("HDEL", _hash_key(), job_id)
 
 
 def create_job(action: str, label: str = "", steps: list[dict] | None = None) -> dict:

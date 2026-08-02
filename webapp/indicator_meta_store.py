@@ -8,27 +8,14 @@ pattern org_store uses for registered organisations).
 
 import json
 import logging
-import sqlite3
-from contextlib import contextmanager
 
-import config
+from core.db import row_connection as _conn
 
 logger = logging.getLogger(__name__)
 
 # Attribute types are loaded locally (misp_store.local_attribute_types); only
 # organisations and tags need pulling/caching from the servers.
 KINDS = ("orgs", "tags")
-
-
-@contextmanager
-def _conn():
-    c = sqlite3.connect(config.DB_FILE)
-    c.row_factory = sqlite3.Row
-    try:
-        with c:
-            yield c
-    finally:
-        c.close()
 
 
 def init_db():

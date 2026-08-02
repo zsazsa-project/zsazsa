@@ -17,6 +17,7 @@ from flask import (
 )
 
 from webapp import audit, indicator_meta_store, misp_store
+from webapp.rate_limit import rate_limited
 from webapp.models import TLP_LEVELS
 from notifier import dispatcher
 
@@ -314,10 +315,14 @@ def notify(id):
 
 
 @bp.route("/public/<token>")
+@rate_limited("indicator_public_feed", limit=30, window_s=60)
 def public_feed(token):
     """Unauthenticated capability URL: runs the feed's query and returns the
     attribute values (plain text by default, CSV with ?format=csv). Exempt from
-    login in webapp/__init__ via the endpoint name."""
+    login in webapp/__init__ via the endpoint name.
+
+    Rate limited because it is the one route that reaches MISP without a session:
+    even an unknown token costs a feed listing before the 404."""
     feed = misp_store.get_indicator_feed_by_token(token)
     if feed is None:
         return Response("Feed not found", status=404, mimetype="text/plain")

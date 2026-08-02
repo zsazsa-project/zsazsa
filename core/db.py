@@ -11,18 +11,33 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def _connect():
+def connection(row_factory=None):
     """Yield a SQLite connection that commits on success and always closes.
 
     The inner ``with conn`` handles the transaction (commit/rollback); the
     ``finally`` guarantees the connection and its file handle are released.
     """
     conn = sqlite3.connect(config.DB_FILE)
+    if row_factory is not None:
+        conn.row_factory = row_factory
     try:
         with conn:
             yield conn
     finally:
         conn.close()
+
+
+def row_connection():
+    """connection() with rows returned as sqlite3.Row mappings.
+
+    The webapp's small stores (audit, orgs, SSO users, indicator metadata) all
+    read by column name, so they share this rather than each opening their own.
+    """
+    return connection(sqlite3.Row)
+
+
+# Kept as the internal name this module already uses throughout.
+_connect = connection
 
 
 def _ensure_columns(conn, table: str, columns: list[tuple[str, str]]) -> None:

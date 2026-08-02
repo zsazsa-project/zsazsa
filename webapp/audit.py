@@ -1,22 +1,9 @@
 import os
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 
 import config
+from core.db import row_connection as _conn
 from webapp import misp_session
-
-
-@contextmanager
-def _conn():
-    """Yield a SQLite connection that commits on success and always closes."""
-    c = sqlite3.connect(config.DB_FILE)
-    c.row_factory = sqlite3.Row
-    try:
-        with c:
-            yield c
-    finally:
-        c.close()
 
 
 def init():

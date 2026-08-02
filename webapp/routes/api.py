@@ -16,7 +16,7 @@ from flask import Blueprint, jsonify, request, url_for
 
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, misp_store
-from webapp.collection_cache import AI_SUMMARY_PREFIX
+from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object, parse_bool as _parse_bool
 
@@ -816,19 +816,7 @@ def pull_estimate():
         if not events or isinstance(events, dict):
             return jsonify({"count": 0, "error": None})
 
-        if org_filter_type and org_filter:
-            def _org_uuids(e):
-                uuids = set()
-                for attr in ("Org", "org", "Orgc", "orgc"):
-                    obj = getattr(e, attr, None)
-                    u = (getattr(obj, "uuid", "") or "").lower()
-                    if u:
-                        uuids.add(u)
-                return uuids
-            if org_filter_type == "include":
-                events = [e for e in events if _org_uuids(e) & org_filter]
-            elif org_filter_type == "exclude":
-                events = [e for e in events if not (_org_uuids(e) & org_filter)]
+        events = filter_events_by_org(events, org_filter_type, org_filter)
 
         return jsonify({"count": len(events), "error": None})
     except Exception as exc:

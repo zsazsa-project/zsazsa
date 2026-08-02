@@ -14,7 +14,7 @@ import weasyprint
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 from webapp import audit, branding, collection_cache, misp_store, product_log
 from webapp.collection_cache import AI_SUMMARY_PREFIX
-from webapp.utils import md_to_html, sort_products
+from webapp.utils import dedup_lower, md_to_html, sort_products
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
 
 logger = logging.getLogger(__name__)
@@ -82,10 +82,10 @@ def _render_briefing_form(
         story_title_exclusions=(getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", []) or []),
         threat_actor_types=(getattr(config, "THREAT_ACTOR_TYPES", []) or []),
         story_scope_summary=misp_store.briefing_scope_summary(stories),
-        briefing_geographic_scope=_dedup_lower(list(geographic_scope or []) + gathered["geographic_scope"]),
-        briefing_sectors=_dedup_lower(list(sectors or []) + gathered["sectors"]),
-        briefing_threat_actors=_dedup_lower(list(threat_actors or []) + gathered["threat_actors"]),
-        briefing_mitre_attack_techniques=_dedup_lower(list(mitre_attack_techniques or []) + gathered["mitre_attack_techniques"]),
+        briefing_geographic_scope=dedup_lower(list(geographic_scope or []) + gathered["geographic_scope"]),
+        briefing_sectors=dedup_lower(list(sectors or []) + gathered["sectors"]),
+        briefing_threat_actors=dedup_lower(list(threat_actors or []) + gathered["threat_actors"]),
+        briefing_mitre_attack_techniques=dedup_lower(list(mitre_attack_techniques or []) + gathered["mitre_attack_techniques"]),
         briefing_threat_types=threat_types or [],
         briefing_technology=technology or [],
         briefing_vendor=vendor or [],
@@ -146,18 +146,6 @@ def _split_scope_field(form, key):
     return [v.strip() for v in raw.split(",") if v.strip()]
 
 
-def _dedup_lower(values):
-    """Deduplicate a list of strings case-insensitively, preserving first-occurrence casing."""
-    seen = set()
-    result = []
-    for v in values:
-        key = (v or "").strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            result.append(v.strip())
-    return result
-
-
 def _parse_briefing_scope_from_form(form):
     """Extract briefing-level scope element fields from a POST form.
 
@@ -166,9 +154,9 @@ def _parse_briefing_scope_from_form(form):
     the rest are taken as-is from the submitted checkbox/tag-input values.
     """
     return {
-        "geographic_scope": _dedup_lower(form.getlist("geographic_scope")),
-        "sectors": _dedup_lower(form.getlist("sectors")),
-        "threat_actors": _dedup_lower(form.getlist("threat_actors")),
+        "geographic_scope": dedup_lower(form.getlist("geographic_scope")),
+        "sectors": dedup_lower(form.getlist("sectors")),
+        "threat_actors": dedup_lower(form.getlist("threat_actors")),
         "mitre_attack_techniques": form.getlist("mitre_attack_techniques"),
         "threat_types": form.getlist("threat_types"),
         "technology": form.getlist("technology"),

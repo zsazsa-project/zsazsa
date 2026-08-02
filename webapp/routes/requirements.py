@@ -166,18 +166,6 @@ def _galaxy_context():
     }
 
 
-def _dedup_lower(values):
-    """Deduplicate a list of strings case-insensitively, preserving first-occurrence casing."""
-    seen = set()
-    result = []
-    for v in values:
-        key = (v or "").strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            result.append(v.strip())
-    return result
-
-
 _SCOPE_COUNT_FIELDS = (
     "geographic_scope", "sectors", "threat_actors", "threat_types",
     "technology", "vendor", "incident", "campaign", "mitre_attack_techniques",
@@ -319,11 +307,11 @@ def pir_new():
             "priority": request.form.get("priority", "Should have"),
             "time_sensitivity": request.form.get("time_sensitivity", "Standard (<1 month)"),
             "status": "Pending",  # always starts Pending until triage is complete
-            "geographic_scope": _dedup_lower(request.form.getlist("geographic_scope")),
+            "geographic_scope": dedup_lower(request.form.getlist("geographic_scope")),
             "time_frame": request.form.get("time_frame"),
             "threat_types": request.form.getlist("threat_types"),
-            "threat_actors": _dedup_lower(request.form.getlist("threat_actors")),
-            "sectors": _dedup_lower(request.form.getlist("sectors")),
+            "threat_actors": dedup_lower(request.form.getlist("threat_actors")),
+            "sectors": dedup_lower(request.form.getlist("sectors")),
             "out_of_scope": request.form.getlist("out_of_scope"),
             "technology": request.form.getlist("technology"),
             "vendor": request.form.getlist("vendor"),
@@ -421,11 +409,11 @@ def pir_edit(id):
             "priority": request.form.get("priority", "Should have"),
             "time_sensitivity": request.form.get("time_sensitivity", "Standard (<1 month)"),
             "status": request.form.get("status", "Pending"),
-            "geographic_scope": _dedup_lower(request.form.getlist("geographic_scope")),
+            "geographic_scope": dedup_lower(request.form.getlist("geographic_scope")),
             "time_frame": request.form.get("time_frame"),
             "threat_types": request.form.getlist("threat_types"),
-            "threat_actors": _dedup_lower(request.form.getlist("threat_actors")),
-            "sectors": _dedup_lower(request.form.getlist("sectors")),
+            "threat_actors": dedup_lower(request.form.getlist("threat_actors")),
+            "sectors": dedup_lower(request.form.getlist("sectors")),
             "out_of_scope": request.form.getlist("out_of_scope"),
             "technology": request.form.getlist("technology"),
             "vendor": request.form.getlist("vendor"),
@@ -652,10 +640,10 @@ def gir_new():
             "status": "Pending",
             "review_cycle": request.form.get("review_cycle", "Quarterly"),
             "collection_sources": request.form.getlist("collection_sources"),
-            "geographic_scope": _dedup_lower(request.form.getlist("geographic_scope")),
-            "sectors": _dedup_lower(request.form.getlist("sectors")),
+            "geographic_scope": dedup_lower(request.form.getlist("geographic_scope")),
+            "sectors": dedup_lower(request.form.getlist("sectors")),
             "threat_types": request.form.getlist("threat_types"),
-            "threat_actors": _dedup_lower(request.form.getlist("threat_actors")),
+            "threat_actors": dedup_lower(request.form.getlist("threat_actors")),
             "out_of_scope": request.form.getlist("out_of_scope"),
             "technology": request.form.getlist("technology"),
             "vendor": request.form.getlist("vendor"),
@@ -736,10 +724,10 @@ def gir_edit(id):
             "status": request.form.get("status", "Active"),
             "review_cycle": request.form.get("review_cycle", "Quarterly"),
             "collection_sources": request.form.getlist("collection_sources"),
-            "geographic_scope": _dedup_lower(request.form.getlist("geographic_scope")),
-            "sectors": _dedup_lower(request.form.getlist("sectors")),
+            "geographic_scope": dedup_lower(request.form.getlist("geographic_scope")),
+            "sectors": dedup_lower(request.form.getlist("sectors")),
             "threat_types": request.form.getlist("threat_types"),
-            "threat_actors": _dedup_lower(request.form.getlist("threat_actors")),
+            "threat_actors": dedup_lower(request.form.getlist("threat_actors")),
             "out_of_scope": request.form.getlist("out_of_scope"),
             "technology": request.form.getlist("technology"),
             "vendor": request.form.getlist("vendor"),

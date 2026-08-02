@@ -314,9 +314,9 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         var html = '<ul class="list-group list-group-flush">';
         data.products.forEach(function(p) {
           var icon = icons[p.type] || 'fa-box-open';
-          html += '<li class="list-group-item px-0"><a href="' + p.url + '" class="d-flex align-items-center gap-2 text-decoration-none">' +
-            '<i class="fas ' + icon + ' text-secondary fa-fw"></i><span>' + (p.title || p.type) + '</span>' +
-            (p.date ? '<span class="text-muted small ms-auto">' + p.date + '</span>' : '') + '</a></li>';
+          html += '<li class="list-group-item px-0"><a href="' + escAttr(p.url) + '" class="d-flex align-items-center gap-2 text-decoration-none">' +
+            '<i class="fas ' + icon + ' text-secondary fa-fw"></i><span>' + esc(p.title || p.type) + '</span>' +
+            (p.date ? '<span class="text-muted small ms-auto">' + esc(p.date) + '</span>' : '') + '</a></li>';
         });
         html += '</ul>';
         body.innerHTML = html;
@@ -1977,6 +1977,12 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     openPanel = null;
   }
 
+  // dataset reads give back the decoded attribute, so the event title has to be
+  // escaped again before it goes anywhere near innerHTML.
+  function escText(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function buildPanelRow(title) {
     var predsHtml = PREDS.map(function(p) {
       var opts = '<option value="">Not set</option>';
@@ -1997,7 +2003,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         + '<div class="cti-eval-panel-header">'
           + '<i class="fas fa-microscope text-primary" style="font-size:.85rem;"></i>'
           + '<span class="cti-eval-panel-title">CTI Evaluation</span>'
-          + '<span class="cti-eval-panel-event-name">' + (title || '(untitled)') + '</span>'
+          + '<span class="cti-eval-panel-event-name">' + escText(title || '(untitled)') + '</span>'
           + '<button type="button" class="cti-eval-panel-close" title="Close">&times;</button>'
         + '</div>'
         + '<p class="text-muted small mb-2 mt-1">Rate using the CTI Evaluation taxonomy. Tags are applied directly to the MISP event. Leave any predicate at <em>Not set</em> to skip it.</p>'

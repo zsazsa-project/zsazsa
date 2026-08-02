@@ -1,13 +1,12 @@
 import logging
-import logging.handlers
 import time
 import warnings
-from pathlib import Path
 
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import config
+from core.logging_setup import setup_logging
 from analyser.products.flash_intel import process as process_flash_intel
 from analyser.reader import get_new_scraper_events, save_last_run
 from core.db import init_db, log_event, log_pipeline_run_start, log_pipeline_run_end
@@ -15,21 +14,6 @@ from core.misp_client import get_misp, get_misp_webapp
 from webapp import job_store
 
 
-def setup_logging() -> None:
-    Path(config.LOG_FILE).parent.mkdir(exist_ok=True)
-    fmt = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
-    root = logging.getLogger()
-    root.setLevel(getattr(logging, config.LOG_LEVEL))
-
-    file_handler = logging.handlers.RotatingFileHandler(
-        config.LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
-    )
-    file_handler.setFormatter(fmt)
-    root.addHandler(file_handler)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(fmt)
-    root.addHandler(stream_handler)
 
 
 def load_focus_points() -> dict:

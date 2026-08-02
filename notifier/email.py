@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import ssl
 from contextlib import contextmanager
 from email.message import EmailMessage
 
@@ -13,10 +14,15 @@ logger = logging.getLogger(__name__)
 
 @contextmanager
 def _smtp_session(host: str, port: int, use_tls: bool, username: str, password: str):
-    """Open an authenticated SMTP session, closed automatically on exit."""
+    """Open an authenticated SMTP session, closed automatically on exit.
+
+    starttls() defaults to ssl._create_stdlib_context(), which checks neither the
+    certificate nor the hostname, and the login below would hand the credentials
+    straight to whoever answered. Pass a verifying context instead.
+    """
     with smtplib.SMTP(host, port or 587, timeout=20) as server:
         if use_tls:
-            server.starttls()
+            server.starttls(context=ssl.create_default_context())
         if username:
             server.login(username, password)
         yield server
