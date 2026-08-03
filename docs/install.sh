@@ -6,7 +6,7 @@
 #   2. Creates a Python virtual environment in ./venv
 #   3. Installs all dependencies from requirements.txt
 #   4. Creates the data/ directory
-#   5. Writes a minimal config/__init__.py (if not already present)
+#   5. Creates config/__init__.py from config/__init__.py.example (if not present)
 #   6. Optionally generates a self-signed SSL certificate
 #
 # Usage (run from the project root, not from docs/):
@@ -81,165 +81,44 @@ mkdir -p config
 
 if [[ -f "$CONFIG_FILE" ]]; then
     echo "config/__init__.py already exists - skipping."
+elif [[ ! -f "$CONFIG_EXAMPLE" ]]; then
+    echo "ERROR: $CONFIG_EXAMPLE is missing, cannot create $CONFIG_FILE."
+    exit 1
 else
-    if [[ -f "$CONFIG_EXAMPLE" ]]; then
-        cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
-        echo "Copied config/__init__.py.example to config/__init__.py."
-    else
-        # Generate a random SECRET_KEY and write a minimal config/__init__.py
-        SECRET_KEY=$("$VENV_DIR/bin/python" -c "import secrets; print(secrets.token_hex(32))")
-        cat > "$CONFIG_FILE" <<EOF
-SECRET_KEY = "$SECRET_KEY"
+    # The example is the template for a fresh config. Copy it with a secret of its
+    # own, generated in the same step so it never appears on a command line.
+    "$VENV_DIR/bin/python" - "$CONFIG_EXAMPLE" "$CONFIG_FILE" <<'PY'
+import pathlib, re, secrets, sys
 
-# MISP - scraper / analyser pipeline
-MISP_URL = 'https://your-misp-instance.example.com'
-MISP_KEY = 'your-misp-api-key-here'
-MISP_VERIFYCERT = False
+example, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+key = f"SECRET_KEY = {secrets.token_hex(32)!r}"
+text, count = re.subn(r"^SECRET_KEY = .*", key, example.read_text(), count=1, flags=re.M)
+if not count:
+    sys.exit(f"{example} has no SECRET_KEY line to replace")
+target.write_text(text)
+PY
 
-# MISP - webapp (CTI program objects: stakeholders, PIRs, GIRs)
-# Defaults to the same server; override to use a dedicated MISP instance.
-MISP_WEBAPP_URL = 'https://your-misp-instance.example.com'
-MISP_WEBAPP_KEY = 'your-misp-api-key-here'
-MISP_WEBAPP_VERIFYCERT = False
-
-# OpenAI
-OPENAI_API_KEY = 'sk-your-openai-key-here'
-OPENAI_MODEL = 'gpt-4.1-mini'
-
-# Notification channels
-NOTIFICATION_CHANNELS = [
-    {
-        'id': 'mattermost-main',
-        'name': 'Mattermost',
-        'type': 'mattermost',
-        'url': '',
-        'enabled': False,
-        'verify_tls': True,
-    },
-]
-
-# Additional MISP servers queried by the data-collection page.
-MISP_SERVERS = []
-
-# Collection sources offered when editing a PIR or GIR.
-# Derived automatically from the MISP scraper and configured MISP servers.
-def _build_collection_sources():
-    items = ['misp-scraper']
-    for s in MISP_SERVERS:
-        label = (s.get('label') or '').strip()
-        if label and label not in items:
-            items.append(label)
-    return items
-
-COLLECTION_SOURCES = _build_collection_sources()
-
-# Product types used for stakeholder subscriptions and PIR deliverables
-PRODUCT_TYPES = [
-    'Flash intel alert',
-    'Vulnerability exploitation advisory',
-    'Threat actor profile',
-    'Campaign profile',
-    'Indicator feed',
-    'Daily threat briefing',
-    'Detection engineering request',
-    'Threat landscape report',
-    'Incident response support',
-    'Hunt support',
-]
-
-# Threat actor types (ENISA taxonomy)
-THREAT_ACTOR_TYPES = [
-    {'name': 'State-Nexus Actors', 'description': 'Also known as Advanced Persistent Threats (APTs) or nation-states, these groups possess massive resources and state-level backing. They primarily engage in cyberespionage, intellectual property theft, and long-term surveillance targeting governments, critical infrastructure, and large organizations.'},
-    {'name': 'Cybercrime & Hacker-for-Hire Actors', 'description': 'These adversaries are motivated by financial gain. They operate as organized syndicates, often utilizing Ransomware-as-a-Service (RaaS) models, extortion, and phishing to steal data and demand payouts.'},
-    {'name': 'Private Sector Offensive Actors (PSOA)', 'description': 'These are commercial enterprises or contractors that legally or semi-legally develop and sell cyber-surveillance tools, exploits, and hacking services (e.g., commercial spyware).'},
-    {'name': 'Hacktivists', 'description': 'These actors are driven by political, social, or ideological goals rather than financial profit. They frequently conduct low-impact, high-visibility disruption campaigns, such as Distributed Denial of Service (DDoS) attacks and website defacements, often targeting public administration and financial sectors.'},
-]
-
-# MISP context tags - entity type markers (stakeholders, requirements, RFIs)
-TAG_STAKEHOLDER = 'zsazsa:type="stakeholder"'
-TAG_PIR         = 'zsazsa:type="pir"'
-TAG_GIR         = 'zsazsa:type="gir"'
-TAG_RFI         = 'zsazsa:type="rfi"'
-
-# MISP context tags - product classification (serve as both type and product marker)
-TAG_FLASH_INTEL = 'zsazsa:ctiproduct="flash-intel"'
-TAG_VEA         = 'zsazsa:ctiproduct="vea"'
-TAG_BRIEFING    = 'zsazsa:ctiproduct="daily-briefing"'
-TAG_TLR         = 'zsazsa:ctiproduct="threat-landscape-report"'
-TAG_COLLECTION_FOLLOWUP = 'zsazsa:collection="follow-up"'
-
-# Data collection tag display settings
-COLLECTION_TAG_STRIP_PREFIXES = [
-    'misp-galaxy:mitre-attack-pattern=',
-    'misp-galaxy:threat-actor=',
-    'misp-galaxy:sector=',
-    'misp-galaxy:country=',
-    'misp-galaxy:target-information=',
-    'misp-galaxy:malpedia=',
-    'misp-galaxy:mitre-malware=',
-    'misp-galaxy:tool=',
-    'misp-galaxy:microsoft-activity-group=',
-    'misp-galaxy:rat=',
-    'curation:source=',
-    'zsazsa:collection=',
-    'zsazsa:source=',
-    'zsazsa:source-type=',
-]
-COLLECTION_TAG_HIDE_PREFIXES = [
-    'retention',
-]
-
-# Recommended actions shown in flash intel and VEA wizards
-RECOMMENDED_ACTIONS_IMMEDIATE = ['Block identified malicious indicators at perimeter', 'Isolate affected systems if active compromise is suspected', 'Alert SOC and initiate triage', 'Review EDR/SIEM for related alerts', 'Preserve logs and artefacts for forensic analysis']
-RECOMMENDED_ACTIONS_NEAR_TERM = ['Apply vendor patches or available mitigations', 'Update detection rules and signatures', 'Conduct targeted threat hunt', 'Brief affected teams and stakeholders', 'Review and update incident response playbooks']
-
-# Organisation-wide focus points used for AI-assisted briefing and relevance logic.
-FOCUS_POINTS_GEOGRAPHIES = []
-FOCUS_POINTS_SECTORS = []
-FOCUS_POINTS_TECHNOLOGIES = []
-FOCUS_POINTS_THREAT_TYPES = []
-FOCUS_POINTS_THREAT_ACTORS = []
-
-# Analyser
-POLL_WINDOW_HOURS = 24
-SCRAPER_MARKER_TAG = 'zsazsa:source="misp-scraper"'
-MISP_SCRAPER_LIMIT = 500
-
-# Paths
-STATE_FILE = 'data/state.json'
-DB_FILE = 'data/analyser.db'
-
-# Logging
-LOG_FILE = 'data/analyser.log'
-LOG_LEVEL = 'INFO'
-
-# Web server
-HOSTNAME = '0.0.0.0'
-PORT = 5000
-SSL_ENABLED = False
-SSL_CERT = 'certs/zsazsa.crt'
-SSL_KEY = 'certs/zsazsa.key'
-EOF
-        echo "Created config/__init__.py with a generated SECRET_KEY."
-        echo ""
-        echo "  >>> ACTION REQUIRED: edit config/__init__.py and fill in your MISP_URL,"
-        echo "      MISP_KEY, and OPENAI_API_KEY before starting the application."
-        echo ""
-    fi
+    echo "Created config/__init__.py from config/__init__.py.example with a generated SECRET_KEY."
+    echo ""
+    echo "  >>> ACTION REQUIRED: edit config/__init__.py and fill in MISP_URL, MISP_KEY,"
+    echo "      MISP_WEBAPP_URL and MISP_WEBAPP_KEY before starting the application."
+    echo "      Everything else, including the LLM key, can be set from the web interface."
+    echo ""
 fi
 
 # ── 6. Optional: SSL certificate ──────────────────────────────────────────────
 
 echo ""
-read -r -p "Generate a self-signed SSL certificate for zsazsa.demo.cudeso.be? [y/N] " ssl_answer
+echo "A self-signed certificate is only needed when the built-in web server serves"
+echo "HTTPS itself. Behind an Apache reverse proxy, Apache terminates TLS instead."
+read -r -p "Generate a self-signed SSL certificate? [y/N] " ssl_answer
 if [[ "${ssl_answer,,}" == "y" ]]; then
-    read -r -p "Hostname for the certificate [zsazsa.demo.cudeso.be]: " ssl_hostname
-    ssl_hostname="${ssl_hostname:-zsazsa.demo.cudeso.be}"
+    read -r -p "Hostname for the certificate [this host]: " ssl_hostname
     if command -v openssl &>/dev/null; then
         bash docs/create_cert.sh "$ssl_hostname"
     else
         echo "WARNING: openssl not found - skipping certificate generation."
-        echo "  Install openssl and run:  bash docs/create_cert.sh $ssl_hostname"
+        echo "  Install openssl and run:  bash docs/create_cert.sh"
     fi
 else
     echo "Skipping SSL certificate generation."

@@ -14,6 +14,7 @@ format to pull out ``Auth.User``.
 
 import logging
 import socket
+import time
 
 from flask import g, request
 
@@ -131,7 +132,14 @@ def get_misp_user(session_id):
     return user
 
 
-_cookie_name_cache = {"value": ""}
+# The cookie name is asked of MISP once and then kept for the life of the
+# process, since an instance UUID does not change. A failed lookup is not
+# retried for a while: this runs before every request, so an unreachable MISP
+# would otherwise cost each one a connection attempt.
+_RETRY_AFTER_SECONDS = 60
+_DERIVE_TIMEOUT_S = 5
+
+_cookie_name_cache = {"value": "", "retry_after": 0.0}
 
 
 def derive_cookie_name():
@@ -143,7 +151,8 @@ def derive_cookie_name():
     """
     try:
         from pymisp import PyMISP
-        misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT)
+        misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT,
+                      timeout=_DERIVE_TIMEOUT_S)
         uuid = (misp.misp_instance_version or {}).get("uuid", "")
         if uuid:
             return f"MISP-{uuid}"
@@ -159,13 +168,16 @@ def _session_cookie_name():
     When MISP_SESSION_COOKIE_NAME is set in config it is used as-is (it is stored
     there automatically when single sign-on is enabled). Otherwise the name is
     derived once from the MISP server's instance UUID and cached, so SSO still
-    works before the value has been persisted.
+    works before the value has been persisted. While MISP is unreachable the
+    name stays empty, which leaves the request unidentified rather than failing.
     """
     configured = (getattr(config, "MISP_SESSION_COOKIE_NAME", "") or "").strip()
     if configured:
         return configured
-    if not _cookie_name_cache["value"]:
+    if not _cookie_name_cache["value"] and time.monotonic() >= _cookie_name_cache["retry_after"]:
         _cookie_name_cache["value"] = derive_cookie_name()
+        if not _cookie_name_cache["value"]:
+            _cookie_name_cache["retry_after"] = time.monotonic() + _RETRY_AFTER_SECONDS
     return _cookie_name_cache["value"]
 
 

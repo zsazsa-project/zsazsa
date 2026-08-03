@@ -1,0 +1,209 @@
+SECRET_KEY = 'change-me-to-a-long-random-string'
+
+# MISP - scraper / analyser pipeline
+MISP_URL = 'https://your-misp-instance.example.com'
+MISP_KEY = 'your-misp-api-key-here'
+MISP_VERIFYCERT = False
+
+# MISP - webapp (CTI program objects: stakeholders, PIRs, GIRs)
+# Defaults to the same server; override to use a dedicated MISP instance.
+MISP_WEBAPP_URL = 'https://your-misp-instance.example.com'
+MISP_WEBAPP_KEY = 'your-misp-api-key-here'
+MISP_WEBAPP_VERIFYCERT = False
+
+# Distribution level for MISP events the backend creates (stakeholders, PIRs,
+# GIRs, RFIs and products). 0 = your organisation only (default and safest),
+# 1 = this community, 2 = connected communities, 3 = all communities.
+MISP_EVENT_DISTRIBUTION = 0
+
+# LLM providers. LLM_DEFAULT_PROVIDER is the provider used by features that do
+# not pick one themselves: 'openai' or 'local'.
+LLM_DEFAULT_PROVIDER = 'openai'
+
+# OpenAI
+OPENAI_ENABLED = True
+OPENAI_API_KEY = 'sk-your-openai-key-here'
+OPENAI_MODEL = 'gpt-4.1-mini'
+
+# Local LLM, reachable over an OpenAI-compatible API endpoint.
+LOCAL_LLM_ENABLED = False
+LOCAL_LLM_URL = ''
+LOCAL_LLM_API_KEY = ''
+LOCAL_LLM_MODEL = ''
+
+# Notification channels
+NOTIFICATION_CHANNELS = [
+    {
+        'id': 'mattermost-main',
+        'name': 'Mattermost',
+        'type': 'mattermost',
+        'url': '',
+        'enabled': False,
+        'verify_tls': True,
+    },
+]
+
+# Legacy aliases: first active Mattermost channel (used by notifier for fallback)
+MATTERMOST_ENABLED = any(c.get('type') == 'mattermost' and c.get('enabled') for c in NOTIFICATION_CHANNELS)
+MATTERMOST_WEBHOOK_URL = next((c.get('url', '') for c in NOTIFICATION_CHANNELS if c.get('type') == 'mattermost' and c.get('enabled')), '')
+
+# SMTP server settings, shared by all email notification channels.
+SMTP_HOST = ''
+SMTP_PORT = 587
+SMTP_USE_TLS = True
+SMTP_USERNAME = ''
+SMTP_PASSWORD = ''
+SMTP_FROM = ''
+
+# Flowintel case management instances
+FLOWINTEL_INSTANCES = []
+
+# Additional MISP servers queried by the data-collection page.
+MISP_SERVERS = []
+
+# IMAP mailboxes polled by run_imap_collector.py for newsletter e-mails.
+IMAP_SOURCES = []
+
+# Collection sources offered when editing a PIR or GIR.
+# Derived automatically from the MISP scraper and configured MISP servers.
+# Do not set manually; edit the sources above instead.
+def _build_collection_sources():
+    items = ['misp-scraper']
+    for s in MISP_SERVERS:
+        label = (s.get('label') or '').strip()
+        if label and label not in items:
+            items.append(label)
+    return items
+
+COLLECTION_SOURCES = _build_collection_sources()
+
+# Product types used for stakeholder subscriptions and PIR deliverables
+PRODUCT_TYPES = [
+    'Flash intel alert',
+    'Vulnerability advisory',
+    'Threat actor profile',
+    'Campaign profile',
+    'Indicator feed',
+    'Daily threat briefing',
+    'Detection engineering request',
+    'Threat landscape report',
+    'Incident response support',
+    'Hunt support',
+]
+
+# Threat actor types (ENISA taxonomy) - reference list available to all CTI products
+THREAT_ACTOR_TYPES = [
+    {'name': 'State-Nexus Actors', 'description': 'Also known as Advanced Persistent Threats (APTs) or nation-states, these groups possess massive resources and state-level backing. They primarily engage in cyberespionage, intellectual property theft, and long-term surveillance targeting governments, critical infrastructure, and large organizations.'},
+    {'name': 'Cybercrime & Hacker-for-Hire Actors', 'description': 'These adversaries are motivated by financial gain. They operate as organized syndicates, often utilizing Ransomware-as-a-Service (RaaS) models, extortion, and phishing to steal data and demand payouts.'},
+    {'name': 'Private Sector Offensive Actors (PSOA)', 'description': 'These are commercial enterprises or contractors that legally or semi-legally develop and sell cyber-surveillance tools, exploits, and hacking services (e.g., commercial spyware).'},
+    {'name': 'Hacktivists', 'description': 'These actors are driven by political, social, or ideological goals rather than financial profit. They frequently conduct low-impact, high-visibility disruption campaigns, such as Distributed Denial of Service (DDoS) attacks and website defacements, often targeting public administration and financial sectors.'},
+]
+
+# Daily briefing analyser: skip source events/reports whose titles contain
+# any of these substrings (case-insensitive).
+DAILY_BRIEFING_TITLE_EXCLUSIONS = []
+
+# Organisation-wide focus points used for AI-assisted briefing and relevance logic.
+FOCUS_POINTS_GEOGRAPHIES = []
+FOCUS_POINTS_SECTORS = []
+FOCUS_POINTS_TECHNOLOGIES = []
+FOCUS_POINTS_THREAT_TYPES = []
+FOCUS_POINTS_THREAT_ACTORS = []
+
+# MISP context tags - entity type markers (stakeholders, requirements, RFIs)
+TAG_STAKEHOLDER = 'zsazsa:type="stakeholder"'
+TAG_PIR         = 'zsazsa:type="pir"'
+TAG_GIR         = 'zsazsa:type="gir"'
+TAG_RFI         = 'zsazsa:type="rfi"'
+
+# MISP context tags - product classification (serve as both type and product marker)
+TAG_FLASH_INTEL = 'zsazsa:ctiproduct="flash-intel"'
+TAG_VEA         = 'zsazsa:ctiproduct="vea"'
+TAG_BRIEFING    = 'zsazsa:ctiproduct="daily-briefing"'
+TAG_TLR         = 'zsazsa:ctiproduct="threat-landscape-report"'
+TAG_INDICATOR_FEED = 'zsazsa:ctiproduct="indicator-feed"'
+TAG_THREAT_ACTOR_PROFILE = 'zsazsa:ctiproduct="threat-actor-profile"'
+TAG_COLLECTION_FOLLOWUP = 'zsazsa:collection="follow-up"'
+TAG_COLLECTION_DISMISSED = 'zsazsa:event="dismiss"'
+
+# Data collection tag display settings
+COLLECTION_TAG_STRIP_PREFIXES = [
+    'misp-galaxy:mitre-attack-pattern=',
+    'misp-galaxy:threat-actor=',
+    'misp-galaxy:sector=',
+    'misp-galaxy:country=',
+    'misp-galaxy:target-information=',
+    'misp-galaxy:malpedia=',
+    'misp-galaxy:mitre-malware=',
+    'misp-galaxy:tool=',
+    'misp-galaxy:microsoft-activity-group=',
+    'misp-galaxy:rat=',
+    'curation:source=',
+    'zsazsa:collection=',
+    'zsazsa:source=',
+    'zsazsa:source-type=',
+]
+COLLECTION_TAG_HIDE_PREFIXES = [
+    'retention',
+]
+
+# Recommended actions shown in flash intel and VEA wizards
+RECOMMENDED_ACTIONS_IMMEDIATE = ['Block identified malicious indicators at perimeter', 'Isolate affected systems if active compromise is suspected', 'Alert SOC and initiate triage', 'Review EDR/SIEM for related alerts', 'Preserve logs and artefacts for forensic analysis']
+RECOMMENDED_ACTIONS_NEAR_TERM = ['Apply vendor patches or available mitigations', 'Update detection rules and signatures', 'Conduct targeted threat hunt', 'Brief affected teams and stakeholders', 'Review and update incident response playbooks']
+
+# Analyser
+POLL_WINDOW_HOURS = 24
+SCRAPER_MARKER_TAG = 'zsazsa:source="misp-scraper"'
+MISP_SCRAPER_LIMIT = 500
+MISP_SCRAPER_SINCE_DAYS = 30
+EVENT_LOG_RETENTION_DAYS = 90
+PIPELINE_RUN_LOG_RETENTION_DAYS = 365
+
+# Manual sources pushing to the misp-scraper queue (Redis pub/sub the scraper subscribes to)
+SCRAPER_REDIS_HOST = '127.0.0.1'
+SCRAPER_REDIS_PORT = 6379
+SCRAPER_REDIS_PASSWORD = ''
+SCRAPER_REDIS_CHANNEL = 'urls'
+
+# Paths
+STATE_FILE = 'data/state.json'
+DB_FILE = 'data/analyser.db'
+
+# Logging
+LOG_FILE = 'data/analyser.log'
+LOG_LEVEL = 'INFO'
+
+# Web server
+HOSTNAME = '0.0.0.0'
+PORT = 5000
+SSL_ENABLED = False
+SSL_CERT = 'certs/zsazsa.crt'
+SSL_KEY = 'certs/zsazsa.key'
+
+# MISP - shared session SSO. zsazsa runs as a subpath behind MISP and
+# identifies the logged-in user from MISP's own PHP session cookie, read
+# directly from the Redis instance MISP stores its sessions in.
+# MISP names its session cookie 'MISP-<instance uuid>', which is unique per
+# install. Leave MISP_SESSION_COOKIE_NAME empty to derive it automatically from
+# the MISP server's instance UUID; set it explicitly only to override.
+MISP_SESSION_COOKIE_NAME = ''
+MISP_SESSION_REDIS_HOST = '127.0.0.1'
+MISP_SESSION_REDIS_PORT = 6379
+MISP_SESSION_REDIS_DB = 0
+MISP_SESSION_REDIS_USERNAME = ''
+MISP_SESSION_REDIS_PASSWORD = ''
+# If True, visitors without a valid MISP session are redirected to MISP's
+# login page. If False, they fall back to the admin@admin.test identity.
+MISP_SESSION_REDIRECT_TO_LOGIN = False
+
+# Branding (used for PDF outputs and channel notifications)
+BRAND_COMPANY    = ''
+BRAND_DEPARTMENT = ''
+BRAND_COLOR_1    = '#0f2d52'
+BRAND_COLOR_2    = '#0078f1'
+BRAND_COLOR_3    = '#64748b'
+BRAND_LOGO       = ''
+
+# UI theme: 'overmind' (MISP Overmind teal, default), 'uibeta' (MISP UiBeta-style
+# light) or 'default' (zsazsa legacy navy)
+THEME = 'overmind'
