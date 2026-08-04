@@ -6,6 +6,8 @@ It is designed for teams that want to run threat intelligence as an operational 
 
 If you are setting zsazsa up, start with [INSTALL.md](INSTALL.md). It covers what you need for installation, configuration and deployment.
 
+zsazsa is developed with the support of AI.
+
 ## Overview
 
 ![zsazsa CTI Overview](docs/zsazsa-overview.png)
