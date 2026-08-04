@@ -1,13 +1,14 @@
 import logging
 import os
 import sqlite3
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 import config
 from core.db import get_recent_pipeline_runs, get_latest_pipeline_run
-from webapp import misp_store
+from webapp import collection_cache, misp_store
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("pipeline", __name__)
@@ -170,23 +171,65 @@ def _indicator_stats():
         return {"ok": False, "by_type": {}, "total_ioc": 0, "all_total": 0}
 
 
+def _age_text(seconds: float) -> str:
+    """Same wording as the ago() helper the pages use client-side."""
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes}m ago"
+    if minutes < 1440:
+        return f"{round(minutes / 60)}h ago"
+    return f"{round(minutes / 1440)}d ago"
+
+
+def _import_status(status: dict | None, interval_s: int) -> dict:
+    """Last collection-cache import for one source, formatted for display.
+
+    ``status`` is one row of collection_cache.get_source_status(). A run older
+    than twice the refresh interval is marked stale: the worker lives in this
+    process, so a growing age is how a dead or stuck worker shows itself.
+    """
+    if not status or not status.get("last_fetch"):
+        return {"last_import": "", "import_age": "", "imported": None,
+                "imported_new": None, "import_duration": None,
+                "import_error": "", "import_stale": False, "cached_events": 0}
+
+    age_s = max(0.0, time.time() - status["last_fetch"])
+    return {
+        "last_import": datetime.fromtimestamp(status["last_fetch"]).strftime("%Y-%m-%d %H:%M"),
+        "import_age": _age_text(age_s),
+        "imported": status.get("last_event_count"),
+        "imported_new": status.get("last_new_count"),
+        "import_duration": status.get("last_duration_s"),
+        "import_error": status.get("error") or "",
+        "import_stale": age_s > 2 * interval_s,
+        "cached_events": status.get("event_count", 0),
+    }
+
+
 def _source_health():
     from webapp.routes.data_collection import _sources
     from pymisp import PyMISP
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    cache_status = collection_cache.get_source_status()
+    interval_s = collection_cache.interval_s()
+
     results = []
     for src in _sources():
+        imported = _import_status(cache_status.get(src["id"]), interval_s)
         if src["kind"] == "manual":
             results.append({
                 "label": src["label"], "url": "", "kind": "manual",
                 "ok": True, "version": "", "error": "",
                 "last_event_date": "", "event_count": None, "manual": True,
+                **imported,
             })
             continue
 
-        row = {"label": src["label"], "url": src.get("url", ""), "kind": src["kind"]}
+        row = {"label": src["label"], "url": src.get("url", ""), "kind": src["kind"], **imported}
         if src["kind"] == "scraper":
             conn = misp_store.test_scraper_misp()
         else:
@@ -310,6 +353,23 @@ def _newsletter_source_health(source_counts):
     return rows
 
 
+def _configured_source_volume(source_health):
+    """Event volume per source configured under Collection sources.
+
+    Reuses the health rows so the panel costs no extra MISP calls. ``cached`` is
+    what the last import actually brought in and is capped by the source's limit
+    and date window; ``on_server`` is everything matching its filter, so the two
+    together show whether a source is being read in full.
+    """
+    rows = [{
+        "label": src["label"],
+        "cached": src.get("cached_events") or 0,
+        "on_server": src.get("event_count"),
+    } for src in source_health]
+    rows.sort(key=lambda r: r["cached"], reverse=True)
+    return rows
+
+
 @bp.route("/pipeline")
 def index():
     # One MISP tag-statistics read, shared by the throughput and email-source panels.
@@ -328,6 +388,7 @@ def index():
     indicator_stats = _indicator_stats()
     return render_template(
         "pipeline.html",
+        configured_source_volume=_configured_source_volume(source_health),
         pipeline=pipeline,
         recent_runs=recent_runs,
         imap_mailboxes=imap_mailboxes,
@@ -335,6 +396,7 @@ def index():
         scraper_misp=scraper_misp,
         webapp_misp=webapp_misp,
         source_health=source_health,
+        cache_interval_min=collection_cache.interval_s() // 60,
         indicator_stats=indicator_stats,
     )
 

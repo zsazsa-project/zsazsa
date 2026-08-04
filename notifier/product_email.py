@@ -20,7 +20,7 @@ from webapp.misp_store import (
     briefing_combined_scope_summary,
     briefing_story_scope_rows,
 )
-from webapp.utils import md_to_html
+from webapp.utils import md_to_html, mute_lead_labels
 
 LOGO_CID = "brandlogo"
 
@@ -53,15 +53,18 @@ def _pretext(text: str, brand: dict) -> str:
 
 
 def _body_html(markdown: str, brand: dict) -> str:
-    """Render markdown for the mail body, muting bold "Label:" pretext.
+    """Render markdown for the mail body, muting "Label:" pretext.
 
     The muting deliberately happens after rendering, against the <strong> that
     CommonMark guarantees for **bold**. Substituting the span into the markdown
     beforehand reads tidier but only works while md_to_html keeps html=True: the
     day that is turned off, every product mail would show escaped tag text.
+    Briefing stories write their labels as plain prose instead of bold, which
+    mute_lead_labels picks up from the same rendered HTML.
     """
     muted = f'<span style="font-size:12px;color:{brand["color3"]};">'
-    return _LABEL_RE.sub(lambda m: f"{muted}{m.group(1)}</span>", md_to_html(markdown or ""))
+    rendered = _LABEL_RE.sub(lambda m: f"{muted}{m.group(1)}</span>", md_to_html(markdown or ""))
+    return mute_lead_labels(rendered, muted)
 
 
 def _tlp_badge(tlp: str, *, on_dark: bool) -> str:

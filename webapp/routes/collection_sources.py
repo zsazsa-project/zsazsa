@@ -5,7 +5,7 @@ import logging
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import config as _config
-from webapp import audit, misp_store, newsletter_parsers
+from webapp import audit, collection_cache, misp_store, newsletter_parsers
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("collection_sources", __name__, url_prefix="/config/sources")
@@ -54,6 +54,9 @@ def new():
                                    admiralty_options=ADMIRALTY_OPTIONS)
         try:
             uuid = misp_store.create_collection_source(data)
+            # Give the new source a first import now, so it does not read as
+            # "never imported" until the worker's next sweep.
+            collection_cache.trigger_refresh()
             audit.record("create", "collection_source", entity_id=uuid, entity_label=data["name"])
             flash(f"Source '{data['name']}' created.", "success")
             return redirect(url_for("collection_sources.index"))
@@ -110,6 +113,8 @@ def toggle(id):
             return redirect(url_for("collection_sources.index"))
     try:
         misp_store.toggle_collection_source(id, new_state)
+        if new_state:
+            collection_cache.trigger_refresh()
         action = "enabled" if new_state else "disabled"
         audit.record("update", "collection_source", entity_id=id,
                      entity_label=f"{source.name} {action}")

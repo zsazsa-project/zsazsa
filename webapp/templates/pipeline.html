@@ -9,6 +9,41 @@
 
   <div class="col-lg-8">
 
+    {% if configured_source_volume %}
+    <div class="card content-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-server me-2"></i>By configured source</span>
+        <a href="{{ url_for('collection_sources.index') }}" class="btn btn-xs btn-outline-secondary">
+          <i class="fas fa-sliders me-1"></i> Collection sources
+        </a>
+      </div>
+      <div class="card-body p-0">
+        <p class="text-muted small px-3 pt-3 mb-2">
+          Events held in the collection cache per source configured under Collection sources,
+          against everything matching that source's filter on its server. A large gap means the
+          source's limit or date window is cutting the import short.
+        </p>
+        {% set max_cached = configured_source_volume | map(attribute='cached') | max %}
+        <ul class="list-unstyled mb-0">
+          {% for row in configured_source_volume %}
+          <li class="px-3 py-2 border-top">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="fw-semibold" style="font-size:.875rem;">{{ row.label }}</span>
+              <span class="text-muted small">
+                {{ row.cached }}{% if row.on_server is not none %} / {{ row.on_server }}{% endif %}
+              </span>
+            </div>
+            <div class="progress" style="height:4px;border-radius:2px;">
+              <div class="progress-bar"
+                   style="width:{{ (row.cached / max_cached * 100) | int if max_cached else 0 }}%;background:var(--accent-blue);"></div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
     {% if pipeline %}
 
     <div class="card content-card mb-4">
@@ -309,26 +344,40 @@
 
     {% if source_health %}
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-rss me-2"></i>Collection source health</div>
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fas fa-rss me-2"></i>Collection source health</span>
+        <span class="text-muted fw-normal" style="font-size:.72rem;"
+              title="The background worker re-imports every source on this interval">
+          <i class="fas fa-rotate me-1"></i>import every {{ cache_interval_min }} min
+        </span>
+      </div>
       <div class="card-body p-0">
         <ul class="list-unstyled mb-0">
           {% for src in source_health %}
           <li class="px-3 py-2 {% if not loop.last %}border-bottom{% endif %}">
             <div class="d-flex align-items-center justify-content-between mb-1">
               <span class="fw-semibold" style="font-size:.875rem;">{{ src.label }}</span>
-              {% if src.manual %}
-              <span class="badge outcome-info" style="font-size:.7rem;">
-                <i class="fas fa-hand me-1"></i>Manual
+              <span class="d-flex gap-1">
+                {% if src.import_stale %}
+                <span class="badge outcome-warning" style="font-size:.7rem;"
+                      title="No import for more than twice the refresh interval">
+                  <i class="fas fa-hourglass-half me-1"></i>Import stale
+                </span>
+                {% endif %}
+                {% if src.manual %}
+                <span class="badge outcome-info" style="font-size:.7rem;">
+                  <i class="fas fa-hand me-1"></i>Manual
+                </span>
+                {% elif src.ok %}
+                <span class="badge outcome-success" style="font-size:.7rem;">
+                  <i class="fas fa-circle-check me-1"></i>Online
+                </span>
+                {% else %}
+                <span class="badge outcome-error" style="font-size:.7rem;">
+                  <i class="fas fa-circle-xmark me-1"></i>Unreachable
+                </span>
+                {% endif %}
               </span>
-              {% elif src.ok %}
-              <span class="badge outcome-success" style="font-size:.7rem;">
-                <i class="fas fa-circle-check me-1"></i>Online
-              </span>
-              {% else %}
-              <span class="badge outcome-error" style="font-size:.7rem;">
-                <i class="fas fa-circle-xmark me-1"></i>Unreachable
-              </span>
-              {% endif %}
             </div>
             {% if src.manual %}
             <div style="font-size:.78rem;color:var(--text-muted);">Human-curated source, no automated connectivity check.</div>
@@ -338,12 +387,41 @@
               <span><i class="fas fa-calendar-day me-1"></i>Last event: {{ src.last_event_date }}</span>
               {% endif %}
               {% if src.event_count is not none %}
-              <span><i class="fas fa-layer-group me-1"></i>{{ src.event_count }} events</span>
+              <span><i class="fas fa-layer-group me-1"></i>{{ src.event_count }} on server</span>
               {% endif %}
             </div>
             {% else %}
             <div class="text-danger" style="font-size:.78rem;">{{ src.error }}</div>
             {% endif %}
+
+            {# Local import: what the collection cache worker last pulled from this source. #}
+            <div class="d-flex gap-3 flex-wrap" style="font-size:.78rem;color:var(--text-muted);">
+              {% if not src.last_import %}
+              <span><i class="fas fa-inbox me-1"></i>Never imported</span>
+              {% else %}
+              <span title="Last import: {{ src.last_import }}">
+                <i class="fas fa-clock me-1"></i>Imported {{ src.import_age }}
+              </span>
+              {% if src.import_error %}
+              <span class="text-danger"><i class="fas fa-triangle-exclamation me-1"></i>{{ src.import_error }}</span>
+              {% elif src.imported is not none %}
+              <span>
+                <i class="fas fa-download me-1"></i>{{ src.imported }} event{{ 's' if src.imported != 1 }}
+                {% if src.imported_new %}<span class="text-success">({{ src.imported_new }} new)</span>{% endif %}
+              </span>
+              {% if src.import_duration is not none %}
+              <span><i class="fas fa-stopwatch me-1"></i>{{ src.import_duration }}s</span>
+              {% endif %}
+              {% endif %}
+              {# Only worth showing when the cache holds something other than what
+                 the last run fetched, which is what a failed run leaves behind. #}
+              {% if src.cached_events != src.imported %}
+              <span title="Events currently held in the local collection cache">
+                <i class="fas fa-database me-1"></i>{{ src.cached_events }} cached
+              </span>
+              {% endif %}
+              {% endif %}
+            </div>
           </li>
           {% endfor %}
         </ul>

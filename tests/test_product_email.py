@@ -122,6 +122,18 @@ class BriefingHtml(unittest.TestCase):
     def test_preview_link_is_included(self):
         self.assertIn("https://cti.test/briefing/1", self.html)
 
+    def test_story_lead_labels_are_muted(self):
+        # Story labels are plain prose, not bold, so the bold-label rule alone
+        # would leave them looking like content.
+        briefing = _briefing()
+        briefing.stories[0].content = (
+            "What happened: ACME was hit.\nWho is affected: EU transport."
+        )
+        html = product_email.briefing_html(briefing)
+        for label in ("What happened:", "Who is affected:"):
+            self.assertIn(f"{label}</span>", html)
+        self.assertIn("ACME was hit.", html)
+
     def test_story_footer_lists_every_scope_row(self):
         """Guards the per-story rows, which the scope summary would otherwise mask."""
         from webapp.misp_store import briefing_story_scope_rows

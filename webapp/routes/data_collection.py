@@ -56,10 +56,6 @@ def _split_tags(s: str) -> list[str]:
     return parts
 
 
-def _source_slug(name: str) -> str:
-    return misp_store.source_slug(name)
-
-
 def _sources() -> list[dict]:
     out = [{
         "id": _SCRAPER_SOURCE_ID,
@@ -89,9 +85,8 @@ def _sources() -> list[dict]:
     try:
         for src in misp_store.list_collection_sources():
             if src.enabled:
-                slug = _source_slug(src.name)
                 out.append({
-                    "id": f"manual-{slug}",
+                    "id": collection_cache.manual_source_id(src.name),
                     "label": src.name,
                     "kind": "manual",
                     "url": config.MISP_WEBAPP_URL,
@@ -219,7 +214,7 @@ def _build_list_context() -> dict:
             cache_ages[sid] = int((now - st["last_fetch"]) / 60)
             if st["last_fetch"] > last_fetch_ts:
                 last_fetch_ts = st["last_fetch"]
-    cache_interval_s = int(getattr(config, "COLLECTION_CACHE_INTERVAL", 15)) * 60
+    cache_interval_s = collection_cache.interval_s()
 
     counter = Counter()
     for ev in events:
@@ -718,6 +713,7 @@ def manual_new():
         else:
             try:
                 uuid = misp_store.create_manual_collection_event(data)
+                _cache_manual_event(uuid, selected_source)
                 audit.record("create", "manual-collection-event", entity_id=uuid, entity_label=data["title"])
                 flash(f"Event '{data['title']}' created. You can add attachments below.", "success")
                 return redirect(url_for("data_collection.manual_detail", uuid=uuid))
@@ -970,8 +966,12 @@ def _is_remote_source(source_id: str) -> bool:
     return (_find_source(source_id) or {}).get("kind") == "misp"
 
 
-def _refresh_cached_event(uuid: str, source_id: str, misp, context: str = "", row_mutator=None) -> None:
-    """Refresh one event row in the local collection cache after a MISP write."""
+def _refresh_cached_event(uuid: str, source_id: str, misp, context: str = "", row_mutator=None) -> bool:
+    """Refresh one event row in the local collection cache after a MISP write.
+
+    Returns True when the row was written, so a caller that needs the event
+    visible right away can fall back to a full refresh.
+    """
     try:
         fresh = misp.get_event(uuid, pythonify=True)
         if fresh and not isinstance(fresh, dict):
@@ -979,9 +979,28 @@ def _refresh_cached_event(uuid: str, source_id: str, misp, context: str = "", ro
             if row_mutator is not None:
                 row_mutator(row)
             collection_cache.insert_event(row)
+            return True
     except Exception as exc:
         suffix = f" after {context}" if context else ""
         logger.warning("Could not refresh cache for %s%s: %s", uuid, suffix, exc)
+    return False
+
+
+def _cache_manual_event(uuid: str, source_name: str) -> None:
+    """Show a just-created manual event on the collection page straight away.
+
+    Never raises: the event is already in MISP by this point, so a cache write
+    that fails must not make the entry look like it failed. Waking the worker is
+    the fallback, which still beats waiting for the next sweep.
+    """
+    try:
+        written = _refresh_cached_event(uuid, collection_cache.manual_source_id(source_name),
+                                        misp_store._misp(), context="manual_new")
+    except Exception as exc:
+        logger.warning("Could not reach MISP to cache new manual event %s: %s", uuid, exc)
+        written = False
+    if not written:
+        collection_cache.trigger_refresh()
 
 
 @bp.route("/<string:uuid>/cti-tag", methods=["POST"])

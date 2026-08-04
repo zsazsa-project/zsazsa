@@ -32,7 +32,12 @@ logger = logging.getLogger(__name__)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _DB_FILE = "data/collection_cache.db"
-_DEFAULT_INTERVAL_S = 15 * 60  # 15 min, overridden by config.COLLECTION_CACHE_INTERVAL
+_DEFAULT_INTERVAL_MIN = 15
+
+
+def interval_s() -> int:
+    """Seconds between two refresh sweeps."""
+    return int(getattr(config, "COLLECTION_CACHE_INTERVAL", _DEFAULT_INTERVAL_MIN)) * 60
 
 
 @contextmanager
@@ -57,7 +62,10 @@ def init_db():
                 source_id TEXT PRIMARY KEY,
                 last_fetch REAL,
                 error TEXT,
-                event_count INTEGER DEFAULT 0
+                event_count INTEGER DEFAULT 0,
+                last_duration_s REAL,
+                last_event_count INTEGER,
+                last_new_count INTEGER
             );
             CREATE TABLE IF NOT EXISTS events (
                 source_id TEXT NOT NULL,
@@ -90,6 +98,9 @@ def init_db():
         for _col_ddl in [
             "ALTER TABLE events ADD COLUMN has_ai_summary INTEGER DEFAULT 0",
             "ALTER TABLE events ADD COLUMN vulnerability_ids TEXT DEFAULT ''",
+            "ALTER TABLE source_status ADD COLUMN last_duration_s REAL",
+            "ALTER TABLE source_status ADD COLUMN last_event_count INTEGER",
+            "ALTER TABLE source_status ADD COLUMN last_new_count INTEGER",
         ]:
             try:
                 conn.execute(_col_ddl)
@@ -99,10 +110,12 @@ def init_db():
 
 
 def get_source_status() -> dict:
-    """Return {source_id: {last_fetch, error, event_count}} from the status table.
+    """Return {source_id: {last_fetch, error, event_count, ...}} from the status table.
 
     event_count reflects the actual current row count in the events table,
-    not the stale value recorded at the last refresh.
+    not the stale value recorded at the last refresh. last_event_count and
+    last_new_count are what the most recent refresh fetched, and are None when
+    that refresh failed.
     """
     try:
         with _db() as conn:
@@ -272,6 +285,11 @@ def _source_slug(name: str) -> str:
     return name.lower().replace(" ", "-").replace("/", "-")
 
 
+def manual_source_id(name: str) -> str:
+    """Source id a manual collection source is cached under."""
+    return f"manual-{_source_slug(name)}"
+
+
 def _build_sources() -> list:
     srcs = [{"id": "scraper", "kind": "scraper", "label": "MISP scraper", "url": config.MISP_URL}]
     for s in getattr(config, "MISP_SERVERS", []) or []:
@@ -299,7 +317,7 @@ def _build_sources() -> list:
                 continue
             slug = _source_slug(src.name)
             srcs.append({
-                "id": f"manual-{slug}",
+                "id": manual_source_id(src.name),
                 "label": src.name,
                 "kind": "manual",
                 "url": config.MISP_WEBAPP_URL,
@@ -406,8 +424,17 @@ def refresh_source(src: dict):
                 logger.warning("collection cache: %s error - %s", source_id, exc)
 
     now = time.time()
+    duration = round(now - t0, 1)
+    new_count = None
     with _db() as conn:
         if not error:
+            # Count events this refresh brought in that were not cached before.
+            # A refresh replaces the whole source, so this is the only moment
+            # the previous set is still available to compare against.
+            known = {r[0] for r in conn.execute(
+                "SELECT uuid FROM events WHERE source_id = ?", (source_id,)
+            )}
+            new_count = len({r["uuid"] for r in rows} - known)
             conn.execute("DELETE FROM events WHERE source_id = ?", (source_id,))
             if rows:
                 conn.executemany(
@@ -428,13 +455,17 @@ def refresh_source(src: dict):
         # it live from the events table, so persisting a copy here would only
         # create a value that can disagree with reality (e.g. on a fetch error
         # the events rows are kept but len(rows) is 0). The column stays in the
-        # schema for backwards compatibility and keeps its default.
+        # schema for backwards compatibility and keeps its default. The two
+        # last_* counts describe this run alone, so a failed run leaves them
+        # NULL rather than repeating the previous numbers as if they were fresh.
         conn.execute(
-            """INSERT OR REPLACE INTO source_status (source_id, last_fetch, error)
-               VALUES (?, ?, ?)""",
-            (source_id, now, error),
+            """INSERT OR REPLACE INTO source_status
+               (source_id, last_fetch, error, last_duration_s, last_event_count, last_new_count)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (source_id, now, error, duration,
+             None if error else len(rows), new_count),
         )
-    logger.info("collection cache: %s done - %d events in %.1fs", source_id, len(rows), time.time() - t0)
+    logger.info("collection cache: %s done - %d events in %.1fs", source_id, len(rows), duration)
 
 
 _refresh_event = threading.Event()
@@ -462,7 +493,7 @@ def start_worker(interval: int = None):
     if _worker_thread and _worker_thread.is_alive():
         return
     if interval is None:
-        interval = int(getattr(config, "COLLECTION_CACHE_INTERVAL", 15)) * 60
+        interval = interval_s()
     init_db()
     _worker_thread = threading.Thread(
         target=_worker_loop, args=(interval,), daemon=True, name="collection-cache",

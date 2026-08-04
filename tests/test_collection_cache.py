@@ -84,6 +84,22 @@ class GetEvents(unittest.TestCase):
         status = collection_cache.get_source_status()
         self.assertEqual(status["src"]["event_count"], 3)
 
+    def test_source_status_reports_last_run_counts(self):
+        # The pipeline page reads these to show what the last import fetched,
+        # which is separate from how many rows are currently cached.
+        collection_cache.insert_event(_row("s-0", "2024-05-01", ["x"]))
+        with collection_cache._db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO source_status"
+                " (source_id, last_fetch, error, last_duration_s, last_event_count, last_new_count)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                ("src", 123.0, None, 4.2, 87, 3),
+            )
+        st = collection_cache.get_source_status()["src"]
+        self.assertEqual((st["last_event_count"], st["last_new_count"], st["last_duration_s"]),
+                         (87, 3, 4.2))
+        self.assertEqual(st["event_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

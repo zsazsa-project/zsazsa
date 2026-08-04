@@ -1,6 +1,7 @@
 """Shared request-parsing and config-normalization utilities."""
 
 import ast
+import re
 from datetime import datetime
 
 from flask import jsonify, request
@@ -11,6 +12,11 @@ from werkzeug.routing import BuildError
 # (marked with breaks:true) so multi-line fields like observed facts look the same
 # in the on-screen preview, the PDF and e-mail.
 _md = MarkdownIt("commonmark", {"breaks": True}).enable("table")
+
+# A label opening a line, as briefing stories write them ("What happened: ...").
+# Only plain words count, so a colon inside a sentence or an indicator such as
+# "CVE-2024-1234:" is left alone.
+_LEAD_LABEL_RE = re.compile(r"(<p>|<br\s*/?>)(\s*)([A-Za-z][A-Za-z ]{1,33}:)(?=\s)")
 
 
 def md_to_html(text: str) -> str:
@@ -26,6 +32,18 @@ def md_to_html_inline(text: str) -> str:
     line breaks) should still render.
     """
     return _md.renderInline(text or "")
+
+
+def mute_lead_labels(html: str, open_tag: str = '<span class="pretext">') -> str:
+    """Set the "Label:" opening a line back from the content it introduces.
+
+    Briefing stories write those labels as plain prose, so unlike the bold
+    labels in product markdown there is no tag to match; the substitution runs
+    on the rendered HTML instead. E-mail passes an inline-styled span, having no
+    stylesheet to carry the class.
+    """
+    return _LEAD_LABEL_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{open_tag}{m.group(3)}</span>", html or "")
 
 
 def dedup_lower(values: list) -> list:
