@@ -27,6 +27,7 @@ import urllib3
 from pymisp import PyMISP
 
 import config
+from webapp import job_store
 
 logger = logging.getLogger(__name__)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -132,6 +133,19 @@ def get_source_status() -> dict:
     except Exception as exc:
         logger.warning("get_source_status failed: %s", exc)
         return {}
+
+
+def cached_event_counts() -> list[dict]:
+    """[{"label", "events"}] per configured source, busiest first.
+
+    Straight from the local cache, so it costs no MISP call. The pipeline page
+    shows the same figures next to what each server holds, which does.
+    """
+    status = get_source_status()
+    rows = [{"label": src["label"], "events": status.get(src["id"], {}).get("event_count", 0)}
+            for src in _build_sources()]
+    rows.sort(key=lambda r: r["events"], reverse=True)
+    return rows
 
 
 def get_events(source_ids: list, tag_filters: list, limit: int) -> list:
@@ -330,7 +344,11 @@ def _build_sources() -> list:
     return srcs
 
 
-def refresh_source(src: dict):
+def refresh_source(src: dict) -> dict:
+    """Re-read one source into the cache.
+
+    Returns {"events": n, "new": n, "error": str} for the caller to report on.
+    """
     source_id = src["id"]
     logger.info("collection cache: refresh start - %s", source_id)
     t0 = time.time()
@@ -435,7 +453,15 @@ def refresh_source(src: dict):
                 "SELECT uuid FROM events WHERE source_id = ?", (source_id,)
             )}
             new_count = len({r["uuid"] for r in rows} - known)
-            conn.execute("DELETE FROM events WHERE source_id = ?", (source_id,))
+            # Only what this refresh is replacing. A request thread caching an
+            # event while the search was in flight (a new manual entry, a pulled
+            # UUID) wrote it after t0, and dropping it here would take it off the
+            # collection page until the next sweep.
+            conn.execute(
+                "DELETE FROM events WHERE source_id = ?"
+                " AND (fetched_at IS NULL OR fetched_at < ?)",
+                (source_id, t0),
+            )
             if rows:
                 conn.executemany(
                     """INSERT OR REPLACE INTO events
@@ -466,26 +492,74 @@ def refresh_source(src: dict):
              None if error else len(rows), new_count),
         )
     logger.info("collection cache: %s done - %d events in %.1fs", source_id, len(rows), duration)
+    return {"events": len(rows), "new": new_count or 0, "error": error or ""}
 
 
 _refresh_event = threading.Event()
 _worker_thread: threading.Thread | None = None
+# Jobs waiting to be told how the next sweep went. A sweep takes all of them, so
+# two clicks while one sweep is running both get an answer from the next one.
+_pending_jobs: list[str] = []
+_pending_lock = threading.Lock()
+
+
+def _sweep():
+    """Refresh every configured source once, reporting to any job waiting on it."""
+    with _pending_lock:
+        jobs = list(_pending_jobs)
+        _pending_jobs.clear()
+
+    def report(**fields):
+        for job_id in jobs:
+            job_store.update_job(job_id, **fields)
+
+    def note(message):
+        for job_id in jobs:
+            job_store.append_log(job_id, message)
+
+    sources = _build_sources()
+    report(status="running", message=f"Refreshing {len(sources)} source(s)...")
+    events = new = failures = 0
+    for src in sources:
+        report(message=f"Refreshing {src['label']}...")
+        try:
+            outcome = refresh_source(src)
+        except Exception as exc:
+            logger.exception("collection cache: worker error for %s: %s", src.get("id"), exc)
+            note(f"{src['label']}: {exc}")
+            failures += 1
+            continue
+        if outcome["error"]:
+            note(f"{src['label']}: {outcome['error']}")
+            failures += 1
+        else:
+            events += outcome["events"]
+            new += outcome["new"]
+
+    message = f"{events} event(s) from {len(sources) - failures} source(s), {new} new"
+    if failures:
+        message += f", {failures} source(s) failed"
+    # Only a sweep that got nothing anywhere counts as failed. One source with a
+    # missing API key is a standing condition, and calling every refresh failed
+    # over it would leave the top bar permanently red.
+    all_failed = failures > 0 and failures == len(sources)
+    report(status="failed" if all_failed else "completed", message=message,
+           result={"events": events, "new": new, "sources": len(sources), "failures": failures})
 
 
 def _worker_loop(interval: int):
-    for src in _build_sources():
-        try:
-            refresh_source(src)
-        except Exception as exc:
-            logger.exception("collection cache: worker error for %s: %s", src.get("id"), exc)
     while True:
-        _refresh_event.wait(timeout=interval)
+        # Cleared before the sweep, never after the wait: a trigger arriving in
+        # that gap would otherwise be dropped, leaving whoever asked for it
+        # waiting a full interval. Clearing here can cost one redundant sweep
+        # instead, which is the cheaper mistake.
         _refresh_event.clear()
-        for src in _build_sources():
-            try:
-                refresh_source(src)
-            except Exception as exc:
-                logger.exception("collection cache: worker error for %s: %s", src.get("id"), exc)
+        try:
+            _sweep()
+        except Exception as exc:
+            # The thread must survive: it is the only thing refreshing the cache.
+            logger.exception("collection cache: sweep failed: %s", exc)
+        _refresh_event.wait(timeout=interval)
 
 
 def start_worker(interval: int = None):
@@ -502,11 +576,13 @@ def start_worker(interval: int = None):
     logger.info("collection cache worker started (interval=%ds)", interval)
 
 
-def trigger_refresh() -> bool:
+def trigger_refresh(job_id: str = "") -> bool:
     """Wake the worker early to start a fresh fetch immediately.
 
-    Returns True when the refresh signal was queued, False when the worker
-    could not be started.
+    With a job id, that job is moved to running when the sweep starts and told
+    what it fetched when it ends. Returns True when the refresh signal was
+    queued, False when the worker could not be started; it never raises, so
+    callers can fire it from inside a "did the save work" try block.
     """
     global _worker_thread
     if not (_worker_thread and _worker_thread.is_alive()):
@@ -517,6 +593,9 @@ def trigger_refresh() -> bool:
             return False
     if not (_worker_thread and _worker_thread.is_alive()):
         return False
+    if job_id:
+        with _pending_lock:
+            _pending_jobs.append(job_id)
     _refresh_event.set()
     return True
 

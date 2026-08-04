@@ -1,7 +1,7 @@
 """State of the background jobs the web app runs, kept in Redis.
 
-Analyser runs and bulk AI summaries are started on a worker thread so the
-browser gets an answer straight away. Their state lives in Redis rather than in
+Analyser runs, cache refreshes and bulk AI summaries are started on a worker
+thread so the browser gets an answer straight away. Their state lives in Redis rather than in
 the process, which means an analyst can leave the page, come back, or open the
 app in another tab and still see what is running and how it ended. Settings are
 the JOB_REDIS_* entries in config; when Redis is not reachable the jobs are kept
@@ -224,3 +224,33 @@ def list_jobs() -> list[dict]:
             except ValueError:
                 continue
     return sorted(jobs, key=lambda j: j.get("created_at", 0), reverse=True)
+
+
+def forget_finished(statuses=("completed", "failed")) -> int:
+    """Drop the entries for jobs in these states and return how many went.
+
+    Only the record is dropped. A queued or running job keeps its entry
+    whatever is asked for here, since there is no worker to call back.
+    """
+    gone = 0
+    for job in list_jobs():
+        if job.get("status") in statuses:
+            forget_job(job["id"])
+            gone += 1
+    return gone
+
+
+def forget_abandoned(older_than_s: float) -> int:
+    """Drop queued or running entries untouched for that long, and count them.
+
+    For a worker that died with its process: nothing will ever move those jobs
+    off "running". The caller picks a wait long enough that work which is merely
+    slow between two progress messages keeps its entry.
+    """
+    cutoff = time.time() - older_than_s
+    gone = 0
+    for job in list_jobs():
+        if job.get("status") in ("queued", "running") and job.get("updated_at", 0) < cutoff:
+            forget_job(job["id"])
+            gone += 1
+    return gone

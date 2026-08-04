@@ -221,7 +221,8 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     var csrf = document.querySelector('meta[name="csrf-token"]');
     var headers = {'Content-Type': 'application/x-www-form-urlencoded'};
     if (csrf) headers['X-CSRF-Token'] = csrf.content;
-    fetch('{{ url_for("data_collection.refresh") }}', {method:'POST', headers:headers})
+    fetch('{{ url_for("data_collection.refresh") }}',
+          {method:'POST', headers:headers, body: isAuto ? 'auto=1' : ''})
       .then(function(resp) {
         if (!resp.ok) throw new Error('refresh-request-failed');
         return resp.json();
@@ -229,6 +230,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       .then(function(payload) {
         if (!payload || !payload.ok) throw new Error('refresh-not-queued');
         if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-check me-1"></i> Refresh started';
+        if (!isAuto && window.zsazsaJobsChanged) zsazsaJobsChanged();
         if (refreshCountdown && refreshCountdown._resetTimer) refreshCountdown._resetTimer();
         setTimeout(function() { window.location.reload(); }, 4000);
       })
@@ -1261,6 +1263,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         }
         /* The summary runs as a job, so the spinner stays until it reports back
            and the badge in the top bar covers leaving the page meanwhile. */
+        if (window.zsazsaJobsChanged) zsazsaJobsChanged();
         followJob(data.job_id, function(job) {
           if ((job.result || {}).summarised) {
             btn.remove();
@@ -1728,6 +1731,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
           return;
         }
         showFeedback(data.message + ' Progress is shown in the top bar.', 'info');
+        if (window.zsazsaJobsChanged) zsazsaJobsChanged();
         followJob(data.job_id, function(job) {
           showFeedback(job.message || 'Summaries created.', 'success');
           setTimeout(function() { window.location.reload(); }, 1500);

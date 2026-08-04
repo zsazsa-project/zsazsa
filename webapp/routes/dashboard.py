@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, render_template
 import config
 from analyser.reader import save_last_run
 from core.db import log_pipeline_run_start, log_pipeline_run_end
-from webapp import analyser_pipeline, audit
+from webapp import analyser_pipeline, audit, collection_cache
 from webapp import job_store, misp_session, misp_store
 from webapp.utils import json_body as _json_object
 
@@ -229,6 +229,11 @@ def widgets():
     except Exception:
         logger.exception("Failed to load throughput by collection source")
         throughput_by_source = []
+    try:
+        configured_sources = collection_cache.cached_event_counts()[:8]
+    except Exception:
+        logger.exception("Failed to load event counts per configured source")
+        configured_sources = []
 
     html = render_template(
         "_dashboard_content.html",
@@ -241,6 +246,7 @@ def widgets():
         pending_feedback=pending_feedback,
         actor_type_products=actor_type_products,
         throughput_by_source=throughput_by_source,
+        configured_sources=configured_sources,
     )
 
     pl = _pipeline_status()
@@ -289,6 +295,12 @@ def pipeline_job_status(job_id: str):
 # an analyser run takes between two progress messages.
 _JOB_STALE_AFTER_SECONDS = 1800
 
+# Dropping the entry of a job that is only slow would hide work that is still
+# running, so removal asks for far more silence than the stalled marker does.
+# The analyser reports progress once per step, not once per LLM call, so a step
+# that summarises a batch on a local model can be quiet for a long while.
+_JOB_REMOVABLE_AFTER_SECONDS = 4 * 3600
+
 
 @bp.route("/pipeline/jobs", methods=["GET"])
 def pipeline_jobs():
@@ -316,3 +328,28 @@ def pipeline_jobs():
         })
     running = [j for j in jobs if j["status"] in ("queued", "running") and not j["stale"]]
     return jsonify({"ok": True, "jobs": jobs[:20], "running": len(running)})
+
+
+@bp.route("/pipeline/jobs/clear", methods=["POST"])
+def clear_jobs():
+    """Drop job entries from the list in the top bar.
+
+    POST JSON: {"scope": "completed"} for the runs that succeeded, {"scope":
+    "all"} for every finished run, failures included, or {"scope": "abandoned"}
+    for entries left behind by a worker that died with its process. This removes
+    the record, not the work.
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    scope = (body.get("scope") or "").strip()
+    if scope not in ("completed", "all", "abandoned"):
+        return jsonify({"ok": False, "error": "Unknown scope."}), 400
+
+    if scope == "abandoned":
+        removed = job_store.forget_abandoned(_JOB_REMOVABLE_AFTER_SECONDS)
+    else:
+        statuses = ("completed",) if scope == "completed" else ("completed", "failed")
+        removed = job_store.forget_finished(statuses)
+    audit.record("clear", "background-jobs", details=f"scope={scope} removed={removed}")
+    return jsonify({"ok": True, "removed": removed})

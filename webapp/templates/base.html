@@ -407,10 +407,30 @@
       </div>
       <div class="modal-body">
         <p class="text-muted small">
-          Analyser runs, mailbox polls and AI summaries keep going after you leave the page.
-          They are listed here until they age out, and finished runs also appear under
-          Reporting &rsaquo; Pipeline.
+          Analyser runs, mailbox polls, cache refreshes and AI summaries keep going after you
+          leave the page. They are listed here until they age out, and finished analyser runs
+          also appear under Reporting &rsaquo; Pipeline.
         </p>
+        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+          <span class="text-muted" style="font-size:.72rem;">
+            Removing clears the entry, not the work, so queued and running jobs keep theirs
+            until they end or go quiet for hours.
+          </span>
+          <div class="btn-group flex-shrink-0" role="group" aria-label="Remove job entries">
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="jobs-clear-completed"
+                    title="Remove the entries of runs that finished successfully">
+              <i class="fas fa-broom me-1"></i>Completed
+            </button>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="jobs-clear-all"
+                    title="Remove every finished entry, failures included">
+              <i class="fas fa-trash-can me-1"></i>All
+            </button>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="jobs-clear-abandoned"
+                    title="Remove entries left on running by a worker that died with its process">
+              <i class="fas fa-ghost me-1"></i>Abandoned
+            </button>
+          </div>
+        </div>
         <div id="jobs-modal-list" class="list-group list-group-flush"></div>
       </div>
     </div>
@@ -839,8 +859,19 @@
       return Math.round(mins / 1440) + 'd ago';
     }
 
+    // "1 running, 1 queued" rather than one lump: a job waiting its turn is not
+    // the same news as a job doing something.
+    function activeText(active) {
+      var counts = {running: 0, queued: 0};
+      active.forEach(function(j) { counts[j.status] += 1; });
+      var parts = [];
+      if (counts.running) parts.push(counts.running + ' running');
+      if (counts.queued) parts.push(counts.queued + ' queued');
+      return parts.join(', ');
+    }
+
     function paint() {
-      var running = jobs.filter(function(j) {
+      var active = jobs.filter(function(j) {
         return (j.status === 'queued' || j.status === 'running') && !j.stale;
       });
       var stalled = jobs.filter(function(j) { return j.stale; });
@@ -855,14 +886,14 @@
         var icon = badge.querySelector('.job-badge-icon');
         var text = badge.querySelector('.job-badge-text');
         badge.classList.remove('job-badge-running', 'job-badge-done', 'job-badge-failed');
-        if (running.length) {
+        if (active.length) {
           badge.classList.remove('d-none');
           badge.classList.add('job-badge-running');
           icon.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-          text.textContent = running.length === 1
-            ? running[0].label + ' running'
-            : running.length + ' jobs running';
-          badge.title = running.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
+          text.textContent = active.length === 1
+            ? active[0].label + ' ' + active[0].status
+            : activeText(active);
+          badge.title = active.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
         } else if (stalled.length) {
           badge.classList.remove('d-none');
           badge.classList.add('job-badge-failed');
@@ -938,6 +969,42 @@
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) schedule(200);
     });
+
+    // A page that has just started a job calls this so the badge appears at
+    // once. Without it the job stays invisible until the next scheduled poll,
+    // half a minute later on an idle app, which reads as "nothing happened".
+    window.zsazsaJobsChanged = function() { schedule(200); };
+
+    // The list is shared through Redis, so clearing it clears it for everyone.
+    var CLEAR_CONFIRM = {
+      all: 'Remove every finished job entry, failures included?',
+      abandoned: 'Remove entries for work that went quiet hours ago? Anything still running '
+               + 'carries on, it just stops being listed.'
+    };
+
+    // Only the list is cleared; the server keeps anything still queued or
+    // running, so the repaint afterwards shows what survived.
+    function clearJobs(scope, button) {
+      if (CLEAR_CONFIRM[scope] && !confirm(CLEAR_CONFIRM[scope])) return;
+      var csrf = document.querySelector('meta[name="csrf-token"]');
+      button.disabled = true;
+      fetch(SCRIPT_ROOT + '/pipeline/jobs/clear', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf ? csrf.content : ''},
+        body: JSON.stringify({scope: scope})
+      })
+        .then(zsazsaReadJson)
+        .catch(function(err) { alert('Could not remove entries: ' + zsazsaErrorText(err)); })
+        .finally(function() { button.disabled = false; schedule(200); });
+    }
+
+    [['jobs-clear-completed', 'completed'],
+     ['jobs-clear-all', 'all'],
+     ['jobs-clear-abandoned', 'abandoned']].forEach(function(pair) {
+      var button = document.getElementById(pair[0]);
+      if (button) button.addEventListener('click', function() { clearJobs(pair[1], button); });
+    });
+
     poll();
   })();
 </script>

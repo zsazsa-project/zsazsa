@@ -7,6 +7,8 @@ the Redis one and reappears on the next blip.
     python -m unittest tests.test_job_store
 """
 
+import json
+import time
 import unittest
 from unittest import mock
 
@@ -75,6 +77,50 @@ class MemoryFallback(unittest.TestCase):
         # The version served now is Redis's, not the stale in-memory one.
         self.redis.up = False
         self.assertEqual(job_store.list_jobs(), [])
+
+
+class ForgetFinished(unittest.TestCase):
+    """The Remove buttons in the jobs panel drop entries, never work in flight."""
+
+    def setUp(self):
+        self.redis = FakeRedis()
+        job_store._memory.clear()
+        patcher = mock.patch.object(job_store, "_command", side_effect=self.redis)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(job_store._memory.clear)
+        for status in ("completed", "failed", "running", "queued"):
+            job = job_store.create_job("analyser", status)
+            job_store.update_job(job["id"], status=status)
+
+    def _statuses(self):
+        return sorted(job["status"] for job in job_store.list_jobs())
+
+    def test_removing_completed_keeps_the_rest(self):
+        self.assertEqual(job_store.forget_finished(("completed",)), 1)
+        self.assertEqual(self._statuses(), ["failed", "queued", "running"])
+
+    def test_removing_all_keeps_queued_and_running(self):
+        self.assertEqual(job_store.forget_finished(), 2)
+        self.assertEqual(self._statuses(), ["queued", "running"])
+
+    def _quiet_for(self, status, seconds):
+        """Backdate a job's last write. Every save stamps updated_at, so the
+        stored record is edited in place instead."""
+        for job_id, raw in self.redis.hash.items():
+            stored = json.loads(raw)
+            if stored["status"] == status:
+                stored["updated_at"] = time.time() - seconds
+                self.redis.hash[job_id] = json.dumps(stored)
+
+    def test_only_long_abandoned_unfinished_entries_go(self):
+        """A local LLM can be quiet for a while between progress messages, so a
+        job that is merely slow has to survive the abandoned sweep."""
+        self._quiet_for("running", 40 * 60)
+        self._quiet_for("queued", 5 * 3600)
+
+        self.assertEqual(job_store.forget_abandoned(4 * 3600), 1)
+        self.assertEqual(self._statuses(), ["completed", "failed", "running"])
 
 
 if __name__ == "__main__":

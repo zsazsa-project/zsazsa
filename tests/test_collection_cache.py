@@ -8,7 +8,9 @@ that happen to be older than the result cap. Uses a throwaway SQLite file.
 
 import os
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 from webapp import collection_cache
 
@@ -83,6 +85,26 @@ class GetEvents(unittest.TestCase):
             )
         status = collection_cache.get_source_status()
         self.assertEqual(status["src"]["event_count"], 3)
+
+    def test_a_refresh_keeps_events_cached_while_it_ran(self):
+        # A manual entry is written to the cache by the request that creates it.
+        # When a refresh for that source is already in flight, its search ran
+        # before the event existed, so the replace must not take the row with it.
+        collection_cache.insert_event(_row("stale", "2024-01-01", [], source_id="manual-x"))
+        time.sleep(0.01)
+
+        class _Misp:
+            def search(self, **kwargs):
+                collection_cache.insert_event(
+                    _row("entered-meanwhile", "2024-06-01", [], source_id="manual-x"))
+                return []
+
+        src = {"id": "manual-x", "kind": "manual", "url": "u", "api_key": "k", "source_tag": ""}
+        with mock.patch.object(collection_cache, "PyMISP", lambda *a, **k: _Misp()):
+            collection_cache.refresh_source(src)
+
+        cached = [e["uuid"] for e in collection_cache.get_events(["manual-x"], [], limit=10)]
+        self.assertEqual(cached, ["entered-meanwhile"])
 
     def test_source_status_reports_last_run_counts(self):
         # The pipeline page reads these to show what the last import fetched,

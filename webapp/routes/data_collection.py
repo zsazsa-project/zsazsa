@@ -296,8 +296,20 @@ def index():
 
 @bp.route("/refresh", methods=["POST"])
 def refresh():
-    queued = collection_cache.trigger_refresh()
-    if not queued:
+    """Wake the cache worker.
+
+    A click is tracked as a job so the analyst can follow it from the top bar.
+    The countdown's automatic refresh posts auto=1 and stays untracked: it fires
+    on every open collection page and would bury the job list in routine runs.
+    """
+    job_id = ""
+    if request.form.get("auto") != "1":
+        job_id = job_store.create_job("collection-refresh", label="Refresh collection cache")["id"]
+
+    if not collection_cache.trigger_refresh(job_id):
+        if job_id:
+            job_store.update_job(job_id, status="failed", error="Cache worker is not running",
+                                 message="Cache worker is not running")
         return jsonify({"ok": False, "error": "Cache worker is not running"}), 503
     return jsonify({"ok": True, "message": "Refresh triggered"})
 

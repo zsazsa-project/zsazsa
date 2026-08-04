@@ -370,6 +370,7 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
           return;
         }
         activeJobId = data.job_id;
+        if (window.zsazsaJobsChanged) zsazsaJobsChanged();
         if (openProgressBtn) {
           openProgressBtn.disabled = false;
         }
