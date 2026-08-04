@@ -927,17 +927,65 @@
         var tone = job.status === 'completed' ? 'text-bg-success'
                  : (job.status === 'failed' || job.stale) ? 'text-bg-danger'
                  : job.status === 'running' ? 'text-bg-primary' : 'text-bg-secondary';
+        var unfinished = job.status === 'queued' || job.status === 'running';
         return '<div class="list-group-item px-0">'
           + '<div class="d-flex justify-content-between align-items-center gap-2">'
           + '<span class="fw-semibold">' + esc(job.label) + '</span>'
           + '<span class="d-flex align-items-center gap-2">'
+          + (unfinished ? '<button type="button" class="btn btn-xs btn-outline-secondary job-probe-btn"'
+              + ' data-job-id="' + esc(job.id) + '" title="Ask whether this job is still working">'
+              + '<i class="fas fa-stethoscope"></i></button>' : '')
           + '<span class="badge ' + tone + '">' + esc(state) + '</span>'
           + '<span class="text-muted small">' + esc(ago(job.age)) + '</span>'
           + '</span></div>'
           + '<div class="text-muted small">' + esc(job.message) + '</div>'
+          + '<div class="small mt-1 text-muted job-probe-result" data-for="' + esc(job.id) + '">'
+          + (probes[job.id] || '') + '</div>'
           + '</div>';
       }).join('');
     }
+
+    /* The list repaints every few seconds, so a probe answer is kept here and
+       redrawn with the row rather than written into the DOM once. */
+    var probes = {};
+
+    function probeHtml(data) {
+      var lines = [esc(data.verdict)];
+      var ai = data.ai;
+      if (ai && !ai.error) {
+        var bits = [esc(ai.provider) + ' ' + esc(ai.model)];
+        bits.push(ai.reachable ? 'endpoint answered in ' + ai.latency_ms + 'ms'
+                               : 'endpoint did not answer');
+        if (ai.model_available === false) bits.push('the server does not list that model');
+        if (ai.loaded_models && ai.loaded_models.length) {
+          bits.push('loaded: ' + esc(ai.loaded_models.join(', ')));
+        }
+        lines.push('AI service: ' + bits.join(', ') + '.');
+      } else if (ai && ai.error) {
+        lines.push('AI service could not be checked: ' + esc(ai.error));
+      }
+      return lines.join('<br>');
+    }
+
+    document.addEventListener('click', function(ev) {
+      var btn = ev.target.closest('.job-probe-btn');
+      if (!btn) return;
+      var jobId = btn.dataset.jobId;
+      var target = document.querySelector('.job-probe-result[data-for="' + jobId + '"]');
+      if (target) target.textContent = 'Checking...';
+      btn.disabled = true;
+      fetch(SCRIPT_ROOT + '/pipeline/jobs/' + encodeURIComponent(jobId) + '/probe')
+        .then(zsazsaReadJson)
+        .then(function(data) {
+          probes[jobId] = data.ok ? probeHtml(data) : esc(data.error || 'Could not check the job.');
+          paint();
+        })
+        .catch(function(err) {
+          probes[jobId] = esc('Could not check the job: ' + zsazsaErrorText(err));
+          paint();
+        })
+        .finally(function() { btn.disabled = false; });
+    });
 
     // Every request re-reads the MISP session and records an SSO sighting, so
     // polling is kept to what is useful: quick while a job runs, slow when the

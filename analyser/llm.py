@@ -1,9 +1,12 @@
 import json
 import logging
 import re
+import time
 from pathlib import Path
 
 import openai
+import requests
+
 import config
 
 logger = logging.getLogger(__name__)
@@ -449,3 +452,75 @@ def review_product_draft(product_type: str, draft: str, source_material: str) ->
     )
     text = _call(system, user_message, 3000, feature="review_product_draft", cfg=fc)
     return _json_object(text, "review_product_draft") or {}
+
+
+def service_status(feature: str = "summarise_report") -> dict:
+    """Ask the LLM endpoint behind a feature whether it is alive and serving.
+
+    Neither provider can be asked about one request in flight: a chat completion
+    has no id to enquire after, so a call that has not returned yet is only
+    visible from our own side. What can be answered is whether the endpoint
+    responds, how quickly, whether it offers the model the feature is set to
+    use, and, on Ollama, which models it currently holds in memory. Together
+    with a live worker thread that is enough to tell slow from dead.
+    """
+    status = {"provider": "", "model": "", "endpoint": "", "reachable": False,
+              "latency_ms": None, "model_available": None, "loaded_models": [],
+              "error": ""}
+    try:
+        cfg = _feature_cfg(feature)
+        provider = _resolve_provider((cfg.get("provider") or "").strip())
+        model = (cfg.get("model") or "").strip() or _default_model(provider)
+        status["provider"] = provider
+        status["model"] = model
+        status["endpoint"] = _local_base_url() if provider == "local" else "https://api.openai.com/v1"
+    except Exception as exc:
+        status["error"] = str(exc)
+        return status
+
+    started = time.monotonic()
+    try:
+        served = _get_client(provider).with_options(timeout=8).models.list()
+        status["reachable"] = True
+        status["latency_ms"] = int((time.monotonic() - started) * 1000)
+        names = [m.id for m in served.data]
+        # OpenAI lists every model on the account, which says nothing about this
+        # one being usable, so only a local server's list is worth reporting on.
+        # Ollama answers with the tag it stores ("name:latest") while the model
+        # is usually configured without one, so compare on the untagged name.
+        if provider == "local":
+            wanted = _untagged(model)
+            status["model_available"] = any(_untagged(n) == wanted for n in names)
+        else:
+            status["model_available"] = None
+    except Exception as exc:
+        status["error"] = str(exc)
+        return status
+
+    if provider == "local":
+        status["loaded_models"] = _ollama_loaded_models()
+    return status
+
+
+def _untagged(model: str) -> str:
+    """Model name without Ollama's ":latest" default tag."""
+    name = (model or "").strip()
+    return name[: -len(":latest")] if name.endswith(":latest") else name
+
+
+def _ollama_loaded_models() -> list[str]:
+    """Models Ollama currently holds in memory, or [] for any other server.
+
+    /api/ps is Ollama's own endpoint, next to the OpenAI-compatible /v1 one. A
+    server that does not have it simply answers 404, which is not an error worth
+    reporting: it only means this particular hint is unavailable.
+    """
+    root = _local_base_url()[: -len("/v1")]
+    try:
+        reply = requests.get(f"{root}/api/ps", timeout=5)
+        if reply.status_code != 200:
+            return []
+        return [m.get("name", "") for m in reply.json().get("models", []) if m.get("name")]
+    except Exception as exc:
+        logger.debug("Ollama /api/ps not available: %s", exc)
+        return []

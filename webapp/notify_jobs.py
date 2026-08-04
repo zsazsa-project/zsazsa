@@ -59,7 +59,7 @@ def start(action: str, label: str, deliver, *, entity_type: str, entity_id: str,
         target=_deliver,
         args=(job["id"], deliver, entity_type, entity_id, entity_label, user),
         daemon=True,
-        name=f"notify-{action}",
+        name=job_store.thread_name(job["id"]),
     ).start()
     return job
 

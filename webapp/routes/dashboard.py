@@ -9,6 +9,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, render_template
 
 import config
+from analyser import llm
 from analyser.reader import save_last_run
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import analyser_pipeline, audit, collection_cache
@@ -276,7 +277,7 @@ def run_pipeline_action():
     job = job_store.create_job(action, label=_ACTION_LABELS.get(action, action),
                                steps=_steps_for_action(action))
     t = threading.Thread(target=_run_pipeline_job, args=(job["id"], misp_session.current_user_email()),
-                         daemon=True, name=f"pipeline-{action}")
+                         daemon=True, name=job_store.thread_name(job["id"]))
     t.start()
     return jsonify({"ok": True, "job_id": job["id"], "action": action})
 
@@ -300,6 +301,18 @@ _JOB_STALE_AFTER_SECONDS = 1800
 # The analyser reports progress once per step, not once per LLM call, so a step
 # that summarises a batch on a local model can be quiet for a long while.
 _JOB_REMOVABLE_AFTER_SECONDS = 4 * 3600
+
+# Which AI feature to report on when an unfinished job is probed. A job that is
+# not listed here does not call a model, so there is nothing to ask about, and
+# the feature matters because each one can be pointed at its own provider and
+# model in the AI settings.
+_AI_FEATURE_BY_ACTION = {
+    "summarise": "summarise_report",
+    "bulk-summarise": "summarise_report",
+    "daily-briefing": "draft_briefing_story",
+    "flash-intel": "generate_flash_intel",
+    "vea": "draft_vea_sections",
+}
 
 
 @bp.route("/pipeline/jobs", methods=["GET"])
@@ -328,6 +341,43 @@ def pipeline_jobs():
         })
     running = [j for j in jobs if j["status"] in ("queued", "running") and not j["stale"]]
     return jsonify({"ok": True, "jobs": jobs[:20], "running": len(running)})
+
+
+@bp.route("/pipeline/jobs/<string:job_id>/probe", methods=["GET"])
+def probe_job(job_id: str):
+    """Answer "is this job stuck, or just slow?" for one unfinished job.
+
+    Neither LLM provider can be asked how far along a call is, so the answer is
+    assembled from what can be known: whether this instance still has a live
+    worker thread for the job, how long ago it last reported, and whether the
+    AI endpoint it depends on is responding.
+    """
+    job = job_store.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "No such job."}), 404
+
+    alive = job_store.worker_alive(job_id)
+    unfinished = job.get("status") in ("queued", "running")
+
+    if not unfinished:
+        verdict = f"Finished {job.get('status')}, nothing to check."
+    elif alive:
+        verdict = "Still working in this instance. Its thread is alive, so give it time."
+    else:
+        verdict = ("No worker for this job in this instance. Either another instance is "
+                   "running it, or the process that started it is gone and it will never finish.")
+
+    answer = {"ok": True, "status": job.get("status", ""), "message": job.get("message", ""),
+              "worker_alive": alive, "verdict": verdict, "ai": None}
+
+    feature = _AI_FEATURE_BY_ACTION.get(job.get("action", ""))
+    if unfinished and feature:
+        try:
+            answer["ai"] = llm.service_status(feature)
+        except Exception as exc:
+            logger.warning("AI service probe failed: %s", exc)
+            answer["ai"] = {"error": str(exc)}
+    return jsonify(answer)
 
 
 @bp.route("/pipeline/jobs/clear", methods=["POST"])

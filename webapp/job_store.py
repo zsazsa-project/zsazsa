@@ -1,13 +1,14 @@
 """State of the background jobs the web app runs, kept in Redis.
 
 Analyser runs, cache refreshes and bulk AI summaries are started on a worker
-thread so the browser gets an answer straight away. Their state lives in Redis rather than in
-the process, which means an analyst can leave the page, come back, or open the
-app in another tab and still see what is running and how it ended. Settings are
-the JOB_REDIS_* entries in config; when Redis is not reachable the jobs are kept
-in memory instead, so the app still works, only without the sharing. If Redis
-disappears while a job runs, that job's progress stops being updated until it is
-back, which is a status display losing detail rather than work being lost.
+thread so the browser gets an answer straight away. Their state lives in Redis
+rather than in the process, which means an analyst can leave the page, come
+back, or open the app in another tab and still see what is running and how it
+ended. Settings are the JOB_REDIS_* entries in config; when Redis is not
+reachable the jobs are kept in memory instead, so the app still works, only
+without the sharing. If Redis disappears while a job runs, that job's progress
+stops being updated until it is back, which is a status display losing detail
+rather than work being lost.
 
 Every job is one field of a single Redis hash, holding the JSON below:
 
@@ -22,6 +23,7 @@ import logging
 import socket
 import threading
 import time
+from contextlib import contextmanager
 from uuid import uuid4
 
 import config
@@ -177,6 +179,52 @@ def append_log(job_id: str, message: str) -> None:
     job["log"] = job["log"][-50:]
     _save(job)
     logger.info("[job:%s] %s", job_id[:8], message)
+
+
+def thread_name(job_id: str) -> str:
+    """Name for the worker thread of a job, so it can be found again later.
+
+    Whether such a thread is alive is the only trustworthy answer to "is this
+    job still working or did its process die", so the name has to be derivable
+    from the job id alone.
+    """
+    return f"job-{job_id[:8]}"
+
+
+def worker_alive(job_id: str) -> bool:
+    """True when this process still has a live worker for that job."""
+    name = thread_name(job_id)
+    return any(t.name == name and t.is_alive() for t in threading.enumerate())
+
+
+@contextmanager
+def heartbeat(job_id: str, message: str, every_s: int = 60):
+    """Keep saying a job is alive while one long call blocks its thread.
+
+    An LLM call returns nothing until it is done, and on a local model that can
+    be many minutes. Without this the job's last write ages until the top bar
+    calls it stalled, which is the opposite of what is happening. The message
+    gains the elapsed time, so a slow job looks slow rather than dead.
+    """
+    started = time.time()
+    done = threading.Event()
+
+    def tick():
+        while not done.wait(every_s):
+            # Checked again on the way out of the wait: the call can have
+            # finished and written its own last message in the meantime, and
+            # overwriting that with "still running" would be a lie that sticks.
+            if done.is_set():
+                return
+            minutes = int((time.time() - started) / 60)
+            update_job(job_id, message=f"{message} (running {minutes}m)")
+
+    ticker = threading.Thread(target=tick, daemon=True, name=f"heartbeat-{job_id[:8]}")
+    ticker.start()
+    try:
+        yield
+    finally:
+        done.set()
 
 
 def set_step(job_id: str, step: str, state: str, message: str = "") -> None:

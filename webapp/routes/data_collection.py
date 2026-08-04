@@ -624,7 +624,7 @@ def summarise(uuid):
     threading.Thread(
         target=_run_summarise_job,
         args=(job["id"], [{"uuid": uuid, "sourceId": source_id}], misp_session.current_user_email()),
-        daemon=True, name="summarise",
+        daemon=True, name=job_store.thread_name(job["id"]),
     ).start()
     return jsonify({"ok": True, "job_id": job["id"]})
 
@@ -1539,7 +1539,10 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
                 errors += 1
                 continue
 
-            ok, message, _status = _generate_ai_summary(misp, event, source_id, user=user)
+            # The model can hold this for minutes, and the job cannot report
+            # progress from inside one call, so keep it visibly alive instead.
+            with job_store.heartbeat(job_id, f"Event {position} of {len(batch)}: generating summary"):
+                ok, message, _status = _generate_ai_summary(misp, event, source_id, user=user)
             if ok:
                 summarised += 1
             else:
@@ -1588,7 +1591,7 @@ def bulk_summarise():
         target=_run_summarise_job,
         args=(job["id"], batch, misp_session.current_user_email(),
               len(events) - len(batch), "bulk-summarise"),
-        daemon=True, name="bulk-summarise",
+        daemon=True, name=job_store.thread_name(job["id"]),
     ).start()
 
     return jsonify({"ok": True, "job_id": job["id"],
