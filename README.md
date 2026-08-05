@@ -2,11 +2,11 @@
 
 zsazsa is a **CTI program** management and production platform built around [MISP](https://www.misp-project.org/). It links collection, triage, analyst workflows, requirement management, publishing and stakeholder delivery in one place.
 
-It is designed for teams that want to run threat intelligence as an operational capability, not as loose documents and disconnected scripts. In one workflow, analysts can move from source events to validated intelligence products, align output to PIR and GIR priorities, distribute to stakeholders, and feed response back into program maturity signals.
+It is designed for teams that want to run threat intelligence as an operational capability, not as loose documents and disconnected scripts. In one workflow, analysts can move from source events to intelligence products, align output to PIR and GIR requirements, distribute the products to stakeholders, and collect feedback.
 
 If you are setting zsazsa up, start with [INSTALL.md](INSTALL.md). It covers what you need for installation, configuration and deployment.
 
-zsazsa is developed with the support of AI.
+Note that zsazsa is developed with the support of AI.
 
 ## Overview
 
@@ -16,14 +16,14 @@ zsazsa is developed with the support of AI.
 
 zsazsa follows the daily CTI workflow, from collection through triage and analysis to publishing and feedback. The main areas are:
 
-- **Dashboard** gives a live snapshot of the program: active PIRs and GIRs, stakeholder counts, analyser freshness, the last 24 hours of processing, and scraper events still waiting for triage.
+- **Dashboard** gives a live snapshot of the program: active PIRs and GIRs, stakeholder counts, analyser status, and scraper events still waiting for triage.
 - **Stakeholders** record who receives your output, with role, organisation, TLP clearance, product subscriptions and notification channels, plus a power and interest matrix to plan engagement.
-- **Requirements (PIR and GIR)** hold the intelligence questions that drive collection, with their scope, ownership and distribution. Adding scope to a requirement makes matching events light up in the data collection view.
+- **Requirements (PIR and GIR)** hold the intelligence questions that drive collection, with their scope, ownership and distribution.
 - **RFIs** handle one-off requests from intake to closure, with an SLA, an owner, a linked PIR or GIR, response confidence, attachments, notes and feedback.
-- **Data collection** is the cached view of everything arriving from the scraper MISP, other MISP servers, and manual or newsletter sources. You browse and triage events, enrich them with scope from the MISP galaxies, generate an AI summary, which runs in the background so you can carry on elsewhere, and start a product straight from a source event.
-- **Products** are a searchable catalogue of what you publish, with inline preview and feedback. zsazsa produces Flash Intel Alerts, Vulnerability advisories, Daily threat briefings, Threat landscape reports, Indicator feeds and Threat actor profiles, each described below.
-- **Statistics** cover pipeline and program metrics, RFI and feedback figures, and a scope coverage view showing where collection and analysis are concentrated. A CTI-CMM maturity panel maps the program against levels CTI0 to CTI3, so you can see the next gap to close.
-- **Background jobs** carry the slow work: analyser runs, AI summaries and the scheduled collection runs. A badge in the top bar shows what is running and how it ended, on whatever page you happen to be.
+- **Data collection** is the cached view of the scraper MISP, other MISP servers, and manual or newsletter sources. You browse and triage events, enrich them with scope items from the MISP galaxies, generate an AI summary, and start a product straight from a source event.
+- **Products** are a repository of what you publish, with preview and feedback. zsazsa produces Flash Intel Alerts, Vulnerability advisories, Daily threat briefings, Threat landscape reports, Indicator feeds and Threat actor profiles.
+- **Statistics** cover pipeline and program metrics, RFI and feedback data, and a scope coverage showing where collection and analysis are concentrated. A CTI-CMM maturity panel maps against levels CTI0 to CTI3.
+- **Background jobs** analyser runs, AI summaries and the scheduled collection runs.
 
 ![zsazsa CTI Intelligence Flow](docs/zsazsa-intelligence-flow.png)
 
@@ -31,35 +31,31 @@ The rest of this section walks through each area with screenshots.
 
 ### Records in MISP
 
-zsazsa keeps its operational data in MISP, using events, object templates, attributes and event reports. This keeps auditability clear and lets teams inspect raw records directly in MISP when needed. The MISP **event history** doubles as an audit trail of every change to a product, stakeholder or requirement.
+zsazsa keeps its data in MISP, using events, object templates, attributes and event reports. This keeps auditability clear and lets teams review the raw records directly in MISP. The MISP **event history** is an audit trail of every change to a product, stakeholder or requirement.
 
 ![docs/x-misp1.png](docs/x-misp1.png)
 
-The second view shows how product content and supporting context sit together in one place, so analysts can move from collection evidence to published output without losing traceability.
-
-![docs/x-misp2.png](docs/x-misp2.png)
-
 ### Dashboard
 
-The dashboard gives a quick **operational overview**, including pipeline state, active requirements, stakeholder footprint and recent processing results.
+The dashboard gives a quick **operational overview**, including pipeline state, active requirements, stakeholder info and recent processing results.
 
 ![docs/1-dashboard.png](docs/1-dashboard.png)
 
-The built-in reference panel helps teams apply common intelligence concepts consistently, including the Admiralty Scale, TLP and CTI evaluation criteria.
+The built-in CTI reference panel helps teams apply common intelligence concepts, including the Admiralty Scale, TLP and CTI evaluation criteria.
 
 ![docs/1a-intelref.png](docs/1a-intelref.png)
 
 ### Stakeholders
 
-Stakeholders are managed locally and linked to MISP organisations. Each record supports internal or external roles, multiple contact fields, TLP clearance, product subscriptions and delivery preferences, so distribution can match real organisational needs.
+Stakeholders are managed locally and linked to MISP organisations. Each record supports internal or external roles, multiple contact fields, TLP clearance, product subscriptions and delivery preferences.
 
 ![docs/2-stakeholders.png](docs/2-stakeholders.png)
 
-Stakeholders can be **linked to PIRs and GIRs** for ownership and distribution, which makes accountability and downstream delivery easier to track. You are not tied to zsazsa for presenting this information either. The full stakeholder list can be exported as Markdown, so it is easy to share or reuse outside the tool.
+Stakeholders can be **linked to PIRs and GIRs** for ownership and distribution, which makes accountability and delivery easier to track. You are not tied to zsazsa for presenting this information either. The stakeholder list can be exported as Markdown, so it is easy to share or reuse outside the tool.
 
 **Stakeholder matrix**
 
-For each stakeholder you record how much they **influence** the direction of your CTI program (their power) and how much they care about its output (their **interest**). From those two values zsazsa works out the quadrant the stakeholder falls into and places them on a power and interest matrix, so you can see at a glance who to engage closely and who to simply keep informed. 
+For each stakeholder you record how much they **influence** the direction of your CTI program (their power) and how much they care about its output (their **interest**). From those two values zsazsa works out the quadrant the stakeholder falls into and places them on a power and interest matrix, so you can see who to engage closely and who to simply keep informed. 
 
 ![docs/2-stakeholder-matrix.png](docs/2-stakeholder-matrix.png)
 
@@ -67,17 +63,17 @@ For each stakeholder you record how much they **influence** the direction of you
 
 #### PIR
 
-A PIR captures the intelligence question and its context, the intelligence level it sits at and its priority, along with the decision it supports and any sub-questions that break it down.
+A PIR captures the intelligence question and its context, the intelligence level and its priority, along with the decision it supports and any sub-questions that break it down.
 
-To make collection easier, zsazsa can **highlight events from your data collection sources that match a PIR**. For that to work you add scope elements to the requirement: geographic scope, sector, threat actor, attack technique, vendor and product, or even a specific incident or campaign. Whenever an incoming event matches that scope it is flagged in the data collection view, so relevant material surfaces against the requirement that asked for it.
+To make collection easier, zsazsa can **highlight events from your data collection sources that match a PIR**. For that to work you add scope elements to the requirement: geographic scope, sector, threat actor, attack technique, vendor and product, or even a specific incident or campaign. Whenever an incoming event matches that scope it is flagged in the data collection view.
 
 ![docs/3-pir.png](docs/3-pir.png)
 
-**Triage** allows submitted PIRs to be acknowledged, approved, deferred, rejected or merged with clear decision context.
+**Triage** allows submitted PIRs to be acknowledged, approved, deferred, rejected or merged.
 
 ![docs/3a-pirtriage.png](docs/3a-pirtriage.png)
 
-The PIR detail view combines scope, sub-questions, ownership, distribution and collection mapping so analysts can maintain one coherent requirement record.
+The PIR detail view combines scope, sub-questions, ownership, distribution and collection mapping.
 
 ![docs/3b-pir-detail.png](docs/3b-pir-detail.png)
 
@@ -101,9 +97,7 @@ The RFI detail view lets you add notes and file attachments, and, as with the ot
 
 ### Data collection
 
-The data collection view provides a cached feed with filters for source, tags and context, helping analysts sift large event volumes quickly.
-
-This is the **central location for the daily work**, where you navigate everything coming in from the sources you have set up: the MISP scraper, any other MISP instances you are connected to, and the manual and newsletter sources you maintain by hand.
+The data collection view provides a cached feed with filters for source, tags and context. It is the **central location for the daily work**, where you navigate between everything from the sources you have set up: the MISP scraper, MISP instances you are connected to, and the manual and newsletter sources you add manually.
 
 ![docs/6-datacollection.png](docs/6-datacollection.png)
 
@@ -111,9 +105,9 @@ This is the **central location for the daily work**, where you navigate everythi
 
 ![docs/6-ctievaluation.png](docs/6-ctievaluation.png)
 
-Events an analyst has looked at and does not want to see again can be **set aside**. For events on your own MISP, meaning the scraper and manual entries, this is the existing reject action, which sets `workflow:state="rejected"` and keeps them out of the analyser pipeline. Events pulled from another MISP server carry that server's workflow state, which is not ours to change, so they are dismissed instead with a local tag, `zsazsa:event="dismiss"` by default and configurable under Configuration > Context elements. Each row shows whichever of the two applies to its source, and the multi-select action and the "set aside events matching exclusions" action decide the same way per event. Dismissed events stay in the cache but are hidden while "Ignore dismissed events" is on under Event properties, which is the default. To bring one back, remove the tag in MISP.
+Events an analyst has looked at and does not want to see again can be **set aside**. For events on your own MISP, meaning the scraper and manual entries, this is the existing reject action, `workflow:state="rejected"`. Events pulled from another MISP are dismissed instead with a local tag, `zsazsa:event="dismiss"`. This is configurable under Configuration > Context elements. Dismissed events stay in the cache but are hidden. To bring one back, remove the tag in MISP.
 
-An analyst can **enrich an event** on the spot with scope: geographic reach, targeted sector, threat actor and the techniques used, all drawn from the [MISP galaxies](https://misp-galaxy.org/).
+An analyst can **enrich an event** with scope: geographic reach, targeted sector, threat actor and the techniques used, from the [MISP galaxies](https://misp-galaxy.org/).
 
 ![docs/6-addscope.png](docs/6-addscope.png)
 
@@ -125,26 +119,26 @@ or parse one straight from a security newsletter, such as the one from CTI Robot
 
 ![docs/6-importnewsletter.png](docs/6-importnewsletter.png)
 
-The newsletter import can also read editions that arrive in **a mailbox over IMAP** and pull the useful articles out of each one automatically.
+The newsletter import can also read editions that arrive in **a mailbox over IMAP**.
 
 ![docs/6-importnewsletter-auto.png](docs/6-importnewsletter-auto.png)
 
 ![docs/6-importnewsletter-auto-review.png](docs/6-importnewsletter-auto-review.png)
 
 ### Intelligence products
-From the same view, analysts can **launch product creation** directly from selected source events.
+From the same view, analysts can **launch intelligence product creation** from selected source events.
 
 ![docs/6-createproduct.png](docs/6-createproduct.png)
 
 #### Daily threat briefing
 
-**Daily threat briefing** drafting is integrated into the collection workflow, so triaged items can be turned into a briefing without context switching.
+**Daily threat briefing** drafting is integrated into the collection workflow.
 
 ![docs/6-dailythreatbriefing.png](docs/6-dailythreatbriefing.png)
 
 #### Vulnerability advisory
 
-**Vulnerability advisory** creation follows the same pattern, with evidence and indicators carried forward from source events.
+**Vulnerability advisory** creation is similar, with evidence and indicators from source events.
 
 ![docs/6-vulnadv.png](docs/6-vulnadv.png)
 
@@ -156,11 +150,11 @@ In the same way, you can raise a **Flash intel alert** from a threat event.
 
 #### Threat actor profile
 
-zsazsa also lets you build a **threat actor profile**. You usually start from what the MISP galaxies already hold about the actor, pull that in as a first draft, and then expand it with your own knowledge and investigation.
+zsazsa also lets you build a **threat actor profile**. You usually start from what the MISP galaxies already hold about the actor, use that as a first draft, and expand it with your own knowledge and investigation.
 
 ![docs/x-threatactorprofile1.png](docs/x-threatactorprofile1.png)
 
-Combining your own findings with the galaxy data, each profile builds a **Diamond Model** view of the actor across adversary, infrastructure, capability and victim. That Diamond Model is also included when you share it over the notification channels, by email, Mattermost and the rest.
+When you combine your own findings with the galaxy data, each profile builds a **Diamond Model** view of the actor across adversary, infrastructure, capability and victim.
 
 ![docs/x-threatactorprofile2.png](docs/x-threatactorprofile2.png)
 
@@ -174,7 +168,7 @@ The indicator feed is another product. You build a detailed query against MISP a
 
 ![docs/x-indicatorfeed1.png](docs/x-indicatorfeed1.png)
 
-A useful detail is that the feed is kept as a PyMISP query. zsazsa shows you that query and lets you copy it, so you can reuse the same search elsewhere.
+A useful detail is that the feed is kept as a PyMISP query. zsazsa shows you that query and lets you copy it, so you can reuse it elsewhere.
 
 ![docs/x-indicatorfeed2png.png](docs/x-indicatorfeed2png.png)
 
@@ -182,7 +176,7 @@ More often you will not need to copy anything, because zsazsa gives **each feed 
 
 ![docs/x-indicatorfeed3.png](docs/x-indicatorfeed3.png)
 
-A typical use case: your SOC needs a set of indicators to investigate. Instead of copying them by hand or asking the SOC to dig the data out of MISP, you build an indicator feed, perhaps tied to a threat actor profile, send it as a product through the notification channels, and the recipients receive it as a plain value list or as CSV.
+A typical use case: your SOC needs a set of indicators to investigate. Instead of copying them by hand or asking the SOC to get the data out of MISP, you build an indicator feed, perhaps tied to a threat actor profile, send it as a product through the notification channels, and the recipients receive it as a plain value list or as CSV.
 
 ### Statistics
 
@@ -198,105 +192,89 @@ The scope statistics show how often each scope value is used across PIRs, GIRs, 
 
 AI-assisted features support analyst efficiency in triage, relevance checking and drafting.
 
-zsazsa works with two kinds of LLM provider: **OpenAI**, and a **local LLM** reached over an OpenAI-compatible API such as the one [Ollama](https://ollama.com/) exposes. Both are set up on the AI tab of the configuration page. Each provider can be enabled or disabled on its own, and one of the two is marked as the default provider, which is the one every feature uses unless it picks a provider itself. Running a local model keeps event content on your own infrastructure, which matters because these features send raw MISP event text to whichever provider is configured.
+zsazsa works with two kinds of LLM provider: **OpenAI**, and a **local LLM** reached over an OpenAI-compatible API such as the one [Ollama](https://ollama.com/) exposes. Both are set up on the AI tab of the configuration page. Each provider can be enabled or disabled on its own, and one of the two is marked as the default provider. Running a local model keeps event content on your own infrastructure, which matters because these features send raw MISP event text to whichever provider is configured.
 
 The OpenAI card holds the API key, the token usage counters and the default model. The local LLM card holds the network location of the server, an API key for servers that ask for one, and its own default model. The network location is the base URL of the endpoint, for example `http://127.0.0.1:11434`, and the `/v1` path is added for you if you leave it off. Token usage is recorded per provider, so local calls are counted separately from OpenAI ones.
 
 ![docs/8-ai.png](docs/8-ai.png)
 
-Each feature chooses its own **provider, model, temperature and prompt** in the feature table under the provider cards, so the cheap high-volume work and the drafting that needs a stronger model do not have to share one setting. An empty model field means the feature uses the default model of the provider it points at, and an empty temperature leaves sampling to the model. Almost every feature here is parsed back into structured data, either as JSON or as markdown read line by line, so a low temperature between 0 and 0.2 keeps that output stable; a locally hosted model that defaults to 1.0 will wander. OpenAI reasoning models only accept their own default temperature, so none is sent to them. A provider that is switched off is no longer offered in the table, and it cannot be switched off while features are still pointing at it.
+Each feature chooses its own **provider, model, temperature and prompt** in the feature table under the provider cards. An empty model field means the feature uses the default model of the provider it points at, and an empty temperature leaves sampling to the model. A provider that is switched off is no longer offered in the table, and it cannot be switched off while features are still pointing at it.
 
-Alongside relevance checking, briefing stories, report summaries and advisory drafts, three assists work on the products themselves. A **threat actor profile** can be drafted from the selected actors and the MISP galaxy context, filling only the fields the analyst left empty and highlighting each one it wrote. A **threat landscape report** can be drafted from the collection events queued for it, counting the events behind each trend and leaving `[ANALYST]` markers where the organisational judgement belongs. A **flash intel alert or vulnerability advisory** can be audited against its source events before publishing, from either the detail page or the edit form, which returns a verdict and the unsupported claims, invented identifiers and overstated confidence a reviewer should fix.
+Alongside relevance checking, briefing stories, report summaries and advisory drafts, three options work on the products themselves. A **threat actor profile** can be drafted from the selected actors and the MISP galaxy context. A **threat landscape report** can be drafted from the collection events queued for it. A **flash intel alert or vulnerability advisory** can be audited against its source events before publishing.
 
-Two things to watch with a local model. Reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets are sized for a straight answer; zsazsa asks the server to skip the thinking step, which Ollama honours, but a server that ignores the request can spend the whole budget and return nothing. Empty answers are logged with the model, the finish reason and the budget, and reported in the interface rather than saved. Throughput is the other one: a small model on a CPU-only host runs at roughly ten tokens a second, which is fine for the short triage prompts the analyser runs unattended but turns the long drafting and review prompts into a wait of several minutes. Assign those features to a faster provider, or accept the wait, but measure before moving everything local.
+Two things to watch with a local model. Reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets are sized for a straight answer; zsazsa asks the server to skip the thinking step, which Ollama honours, but a server that ignores the request can spend the whole budget and return nothing.
 
 ### Background jobs
 
-The work that takes minutes rather than seconds runs in the background: an analyser action started from the dashboard, a batch of AI summaries started from data collection, a single summary on one event, and the scheduled analyser and mailbox runs. None of it holds the browser, so an analyst can start a batch of summaries and carry on somewhere else.
+The work that takes longer runs in the background: an analyser action started from the dashboard, a batch of AI summaries from data collection, a single summary on one event, and the scheduled analyser and mailbox runs. 
 
-A **badge in the top bar** is where that becomes visible. It appears while something is running, whatever page you are on, naming the job and its progress, and it keeps the outcome in view for an hour afterwards so someone coming back to the app still learns how the run ended. Clicking it lists the recent jobs with their status and message. A job that stops reporting for half an hour, which is what a restart in the middle of a run leaves behind, is shown as stalled rather than spinning forever.
-
-Scheduled runs join the same list, so a cron analyser run is visible while it is going and not only once it appears in the history. Ticks that find nothing to do stay out of the way, since a poll of an empty mailbox has nothing to tell anyone.
-
-Job state is kept in **Redis** (`JOB_REDIS_*` in the configuration, see INSTALL.md), which is what lets it survive a page change, a browser restart and a second analyst looking at the same instance. Without Redis the app falls back to keeping jobs in the process, so everything still works, only the sharing is lost. Finished runs are also written to the analyser database and listed under Reporting > Pipeline, which is the durable record; the badge is the live view.
-
-The **Pipeline page** holds that record. Beside the connectivity and source health panels, its activity list covers every event the analyser has processed, filtered by source, outcome, time window or a search on the title, with a "problems only" switch for the failures and a page at a time loaded on demand. Entries whose source event has since been rotated out of the scraper MISP are hidden until you switch on *Include orphaned*, and *Purge orphaned* drops those rows for good.
+A **badge in the top bar** displays the running jobs. A job that stops reporting for half an hour is shown as stalled rather than spinning forever. Scheduled runs are also in the job list. So a cron analyser run is visible while it is running and not only once it appears in the history. The job state is kept in **Redis**.  The **Pipeline page** holds the history logs of the jobs. Entries whose source event has since been rotated out of the scraper MISP are hidden until you switch on *Include orphaned*, and *Purge orphaned* drops those rows for good.
 
 ### Collection source management
 
-Source management lets teams manage **data collection sources** centrally, including manual sources and additional MISP instances.
+Source management lets you manage **data collection sources** centrally, including manual sources and additional MISP instances.
 
 ![docs/9-collectionsources.png](docs/9-collectionsources.png)
 
 ## Notification and distribution flow
 
-Distribution is built around stakeholders, roles, product subscriptions, audiences and notification channels. The intended flow is as follows.
+The product distribution is built around stakeholders, roles, product subscriptions, audiences and notification channels. The intended flow is as follows.
 
-A stakeholder is created and takes on exactly one role (SOC, Incident Response, Cyber Threat Intelligence, and so on). Each stakeholder indicates which notification channels they want to receive products on, chosen from the channels configured under Settings (Mattermost webhooks, email recipients and Flowintel instances). A stakeholder also subscribes to one or more product types. The subscription is what the stakeholder wants to receive; the draft or after-approval subscription mode is recorded but currently makes no difference to delivery.
+**Stakeholders**
 
-A product is created with one or more audiences. An audience is a stakeholder role, so selecting an audience selects the set of stakeholders holding that role. When a product is published, every selected audience is resolved to its matching stakeholders, and a stakeholder receives the product only if all of the following hold: the stakeholder's role is in the product's audience, the stakeholder is subscribed to that product type, and the stakeholder's TLP clearance is high enough for the product's TLP. Eligible stakeholders then receive the product over the notification channels they configured. A channel can accept every product, or it can be restricted to specific product types. [Flowintel](https://flowintel.org/) is an example of a restricted channel: a case is created only on the Flowintel instances those recipients subscribed to, and only for products that are enabled for that instance in its `case_templates` configuration.
+- A stakeholder is created and takes on exactly one role (SOC, Incident Response, Cyber Threat Intelligence, and so on). 
+- Each stakeholder indicates which notification channels they want to receive products on. 
+- A stakeholder also subscribes to one or more product types.
 
-Eligibility is computed centrally by `recipient_preview()` in `webapp/misp_store.py`, which classifies every stakeholder as green (will receive the product), yellow (subscribed but blocked by TLP or audience) or grey (not subscribed). The product detail and review pages show this preview before publishing, so you can see exactly who will and will not receive a product before you send it.
+**Products**
 
-Coverage differs per product type:
+- A product is created with one or more audiences. An audience is a stakeholder role, so selecting an audience selects the set of stakeholders holding that role. 
+- When a product is published, every selected audience is resolved to its matching stakeholders, and a stakeholder receives the product only if all of the following are true
+    - the stakeholder's role is in the product's audience
+    - the stakeholder is subscribed to that product type, 
+    - and the stakeholder's TLP clearance is high enough for the product's TLP. 
+- Eligible stakeholders then receive the product over the notification channels they configured. 
 
-- **Flash Intel Alert** and **Vulnerability advisory** implement the full flow above, including audience, subscription, TLP gating, and delivery to Mattermost, email and Flowintel.
-- **Threat actor profile** implements the same audience, subscription and TLP-gated flow over Mattermost and email once published, and additionally embeds its Diamond Model image and any linked indicator feed content in the message.
-- **Indicator feed** is pushed to the stakeholders subscribed to it (audience and TLP gated), with the indicator values in the message and the full feed attached as CSV by email.
-- **Daily threat briefing** is delivered to all stakeholders subscribed to it, over each recipient's configured notification channels. It has no audience and applies no TLP gating.
-- **Threat landscape report** records an audience but does not yet push notifications on publish.
-- **PIR**, **GIR** and **RFI** are requirements rather than products. They notify an explicitly selected distribution list of stakeholders over Mattermost and email, independent of product subscriptions and audiences.
-- The remaining product types listed under `PRODUCT_TYPES` can be subscribed to but do not yet have a publish-and-notify flow.
-
-Email channels deliver the full product as an email, the same Markdown that drives the other channels, rendered to HTML with a plain-text fallback. When a single product reaches several email recipients, their addresses are kept private from one another. Email delivery relies on the shared SMTP server configured on the Notifications tab; the per-channel value is just the recipient address.
+**Channels**
+A channel can accept every product, or it can be restricted to specific product types. [Flowintel](https://flowintel.org/) is an example of a restricted channel: a case is created only on the Flowintel instances those recipients subscribed to, and only for products that are enabled for that instance in its `case_templates` configuration.
 
 ## What the analyser does
 
-The dashboard has a **Start analyser** button with three options: **Daily threat briefing**, **Flash intel alert** and **Vulnerability advisory**. All three start from the same pool of events, but each one decides differently what to do with them. None of them publish anything or notify stakeholders. They only create **drafts** that you then review, edit and publish yourself.
+The dashboard has a **Start analyser** button with three options: **Daily threat briefing**, **Flash intel alert** and **Vulnerability advisory**. All three start from the same events, but each one decides differently what to do with them. None of them publish anything or notify stakeholders. They only create **drafts** that you then review, edit and publish yourself.
 
-### The events all three start from
+### Executed for all three options
 
-Whichever option you choose, the analyser first builds the same candidate list:
-
-1. It refreshes the data collection cache.
-2. It asks the scraper MISP (the server set as `MISP_URL`) for events created **today** (UTC) that carry the scraper marker tag (`SCRAPER_MARKER_TAG`), up to `MISP_SCRAPER_LIMIT` events.
-3. It keeps only the events that still need work, meaning their workflow state is `incomplete` or `ongoing`. Events already marked `complete` or `rejected` are left alone.
-4. It drops events it cannot use: the article could not be fetched (HTTP error) or the report is empty. These are marked `rejected`.
-5. For each remaining event it makes sure an AI summary report exists, and creates one if it is missing.
-
-So every run works on "today's freshly scraped events that have not been processed yet". An event that has already been turned into a given product is skipped for that same product, so running an option twice does not create duplicates.
+1. Refreshes the data collection cache.
+2. Asks the scraper MISP for events created **today** (UTC) that have the scraper tag (`SCRAPER_MARKER_TAG`), up to `MISP_SCRAPER_LIMIT` events.
+3. Keeps only events that still need work, with workflow state `incomplete` or `ongoing`. Events marked `complete` or `rejected` are left alone.
+4. Drops events it cannot use: the article could not be fetched (HTTP error) or the report is empty. These are `rejected`.
+5. For each remaining event it makes sure there is an AI summary report, and creates one if it is missing.
 
 ### Daily threat briefing
 
 This option is about **situational awareness**, not requirements.
 
-- It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing.
-- For each candidate it asks the AI whether the story is relevant to your organisation, judged against the focus points (geographies, sectors, technologies, threat types and threat actors) set in Settings. Stories that are not relevant are rejected, with the reason written back onto the event.
-- For the stories it keeps, it drafts a short write-up, pulls out sectors, geographies, techniques, threat actors and vendors from the summary, and drops near-duplicate stories.
-- The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
-
-There is no PIR or GIR step here. What is relevant is decided by your focus points and the AI, not by your requirements.
+1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing.
+2. For each event it asks the AI whether the story is relevant to your organisation, judged against the focus points (geographies, sectors, technologies, threat types and threat actors) set in Settings. Events that are not relevant are rejected, with the reason written back onto the event.
+3. For the events it keeps, it drafts a short write-up, extractt sectors, geographies, techniques, threat actors and vendors, and removes near-duplicate stories.
+4. The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
 
 ### Flash intel alert
 
 This option is **requirement-driven**. It only acts on events that match something you are actively tracking.
 
-- For each candidate event it compares the event's tags and galaxy clusters against the scope of your **active PIRs and GIRs**.
-- An event that matches at least one PIR or GIR gets a **flash intel draft**, pre-filled with the summary and linked to the best-matching PIR.
-- An event that matches nothing is skipped and logged as **"no PIR/GIR match"**. This is the line you see in the pipeline run. It is not an error. It means the event was not relevant to any current requirement, so no draft was made.
-- If you have no active PIRs or GIRs, or none whose scope fits today's events, this option creates nothing. That is expected.
-
-In other words, the "no PIR/GIR match" entries are the analyser showing you which events it looked at but deliberately left alone, because they do not line up with your stated priorities.
+1. For each event it compares the event's tags and galaxy clusters against the scope of your **active PIRs and GIRs**.
+2. An event that matches at least one PIR or GIR gets a **flash intel draft**, pre-filled with the summary and linked to the best-matching PIR.
+3. An event that matches nothing is skipped and logged as **"no PIR/GIR match"**. It is not an error. It means the event was not relevant to any current requirement.
+4. If you have no active PIRs or GIRs, or none whose scope fits today's events, this option creates nothing. 
 
 ### Vulnerability advisory
 
 This option is **CVE-driven**.
 
-- For each candidate event it looks for a CVE identifier, in the event attributes or the report text.
-- An event with at least one CVE gets a **vulnerability advisory draft**. The CVE is enriched from a vulnerability database (CVSS score, affected products and versions, description) and the advisory sections are drafted by the AI.
-- An event with no CVE is skipped and logged as **"no CVE found"**.
-
-Like the daily briefing, this option does not use PIR or GIR matching. Its only filter is whether the event mentions a CVE.
+1. For each event it looks for a CVE identifier, in the event attributes or the report text.
+2. An event with at least one CVE gets a **vulnerability advisory draft**. The CVE is enriched from a vulnerability database (CVSS score, affected products and versions, description) and the advisory sections are drafted by the AI.
+3. An event with no CVE is skipped and logged as **"no CVE found"**.
 
 ### The three options side by side
 
@@ -310,9 +288,7 @@ In every case the analyser stops at drafts. Publishing and sending to stakeholde
 
 ## MISP model and tagging approach
 
-The platform stores each business entity as one MISP event, with its data held inside a custom MISP object. The custom object templates live in `webapp/misp_objects/`.
-
-Each entity type maps to one MISP object:
+The platform stores each entity as one MISP event, with its data inside a custom MISP object. The custom object templates live in `webapp/misp_objects/`.
 
 | Entity | MISP object |
 |---|---|
@@ -328,7 +304,7 @@ Each entity type maps to one MISP object:
 | Threat actor profile | zsazsa-threat-actor-profile |
 | Collection source | zsazsa-collection-source |
 
-Every entity event also carries a type tag, so it can be searched and filtered independently of the object it holds. All tags in the `zsazsa:` namespace are applied as local tags, so they never sync to connected MISP instances. Because MISP attaches tags that are embedded at event creation globally even when the local flag is set, the application applies these tags through the tag endpoint right after the event is created. The default tag values are:
+Every entity event also carries a type tag. All tags in the `zsazsa:` namespace are applied as local tags, so they never sync to connected MISP instances. The default tag values are:
 
 ```
 TAG_STAKEHOLDER  = zsazsa:type="stakeholder"
@@ -342,25 +318,25 @@ TAG_INDICATOR_FEED        = zsazsa:ctiproduct="indicator-feed"
 TAG_THREAT_ACTOR_PROFILE  = zsazsa:ctiproduct="threat-actor-profile"
 ```
 
-Product events additionally carry `curation:ctiproduct` tags, so they can be searched and grouped consistently across the product catalogue.
+Product events carry `curation:ctiproduct` tags, so they can be searched and grouped consistently across the product catalogue.
 
-Every product and requirement detail page links to the MISP event's history (its audit log), so you can inspect the full change history of a stored object directly in MISP. Editing updates the object's attributes in place rather than replacing it, so that history is kept across changes.
+Every product and requirement detail page links to the MISP event's history (its audit log), so you can inspect the full change history of a stored object directly in MISP.
 
-Manual collection entries are stored on the webapp MISP server. They carry the scraper marker tag (`zsazsa:source="misp-scraper"` by default), a TLP tag, `zsazsa:source-type="manual"`, and a local `zsazsa:source="<source-name>"` tag linking the entry to the configured manual source. Galaxy-backed scope tags (geography, sector, threat actor, MITRE ATT&CK) are applied as regular MISP tags. The entry description is stored as a MISP event report in Markdown, and file attachments are added as attachment attributes in the External analysis category.
+Manual collection entries are also stored in MISP. They carry the scraper marker tag (`zsazsa:source="misp-scraper"` by default), a TLP tag, `zsazsa:source-type="manual"`, and a local `zsazsa:source="<source-name>"` tag linking the entry to the configured manual source. Galaxy scope tags (geography, sector, threat actor, MITRE ATT&CK) are applied as regular MISP tags. The entry description is stored as a MISP event report in Markdown, and file attachments are added as attachment attributes in the External analysis category.
 
-Events that need analyst follow-up are flagged with `zsazsa:collection="follow-up"` as a local tag. Events an analyst set aside without owning their workflow state carry `zsazsa:event="dismiss"`, also as a local tag, and both tag names are configurable.
+Events that need analyst follow-up are flagged with `zsazsa:collection="follow-up"` as a local tag. Events an analyst dismissed have `zsazsa:event="dismiss"`, also as a local tag, and both tag names are configurable.
 
-Focus points are stored as event-level text attributes with the comment `zsazsa:fp` and the value format `category|value|notes`. This keeps add and delete operations simple and lets scope values be regenerated safely without losing other attribute data.
+Focus points are stored as text attributes with the comment `zsazsa:fp` and the value format `category|value|notes`.
 
 ## Importing newsletters
 
-Many teams receive curated security newsletters by e-mail, for example the ETDA Cyber Threat Intelligence (CTI Robot) digest, where one edition can list dozens of articles. Rather than copy them in one by one, the newsletter importer turns a pasted e-mail into a reviewable list. Open it from the Data collection page with "Import from newsletter", choose the format, paste the e-mail and select "Parse and review". The importer pulls out each article with its section, its criticality and its links, and pre-selects the critical and urgent items so you only confirm what is worth collecting.
+Many teams receive curated security newsletters by e-mail, for example the **ETDA Cyber Threat Intelligence (CTI Robot)** digest, where one edition can list dozens of articles. Rather than copy them in one by one, the newsletter importer turns a pasted e-mail into a reviewable list. Open it from the Data collection page with "Import from newsletter", choose the format, paste the e-mail and select "Parse and review". The importer extracts each article, its criticality and its links, and pre-selects the **critical** and **urgent** items so you only confirm what is worth collecting.
 
-Sending does two things. Each selected link is handed to the misp-scraper, which fetches the article and creates a MISP event for it, so it flows through the normal collection pipeline. The newsletter itself is archived as its own MISP event, with the raw e-mail kept as a report and the links attached. Make sure the misp-scraper subscriber is running first (see "Manual sources pushing to scraper" in [INSTALL.md](INSTALL.md)); if nothing is listening when you send, the importer tells you, so nothing is lost silently.
+Sending does two things. Each selected link is send to the misp-scraper, which fetches the article and creates a MISP event. The newsletter itself is archived as its own MISP event, with the raw e-mail kept as a report and the links attached.
 
 ### Technical notes
 
-Each newsletter format has its own parser registered in `webapp/newsletter_parsers.py` (the `PARSERS` map), so supporting a new format means writing one parser and registering it; the import screens themselves are format-agnostic. Parsing is pure text processing and never touches MISP.
+Each newsletter format has its own parser in `webapp/newsletter_parsers.py` (the `PARSERS` map), so supporting a new format means writing one parser and registering it. Parsing is pure text processing and never touches MISP.
 
 The hand-off to the scraper uses Redis publish/subscribe: zsazsa publishes one JSON message per selected article on the configured channel, and the scraper's `subscribe` service consumes it. The connection (`SCRAPER_REDIS_HOST`, `SCRAPER_REDIS_PORT`, `SCRAPER_REDIS_PASSWORD`, `SCRAPER_REDIS_CHANNEL`) is set on the "Manual sources pushing to scraper" card, and is separate from the Redis that zsazsa reads MISP login sessions from and from the one that holds background job state.
 
@@ -370,13 +346,13 @@ Each message carries the article link, the title, the newsletter name as the fee
 
 Instead of pasting each edition by hand, zsazsa can read newsletters straight from a mailbox. Forward the newsletter (for example the ETDA digest) to a mailbox, and zsazsa polls that mailbox, processes new editions the same way the manual importer does, and marks the e-mail as handled so it is never processed twice.
 
-Mailboxes are configured on the Collection sources page (`/config/sources/`) under "IMAP mailboxes". A mailbox holds only the connection (host, port, SSL, credentials and the folder to read). Under it you add one or more **data collection sources**, one per newsletter, each with a name, the parser to apply, match criteria (subjects and senders, one per line), an Admiralty reliability rating and a mode. A message goes to the first source whose subject or sender matches; leaving both lists empty makes a source take every message, which suits a mailbox dedicated to one newsletter. The sender match also reads the original `From:` line inside a forwarded message, so forwarding does not hide the real sender. Passwords are stored in `config.py` under `IMAP_SOURCES`, never in a MISP event.
+Mailboxes are configured on the Collection sources page (`/config/sources/`) under "IMAP mailboxes". A mailbox holds the connection (host, port, SSL, credentials and the folder to read). Under it you add one or more **data collection sources**, one per newsletter, each with a name, the parser to apply, match criteria (subjects and senders, one per line), an Admiralty reliability rating and a mode. A message goes to the first source whose subject or sender matches. The sender match also reads the original `From:` line inside a forwarded message, so forwarding does not hide the real sender. Passwords are stored in `config.py` under `IMAP_SOURCES`, never in a MISP event.
 
-The source name is what events are attributed to: it becomes the feed handed to the scraper, so the created events carry `scraper:data-collection-source:<name>` and the Pipeline page counts them per source. Splitting one mailbox into several named sources is therefore also how you track how much each newsletter contributes.
+The source name is what events are attributed to: `scraper:data-collection-source:<name>`.
 
-Each source runs in one of two modes. In **automatic** mode a matched newsletter is archived and its links are pushed to the scraper straight away. In **manual review** mode it is archived and parked in a pending queue, so a human picks the articles first, from the Data collection page under "Email sources". If an automatic push finds no scraper listening, the edition moves to the pending queue rather than being lost, so you can retry it.
+Each source runs in one of two modes. In **automatic** mode a matched newsletter is archived and its links are pushed to the scraper straight away. In **manual review** mode it is archived and put in a pending queue, so a human picks the articles first, from the Data collection page under "Email sources". If an automatic push finds no scraper listening, the edition moves to the pending queue rather than being lost, so you can retry it.
 
-Polling is done by `run_imap_collector.py`, intended to run from cron, for example every fifteen minutes:
+Polling is done by `run_imap_collector.py`, from cron.
 
 ```
 */15 * * * * cd /path/to/zsazsa && venv/bin/python run_imap_collector.py
