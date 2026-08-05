@@ -127,6 +127,17 @@ def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", cfg
     return text
 
 
+def _unfence(text: str) -> str:
+    """Drop a markdown code fence around an answer that should be bare JSON.
+
+    Models wrap JSON in ```json ... ``` often enough, local ones especially,
+    that refusing it would mean check_relevance quietly rejecting every article
+    and the draft features returning nothing at all.
+    """
+    match = re.match(r"\s*```(?:json)?\s*(.*?)\s*```\s*$", text or "", flags=re.DOTALL)
+    return match.group(1) if match else text
+
+
 def _json_object(text: str, feature: str) -> dict | None:
     """Parse a model answer that has to be a JSON object, or None when it is not.
 
@@ -134,7 +145,7 @@ def _json_object(text: str, feature: str) -> dict | None:
     prompt, and the caller falls back the same way it does for broken JSON.
     """
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(_unfence(text))
     except json.JSONDecodeError:
         logger.error("%s returned invalid JSON: %s", feature, text[:200])
         return None
@@ -318,7 +329,7 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
     }
     text = _call(system, json.dumps(payload, ensure_ascii=True), 1024, feature="detect_story_overlaps", cfg=fc)
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(_unfence(text))
         overlaps = parsed.get("overlaps") if isinstance(parsed, dict) else []
         if not isinstance(overlaps, list):
             overlaps = []

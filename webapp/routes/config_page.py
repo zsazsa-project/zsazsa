@@ -224,6 +224,10 @@ def _read() -> dict:
         "TAG_VEA": _config.TAG_VEA,
         "TAG_BRIEFING": _config.TAG_BRIEFING,
         "TAG_TLR": getattr(_config, "TAG_TLR", 'zsazsa:ctiproduct="threat-landscape-report"'),
+        "TAG_THREAT_ACTOR_PROFILE": getattr(_config, "TAG_THREAT_ACTOR_PROFILE",
+                                            'zsazsa:ctiproduct="threat-actor-profile"'),
+        "TAG_INDICATOR_FEED": getattr(_config, "TAG_INDICATOR_FEED",
+                                      'zsazsa:ctiproduct="indicator-feed"'),
         "TAG_COLLECTION_FOLLOWUP": getattr(_config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
         "TAG_COLLECTION_DISMISSED": getattr(_config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"'),
         "RECOMMENDED_ACTIONS_IMMEDIATE": getattr(_config, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
@@ -263,6 +267,70 @@ def _read() -> dict:
         "BRAND_LOGO": getattr(_config, "BRAND_LOGO", ""),
         "THEME": getattr(_config, "THEME", "overmind"),
     }
+
+
+def _form_tag(name: str) -> str:
+    """A tag field, falling back to what is configured rather than to nothing.
+
+    Every one of these marks a product or an entity type in MISP, so an empty
+    one detaches everything carrying it. A form posted without the field, an
+    older page left open across an upgrade, looks exactly like one where it was
+    cleared, and neither should wipe the tag.
+    """
+    return request.form.get(name, "").strip() or getattr(_config, name, "")
+
+
+def _form_str(name: str) -> str:
+    """A text field, keeping what is configured when the form did not send it.
+
+    Clearing a field on purpose still clears it: an empty value that was posted
+    is a decision, an absent one is not. That distinction is what stops a page
+    submitted without a field, from an older version or a tab whose inputs
+    never rendered, wiping a MISP key or an SMTP password.
+    """
+    raw = request.form.get(name)
+    return raw.strip() if raw is not None else str(getattr(_config, name, "") or "")
+
+
+def _form_bool(name: str) -> bool:
+    """A checkbox, keeping what is configured when the form did not send it.
+
+    The stakes are one-sided here: an absent field reading as False turns off
+    TLS verification, SMTP encryption or the login redirect without anyone
+    asking for it.
+    """
+    raw = request.form.get(name)
+    return raw == "true" if raw is not None else bool(getattr(_config, name, False))
+
+
+def _form_lines(name: str) -> list | None:
+    """One value per line, or None when the form did not send the field.
+
+    None rather than an empty list, so the caller can tell "the analyst emptied
+    the box" from "the box was never there" and keep the configured list.
+    """
+    raw = request.form.get(name)
+    if raw is None:
+        return None
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _form_int(name: str, default: int) -> int:
+    """A number from the form, falling back the same way _form_tag does.
+
+    A field the form never sent keeps whatever is configured: resetting a port
+    or a Redis database number to a built-in default is as damaging as blanking
+    a tag. A field that was sent but holds nothing usable takes the default,
+    and never raises, since these are built before the save is even attempted.
+    """
+    raw = request.form.get(name)
+    if raw is None:
+        configured = getattr(_config, name, default)
+        return configured if isinstance(configured, int) else default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def _write(values):
@@ -453,8 +521,8 @@ TAG_FLASH_INTEL = {values['TAG_FLASH_INTEL']!r}
 TAG_VEA         = {values['TAG_VEA']!r}
 TAG_BRIEFING    = {values['TAG_BRIEFING']!r}
 TAG_TLR         = {values['TAG_TLR']!r}
-TAG_INDICATOR_FEED = 'zsazsa:ctiproduct="indicator-feed"'
-TAG_THREAT_ACTOR_PROFILE = 'zsazsa:ctiproduct="threat-actor-profile"'
+TAG_INDICATOR_FEED = {values['TAG_INDICATOR_FEED']!r}
+TAG_THREAT_ACTOR_PROFILE = {values['TAG_THREAT_ACTOR_PROFILE']!r}
 TAG_COLLECTION_FOLLOWUP = {values['TAG_COLLECTION_FOLLOWUP']!r}
 TAG_COLLECTION_DISMISSED = {values['TAG_COLLECTION_DISMISSED']!r}
 
@@ -536,30 +604,38 @@ _CONFIG_TABS = (
 @bp.route("/config", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        products_raw = request.form.get("PRODUCT_TYPES", "")
-        products = [p.strip() for p in products_raw.splitlines() if p.strip()]
-        exclusions_raw = request.form.get("DAILY_BRIEFING_TITLE_EXCLUSIONS", "")
-        exclusions = [p.strip() for p in exclusions_raw.splitlines() if p.strip()]
-        fp_geographies = [p.strip() for p in request.form.get("FOCUS_POINTS_GEOGRAPHIES", "").splitlines() if p.strip()]
-        fp_sectors = [p.strip() for p in request.form.get("FOCUS_POINTS_SECTORS", "").splitlines() if p.strip()]
-        fp_technologies = [p.strip() for p in request.form.get("FOCUS_POINTS_TECHNOLOGIES", "").splitlines() if p.strip()]
-        fp_threat_types = [p.strip() for p in request.form.get("FOCUS_POINTS_THREAT_TYPES", "").splitlines() if p.strip()]
-        fp_threat_actors = [p.strip() for p in request.form.get("FOCUS_POINTS_THREAT_ACTORS", "").splitlines() if p.strip()]
-        try:
-            tat_raw = json.loads(request.form.get("THREAT_ACTOR_TYPES", "[]") or "[]")
-            threat_actor_types = [
-                {"name": str(t.get("name", "")).strip(), "description": str(t.get("description", "")).strip()}
-                for t in tat_raw if isinstance(t, dict)
-                if str(t.get("name", "")).strip() or str(t.get("description", "")).strip()
-            ]
-        except (json.JSONDecodeError, ValueError):
-            threat_actor_types = []
-        tag_strip_prefixes = [p.strip() for p in request.form.get("COLLECTION_TAG_STRIP_PREFIXES", "").splitlines() if p.strip()]
-        tag_hide_prefixes = [p.strip() for p in request.form.get("COLLECTION_TAG_HIDE_PREFIXES", "").splitlines() if p.strip()]
+        # Each of these keeps its configured value when the form did not carry
+        # the field at all; see _form_lines.
+        def lines(name):
+            posted = _form_lines(name)
+            return posted if posted is not None else list(getattr(_config, name, []) or [])
+
+        products = lines("PRODUCT_TYPES")
+        exclusions = lines("DAILY_BRIEFING_TITLE_EXCLUSIONS")
+        fp_geographies = lines("FOCUS_POINTS_GEOGRAPHIES")
+        fp_sectors = lines("FOCUS_POINTS_SECTORS")
+        fp_technologies = lines("FOCUS_POINTS_TECHNOLOGIES")
+        fp_threat_types = lines("FOCUS_POINTS_THREAT_TYPES")
+        fp_threat_actors = lines("FOCUS_POINTS_THREAT_ACTORS")
+        tat_posted = request.form.get("THREAT_ACTOR_TYPES")
+        if tat_posted is None:
+            threat_actor_types = list(getattr(_config, "THREAT_ACTOR_TYPES", []) or [])
+        else:
+            try:
+                tat_raw = json.loads(tat_posted or "[]")
+                threat_actor_types = [
+                    {"name": str(t.get("name", "")).strip(), "description": str(t.get("description", "")).strip()}
+                    for t in tat_raw if isinstance(t, dict)
+                    if str(t.get("name", "")).strip() or str(t.get("description", "")).strip()
+                ]
+            except (json.JSONDecodeError, ValueError):
+                threat_actor_types = []
+        tag_strip_prefixes = lines("COLLECTION_TAG_STRIP_PREFIXES")
+        tag_hide_prefixes = lines("COLLECTION_TAG_HIDE_PREFIXES")
         # When single sign-on is enabled, derive the MISP session cookie name from
         # the connected MISP server (it is 'MISP-<instance uuid>', unique per install)
         # and store it. Keep the existing value if derivation fails.
-        sso_enabled = request.form.get("MISP_SESSION_REDIRECT_TO_LOGIN") == "true"
+        sso_enabled = _form_bool("MISP_SESSION_REDIRECT_TO_LOGIN")
         session_cookie_name = getattr(_config, "MISP_SESSION_COOKIE_NAME", "")
         cookie_autodetected = False
         if sso_enabled:
@@ -575,10 +651,10 @@ def index():
             "MISP_SCRAPER_SINCE_DAYS": getattr(_config, "MISP_SCRAPER_SINCE_DAYS", 30),
             "MISP_SERVERS": getattr(_config, "MISP_SERVERS", []) or [],
             "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []) or [],
-            "MISP_WEBAPP_URL": request.form.get("MISP_WEBAPP_URL", ""),
-            "MISP_WEBAPP_KEY": request.form.get("MISP_WEBAPP_KEY", ""),
-            "MISP_WEBAPP_VERIFYCERT": request.form.get("MISP_WEBAPP_VERIFYCERT") == "true",
-            "MISP_EVENT_DISTRIBUTION": int(request.form.get("MISP_EVENT_DISTRIBUTION", 0) or 0),
+            "MISP_WEBAPP_URL": _form_str("MISP_WEBAPP_URL"),
+            "MISP_WEBAPP_KEY": _form_str("MISP_WEBAPP_KEY"),
+            "MISP_WEBAPP_VERIFYCERT": _form_bool("MISP_WEBAPP_VERIFYCERT"),
+            "MISP_EVENT_DISTRIBUTION": _form_int("MISP_EVENT_DISTRIBUTION", 0),
             # LLM provider settings live on the AI tab and are saved over AJAX.
             "OPENAI_API_KEY": getattr(_config, "OPENAI_API_KEY", getattr(_config, "ANTHROPIC_API_KEY", "")),
             "OPENAI_MODEL": getattr(_config, "OPENAI_MODEL", getattr(_config, "ANTHROPIC_MODEL", "")),
@@ -589,12 +665,12 @@ def index():
             "LOCAL_LLM_MODEL": getattr(_config, "LOCAL_LLM_MODEL", ""),
             "LLM_DEFAULT_PROVIDER": getattr(_config, "LLM_DEFAULT_PROVIDER", "openai"),
             "NOTIFICATION_CHANNELS": _read_notification_channels(),
-            "SMTP_HOST": request.form.get("SMTP_HOST", "").strip(),
-            "SMTP_PORT": int(request.form.get("SMTP_PORT", 587) or 587),
-            "SMTP_USE_TLS": request.form.get("SMTP_USE_TLS") == "true",
-            "SMTP_USERNAME": request.form.get("SMTP_USERNAME", "").strip(),
-            "SMTP_PASSWORD": request.form.get("SMTP_PASSWORD", ""),
-            "SMTP_FROM": request.form.get("SMTP_FROM", "").strip(),
+            "SMTP_HOST": _form_str("SMTP_HOST"),
+            "SMTP_PORT": _form_int("SMTP_PORT", 587),
+            "SMTP_USE_TLS": _form_bool("SMTP_USE_TLS"),
+            "SMTP_USERNAME": _form_str("SMTP_USERNAME"),
+            "SMTP_PASSWORD": _form_str("SMTP_PASSWORD"),
+            "SMTP_FROM": _form_str("SMTP_FROM"),
             "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
             "PRODUCT_TYPES": products,
             "DAILY_BRIEFING_TITLE_EXCLUSIONS": exclusions,
@@ -606,42 +682,44 @@ def index():
             "THREAT_ACTOR_TYPES": threat_actor_types,
             "COLLECTION_TAG_STRIP_PREFIXES": tag_strip_prefixes,
             "COLLECTION_TAG_HIDE_PREFIXES": tag_hide_prefixes,
-            "TAG_STAKEHOLDER": request.form.get("TAG_STAKEHOLDER", "").strip(),
-            "TAG_PIR": request.form.get("TAG_PIR", "").strip(),
-            "TAG_GIR": request.form.get("TAG_GIR", "").strip(),
-            "TAG_RFI": request.form.get("TAG_RFI", "").strip(),
-            "TAG_FLASH_INTEL": request.form.get("TAG_FLASH_INTEL", "").strip(),
-            "TAG_VEA": request.form.get("TAG_VEA", "").strip(),
-            "TAG_BRIEFING": request.form.get("TAG_BRIEFING", "").strip(),
-            "TAG_TLR": request.form.get("TAG_TLR", "").strip(),
-            "TAG_COLLECTION_FOLLOWUP": request.form.get("TAG_COLLECTION_FOLLOWUP", "").strip(),
-            "TAG_COLLECTION_DISMISSED": request.form.get("TAG_COLLECTION_DISMISSED", "").strip(),
-            "RECOMMENDED_ACTIONS_IMMEDIATE": [l.strip() for l in request.form.get("RECOMMENDED_ACTIONS_IMMEDIATE", "").splitlines() if l.strip()],
-            "RECOMMENDED_ACTIONS_NEAR_TERM": [l.strip() for l in request.form.get("RECOMMENDED_ACTIONS_NEAR_TERM", "").splitlines() if l.strip()],
-            "POLL_WINDOW_HOURS": int(request.form.get("POLL_WINDOW_HOURS", 24) or 24),
-            "SCRAPER_MARKER_TAG": request.form.get("SCRAPER_MARKER_TAG", ""),
-            "EVENT_LOG_RETENTION_DAYS": max(1, int(request.form.get("EVENT_LOG_RETENTION_DAYS", 90) or 90)),
-            "PIPELINE_RUN_LOG_RETENTION_DAYS": max(1, int(request.form.get("PIPELINE_RUN_LOG_RETENTION_DAYS", 365) or 365)),
-            "LOG_LEVEL": request.form.get("LOG_LEVEL", "INFO"),
-            "HOSTNAME": request.form.get("HOSTNAME", "0.0.0.0").strip(),
-            "PORT": int(request.form.get("PORT", 5000) or 5000),
-            "SSL_ENABLED": request.form.get("SSL_ENABLED") == "true",
-            "SSL_CERT": request.form.get("SSL_CERT", "certs/zsazsa.crt").strip(),
-            "SSL_KEY": request.form.get("SSL_KEY", "certs/zsazsa.key").strip(),
+            "TAG_STAKEHOLDER": _form_tag("TAG_STAKEHOLDER"),
+            "TAG_PIR": _form_tag("TAG_PIR"),
+            "TAG_GIR": _form_tag("TAG_GIR"),
+            "TAG_RFI": _form_tag("TAG_RFI"),
+            "TAG_FLASH_INTEL": _form_tag("TAG_FLASH_INTEL"),
+            "TAG_VEA": _form_tag("TAG_VEA"),
+            "TAG_BRIEFING": _form_tag("TAG_BRIEFING"),
+            "TAG_TLR": _form_tag("TAG_TLR"),
+            "TAG_THREAT_ACTOR_PROFILE": _form_tag("TAG_THREAT_ACTOR_PROFILE"),
+            "TAG_INDICATOR_FEED": _form_tag("TAG_INDICATOR_FEED"),
+            "TAG_COLLECTION_FOLLOWUP": _form_tag("TAG_COLLECTION_FOLLOWUP"),
+            "TAG_COLLECTION_DISMISSED": _form_tag("TAG_COLLECTION_DISMISSED"),
+            "RECOMMENDED_ACTIONS_IMMEDIATE": lines("RECOMMENDED_ACTIONS_IMMEDIATE"),
+            "RECOMMENDED_ACTIONS_NEAR_TERM": lines("RECOMMENDED_ACTIONS_NEAR_TERM"),
+            "POLL_WINDOW_HOURS": _form_int("POLL_WINDOW_HOURS", 24),
+            "SCRAPER_MARKER_TAG": _form_tag("SCRAPER_MARKER_TAG"),
+            "EVENT_LOG_RETENTION_DAYS": max(1, _form_int("EVENT_LOG_RETENTION_DAYS", 90)),
+            "PIPELINE_RUN_LOG_RETENTION_DAYS": max(1, _form_int("PIPELINE_RUN_LOG_RETENTION_DAYS", 365)),
+            "LOG_LEVEL": _form_str("LOG_LEVEL") or "INFO",
+            "HOSTNAME": _form_str("HOSTNAME") or "0.0.0.0",
+            "PORT": _form_int("PORT", 5000),
+            "SSL_ENABLED": _form_bool("SSL_ENABLED"),
+            "SSL_CERT": _form_str("SSL_CERT") or "certs/zsazsa.crt",
+            "SSL_KEY": _form_str("SSL_KEY") or "certs/zsazsa.key",
             "MISP_SESSION_COOKIE_NAME": session_cookie_name,
-            "MISP_SESSION_REDIS_HOST": request.form.get("MISP_SESSION_REDIS_HOST", "127.0.0.1").strip(),
-            "MISP_SESSION_REDIS_PORT": int(request.form.get("MISP_SESSION_REDIS_PORT", 6379) or 6379),
-            "MISP_SESSION_REDIS_DB": int(request.form.get("MISP_SESSION_REDIS_DB", 0) or 0),
-            "MISP_SESSION_REDIS_USERNAME": request.form.get("MISP_SESSION_REDIS_USERNAME", "").strip(),
-            "MISP_SESSION_REDIS_PASSWORD": request.form.get("MISP_SESSION_REDIS_PASSWORD", ""),
-            "MISP_SESSION_REDIRECT_TO_LOGIN": request.form.get("MISP_SESSION_REDIRECT_TO_LOGIN") == "true",
-            "BRAND_COMPANY": request.form.get("BRAND_COMPANY", "").strip(),
-            "BRAND_DEPARTMENT": request.form.get("BRAND_DEPARTMENT", "").strip(),
-            "BRAND_COLOR_1": request.form.get("BRAND_COLOR_1", "#0f2d52").strip() or "#0f2d52",
-            "BRAND_COLOR_2": request.form.get("BRAND_COLOR_2", "#0078f1").strip() or "#0078f1",
-            "BRAND_COLOR_3": request.form.get("BRAND_COLOR_3", "#64748b").strip() or "#64748b",
+            "MISP_SESSION_REDIS_HOST": _form_str("MISP_SESSION_REDIS_HOST") or "127.0.0.1",
+            "MISP_SESSION_REDIS_PORT": _form_int("MISP_SESSION_REDIS_PORT", 6379),
+            "MISP_SESSION_REDIS_DB": _form_int("MISP_SESSION_REDIS_DB", 0),
+            "MISP_SESSION_REDIS_USERNAME": _form_str("MISP_SESSION_REDIS_USERNAME"),
+            "MISP_SESSION_REDIS_PASSWORD": _form_str("MISP_SESSION_REDIS_PASSWORD"),
+            "MISP_SESSION_REDIRECT_TO_LOGIN": _form_bool("MISP_SESSION_REDIRECT_TO_LOGIN"),
+            "BRAND_COMPANY": _form_str("BRAND_COMPANY"),
+            "BRAND_DEPARTMENT": _form_str("BRAND_DEPARTMENT"),
+            "BRAND_COLOR_1": _form_str("BRAND_COLOR_1") or "#0f2d52",
+            "BRAND_COLOR_2": _form_str("BRAND_COLOR_2") or "#0078f1",
+            "BRAND_COLOR_3": _form_str("BRAND_COLOR_3") or "#64748b",
             "BRAND_LOGO": getattr(_config, "BRAND_LOGO", ""),
-            "THEME": request.form.get("THEME", "overmind").strip() or "overmind",
+            "THEME": _form_str("THEME") or "overmind",
         }
         if values["THEME"] not in ("default", "uibeta", "overmind"):
             values["THEME"] = "overmind"
@@ -714,14 +792,8 @@ def save_scraper_config():
     current["MISP_URL"] = request.form.get("MISP_URL", "").strip()
     current["MISP_KEY"] = request.form.get("MISP_KEY", "").strip()
     current["MISP_VERIFYCERT"] = request.form.get("MISP_VERIFYCERT") == "true"
-    try:
-        current["MISP_SCRAPER_LIMIT"] = max(1, int(request.form.get("MISP_SCRAPER_LIMIT") or 500))
-    except (ValueError, TypeError):
-        current["MISP_SCRAPER_LIMIT"] = 500
-    try:
-        current["MISP_SCRAPER_SINCE_DAYS"] = max(0, int(request.form.get("MISP_SCRAPER_SINCE_DAYS") or 0))
-    except (ValueError, TypeError):
-        current["MISP_SCRAPER_SINCE_DAYS"] = 0
+    current["MISP_SCRAPER_LIMIT"] = max(1, _form_int("MISP_SCRAPER_LIMIT", 500))
+    current["MISP_SCRAPER_SINCE_DAYS"] = max(0, _form_int("MISP_SCRAPER_SINCE_DAYS", 0))
     try:
         _write(current)
         importlib.reload(_config)
@@ -739,7 +811,7 @@ def save_scraper_redis_config():
     current = _read()
     current["SCRAPER_REDIS_HOST"] = request.form.get("SCRAPER_REDIS_HOST", "").strip()
     try:
-        current["SCRAPER_REDIS_PORT"] = int(request.form.get("SCRAPER_REDIS_PORT") or 6379)
+        current["SCRAPER_REDIS_PORT"] = _form_int("SCRAPER_REDIS_PORT", 6379)
     except (ValueError, TypeError):
         current["SCRAPER_REDIS_PORT"] = 6379
     current["SCRAPER_REDIS_PASSWORD"] = request.form.get("SCRAPER_REDIS_PASSWORD", "")

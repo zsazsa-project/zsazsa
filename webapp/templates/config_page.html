@@ -819,6 +819,20 @@
                 {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_TLR | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
               </div>
             </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-1">Threat actor profile</label>
+              <div class="input-group input-group-sm">
+                <input type="text" name="TAG_THREAT_ACTOR_PROFILE" class="form-control form-control-sm font-monospace" value="{{ cfg.TAG_THREAT_ACTOR_PROFILE }}">
+                {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_THREAT_ACTOR_PROFILE | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-1">Indicator feed</label>
+              <div class="input-group input-group-sm">
+                <input type="text" name="TAG_INDICATOR_FEED" class="form-control form-control-sm font-monospace" value="{{ cfg.TAG_INDICATOR_FEED }}">
+                {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_INDICATOR_FEED | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
+              </div>
+            </div>
           </div>
         </div>
       </div>

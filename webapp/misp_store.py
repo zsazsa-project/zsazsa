@@ -5526,7 +5526,13 @@ def scraper_existing_uuids(uuids):
     for i in range(0, len(candidates), chunk_size):
         chunk = candidates[i:i + chunk_size]
         events = misp.search(uuid=chunk, metadata=True, pythonify=True)
-        if not events or isinstance(events, dict):
+        if isinstance(events, dict):
+            # The caller hides activity rows whose event is missing, so a failed
+            # search would quietly hide the lot as orphaned.
+            logger.warning("scraper existence check failed for %d uuid(s): %s",
+                           len(chunk), events.get("errors") or events)
+            continue
+        if not events:
             continue
         for e in events:
             ev_uuid = getattr(e, "uuid", None)

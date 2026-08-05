@@ -747,6 +747,11 @@ def build_fia():
         logger.warning("build_fia: LLM call failed: %s", exc)
         return jsonify({"fields": {}, "error": "Failed to generate FIA draft."}), 502
 
+    if not raw.strip():
+        # Parsing nothing yields a wizard full of empty fields and no clue why.
+        return jsonify({"fields": {}, "error": "The model returned an empty draft. "
+                                               "Check the LLM settings and the analyser log."}), 502
+
     fields = _parse_fia_markdown(raw)
     if worst_reliability: fields['source_reliability'] = worst_reliability
     if worst_credibility: fields['information_credibility'] = worst_credibility

@@ -82,6 +82,15 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
         source_reliability,
         _event_date(event),
     )
+    if not fia_content.strip():
+        # A model that runs out of tokens answers with nothing rather than an
+        # error. Carrying on would file an alert holding only its own heading,
+        # mark the source event as handled so it is never looked at again, and
+        # send that to any subscriber on automated mode. Leave the event alone
+        # and let the next run try it again.
+        logger.error("Flash intel generation returned nothing for %s", event.uuid)
+        return {"outcome": "error", "source_feed": source_feed,
+                "detail": "The model returned an empty flash intel draft"}
 
     product_event = MISPEvent()
     product_event.info = f"[zsazsa:fia] {event.info}"
@@ -125,8 +134,11 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
     # before approving and publishing.
     _add_flash_intel_object(misp_webapp, product_event, fia_id, event, fia_content, matched)
 
-    # Mark the source event as routed for review (not yet complete).
-    tagger.set_workflow_state(misp, event, "ongoing")
+    # Mark the source event as routed for review (not yet complete). If that
+    # does not take, the event still reads as incomplete and the next run makes
+    # a second draft for it, so the activity log has to say so.
+    routed = tagger.set_workflow_state(misp, event, "ongoing")
+    detail = fia_id if routed else f"{fia_id} (source event still marked incomplete)"
 
     auto = _has_automated_subscriber(misp_webapp, _FLASH_INTEL_PRODUCT_NAME)
     if auto:
@@ -145,7 +157,7 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
     return {
         "outcome": "product_created",
         "source_feed": source_feed,
-        "detail": fia_id,
+        "detail": detail,
         "product": product_event,
         "fia_id": fia_id,
         "content": fia_content,

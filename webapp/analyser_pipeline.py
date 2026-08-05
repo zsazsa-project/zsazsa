@@ -152,7 +152,13 @@ def _today_incomplete_scraper_events():
         page=1,
         pythonify=True,
     )
-    if not events or isinstance(events, dict):
+    if isinstance(events, dict):
+        # An error answer and an empty one both end the run reporting no
+        # eligible events, so the reason has to reach the log at least.
+        logger.warning("scraper search for today's incomplete events failed: %s",
+                       events.get("errors") or events)
+        return misp, []
+    if not events:
         return misp, []
 
     eligible = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
@@ -456,11 +462,16 @@ def run_daily_briefing_action(progress=None) -> dict:
             rejected_by_relevance += 1
             reason = (decision.get("reason") or "").strip()
             decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "rejected", "reason": reason or "Failed relevance check"})
+            marked = False
             try:
-                tagger.set_workflow_state(misp, event, "rejected")
+                marked = tagger.set_workflow_state(misp, event, "rejected")
             except Exception as exc:
                 logger.warning("Could not mark %s as rejected after relevance review: %s", event.uuid, exc)
-            _add_briefing_rejection_note(misp, event, reason=reason, report_title=report_title)
+            # An event that keeps its incomplete state comes back on the next
+            # run, is reviewed again and collects a second rejection note, so
+            # only write one once the event has actually been moved on.
+            if marked:
+                _add_briefing_rejection_note(misp, event, reason=reason, report_title=report_title)
             _log(event, "not_relevant", reason or "rejected by briefing relevance check")
             continue
         kept.append(event)
