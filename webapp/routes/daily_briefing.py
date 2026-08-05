@@ -50,19 +50,28 @@ def _render_briefing_form(
         (story.get("source_event_uuid") if isinstance(story, dict) else getattr(story, "source_event_uuid", ""))
         for story in stories
     ]
-    cached_sources = {
-        row["uuid"]: row.get("source_id", "")
+    # The cache also knows how many reports each source event has, which is what
+    # the "MISP reports" button shows. A story seeded from triage brings its own
+    # count; one loaded from a saved briefing has none until this fills it in.
+    cached = {
+        row["uuid"]: row
         for row in collection_cache.get_events_by_uuids([uuid for uuid in story_uuids if uuid])
     }
     for story in stories:
         if isinstance(story, dict):
+            source_event_uuid = story.get("source_event_uuid", "")
+            row = cached.get(source_event_uuid) or {}
             if not story.get("source_id"):
-                source_event_uuid = story.get("source_event_uuid", "")
-                story["source_id"] = cached_sources.get(source_event_uuid) or source_id_from_event_ref(story.get("source_url", ""))
+                story["source_id"] = row.get("source_id") or source_id_from_event_ref(story.get("source_url", ""))
+            if story.get("report_count") is None:
+                story["report_count"] = row.get("report_count")
         else:
+            source_event_uuid = getattr(story, "source_event_uuid", "")
+            row = cached.get(source_event_uuid) or {}
             if not getattr(story, "source_id", ""):
-                source_event_uuid = getattr(story, "source_event_uuid", "")
-                setattr(story, "source_id", cached_sources.get(source_event_uuid) or source_id_from_event_ref(getattr(story, "source_url", "")))
+                setattr(story, "source_id", row.get("source_id") or source_id_from_event_ref(getattr(story, "source_url", "")))
+            if getattr(story, "report_count", None) is None:
+                setattr(story, "report_count", row.get("report_count"))
     gathered = misp_store.briefing_story_scope_values(stories)
     return render_template(
         "daily_briefing/form.html",
@@ -135,7 +144,7 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
         "source_event_uuid": ev.uuid,
         "source_id": source_id,
         "ai_summary": _extract_ai_summary(ev),
-        "report_count": len(getattr(ev, "event_reports", []) or []),
+        "report_count": len(misp_store.live_reports(ev)),
     }
     story.update(misp_store.extract_story_context(ev))
     return story

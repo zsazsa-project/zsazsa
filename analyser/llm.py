@@ -491,8 +491,6 @@ def service_status(feature: str = "summarise_report") -> dict:
         if provider == "local":
             wanted = _untagged(model)
             status["model_available"] = any(_untagged(n) == wanted for n in names)
-        else:
-            status["model_available"] = None
     except Exception as exc:
         status["error"] = str(exc)
         return status
@@ -504,8 +502,7 @@ def service_status(feature: str = "summarise_report") -> dict:
 
 def _untagged(model: str) -> str:
     """Model name without Ollama's ":latest" default tag."""
-    name = (model or "").strip()
-    return name[: -len(":latest")] if name.endswith(":latest") else name
+    return (model or "").strip().removesuffix(":latest")
 
 
 def _ollama_loaded_models() -> list[str]:
@@ -515,7 +512,7 @@ def _ollama_loaded_models() -> list[str]:
     server that does not have it simply answers 404, which is not an error worth
     reporting: it only means this particular hint is unavailable.
     """
-    root = _local_base_url()[: -len("/v1")]
+    root = _local_base_url().removesuffix("/v1")
     try:
         reply = requests.get(f"{root}/api/ps", timeout=5)
         if reply.status_code != 200:

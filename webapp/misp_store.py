@@ -25,7 +25,7 @@ import time
 import urllib3
 import re
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import config
@@ -1794,6 +1794,7 @@ def _rfi_ns(event):
             uuid=getattr(er, "uuid", str(er.id)),
             title=(getattr(er, "name", "") or "")[6:],
             content=getattr(er, "content", "") or "",
+            date=report_date(er),
         )
         for er in (getattr(event, "event_reports", []) or [])
         if (getattr(er, "name", "") or "").startswith("note: ")
@@ -2171,6 +2172,7 @@ def _tap_ns(event):
             uuid=getattr(er, "uuid", str(er.id)),
             title=(getattr(er, "name", "") or "")[6:],
             content=getattr(er, "content", "") or "",
+            date=report_date(er),
         )
         for er in (getattr(event, "event_reports", []) or [])
         if (getattr(er, "name", "") or "").startswith("note: ")
@@ -2675,9 +2677,19 @@ def _report_timestamp(ts):
     if ts in (None, ""):
         return None
     try:
-        return datetime.utcfromtimestamp(int(ts))
+        return datetime.fromtimestamp(int(ts), timezone.utc).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         return None
+
+
+def report_date(report) -> str:
+    """Date shown next to an event report title, empty when it has none.
+
+    A report carries only a timestamp, which MISP moves on every edit, so this
+    is when it was last written rather than when it was first attached.
+    """
+    ts = _report_timestamp(getattr(report, "timestamp", None))
+    return ts.strftime("%Y-%m-%d") if ts else ""
 
 
 def add_product_feedback(event_uuid, author, rating, comment):
@@ -3101,6 +3113,16 @@ def resolve_source_event(ev_uuid, source_hint=""):
     return None, None, ""
 
 
+def live_reports(event) -> list:
+    """Event reports minus the deleted ones, which MISP keeps on the event.
+
+    Everything that counts or shows reports has to skip those, or a report
+    someone removed comes back as content on a page or as a number on a button.
+    """
+    return [r for r in (getattr(event, "event_reports", []) or [])
+            if not getattr(r, "deleted", False)]
+
+
 def format_event_attributes_text(event) -> str:
     """Render an event's attributes and any report content as markdown text.
 
@@ -3128,9 +3150,7 @@ def format_event_attributes_text(event) -> str:
             )
 
     report_texts = []
-    for r in getattr(event, "event_reports", []) or []:
-        if getattr(r, "deleted", False):
-            continue
+    for r in live_reports(event):
         content = (getattr(r, "content", "") or "").strip()
         if content:
             report_texts.append(content)
@@ -3228,7 +3248,9 @@ def fetch_source_events(source_uuids, source_hints=None, strict_source=False):
             "attributes": attrs,
             "objects": objects,
             "reports": [
-                {"name": getattr(r, "name", "") or "Report", "content": getattr(r, "content", "") or ""}
+                {"name": getattr(r, "name", "") or "Report",
+                 "content": getattr(r, "content", "") or "",
+                 "date": report_date(r)}
                 for r in reports
             ],
         })
@@ -3758,7 +3780,9 @@ def get_manual_collection_event(uuid: str):
         "attributes": attrs,
         "source_provider": source_provider,
         "reports": [
-            {"name": getattr(r, "name", "") or "Report", "content": getattr(r, "content", "") or ""}
+            {"name": getattr(r, "name", "") or "Report",
+             "content": getattr(r, "content", "") or "",
+             "date": report_date(r)}
             for r in reports
         ],
     }
@@ -5034,9 +5058,8 @@ def _briefing_ns(event):
 
     stories = []
     for er in sorted(
-        [r for r in (getattr(event, "event_reports", []) or [])
-         if (getattr(r, "name", "") or "").startswith(_STORY_REPORT_PREFIX)
-         and not getattr(r, "deleted", False)],
+        [r for r in live_reports(event)
+         if (getattr(r, "name", "") or "").startswith(_STORY_REPORT_PREFIX)],
         key=lambda r: r.name,
     ):
         try:

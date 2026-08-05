@@ -37,6 +37,10 @@
     <div class="border-bottom px-3 py-2">
       <div class="d-flex align-items-start">
         <strong class="small">{{ note.title }}</strong>
+        {% if note.date %}
+        <span class="text-muted ms-2" style="font-size:.72rem;"
+              title="Note last updated in MISP">{{ note.date }}</span>
+        {% endif %}
         {% if editable %}
         <form method="post" action="{{ url_for('threat_actor_profile.note_delete', id=tap.uuid, report_id=note.id) }}"
               class="ms-auto d-inline" onsubmit="return confirm('Delete this note?');">

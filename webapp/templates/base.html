@@ -845,6 +845,10 @@
     if (!badges.length) return;
     var list = document.getElementById('jobs-modal-list');
     var jobs = [];
+    /* Probe answers, by job id. The list repaints every few seconds, so an
+       answer is kept here and redrawn with its row rather than written into the
+       DOM once and lost on the next repaint. */
+    var probes = {};
 
     function esc(s) {
       return String(s == null ? '' : s)
@@ -945,10 +949,6 @@
       }).join('');
     }
 
-    /* The list repaints every few seconds, so a probe answer is kept here and
-       redrawn with the row rather than written into the DOM once. */
-    var probes = {};
-
     function probeHtml(data) {
       var lines = [esc(data.verdict)];
       var ai = data.ai;
@@ -1042,6 +1042,9 @@
         body: JSON.stringify({scope: scope})
       })
         .then(zsazsaReadJson)
+        .then(function(data) {
+          if (!data.ok) alert('Could not remove entries: ' + (data.error || 'unknown reason.'));
+        })
         .catch(function(err) { alert('Could not remove entries: ' + zsazsaErrorText(err)); })
         .finally(function() { button.disabled = false; schedule(200); });
     }

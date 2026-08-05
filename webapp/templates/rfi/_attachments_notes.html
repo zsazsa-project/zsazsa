@@ -91,6 +91,10 @@
     <div class="border-bottom px-3 py-2">
       <div class="d-flex align-items-start">
         <strong class="small">{{ note.title }}</strong>
+        {% if note.date %}
+        <span class="text-muted ms-2" style="font-size:.72rem;"
+              title="Note last updated in MISP">{{ note.date }}</span>
+        {% endif %}
         {% if editable %}
         <form method="post" action="{{ url_for('rfi.rfi_note_delete', id=rfi.id, report_id=note.id) }}"
               class="ms-auto d-inline" data-confirm="Delete note?">

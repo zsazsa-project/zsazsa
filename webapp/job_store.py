@@ -198,7 +198,7 @@ def worker_alive(job_id: str) -> bool:
 
 
 @contextmanager
-def heartbeat(job_id: str, message: str, every_s: int = 60):
+def heartbeat(job_id: str, message: str, every_s: float = 60):
     """Keep saying a job is alive while one long call blocks its thread.
 
     An LLM call returns nothing until it is done, and on a local model that can
@@ -211,11 +211,6 @@ def heartbeat(job_id: str, message: str, every_s: int = 60):
 
     def tick():
         while not done.wait(every_s):
-            # Checked again on the way out of the wait: the call can have
-            # finished and written its own last message in the meantime, and
-            # overwriting that with "still running" would be a lie that sticks.
-            if done.is_set():
-                return
             minutes = int((time.time() - started) / 60)
             update_job(job_id, message=f"{message} (running {minutes}m)")
 
@@ -225,6 +220,12 @@ def heartbeat(job_id: str, message: str, every_s: int = 60):
         yield
     finally:
         done.set()
+        # A tick that woke just as the call returned is still on its way to
+        # Redis. Letting it land first is what keeps it from overwriting the
+        # job's final message with "still running", which nothing would correct
+        # afterwards. It is one command against a socket that has its own
+        # timeout, so this waits milliseconds.
+        ticker.join()
 
 
 def set_step(job_id: str, step: str, state: str, message: str = "") -> None:

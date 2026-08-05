@@ -97,14 +97,15 @@
                   title="Draft a 5-line briefing story with AI from the original event content">
             <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
           </button>
-          {# report_count is only known when composing from triage; when editing a
-             saved briefing it is undefined and the modal reports an empty event #}
+          {# report_count comes from triage or from the collection cache. It stays
+             unknown for a source event neither knows, and the count then appears
+             once the modal has read the reports. #}
           {% if story.source_event_uuid and story.report_count != 0 %}
           <button type="button" class="btn btn-xs btn-outline-primary btn-view-reports"
                   data-idx="{{ idx }}"
                   data-event-uuid="{{ story.source_event_uuid }}"
                   title="View the MISP reports attached to the source event">
-            <i class="fas fa-file-lines me-1"></i> MISP reports{% if story.report_count %} ({{ story.report_count }}){% endif %}
+            <i class="fas fa-file-lines me-1"></i> MISP reports<span class="report-count">{% if story.report_count %} ({{ story.report_count }}){% endif %}</span>
           </button>
           {% endif %}
           <button type="button" class="btn btn-xs btn-outline-secondary btn-include-attributes"
@@ -659,7 +660,7 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
           <button type="button" class="btn btn-xs btn-outline-primary btn-view-reports"
                   data-idx="${idx}" data-event-uuid="${sourceUuid}"
                   title="View the MISP reports attached to the source event">
-            <i class="fas fa-file-lines me-1"></i> MISP reports
+            <i class="fas fa-file-lines me-1"></i> MISP reports<span class="report-count"></span>
           </button>` : ''}
           <button type="button" class="btn btn-xs btn-outline-secondary btn-include-attributes"
               data-idx="${idx}" data-event-uuid="${sourceUuid}"
@@ -792,6 +793,85 @@ function draftStory(idx, eventUuid) {
   });
 }
 
+function showReportCount(label, count) {
+  label.textContent = count ? ' (' + count + ')' : '';
+}
+
+function setReportCount(idx, count) {
+  var label = document.querySelector('.btn-view-reports[data-idx="' + idx + '"] .report-count');
+  if (label) showReportCount(label, count);
+}
+
+/* A story whose source event is not in the collection cache renders without a
+   count. Ask MISP for it once the page is up: doing it while rendering would
+   hold the page on one event lookup per story, and the count is not worth that.
+   The label element is captured so removing a story mid-request cannot land the
+   answer on the button that took over its number. */
+function fillMissingReportCounts() {
+  document.querySelectorAll('.btn-view-reports').forEach(function(btn) {
+    var label = btn.querySelector('.report-count');
+    if (!label || label.textContent) return;
+    fetch(SCRIPT_ROOT + '/api/event-report-count', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+      },
+      body: JSON.stringify({event_uuid: btn.dataset.eventUuid, source_id: storySourceId(btn.dataset.idx)}),
+    })
+    .then(zsazsaReadJson)
+    .then(function(data) {
+      if (!data.error) showReportCount(label, data.count);
+    })
+    .catch(function() {
+      /* The button stays countless and still opens the reports. */
+    });
+  });
+}
+
+function reportAccordion(reports) {
+  var acc = document.createElement('div');
+  acc.className = 'accordion';
+  acc.id = 'misp-reports-acc';
+  reports.forEach(function(report, i) {
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'accordion-button py-2 small' + (i ? ' collapsed' : '');
+    toggle.setAttribute('data-bs-toggle', 'collapse');
+    toggle.setAttribute('data-bs-target', '#misp-report-' + i);
+    toggle.setAttribute('aria-expanded', i ? 'false' : 'true');
+    toggle.textContent = report.name;
+    if (report.date) {
+      var date = document.createElement('span');
+      date.className = 'text-muted ms-2';
+      date.style.fontSize = '.72rem';
+      date.title = 'Report last updated in MISP';
+      date.textContent = report.date;
+      toggle.appendChild(date);
+    }
+    var header = document.createElement('h2');
+    header.className = 'accordion-header';
+    header.appendChild(toggle);
+
+    var content = document.createElement('div');
+    content.className = 'accordion-body report-md-body';
+    var html = marked.parse(report.content || '');
+    content.innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : html;
+
+    var panel = document.createElement('div');
+    panel.id = 'misp-report-' + i;
+    panel.className = 'accordion-collapse collapse' + (i ? '' : ' show');
+    panel.setAttribute('data-bs-parent', '#misp-reports-acc');
+    panel.appendChild(content);
+
+    var item = document.createElement('div');
+    item.className = 'accordion-item';
+    item.append(header, panel);
+    acc.appendChild(item);
+  });
+  return acc;
+}
+
 function viewReports(idx, eventUuid) {
   var body = document.getElementById('misp-reports-body');
   var eventEl = document.getElementById('misp-reports-event');
@@ -828,24 +908,12 @@ function viewReports(idx, eventUuid) {
       linkEl.href = data.event_url;
       linkEl.classList.remove('d-none');
     }
+    setReportCount(idx, data.reports.length);
     if (!data.reports.length) {
       message('text-muted', 'This event has no MISP reports.');
       return;
     }
-    body.innerHTML = '';
-    data.reports.forEach(function(report, i) {
-      var block = document.createElement('div');
-      block.className = i ? 'border-top pt-3 mt-3' : '';
-      var name = document.createElement('div');
-      name.className = 'fw-semibold small mb-2';
-      name.textContent = report.name;
-      var content = document.createElement('div');
-      content.className = 'report-md-body';
-      var html = marked.parse(report.content || '');
-      content.innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : html;
-      block.append(name, content);
-      body.appendChild(block);
-    });
+    body.replaceChildren(reportAccordion(data.reports));
   })
   .catch(err => {
     message('text-danger', 'Could not load the MISP reports: ' + zsazsaErrorText(err));
@@ -1038,6 +1106,7 @@ document.querySelectorAll('[data-ti-field]').forEach(function(w) {
 });
 
 updateOverlapButtonState();
+fillMissingReportCounts();
 </script>
 
 <style>

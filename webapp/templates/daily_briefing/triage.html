@@ -215,7 +215,8 @@ function openPreview(uuid, info) {
     var reportsEl = document.getElementById('previewReports');
     if (data.reports && data.reports.length) {
       reportsEl.innerHTML = data.reports.map(function(r) {
-        var header = r.name ? '<div class="text-muted small fw-semibold mb-1">' + esc(r.name) + '</div>' : '';
+        var date = r.date ? '<span class="fw-normal ms-2" style="font-size:.75rem;" title="Report last updated in MISP">' + esc(r.date) + '</span>' : '';
+        var header = (r.name || r.date) ? '<div class="text-muted small fw-semibold mb-1">' + esc(r.name) + date + '</div>' : '';
         return '<div class="mb-4">' + header +
           '<div style="white-space:pre-wrap;">' + esc(r.content) + '</div></div>';
       }).join('');

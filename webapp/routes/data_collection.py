@@ -298,7 +298,9 @@ def index():
 def refresh():
     """Wake the cache worker.
 
-    A click is tracked as a job so the analyst can follow it from the top bar.
+    A click is tracked as a job so the analyst can follow it from the top bar,
+    and the id comes back with the reply the way every other job route answers,
+    so the page can wait for the sweep instead of guessing how long it takes.
     The countdown's automatic refresh posts auto=1 and stays untracked: it fires
     on every open collection page and would bury the job list in routine runs.
     """
@@ -311,7 +313,7 @@ def refresh():
             job_store.update_job(job_id, status="failed", error="Cache worker is not running",
                                  message="Cache worker is not running")
         return jsonify({"ok": False, "error": "Cache worker is not running"}), 503
-    return jsonify({"ok": True, "message": "Refresh triggered"})
+    return jsonify({"ok": True, "message": "Refresh triggered", "job_id": job_id})
 
 
 _PULL_TIMEOUT = 10  # seconds
@@ -455,6 +457,7 @@ def detail(uuid):
         report_views.append({
             "name": getattr(r, "name", "") or "Report",
             "content": getattr(r, "content", "") or "",
+            "date": misp_store.report_date(r),
             "tags": [t.name for t in getattr(r, "tags", []) or []],
         })
 
@@ -667,6 +670,7 @@ def preview(uuid):
         {
             "name": getattr(r, "name", "") or "Report",
             "content": getattr(r, "content", "") or "",
+            "date": misp_store.report_date(r),
             "tags": [t.name for t in getattr(r, "tags", []) or []],
         }
         for r in reports

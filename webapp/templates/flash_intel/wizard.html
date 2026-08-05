@@ -117,7 +117,13 @@
                   <div class="fw-semibold small mb-1"><i class="fas fa-file-lines me-1 text-muted"></i>Reports</div>
                   {% for r in ev.reports %}
                   <div class="border rounded p-2 mb-2 small">
-                    <div class="fw-semibold mb-1">{{ r.name }}</div>
+                    <div class="fw-semibold mb-1">
+                      {{ r.name }}
+                      {% if r.date %}
+                      <span class="text-muted fw-normal ms-2" style="font-size:.72rem;"
+                            title="Report last updated in MISP">{{ r.date }}</span>
+                      {% endif %}
+                    </div>
                     <div class="report-md-body text-muted" data-md="{{ r.content | truncate(2000, True) }}"
                          style="font-size:.82rem;max-height:12rem;overflow-y:auto;"></div>
                   </div>

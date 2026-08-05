@@ -183,27 +183,30 @@ def _age_text(seconds: float) -> str:
     return f"{round(minutes / 1440)}d ago"
 
 
-def _import_status(status: dict | None, interval_s: int) -> dict:
-    """Last collection-cache import for one source, formatted for display.
+def _refresh_status(status: dict | None, interval_s: int) -> dict:
+    """Last collection-cache refresh of one source, formatted for display.
 
-    ``status`` is one row of collection_cache.get_source_status(). A run older
-    than twice the refresh interval is marked stale: the worker lives in this
-    process, so a growing age is how a dead or stuck worker shows itself.
+    ``status`` is one row of collection_cache.get_source_status(). A refresh
+    re-fetches everything the source's filters match and replaces the cached
+    copy, so ``matched`` is the size of that set and only ``matched_new`` says
+    what this run actually brought in. A run older than twice the refresh
+    interval is marked overdue: the worker lives in this process, so a growing
+    age is how a dead or stuck worker shows itself.
     """
     if not status or not status.get("last_fetch"):
-        return {"last_import": "", "import_age": "", "imported": None,
-                "imported_new": None, "import_duration": None,
-                "import_error": "", "import_stale": False, "cached_events": 0}
+        return {"last_refresh": "", "refresh_age": "", "matched": None,
+                "matched_new": None, "refresh_duration": None,
+                "refresh_error": "", "refresh_overdue": False, "cached_events": 0}
 
     age_s = max(0.0, time.time() - status["last_fetch"])
     return {
-        "last_import": datetime.fromtimestamp(status["last_fetch"]).strftime("%Y-%m-%d %H:%M"),
-        "import_age": _age_text(age_s),
-        "imported": status.get("last_event_count"),
-        "imported_new": status.get("last_new_count"),
-        "import_duration": status.get("last_duration_s"),
-        "import_error": status.get("error") or "",
-        "import_stale": age_s > 2 * interval_s,
+        "last_refresh": datetime.fromtimestamp(status["last_fetch"]).strftime("%Y-%m-%d %H:%M"),
+        "refresh_age": _age_text(age_s),
+        "matched": status.get("last_event_count"),
+        "matched_new": status.get("last_new_count"),
+        "refresh_duration": status.get("last_duration_s"),
+        "refresh_error": status.get("error") or "",
+        "refresh_overdue": age_s > 2 * interval_s,
         "cached_events": status.get("event_count", 0),
     }
 
@@ -219,17 +222,17 @@ def _source_health():
 
     results = []
     for src in _sources():
-        imported = _import_status(cache_status.get(src["id"]), interval_s)
+        refresh = _refresh_status(cache_status.get(src["id"]), interval_s)
         if src["kind"] == "manual":
             results.append({
                 "label": src["label"], "url": "", "kind": "manual",
                 "ok": True, "version": "", "error": "",
                 "last_event_date": "", "event_count": None, "manual": True,
-                **imported,
+                **refresh,
             })
             continue
 
-        row = {"label": src["label"], "url": src.get("url", ""), "kind": src["kind"], **imported}
+        row = {"label": src["label"], "url": src.get("url", ""), "kind": src["kind"], **refresh}
         if src["kind"] == "scraper":
             conn = misp_store.test_scraper_misp()
         else:
@@ -357,9 +360,9 @@ def _configured_source_volume(source_health):
     """Event volume per source configured under Collection sources.
 
     Reuses the health rows so the panel costs no extra MISP calls. ``cached`` is
-    what the last import actually brought in and is capped by the source's limit
-    and date window; ``on_server`` is everything matching its filter, so the two
-    together show whether a source is being read in full.
+    what the local cache holds for the source, capped by its limit and date
+    window; ``on_server`` is everything matching its filter, so the two together
+    show whether a source is being read in full.
     """
     rows = [{
         "label": src["label"],

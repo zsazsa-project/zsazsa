@@ -138,8 +138,10 @@ def get_source_status() -> dict:
 def cached_event_counts() -> list[dict]:
     """[{"label", "events"}] per configured source, busiest first.
 
-    Straight from the local cache, so it costs no MISP call. The pipeline page
-    shows the same figures next to what each server holds, which does.
+    The counts come from the local cache, but naming the sources does not: the
+    manual ones are registry entries in MISP, so building the list costs one
+    search there, around half a second. That is fine for a page rendered once
+    and worth knowing before calling this from anything polled.
     """
     status = get_source_status()
     rows = [{"label": src["label"], "events": status.get(src["id"], {}).get("event_count", 0)}
@@ -517,7 +519,15 @@ def _sweep():
         for job_id in jobs:
             job_store.append_log(job_id, message)
 
-    sources = _build_sources()
+    # The only step outside the per-source guard below. A job claimed above and
+    # then left without an answer would sit on "queued" until it ages out, which
+    # is a worse thing to look at than a failure.
+    try:
+        sources = _build_sources()
+    except Exception as exc:
+        report(status="failed", message=f"Could not read the source list: {exc}")
+        raise
+
     report(status="running", message=f"Refreshing {len(sources)} source(s)...")
     events = new = failures = 0
     for src in sources:

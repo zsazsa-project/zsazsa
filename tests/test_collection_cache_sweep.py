@@ -9,7 +9,10 @@ over through trigger_refresh rather than started by the request.
 import unittest
 from unittest import mock
 
+from flask import Flask
+
 from webapp import collection_cache, job_store
+from webapp.routes import data_collection
 
 
 def _sources():
@@ -73,6 +76,19 @@ class Sweep(unittest.TestCase):
             collection_cache._sweep()
         update.assert_not_called()
 
+    def test_job_fails_when_the_source_list_cannot_be_read(self):
+        """The manual sources come from MISP, so building the list can fail."""
+        job = job_store.create_job("collection-refresh", label="Refresh collection cache")
+        collection_cache._pending_jobs.append(job["id"])
+        with mock.patch.object(collection_cache, "_build_sources",
+                               side_effect=RuntimeError("MISP unreachable")):
+            with self.assertRaises(RuntimeError):
+                collection_cache._sweep()
+
+        job = job_store.get_job(job["id"])
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("MISP unreachable", job["message"])
+
     def test_every_job_queued_during_one_sweep_gets_an_answer(self):
         """Two clicks in a row must not leave the first job hanging."""
         first = job_store.create_job("collection-refresh", label="Refresh collection cache")
@@ -85,6 +101,38 @@ class Sweep(unittest.TestCase):
 
         for job in (job_store.get_job(first["id"]), job_store.get_job(second["id"])):
             self.assertEqual(job["status"], "completed")
+
+
+class RefreshRoute(unittest.TestCase):
+    """The other half: what the collection page gets back when it asks."""
+
+    def setUp(self):
+        app = Flask(__name__)
+        app.config["TESTING"] = True
+        app.register_blueprint(data_collection.bp, url_prefix="/collection")
+        self.client = app.test_client()
+
+    def test_a_click_is_tracked_and_the_page_gets_the_job_id(self):
+        with mock.patch.object(job_store, "create_job", return_value={"id": "job-42"}), \
+             mock.patch.object(collection_cache, "trigger_refresh", return_value=True) as trigger:
+            reply = self.client.post("/collection/refresh").get_json()
+        self.assertEqual(reply["job_id"], "job-42")
+        trigger.assert_called_once_with("job-42")
+
+    def test_the_countdown_refresh_stays_untracked(self):
+        with mock.patch.object(job_store, "create_job") as create, \
+             mock.patch.object(collection_cache, "trigger_refresh", return_value=True):
+            reply = self.client.post("/collection/refresh", data={"auto": "1"}).get_json()
+        self.assertEqual(reply["job_id"], "")
+        create.assert_not_called()
+
+    def test_a_dead_worker_fails_the_job_it_just_created(self):
+        with mock.patch.object(job_store, "create_job", return_value={"id": "job-43"}), \
+             mock.patch.object(job_store, "update_job") as update, \
+             mock.patch.object(collection_cache, "trigger_refresh", return_value=False):
+            reply = self.client.post("/collection/refresh")
+        self.assertEqual(reply.status_code, 503)
+        self.assertEqual(update.call_args.kwargs["status"], "failed")
 
 
 if __name__ == "__main__":

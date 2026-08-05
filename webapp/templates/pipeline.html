@@ -21,7 +21,7 @@
         <p class="text-muted small px-3 pt-3 mb-2">
           Events held in the collection cache per source configured under Collection sources,
           against everything matching that source's filter on its server. A large gap means the
-          source's limit or date window is cutting the import short.
+          source's limit or date window is cutting the refresh short.
         </p>
         {% set max_cached = configured_source_volume | map(attribute='cached') | max %}
         <ul class="list-unstyled mb-0">
@@ -347,8 +347,8 @@
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="fas fa-rss me-2"></i>Collection source health</span>
         <span class="text-muted fw-normal" style="font-size:.72rem;"
-              title="The background worker re-imports every source on this interval">
-          <i class="fas fa-rotate me-1"></i>import every {{ cache_interval_min }} min
+              title="The background worker re-reads every source on this interval">
+          <i class="fas fa-rotate me-1"></i>refresh every {{ cache_interval_min }} min
         </span>
       </div>
       <div class="card-body p-0">
@@ -358,10 +358,10 @@
             <div class="d-flex align-items-center justify-content-between mb-1">
               <span class="fw-semibold" style="font-size:.875rem;">{{ src.label }}</span>
               <span class="d-flex gap-1">
-                {% if src.import_stale %}
+                {% if src.refresh_overdue %}
                 <span class="badge outcome-warning" style="font-size:.7rem;"
-                      title="No import for more than twice the refresh interval">
-                  <i class="fas fa-hourglass-half me-1"></i>Import stale
+                      title="No refresh for more than twice the interval">
+                  <i class="fas fa-hourglass-half me-1"></i>Refresh overdue
                 </span>
                 {% endif %}
                 {% if src.manual %}
@@ -394,28 +394,34 @@
             <div class="text-danger" style="font-size:.78rem;">{{ src.error }}</div>
             {% endif %}
 
-            {# Local import: what the collection cache worker last pulled from this source. #}
+            {# Local refresh: what the collection cache worker last read from this
+               source. A refresh re-reads the whole set the source's filters match,
+               so the count is that set's size and "new" is what it added. #}
             <div class="d-flex gap-3 flex-wrap" style="font-size:.78rem;color:var(--text-muted);">
-              {% if not src.last_import %}
-              <span><i class="fas fa-inbox me-1"></i>Never imported</span>
+              {% if not src.last_refresh %}
+              <span><i class="fas fa-inbox me-1"></i>Never refreshed</span>
               {% else %}
-              <span title="Last import: {{ src.last_import }}">
-                <i class="fas fa-clock me-1"></i>Imported {{ src.import_age }}
+              <span title="Last refresh: {{ src.last_refresh }}">
+                <i class="fas fa-clock me-1"></i>Refreshed {{ src.refresh_age }}
               </span>
-              {% if src.import_error %}
-              <span class="text-danger"><i class="fas fa-triangle-exclamation me-1"></i>{{ src.import_error }}</span>
-              {% elif src.imported is not none %}
-              <span>
-                <i class="fas fa-download me-1"></i>{{ src.imported }} event{{ 's' if src.imported != 1 }}
-                {% if src.imported_new %}<span class="text-success">({{ src.imported_new }} new)</span>{% endif %}
+              {% if src.refresh_error %}
+              <span class="text-danger"><i class="fas fa-triangle-exclamation me-1"></i>{{ src.refresh_error }}</span>
+              {% elif src.matched is not none %}
+              <span title="Every refresh re-reads all events matching this source's filters, so this is the size of that set, not what arrived since the last run">
+                <i class="fas fa-download me-1"></i>{{ src.matched }} event{{ 's' if src.matched != 1 }} matched
               </span>
-              {% if src.import_duration is not none %}
-              <span><i class="fas fa-stopwatch me-1"></i>{{ src.import_duration }}s</span>
+              {% if src.matched_new is not none %}
+              <span title="Events this refresh added that were not cached before">
+                {% if src.matched_new %}<span class="text-success">{{ src.matched_new }} new</span>{% else %}no new events{% endif %}
+              </span>
+              {% endif %}
+              {% if src.refresh_duration is not none %}
+              <span><i class="fas fa-stopwatch me-1"></i>{{ src.refresh_duration }}s</span>
               {% endif %}
               {% endif %}
               {# Only worth showing when the cache holds something other than what
-                 the last run fetched, which is what a failed run leaves behind. #}
-              {% if src.cached_events != src.imported %}
+                 the last run read, which is what a failed run leaves behind. #}
+              {% if src.cached_events != src.matched %}
               <span title="Events currently held in the local collection cache">
                 <i class="fas fa-database me-1"></i>{{ src.cached_events }} cached
               </span>

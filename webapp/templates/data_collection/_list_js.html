@@ -210,6 +210,14 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
   // Trigger a cache refresh, reset the countdown and reload. Shared by the
   // manual button and the automatic refresh when the countdown reaches zero.
   var refreshInProgress = false;
+  function resetRefreshButton() {
+    refreshInProgress = false;
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<i class="fas fa-arrows-rotate me-1"></i> Refresh cache';
+    }
+  }
+
   function doRefresh(isAuto) {
     if (refreshInProgress) return;
     refreshInProgress = true;
@@ -232,14 +240,22 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-check me-1"></i> Refresh started';
         if (!isAuto && window.zsazsaJobsChanged) zsazsaJobsChanged();
         if (refreshCountdown && refreshCountdown._resetTimer) refreshCountdown._resetTimer();
-        setTimeout(function() { window.location.reload(); }, 4000);
+        if (payload.job_id) {
+          // Wait for the sweep to report back, so the page reloads on fresh
+          // rows. A sweep over several MISP servers easily outlasts a fixed
+          // wait, and reloading early just shows the old cache again.
+          followJob(payload.job_id,
+            function() { window.location.reload(); },
+            function(message) {
+              resetRefreshButton();
+              alert('The refresh did not complete: ' + message);
+            });
+        } else {
+          setTimeout(function() { window.location.reload(); }, 4000);
+        }
       })
       .catch(function() {
-        refreshInProgress = false;
-        if (refreshBtn) {
-          refreshBtn.disabled = false;
-          refreshBtn.innerHTML = '<i class="fas fa-arrows-rotate me-1"></i> Refresh cache';
-        }
+        resetRefreshButton();
         // Manual click warns the user; an automatic attempt stays quiet and
         // simply retries on the next tick.
         if (!isAuto) alert('Could not trigger cache refresh. Please retry.');
@@ -1327,7 +1343,8 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       html += '<div class="accordion" id="preview-reports-acc">';
       data.reports.forEach(function(r, i) {
         html += '<div class="accordion-item border-0 ' + (i>0?'border-top':'') + '">';
-        html += '<h2 class="accordion-header"><button class="accordion-button ' + (i>0?'collapsed':'') + ' py-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#prev-rep-' + i + '" aria-expanded="' + (i===0?'true':'false') + '">' + esc(r.name) + '</button></h2>';
+        var repDate = r.date ? '<span class="text-muted ms-2" style="font-size:.72rem;" title="Report last updated in MISP">' + esc(r.date) + '</span>' : '';
+        html += '<h2 class="accordion-header"><button class="accordion-button ' + (i>0?'collapsed':'') + ' py-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#prev-rep-' + i + '" aria-expanded="' + (i===0?'true':'false') + '">' + esc(r.name) + repDate + '</button></h2>';
         html += '<div id="prev-rep-' + i + '" class="accordion-collapse collapse ' + (i===0?'show':'') + '" data-bs-parent="#preview-reports-acc">';
         html += '<div class="accordion-body pt-1 pb-2"><div class="report-md-body small" data-md="' + escAttr(r.content) + '"></div></div></div></div>';
       });

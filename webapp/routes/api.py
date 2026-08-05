@@ -168,8 +168,8 @@ def event_reports():
     """Return the MISP reports attached to a source event, for viewing in the UI.
 
     POST JSON: {"event_uuid": "...", "source_id": "optional source hint"}
-    Returns: {"reports": [{"name": "...", "content": "..."}], "event_info": "...",
-              "event_url": "...", "error": null}
+    Returns: {"reports": [{"name": "...", "content": "...", "date": "..."}],
+              "event_info": "...", "event_url": "...", "error": null}
     """
     body, err = _json_object()
     if err:
@@ -185,8 +185,9 @@ def event_reports():
 
     reports = [
         {"name": getattr(r, "name", "") or "(untitled report)",
-         "content": getattr(r, "content", "") or ""}
-        for r in (getattr(event, "event_reports", []) or [])
+         "content": getattr(r, "content", "") or "",
+         "date": misp_store.report_date(r)}
+        for r in misp_store.live_reports(event)
     ]
     base_url = (getattr(misp_client, "root_url", "") or "").rstrip("/")
     return jsonify({
@@ -195,6 +196,31 @@ def event_reports():
         "event_url": f"{base_url}/events/view/{event.uuid}" if base_url else "",
         "error": None,
     })
+
+
+@bp.route("/event-report-count", methods=["POST"])
+@rate_limited("api_event_report_count", limit=60, window_s=60)
+def event_report_count():
+    """How many MISP reports a source event has, for the briefing story button.
+
+    Separate from /event-reports because the button only needs the number and a
+    scraped article report runs to tens of kilobytes.
+
+    POST JSON: {"event_uuid": "...", "source_id": "optional source hint"}
+    Returns: {"count": 0, "error": null}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"count": 0, "error": "Invalid JSON payload."}), 400
+    event_uuid = (body.get("event_uuid") or "").strip()
+    source_id = (body.get("source_id") or "").strip()
+    if not event_uuid:
+        return jsonify({"count": 0, "error": "event_uuid is required"}), 400
+
+    event, _misp_client, _sid = misp_store.resolve_source_event(event_uuid, source_id)
+    if event is None:
+        return jsonify({"count": 0, "error": "Event not found on any configured MISP instance."}), 404
+    return jsonify({"count": len(misp_store.live_reports(event)), "error": None})
 
 
 @bp.route("/briefing-overlap-check", methods=["POST"])
@@ -364,7 +390,8 @@ def event_preview():
     """Return event info and report content for the triage preview panel.
 
     POST JSON: {"uuid": "..."}
-    Returns: {"uuid", "info", "date", "tags", "reports": [{"name", "content"}], "error"}
+    Returns: {"uuid", "info", "date", "tags",
+              "reports": [{"name", "content", "date"}], "error"}
     """
     body, err = _json_object()
     if err:
@@ -387,8 +414,9 @@ def event_preview():
     for r in getattr(event, "event_reports", []) or []:
         content = getattr(r, "content", None)
         name = getattr(r, "name", "") or ""
-        if content:
-            reports.append({"name": name, "content": content})
+        if content and not getattr(r, "deleted", False):
+            reports.append({"name": name, "content": content,
+                            "date": misp_store.report_date(r)})
 
     return jsonify({
         "uuid": event.uuid,

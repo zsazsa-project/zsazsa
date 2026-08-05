@@ -39,6 +39,27 @@ class Heartbeat(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(job_store.get_job(self.job["id"])["updated_at"], settled)
 
+    def test_a_tick_still_in_flight_cannot_overwrite_the_final_message(self):
+        """The job would otherwise sit on "still running" for good: nothing
+        writes to it after the caller's last message."""
+        writing = threading.Event()
+        update = job_store.update_job
+
+        def slow_update(job_id, **fields):
+            if "running" in str(fields.get("message", "")):
+                writing.set()
+                time.sleep(0.1)
+            update(job_id, **fields)
+
+        with mock.patch.object(job_store, "update_job", slow_update):
+            with job_store.heartbeat(self.job["id"], "generating summary", every_s=0.05):
+                writing.wait(2)
+        update(self.job["id"], status="completed", message="1 summary created.")
+
+        # Long enough that a tick let loose would have landed by now.
+        time.sleep(0.3)
+        self.assertEqual(job_store.get_job(self.job["id"])["message"], "1 summary created.")
+
 
 class WorkerAlive(unittest.TestCase):
     def test_a_running_worker_is_found_by_its_job_id(self):
