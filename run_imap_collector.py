@@ -123,32 +123,40 @@ def main() -> None:
     job = job_store.create_job("imap-collector", label="Mailbox poll")
     job_store.update_job(job["id"], status="running", message=f"Polling {len(mailboxes)} mailbox(es)")
 
-    records = []
-    for mailbox in mailboxes:
-        record = {"id": mailbox.get("id"), "name": mailbox.get("name") or mailbox.get("id")}
-        job_store.update_job(job["id"], message=f"Polling {record['name']}")
-        try:
-            record.update(_poll_mailbox(mailbox))
-        except Exception as exc:
-            record.update({"processed": 0, "status": "failed", "message": str(exc)})
-            logger.error("Mailbox %s failed: %s", record["name"], exc)
-        records.append(record)
+    try:
+        records = []
+        for mailbox in mailboxes:
+            record = {"id": mailbox.get("id"), "name": mailbox.get("name") or mailbox.get("id")}
+            job_store.update_job(job["id"], message=f"Polling {record['name']}")
+            try:
+                record.update(_poll_mailbox(mailbox))
+            except Exception as exc:
+                record.update({"processed": 0, "status": "failed", "message": str(exc)})
+                logger.error("Mailbox %s failed: %s", record["name"], exc)
+            records.append(record)
 
-    processed = sum(r["processed"] for r in records)
-    failures = sum(1 for r in records if r["status"] == "failed")
-    message = f"{processed} message(s) ingested from {len(mailboxes)} mailbox(es)"
-    if failures:
-        message += f", {failures} mailbox(es) failed"
-    result = {"message": message, "mailboxes": records}
-    log_pipeline_run_end(run_id, "failed" if failures else "completed", result)
-    if processed or failures:
-        job_store.update_job(job["id"], status="failed" if failures else "completed",
-                             result=result, message=message)
-    else:
-        # Most polls find an empty mailbox. Those are in the run history, but
-        # they have nothing to say to someone watching the job badge.
-        job_store.forget_job(job["id"])
-    logger.info("IMAP collector finished: %s", message)
+        processed = sum(r["processed"] for r in records)
+        failures = sum(1 for r in records if r["status"] == "failed")
+        message = f"{processed} message(s) ingested from {len(mailboxes)} mailbox(es)"
+        if failures:
+            message += f", {failures} mailbox(es) failed"
+        result = {"message": message, "mailboxes": records}
+        log_pipeline_run_end(run_id, "failed" if failures else "completed", result)
+        if processed or failures:
+            job_store.update_job(job["id"], status="failed" if failures else "completed",
+                                 result=result, message=message)
+        else:
+            # Most polls find an empty mailbox. Those are in the run history, but
+            # they have nothing to say to someone watching the job badge.
+            job_store.forget_job(job["id"])
+        logger.info("IMAP collector finished: %s", message)
+    except Exception as exc:
+        # Only this process can close its own run row and job entry, so a crash
+        # here would otherwise leave both saying "running" for good.
+        log_pipeline_run_end(run_id, "failed")
+        job_store.update_job(job["id"], status="failed", error=str(exc),
+                             message=f"Failed: {exc}")
+        raise
 
 
 if __name__ == "__main__":

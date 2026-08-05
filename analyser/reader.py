@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import config
+from core.atomic_write import write_atomically
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,9 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     path = Path(config.STATE_FILE)
     path.parent.mkdir(exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(state, f)
+    # The analyser and the web app each keep their own key in here, from
+    # separate processes, so a half-written file loses one of them.
+    write_atomically(path, json.dumps(state))
 
 
 def load_last_run() -> int | None:
@@ -32,8 +34,31 @@ def load_last_run() -> int | None:
 
 
 def save_last_run(timestamp: int) -> None:
+    """Advance the analyser's watermark. Only the analyser run may call this.
+
+    get_new_scraper_events() asks MISP for events changed since this timestamp,
+    so it is a queue pointer, not a clock: anything published before it and not
+    yet processed is skipped for good. Something that merely wants to say "the
+    pipeline ran just now" wants save_last_action().
+    """
     state = _load_state()
     state["analyser_last_run"] = timestamp
+    _save_state(state)
+
+
+def load_last_action() -> int | None:
+    return _load_state().get("pipeline_last_action")
+
+
+def save_last_action(timestamp: int) -> None:
+    """Record that a dashboard analyser action finished, for display only.
+
+    The dashboard actions read today's incomplete events themselves and cover a
+    different set than the analyser run does, so this is kept apart from the
+    watermark above.
+    """
+    state = _load_state()
+    state["pipeline_last_action"] = timestamp
     _save_state(state)
 
 

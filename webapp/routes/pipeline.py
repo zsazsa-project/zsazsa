@@ -2,7 +2,7 @@ import logging
 import os
 import sqlite3
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
@@ -181,6 +181,28 @@ def _age_text(seconds: float) -> str:
     if minutes < 1440:
         return f"{round(minutes / 60)}h ago"
     return f"{round(minutes / 1440)}d ago"
+
+
+# Matches the stalled threshold the job badge uses, so the two agree on a run.
+_RUN_INTERRUPTED_AFTER_S = 1800
+
+
+def _mark_interrupted_runs(runs: list) -> list:
+    """Flag run-log rows left on "running" by a process that never came back.
+
+    ``started_at`` is written by SQLite's ``now``, which is UTC, so the
+    comparison has to be against UTC and not local time.
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=_RUN_INTERRUPTED_AFTER_S)
+    for run in runs:
+        if run.get("status") != "running" or run.get("finished_at"):
+            continue
+        try:
+            started = datetime.fromisoformat(run["started_at"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        run["interrupted"] = started < cutoff
+    return runs
 
 
 def _refresh_status(status: dict | None, interval_s: int) -> dict:
@@ -378,7 +400,7 @@ def index():
     # One MISP tag-statistics read, shared by the throughput and email-source panels.
     source_counts = misp_store.data_collection_source_counts()
     pipeline = _pipeline_stats(source_counts)
-    recent_runs = get_recent_pipeline_runs(20)
+    recent_runs = _mark_interrupted_runs(get_recent_pipeline_runs(20))
     imap_mailboxes = _imap_mailbox_status()
     newsletter_sources = _newsletter_source_health(source_counts)
     scraper_misp = misp_store.test_scraper_misp()

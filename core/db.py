@@ -218,7 +218,14 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
                     start = datetime.fromisoformat(r["started_at"])
                     end = datetime.fromisoformat(r["finished_at"])
                     secs = int((end - start).total_seconds())
-                    r["duration"] = f"{secs // 60}m {secs % 60}s" if secs >= 60 else f"{secs}s"
+                    # Runs do cross the hour, and a few have crossed the day,
+                    # where minutes-only reads as noise ("1292m 22s").
+                    if secs >= 3600:
+                        r["duration"] = f"{secs // 3600}h {secs % 3600 // 60}m"
+                    elif secs >= 60:
+                        r["duration"] = f"{secs // 60}m {secs % 60}s"
+                    else:
+                        r["duration"] = f"{secs}s"
                 except Exception:
                     r["duration"] = None
             else:

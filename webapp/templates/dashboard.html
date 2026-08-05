@@ -18,13 +18,13 @@
 {# Action bar: quick-action tiles (left) and collection-pipeline controls (right). #}
 <style>
   /* Shared panel look lives in app.css; the two panels sit side by side here,
-     so they stretch to a common height and clip their rounded corners. */
+     so they stretch to a common height. No overflow clipping: the Start
+     analyser menu drops out of the panel and would be cut off at its edge. */
   .action-bar { margin-bottom: 1.5rem; }
   .action-panel {
     height: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
   }
   .action-panel-head { padding: .65rem .9rem; }
   .action-panel-body { padding: .9rem; flex: 1; }
@@ -298,12 +298,51 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
     }
   }
 
+  function watchJob(jobId) {
+    activeJobId = jobId;
+    stopPolling();
+    pollJob(jobId);
+    pollTimer = setInterval(function() { pollJob(activeJobId); }, 1200);
+  }
+
+  /* Jobs live in the shared store, so the analyser can be running for a run
+     started in another tab, or before this page was loaded. Pick that run up
+     rather than reporting "No active run" while the top bar shows it going. */
+  function adoptRunningJob() {
+    if (activeJobId) return;
+    var actions = buttons.map(function(btn) { return btn.dataset.action; });
+    fetch(SCRIPT_ROOT + '/pipeline/jobs')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || activeJobId) return;
+        // Stalled ones are left alone: the badge already reports those, and
+        // this panel is about the run in progress. Adopting one would also
+        // poll a dead job every second for as long as the page stays open.
+        var mine = (data.jobs || []).filter(function(job) {
+          return actions.indexOf(job.action) !== -1 && !job.stale
+            && (job.status === 'running' || job.status === 'queued');
+        });
+        // Newest first, so the first match is the run in progress.
+        if (mine.length) watchJob(mine[0].id);
+      })
+      .catch(function() {
+        // Leave the modal as it is; the top bar still reports the job.
+      });
+  }
+
   function pollJob(jobId) {
     if (!jobId) return;
     fetch(SCRIPT_ROOT + '/pipeline/run/' + encodeURIComponent(jobId))
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.ok || !data.job) {
+          // Entries age out of the job store, and one cleared by hand goes the
+          // same way. Without stopping here the page would poll a job that no
+          // longer exists for as long as it stays open.
+          setStatus('warning', 'That run is no longer listed. Its entry was removed or aged out.');
+          activeJobId = null;
+          setBusy(false);
+          stopPolling();
           return;
         }
         renderProgress(data.job);
@@ -339,13 +378,12 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
       });
   }
 
+  // Only the Start analyser buttons. Progress stays clickable whatever is
+  // going on: with nothing to show it goes looking for a run to follow.
   function setBusy(busy) {
     buttons.forEach(function(btn) {
       btn.disabled = busy;
     });
-    if (openProgressBtn) {
-      openProgressBtn.disabled = !activeJobId;
-    }
   }
 
   buttons.forEach(function(btn) {
@@ -369,15 +407,9 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
           setBusy(false);
           return;
         }
-        activeJobId = data.job_id;
         if (window.zsazsaJobsChanged) zsazsaJobsChanged();
-        if (openProgressBtn) {
-          openProgressBtn.disabled = false;
-        }
         setStatus('info', 'Running analyser action: ' + action + '. Open Progress to view current and remaining steps.');
-        stopPolling();
-        pollJob(activeJobId);
-        pollTimer = setInterval(function() { pollJob(activeJobId); }, 1200);
+        watchJob(data.job_id);
       })
       .catch(function(err) {
         setStatus('danger', 'Pipeline request failed: ' + err);
@@ -390,9 +422,13 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
     openProgressBtn.addEventListener('click', function() {
       if (activeJobId) {
         pollJob(activeJobId);
+      } else {
+        adoptRunningJob();
       }
     });
   }
+
+  adoptRunningJob();
 })();
 </script>
 

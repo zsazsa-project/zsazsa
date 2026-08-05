@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 import config
+from core.atomic_write import write_atomically
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,10 @@ def save(data: dict) -> None:
                 "temperature": _temperature(entry.get("temperature")),
                 "prompt": entry.get("prompt", FEATURES[fid]["default_prompt"]),
             }
-    _AI_CONFIG_FILE.write_text(json.dumps(storable, indent=2))
+    # Every LLM call reads this file, from the analyser process as well as from
+    # here, so saving settings must not leave a moment where it reads as empty
+    # and the call quietly falls back to the built-in provider and prompt.
+    write_atomically(_AI_CONFIG_FILE, json.dumps(storable, indent=2))
 
 
 def get_feature(feature_id: str) -> dict:

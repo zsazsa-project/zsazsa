@@ -1,16 +1,14 @@
-import json
 import logging
 import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from flask import Blueprint, jsonify, render_template
 
 import config
 from analyser import llm
-from analyser.reader import save_last_run
+from analyser.reader import load_last_action, load_last_run, save_last_action
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import analyser_pipeline, audit, collection_cache
 from webapp import job_store, misp_session, misp_store
@@ -82,8 +80,11 @@ def _run_pipeline_job(job_id: str, user: str) -> None:
 
     try:
         result = handler(progress=_progress)
-        # Keep dashboard pipeline freshness in sync with manual runs.
-        save_last_run(int(time.time()))
+        # Freshness only. Not save_last_run: that is the analyser's watermark
+        # for which scraper events it has already seen, and these actions read a
+        # different set (today's incomplete events), so moving it forward here
+        # would make the next analyser run skip everything published in between.
+        save_last_action(int(time.time()))
         log_pipeline_run_end(run_id, "completed", result)
         audit.record("run-complete", "pipeline", entity_label=action,
                      details=(result or {}).get("message") or "", user=user)
@@ -121,18 +122,17 @@ def _pipeline_status():
         "processed_24h": {}, "total_24h": 0, "pending": None,
     }
 
-    # Last analyser run
+    # Last analyser run: whichever ran more recently, the scheduled analyser or
+    # an action started from here. They are two entries because only the first
+    # of them may move the analyser's watermark.
     try:
-        state = json.loads(Path(config.STATE_FILE).read_text())
-        ts = state.get("analyser_last_run")
-        if ts:
-            dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        stamps = [ts for ts in (load_last_run(), load_last_action()) if ts]
+        if stamps:
+            dt = datetime.fromtimestamp(int(max(stamps)), tz=timezone.utc)
             status["last_run"] = dt
             age = (datetime.now(tz=timezone.utc) - dt).total_seconds() / 60
             status["minutes_since"] = int(age)
             status["stale"] = age > 90
-    except FileNotFoundError:
-        pass
     except Exception:
         logger.exception("Failed to read pipeline state from %s", config.STATE_FILE)
 
@@ -312,6 +312,9 @@ _AI_FEATURE_BY_ACTION = {
     "daily-briefing": "draft_briefing_story",
     "flash-intel": "generate_flash_intel",
     "vea": "draft_vea_sections",
+    # The scheduled analyser calls check_relevance for every event before it
+    # drafts anything, so that is the endpoint one of its runs waits on.
+    "analyser": "check_relevance",
 }
 
 

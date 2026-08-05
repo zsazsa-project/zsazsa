@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 import ast
-import tempfile
 from pathlib import Path
 
 import requests
@@ -16,6 +15,7 @@ import config as _config
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 from markupsafe import escape
 from core import flowintel_client
+from core.atomic_write import write_atomically
 from webapp import audit, misp_session, misp_store, newsletter_parsers
 from webapp.rate_limit import rate_limited
 from webapp.utils import (
@@ -523,19 +523,8 @@ BRAND_LOGO       = {values.get('BRAND_LOGO', '')!r}
 # light) or 'default' (zsazsa legacy navy)
 THEME = {values.get('THEME', 'overmind')!r}
 """
-    cfg_path = str(_CONFIG_FILE)
-    cfg_dir = os.path.dirname(cfg_path)
-    fd, tmp_path = tempfile.mkstemp(dir=cfg_dir, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(content)
-        os.replace(tmp_path, cfg_path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    # A half-written config module is an application that will not start.
+    write_atomically(_CONFIG_FILE, content)
 
 
 _CONFIG_TABS = (

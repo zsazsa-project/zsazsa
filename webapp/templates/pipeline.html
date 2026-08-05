@@ -158,7 +158,9 @@
             </thead>
             <tbody>
               {% for run in recent_runs %}
-              {% set is_ok = run.status == 'completed' %}
+              {# "success" is what older runs recorded; everything writes
+                 "completed" now, but the old rows are still in the log. #}
+              {% set is_ok = run.status in ('completed', 'success') %}
               {% set is_fail = run.status == 'failed' %}
               {% set decisions = run.result.event_decisions if run.result and run.result.event_decisions else [] %}
               <tr {% if decisions %}style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#run-decisions-{{ loop.index }}" aria-expanded="false"{% endif %}>
@@ -176,12 +178,14 @@
                   {% endif %}
                 </td>
                 <td>
-                  <span class="badge {% if is_ok %}outcome-success{% elif is_fail %}outcome-error{% else %}outcome-warning{% endif %}" style="font-size:.68rem;">
-                    {{ run.status }}
+                  <span class="badge {% if is_ok %}outcome-success{% elif is_fail %}outcome-error{% else %}outcome-warning{% endif %}" style="font-size:.68rem;"
+                        {% if run.interrupted %}title="Started but never finished. The process running it stopped before it could record an outcome."{% endif %}>
+                    {{ 'interrupted' if run.interrupted else run.status }}
                   </span>
                 </td>
                 <td class="text-muted" style="white-space:nowrap;">
                   {% if run.duration %}{{ run.duration }}
+                  {% elif run.interrupted %}-
                   {% elif run.status == 'running' %}running…
                   {% else %}-{% endif %}
                 </td>

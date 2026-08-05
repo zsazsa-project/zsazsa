@@ -72,12 +72,15 @@
         </div>
 
         <div class="mt-3">
-          <label class="form-label d-flex justify-content-between align-items-center">
-            Contact details
+          {# The button sits next to the label, not inside it: a click anywhere
+             on a label is forwarded to the control it contains, so wrapping it
+             made "Contact details" add a row. #}
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="form-label mb-0">Contact details</span>
             <button type="button" class="btn btn-xs btn-outline-secondary" id="add-contact">
               <i class="fas fa-plus me-1"></i>Add
             </button>
-          </label>
+          </div>
           <div id="contacts-list">
             {% set contact_list = (stakeholder.contacts if is_edit else []) or [] %}
             {% for c in contact_list %}
@@ -119,7 +122,12 @@
               </button>
             </div>
           </template>
-          <div class="form-text">Mark one contact as preferred. It will be used for notifications and display.</div>
+          <div class="form-text">
+            Reference details only, for knowing who to reach and how. Nothing is
+            delivered here: products and notifications go to the channels picked
+            under Notification channels. Mark one contact as preferred to have it
+            shown first.
+          </div>
         </div>
 
       </div>
