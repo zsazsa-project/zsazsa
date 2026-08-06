@@ -9,13 +9,14 @@ import json
 import logging
 import re
 import socket
+import threading
 from urllib.parse import urlsplit
 
 import config
 from flask import Blueprint, jsonify, request, url_for
 
 from core.vuln_lookup import fetch_cve_info
-from webapp import audit, misp_store
+from webapp import audit, job_store, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object, parse_bool as _parse_bool
@@ -223,20 +224,48 @@ def event_report_count():
     return jsonify({"count": len(misp_store.live_reports(event)), "error": None})
 
 
+def _run_overlap_job(job_id: str, stories: list[dict]) -> None:
+    """Compare the briefing stories with the LLM and store the answer on the job."""
+    from analyser import llm
+
+    job_store.update_job(job_id, status="running",
+                         message=f"Comparing {len(stories)} stories...")
+    try:
+        # One call covering every story: it reports nothing until it is done, so
+        # keep the job visibly alive rather than letting it age into "stalled".
+        with job_store.heartbeat(job_id, f"Comparing {len(stories)} stories"):
+            result = llm.detect_story_overlaps(stories)
+        overlaps = result["overlaps"]
+        job_store.update_job(
+            job_id, status="completed",
+            result={"overlaps": overlaps, "summary": result["summary"]},
+            message=(f"{len(overlaps)} overlapping pair(s) found" if overlaps
+                     else "No meaningful overlap found"),
+        )
+    except Exception as exc:
+        job_store.update_job(job_id, status="failed", error=str(exc),
+                             message=f"Failed: {exc}")
+        logger.exception("Overlap job %s failed", job_id)
+
+
 @bp.route("/briefing-overlap-check", methods=["POST"])
 @rate_limited("api_briefing_overlap_check", limit=20, window_s=60)
 def briefing_overlap_check():
-    """Check whether briefing stories likely cover the same event.
+    """Start the check for briefing stories that cover the same event.
+
+    The comparison is one LLM call over every story in the briefing, which takes
+    long enough to lose a request to a proxy timeout, so it runs on a background
+    thread like the other AI work and this only hands back the job to follow.
 
     POST JSON: {"stories": [{"title": "...", "content": "...", "source_url": "..."}, ...]}
-    Returns: {"overlaps": [...], "summary": "...", "error": null}
+    Returns: {"ok": true, "job_id": "..."}
     """
     body, err = _json_object()
     if err:
-        return jsonify({"overlaps": [], "summary": "", "error": "Invalid JSON payload."}), 400
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
     stories = body.get("stories")
     if not isinstance(stories, list):
-        return jsonify({"overlaps": [], "summary": "", "error": "Stories must be a list."}), 400
+        return jsonify({"ok": False, "error": "Stories must be a list."}), 400
 
     normalized = []
     for s in stories:
@@ -249,22 +278,16 @@ def briefing_overlap_check():
         })
 
     if len(normalized) < 2:
-        return jsonify({"overlaps": [], "summary": "Add at least two stories to compare.", "error": None})
+        return jsonify({"ok": False, "error": "Add at least two stories to compare."}), 400
     if any(not s["content"] for s in normalized):
-        return jsonify({"overlaps": [], "summary": "", "error": "All stories need text before running overlap check."}), 400
+        return jsonify({"ok": False, "error": "All stories need text before running overlap check."}), 400
 
-    try:
-        from analyser import llm
-
-        result = llm.detect_story_overlaps(normalized)
-        overlaps = result.get("overlaps", []) if isinstance(result, dict) else []
-        summary = result.get("summary", "") if isinstance(result, dict) else ""
-        if not isinstance(overlaps, list):
-            overlaps = []
-        return jsonify({"overlaps": overlaps, "summary": summary, "error": None})
-    except Exception as exc:
-        logger.warning("briefing_overlap_check failed: %s", exc)
-        return jsonify({"overlaps": [], "summary": "", "error": "Failed to check overlap."}), 502
+    job = job_store.create_job("briefing-overlap", label="Briefing overlap check")
+    threading.Thread(
+        target=_run_overlap_job, args=(job["id"], normalized),
+        daemon=True, name=job_store.thread_name(job["id"]),
+    ).start()
+    return jsonify({"ok": True, "job_id": job["id"]})
 
 
 # The QA review audits what would actually be published, so it reads the same

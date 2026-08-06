@@ -310,6 +310,7 @@ _AI_FEATURE_BY_ACTION = {
     "summarise": "summarise_report",
     "bulk-summarise": "summarise_report",
     "daily-briefing": "draft_briefing_story",
+    "briefing-overlap": "detect_story_overlaps",
     "flash-intel": "generate_flash_intel",
     "vea": "draft_vea_sections",
     # The scheduled analyser calls check_relevance for every event before it

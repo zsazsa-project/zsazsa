@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("daily_briefing", __name__, url_prefix="/briefing")
 
 
+def _scope_keys(values):
+    """Scope values as a lowercase set, for comparing them across sources."""
+    return {(v or "").strip().lower() for v in values} - {""}
+
+
 def _render_briefing_form(
     *,
     stories,
@@ -44,6 +49,7 @@ def _render_briefing_form(
     incident=None,
     campaign=None,
     created_at=None,
+    starts_unsaved=False,
 ):
     is_edit = mode == "edit"
     story_uuids = [
@@ -73,6 +79,19 @@ def _render_briefing_form(
             if getattr(story, "report_count", None) is None:
                 setattr(story, "report_count", row.get("report_count"))
     gathered = misp_store.briefing_story_scope_values(stories)
+    own_scope = {
+        "geographic_scope": list(geographic_scope or []),
+        "sectors": list(sectors or []),
+        "threat_actors": list(threat_actors or []),
+        "mitre_attack_techniques": list(mitre_attack_techniques or []),
+    }
+    # Which briefing-level values no story accounts for. Removing a story takes
+    # the scope items it brought in with it, and these are what has to survive
+    # that: they were picked for the briefing itself, not reused from a story.
+    manual_scope = {
+        field: sorted(_scope_keys(values) - _scope_keys(gathered[field]))
+        for field, values in own_scope.items()
+    }
     return render_template(
         "daily_briefing/form.html",
         stories=stories,
@@ -92,10 +111,11 @@ def _render_briefing_form(
         story_title_exclusions=(getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", []) or []),
         threat_actor_types=(getattr(config, "THREAT_ACTOR_TYPES", []) or []),
         story_scope_summary=misp_store.briefing_scope_summary(stories),
-        briefing_geographic_scope=dedup_lower(list(geographic_scope or []) + gathered["geographic_scope"]),
-        briefing_sectors=dedup_lower(list(sectors or []) + gathered["sectors"]),
-        briefing_threat_actors=dedup_lower(list(threat_actors or []) + gathered["threat_actors"]),
-        briefing_mitre_attack_techniques=dedup_lower(list(mitre_attack_techniques or []) + gathered["mitre_attack_techniques"]),
+        briefing_geographic_scope=dedup_lower(own_scope["geographic_scope"] + gathered["geographic_scope"]),
+        briefing_sectors=dedup_lower(own_scope["sectors"] + gathered["sectors"]),
+        briefing_threat_actors=dedup_lower(own_scope["threat_actors"] + gathered["threat_actors"]),
+        briefing_mitre_attack_techniques=dedup_lower(own_scope["mitre_attack_techniques"] + gathered["mitre_attack_techniques"]),
+        briefing_manual_scope=manual_scope,
         briefing_threat_types=threat_types or [],
         briefing_technology=technology or [],
         briefing_vendor=vendor or [],
@@ -106,6 +126,7 @@ def _render_briefing_form(
         galaxy_threat_actors=misp_store.galaxy_threat_actors(),
         galaxy_mitre_attack=misp_store.galaxy_mitre_attack_patterns(),
         briefing_created_at=created_at,
+        starts_unsaved=starts_unsaved,
     )
 
 
@@ -150,9 +171,22 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
     return story
 
 
-def _split_scope_field(form, key):
-    """Parse a comma-separated hidden scope field into a clean list of values."""
-    raw = form.get(key, "")
+def _parse_scope_field(form, key):
+    """Read a story scope list out of a hidden form field.
+
+    The field carries JSON, so a value containing a comma ("UNC3753 (also known
+    as Luna Moth, Chatty Spider)") stays one value; the earlier comma-joined
+    field tore it into two, and those fragments were what the next save wrote to
+    MISP. A form rendered before the change still posts the comma-joined string,
+    which is read the old way rather than lost.
+    """
+    raw = (form.get(key) or "").strip()
+    if raw.startswith("["):
+        try:
+            return [str(v).strip() for v in json.loads(raw) if str(v).strip()]
+        except ValueError:
+            logger.warning("Briefing form field %s is not valid JSON; dropping it", key)
+            return []
     return [v.strip() for v in raw.split(",") if v.strip()]
 
 
@@ -195,10 +229,11 @@ def _parse_stories_from_form(form):
             "source_url": form.get(f"story_{i}_source_url", "").strip(),
             "source_event_uuid": form.get(f"story_{i}_source_event_uuid", "").strip(),
             "source_id": form.get(f"story_{i}_source_id", "").strip(),
-            "geographic_scope": _split_scope_field(form, f"story_{i}_geographic_scope"),
-            "sectors": _split_scope_field(form, f"story_{i}_sectors"),
-            "threat_actors": _split_scope_field(form, f"story_{i}_threat_actors"),
-            "techniques": _split_scope_field(form, f"story_{i}_techniques"),
+            "geographic_scope": _parse_scope_field(form, f"story_{i}_geographic_scope"),
+            "sectors": _parse_scope_field(form, f"story_{i}_sectors"),
+            "threat_actors": _parse_scope_field(form, f"story_{i}_threat_actors"),
+            "techniques": _parse_scope_field(form, f"story_{i}_techniques"),
+            "vendor": _parse_scope_field(form, f"story_{i}_vendor"),
             "source_reliability": form.get(f"story_{i}_source_reliability", "").strip(),
             "information_credibility": form.get(f"story_{i}_information_credibility", "").strip(),
             "cti_evaluation": cti_evaluation,
@@ -535,6 +570,10 @@ def add_stories(id):
         incident=briefing.incident,
         campaign=briefing.campaign,
         created_at=briefing.created_at,
+        # The new stories exist in this page only until it is saved, which the
+        # unsaved-changes warning cannot see for itself: they are there from the
+        # first render, so nothing about the form has changed yet.
+        starts_unsaved=True,
     )
 
 

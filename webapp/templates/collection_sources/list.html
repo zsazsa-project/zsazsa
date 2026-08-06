@@ -1301,8 +1301,8 @@
 
 // ── Unsaved-change tracking ───────────────────────────────────────────────────
 // Each card or row marked with [data-dirty-scope] keeps its [data-dirty-save]
-// button disabled until something inside it changes, and the page warns before
-// unloading while any scope still has unsaved edits.
+// button disabled until something inside it changes, and the shared guard warns
+// before leaving while any scope still has unsaved edits.
 (function() {
   let submitting = false;
   const scopeOf = (el) => (el && el.closest) ? el.closest('[data-dirty-scope]') : null;
@@ -1331,11 +1331,12 @@
   window.markCollectionScopeClean = (el) => setDirty(scopeOf(el), false);
   window.markCollectionScopeDirty = (el) => setDirty(scopeOf(el), true);
 
-  window.addEventListener('beforeunload', (e) => {
-    if (submitting) return;
-    const dirty = Array.from(document.querySelectorAll('[data-dirty-scope]'))
+  // The guard in base.html does the asking, on leaving the page and on any link
+  // out of it; this only answers whether a scope still holds unsaved edits.
+  (window.zsazsaUnsavedChecks = window.zsazsaUnsavedChecks || []).push(() => {
+    if (submitting) return false;
+    return Array.from(document.querySelectorAll('[data-dirty-scope]'))
       .some((s) => s.dataset.dirty === '1');
-    if (dirty) { e.preventDefault(); e.returnValue = ''; }
   });
 })();
 </script>

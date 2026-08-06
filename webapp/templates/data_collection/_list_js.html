@@ -244,7 +244,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
           // Wait for the sweep to report back, so the page reloads on fresh
           // rows. A sweep over several MISP servers easily outlasts a fixed
           // wait, and reloading early just shows the old cache again.
-          followJob(payload.job_id,
+          zsazsaFollowJob(payload.job_id,
             function() { window.location.reload(); },
             function(message) {
               resetRefreshButton();
@@ -1280,7 +1280,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         /* The summary runs as a job, so the spinner stays until it reports back
            and the badge in the top bar covers leaving the page meanwhile. */
         if (window.zsazsaJobsChanged) zsazsaJobsChanged();
-        followJob(data.job_id, function(job) {
+        zsazsaFollowJob(data.job_id, function(job) {
           if ((job.result || {}).summarised) {
             btn.remove();
             /* The summary is a new MISP report and the event moved to workflow
@@ -1749,7 +1749,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         }
         showFeedback(data.message + ' Progress is shown in the top bar.', 'info');
         if (window.zsazsaJobsChanged) zsazsaJobsChanged();
-        followJob(data.job_id, function(job) {
+        zsazsaFollowJob(data.job_id, function(job) {
           showFeedback(job.message || 'Summaries created.', 'success');
           setTimeout(function() { window.location.reload(); }, 1500);
         }, function(reason) {
@@ -1762,33 +1762,6 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         showFeedback('Could not start the summaries: ' + zsazsaErrorText(err), 'danger');
       });
     });
-  }
-
-  /* Watch a background job until it ends. onDone gets the finished job, onFail
-     a sentence saying why the watching itself stopped. */
-  function followJob(jobId, onDone, onFail) {
-    var timer = setInterval(function() {
-      fetch(SCRIPT_ROOT + '/pipeline/run/' + encodeURIComponent(jobId))
-        .then(zsazsaReadJson)
-        .then(function(data) {
-          if (!data.ok || !data.job) {
-            clearInterval(timer);
-            onFail('The job is no longer known to the server.');
-            return;
-          }
-          if (data.job.status === 'completed') {
-            clearInterval(timer);
-            onDone(data.job);
-          } else if (data.job.status === 'failed') {
-            clearInterval(timer);
-            onFail(data.job.error || data.job.message || 'The job failed.');
-          }
-        })
-        .catch(function(err) {
-          clearInterval(timer);
-          onFail('Lost track of the job: ' + zsazsaErrorText(err));
-        });
-    }, 4000);
   }
 
   /* Why a summarise job produced nothing. A job always opens with one line of

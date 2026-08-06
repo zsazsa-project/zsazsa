@@ -5113,9 +5113,12 @@ _SCOPE_SUMMARY_FIELDS = [
 def briefing_scope_summary(stories):
     """Aggregate scope elements and threat actor types across briefing stories.
 
-    Returns an ordered list of (label, [(value, count), ...]) tuples, counts
-    sorted highest-first. Kept as a separate, structured function so the same
-    counts can later feed graphs/statistics without re-parsing the stories.
+    Returns an ordered list of (field, label, [(value, count), ...]) tuples,
+    counts sorted highest-first. Kept as a separate, structured function so the
+    same counts can later feed graphs/statistics without re-parsing the stories.
+    Values are as the stories hold them, techniques included: the briefing form
+    has to match a chip back to the story it came from, and it is the `mitre`
+    template filter that turns a bare id into its ATT&CK name for display.
     """
     summary = []
     for field, label in _SCOPE_SUMMARY_FIELDS:
@@ -5127,10 +5130,8 @@ def briefing_scope_summary(stories):
                 if item:
                     counter[item] += 1
         if counter:
-            ranked = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0].lower()))
-            if field == "techniques":
-                ranked = [(mitre_technique_label(v), count) for v, count in ranked]
-            summary.append((label, ranked))
+            summary.append((field, label,
+                            sorted(counter.items(), key=lambda kv: (-kv[1], kv[0].lower()))))
     return summary
 
 

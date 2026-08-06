@@ -11,7 +11,8 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" action="{{ form_action }}" id="compose-form">
+<form method="post" action="{{ form_action }}" id="compose-form"
+      data-unsaved-warning{% if starts_unsaved %} data-unsaved-initially{% endif %}>
 
   <div class="card content-card mb-3">
     <div class="card-header"><i class="fas fa-sliders me-2"></i>Briefing metadata</div>
@@ -123,10 +124,14 @@
       <div class="card-body">
         <input type="hidden" name="story_{{ idx }}_source_event_uuid" value="{{ story.source_event_uuid }}">
         <input type="hidden" name="story_{{ idx }}_source_id" value="{{ story.source_id or '' }}">
-        <input type="hidden" name="story_{{ idx }}_geographic_scope" value="{{ (story.geographic_scope or []) | join(', ') }}">
-        <input type="hidden" name="story_{{ idx }}_sectors" value="{{ (story.sectors or []) | join(', ') }}">
-        <input type="hidden" name="story_{{ idx }}_threat_actors" value="{{ (story.threat_actors or []) | join(', ') }}">
-        <input type="hidden" name="story_{{ idx }}_techniques" value="{{ (story.techniques or []) | join(', ') }}">
+        {# JSON, like the CTI evaluation below: a comma-joined field turned an
+           actor named "UNC3753 (also known as Luna Moth, Chatty Spider)" into
+           two actors, and those were what the next save wrote to MISP. #}
+        <input type="hidden" name="story_{{ idx }}_geographic_scope" value='{{ (story.geographic_scope or []) | tojson }}'>
+        <input type="hidden" name="story_{{ idx }}_sectors" value='{{ (story.sectors or []) | tojson }}'>
+        <input type="hidden" name="story_{{ idx }}_threat_actors" value='{{ (story.threat_actors or []) | tojson }}'>
+        <input type="hidden" name="story_{{ idx }}_techniques" value='{{ (story.techniques or []) | tojson }}'>
+        <input type="hidden" name="story_{{ idx }}_vendor" value='{{ (story.vendor or []) | tojson }}'>
         <input type="hidden" name="story_{{ idx }}_source_reliability" value="{{ story.source_reliability or '' }}">
         <input type="hidden" name="story_{{ idx }}_information_credibility" value="{{ story.information_credibility or '' }}">
         <input type="hidden" name="story_{{ idx }}_cti_evaluation" value='{{ (story.cti_evaluation or {}) | tojson }}'>
@@ -202,15 +207,16 @@
     <div class="card-body">
 
       {% set _ns = namespace(vendor_in_summary=false) %}
-      {% for _label, _ in story_scope_summary %}{% if _label == 'Vendor' %}{% set _ns.vendor_in_summary = true %}{% endif %}{% endfor %}
+      {% for _field, _label, _ in story_scope_summary %}{% if _field == 'vendor' %}{% set _ns.vendor_in_summary = true %}{% endif %}{% endfor %}
       {% if story_scope_summary or briefing_vendor %}
       <p class="text-muted small mb-2">Already gathered from the stories above:</p>
       <div class="mb-3">
-        {% for label, ranked in story_scope_summary %}
-        <div class="mb-1">
+        {% for field, label, ranked in story_scope_summary %}
+        <div class="mb-1 gathered-scope-row">
           <span class="text-muted small me-1">{{ label }}:</span>
           {% for value, count in ranked %}
-          <span class="badge bg-light text-dark border me-1 mb-1">{{ value }}{% if count > 1 %} &times;{{ count }}{% endif %}</span>
+          <span class="badge bg-light text-dark border me-1 mb-1 gathered-scope-badge"
+                data-scope-field="{{ field }}" data-scope-value="{{ value }}">{{ value | mitre }}<span class="gathered-scope-count">{% if count > 1 %} &times;{{ count }}{% endif %}</span></span>
           {% endfor %}
         </div>
         {% endfor %}
@@ -396,6 +402,19 @@ var storyCount = {{ stories | length }};
 var isEditMode = {{ 'true' if page_mode == 'edit' else 'false' }};
 var storyTitleExclusions = {{ story_title_exclusions | tojson }};
 var threatActorTypes = {{ threat_actor_types | tojson }};
+/* Briefing-level scope values, lowercased, that no story accounts for: the
+   analyst picked those for the briefing itself, so removing a story never
+   touches them. Everything else in the pickers below was pre-selected from the
+   stories and has to go when the last story carrying it goes. */
+var briefingManualScope = {{ briefing_manual_scope | tojson }};
+
+/* Story scope field -> the briefing-level field it was reused into. */
+var STORY_TO_BRIEFING_SCOPE = {
+  geographic_scope: 'geographic_scope',
+  sectors: 'sectors',
+  threat_actors: 'threat_actors',
+  techniques: 'mitre_attack_techniques'
+};
 
 function _actorTypePillsHtml(idx, selected) {
   selected = selected || [];
@@ -427,7 +446,7 @@ document.addEventListener('click', function(e) {
       return;
     }
     var card = e.target.closest('.story-card');
-    if (card) card.remove();
+    if (card) removeStoryCard(card);
     renumberStories();
     updateOverlapButtonState();
     clearOverlapVisuals();
@@ -514,6 +533,98 @@ function _getStoryCards() {
   return Array.prototype.slice.call(document.querySelectorAll('.story-card'));
 }
 
+/* The scope values one story carries, read from the hidden fields it was
+   rendered with (threat actor types are checkboxes instead). */
+function _storyScopeValues(card, field) {
+  if (field === 'threat_actor_types') {
+    return Array.prototype.map.call(
+      card.querySelectorAll('input[name$="_threat_actor_types"]:checked'),
+      function(cb) { return cb.value; });
+  }
+  var input = card.querySelector('input[name$="_' + field + '"]');
+  if (!input) return [];
+  return _parseScopeList(input.value);
+}
+
+/* Scope lists are carried as JSON so a value with a comma in it stays one
+   value. A page rendered before that change still holds the comma-joined
+   form, which is read the old way rather than dropped. */
+function _parseScopeList(raw) {
+  var text = (raw || '').trim();
+  if (text.charAt(0) === '[') {
+    try {
+      return JSON.parse(text).map(function(v) { return String(v).trim(); }).filter(Boolean);
+    } catch (err) { /* not JSON after all; read it as a comma-joined list */ }
+  }
+  return text.split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+}
+
+/* How many stories still on the page carry this value in that field. */
+function _storiesWithScopeValue(field, value) {
+  var needle = value.trim().toLowerCase();
+  if (!needle) return 0;
+  return _getStoryCards().filter(function(card) {
+    return _storyScopeValues(card, field).some(function(v) {
+      return v.toLowerCase() === needle;
+    });
+  }).length;
+}
+
+function _deselectBriefingScope(field, value) {
+  var needle = value.trim().toLowerCase();
+  document.querySelectorAll('[name="' + field + '"]').forEach(function(input) {
+    if ((input.value || '').trim().toLowerCase() !== needle) return;
+    if (input.type === 'checkbox') {
+      if (!input.checked) return;
+      input.checked = false;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    } else if (input.type === 'hidden') {
+      // Galaxy list unavailable: that field fell back to a tag input.
+      input.remove();
+      tiRender(field);
+    }
+  });
+}
+
+/* Take a removed story's scope items out of the briefing-level selection,
+   leaving values another story still carries and values the analyst added to
+   the briefing on their own. Takes the detached card, and has to run after it
+   left the DOM so the count sees the stories that remain. */
+function dropStoryScope(card) {
+  Object.keys(STORY_TO_BRIEFING_SCOPE).forEach(function(storyField) {
+    var briefingField = STORY_TO_BRIEFING_SCOPE[storyField];
+    var manual = briefingManualScope[briefingField];
+    _storyScopeValues(card, storyField).forEach(function(value) {
+      if (manual.indexOf(value.trim().toLowerCase()) !== -1) return;
+      if (_storiesWithScopeValue(storyField, value) > 0) return;
+      _deselectBriefingScope(briefingField, value);
+    });
+  });
+}
+
+/* Recount the "already gathered from the stories" chips after a story left. */
+function refreshGatheredScope() {
+  document.querySelectorAll('.gathered-scope-badge').forEach(function(badge) {
+    var count = _storiesWithScopeValue(badge.dataset.scopeField, badge.dataset.scopeValue);
+    if (!count) {
+      badge.remove();
+      return;
+    }
+    var countEl = badge.querySelector('.gathered-scope-count');
+    if (countEl) countEl.textContent = count > 1 ? ' ×' + count : '';
+  });
+  document.querySelectorAll('.gathered-scope-row').forEach(function(row) {
+    row.classList.toggle('d-none', !row.querySelector('.gathered-scope-badge'));
+  });
+}
+
+/* Removing a story takes with it what the briefing only holds because of it. */
+function removeStoryCard(card) {
+  card.remove();
+  dropStoryScope(card);
+  refreshGatheredScope();
+}
+
 function _collectStoriesForOverlap() {
   return _getStoryCards().map(function(card, i) {
     var titleEl = card.querySelector('[name="story_' + (i + 1) + '_title"]');
@@ -543,7 +654,7 @@ function autoDeleteExcludedStories() {
     var titleInput = card.querySelector('.story-title-input');
     var title = titleInput ? titleInput.value : '';
     if (_titleMatchesExclusion(title)) {
-      card.remove();
+      removeStoryCard(card);
       removed++;
     }
   });
@@ -676,10 +787,11 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
       <div class="card-body">
         <input type="hidden" name="story_${idx}_source_event_uuid" value="${sourceUuid}">
         <input type="hidden" name="story_${idx}_source_id" value="">
-        <input type="hidden" name="story_${idx}_geographic_scope" value="">
-        <input type="hidden" name="story_${idx}_sectors" value="">
-        <input type="hidden" name="story_${idx}_threat_actors" value="">
-        <input type="hidden" name="story_${idx}_techniques" value="">
+        <input type="hidden" name="story_${idx}_geographic_scope" value="[]">
+        <input type="hidden" name="story_${idx}_sectors" value="[]">
+        <input type="hidden" name="story_${idx}_threat_actors" value="[]">
+        <input type="hidden" name="story_${idx}_techniques" value="[]">
+        <input type="hidden" name="story_${idx}_vendor" value="[]">
         <input type="hidden" name="story_${idx}_source_reliability" value="">
         <input type="hidden" name="story_${idx}_information_credibility" value="">
         <input type="hidden" name="story_${idx}_cti_evaluation" value="">
@@ -1006,22 +1118,15 @@ document.getElementById('btn-use-all-summaries').addEventListener('click', funct
 document.getElementById('btn-check-overlap').addEventListener('click', function() {
   var btn = this;
   var stories = _collectStoriesForOverlap();
-  var statusEl = document.getElementById('overlap-status');
   if (!stories.length) return;
   if (stories.some(function(s) { return !s.content; })) {
     updateOverlapButtonState();
-    if (statusEl) {
-      statusEl.style.display = '';
-      statusEl.textContent = 'Add text to all stories before checking overlap.';
-    }
+    setOverlapStatus('Add text to all stories before checking overlap.');
     return;
   }
 
   btn.disabled = true;
-  if (statusEl) {
-    statusEl.style.display = '';
-    statusEl.textContent = 'Checking overlap across stories...';
-  }
+  setOverlapStatus('Checking overlap across stories in the background...');
 
   fetch(SCRIPT_ROOT + '/api/briefing-overlap-check', {
     method: 'POST',
@@ -1033,25 +1138,37 @@ document.getElementById('btn-check-overlap').addEventListener('click', function(
   })
     .then(zsazsaReadJson)
     .then(function(data) {
-      if (data.error) {
-        if (statusEl) {
-          statusEl.style.display = '';
-          statusEl.textContent = 'Error: ' + data.error;
-        }
+      if (!data.ok) {
+        setOverlapStatus('Error: ' + (data.error || 'the check could not be started.'));
+        updateOverlapButtonState();
         return;
       }
-      _renderOverlapResult(data || {});
+      if (window.zsazsaJobsChanged) zsazsaJobsChanged();
+      /* The comparison runs on a worker thread, so the answer comes back with
+         the job rather than with the request that started it. Leaving the page
+         does not stop it, it only loses these results. */
+      zsazsaFollowJob(data.job_id, function(job) {
+        _renderOverlapResult(job.result || {});
+        updateOverlapButtonState();
+      }, function(reason) {
+        setOverlapStatus('Overlap check did not complete: ' + reason);
+        updateOverlapButtonState();
+      }, function(job) {
+        if (job.message) setOverlapStatus(job.message);
+      });
     })
     .catch(function(err) {
-      if (statusEl) {
-        statusEl.style.display = '';
-        statusEl.textContent = 'Overlap check did not complete: ' + zsazsaErrorText(err);
-      }
-    })
-    .finally(function() {
+      setOverlapStatus('Overlap check did not start: ' + zsazsaErrorText(err));
       updateOverlapButtonState();
     });
 });
+
+function setOverlapStatus(message) {
+  var statusEl = document.getElementById('overlap-status');
+  if (!statusEl) return;
+  statusEl.style.display = '';
+  statusEl.textContent = message;
+}
 
 document.getElementById('btn-auto-delete-excluded').addEventListener('click', function() {
   autoDeleteExcludedStories();

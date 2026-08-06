@@ -28,7 +28,7 @@
 {% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
 
 {% block content %}
-<form method="post" class="row g-4" id="vea-form">
+<form method="post" class="row g-4" id="vea-form" data-unsaved-warning>
 
   <div class="col-lg-8">
 

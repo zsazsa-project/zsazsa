@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" action="{{ form_action or url_for('data_collection.newsletter_new') }}">
+<form method="post" action="{{ form_action or url_for('data_collection.newsletter_new') }}" data-unsaved-warning>
   <input type="hidden" name="action" value="push">
   <input type="hidden" name="source" value="{{ source | e }}">
   <input type="hidden" name="report_title" value="{{ report_title | e }}">

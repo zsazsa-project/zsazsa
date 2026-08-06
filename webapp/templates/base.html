@@ -1023,6 +1023,35 @@
     // half a minute later on an idle app, which reads as "nothing happened".
     window.zsazsaJobsChanged = function() { schedule(200); };
 
+    // Watch one job until it ends, for the page that started it: the badge says
+    // that something is running, this delivers the outcome. onDone gets the
+    // finished job, onFail a sentence saying why the watching stopped, and the
+    // optional onProgress every poll that finds it still going.
+    window.zsazsaFollowJob = function(jobId, onDone, onFail, onProgress) {
+      var timer = setInterval(function() {
+        fetch(SCRIPT_ROOT + '/pipeline/run/' + encodeURIComponent(jobId))
+          .then(zsazsaReadJson)
+          .then(function(data) {
+            if (!data.ok || !data.job) {
+              clearInterval(timer);
+              onFail('The job is no longer known to the server.');
+            } else if (data.job.status === 'completed') {
+              clearInterval(timer);
+              onDone(data.job);
+            } else if (data.job.status === 'failed') {
+              clearInterval(timer);
+              onFail(data.job.error || data.job.message || 'The job failed.');
+            } else if (onProgress) {
+              onProgress(data.job);
+            }
+          })
+          .catch(function(err) {
+            clearInterval(timer);
+            onFail('Lost track of the job: ' + zsazsaErrorText(err));
+          });
+      }, 4000);
+    };
+
     // The list is shared through Redis, so clearing it clears it for everyone.
     var CLEAR_CONFIRM = {
       all: 'Remove every finished job entry, failures included?',
@@ -1057,6 +1086,94 @@
     });
 
     poll();
+  })();
+</script>
+<script>
+  // Unsaved changes. Everything an analyst does on an edit page lives in the
+  // form until it is posted: deleting a story, rewriting a section, picking
+  // scope items. Leaving throws all of it away without a word. Forms carrying
+  // data-unsaved-warning are compared against the state they were rendered
+  // with, and leaving with a difference asks first.
+  //
+  // A form that is rendered holding something MISP does not have yet adds
+  // data-unsaved-initially and counts as changed from the start; the briefing
+  // form does when stories have just been added to a draft.
+  //
+  // A page that saves over AJAX has no submit to watch and tracks its own edits
+  // instead (the configuration and collection source pages do). It pushes a
+  // function answering "is anything unsaved" onto window.zsazsaUnsavedChecks
+  // from its own script block, which runs before this one.
+  (function() {
+    var forms = Array.prototype.slice.call(document.querySelectorAll('form[data-unsaved-warning]'));
+    var checks = window.zsazsaUnsavedChecks = window.zsazsaUnsavedChecks || [];
+    if (!forms.length && !checks.length) return;
+    var MESSAGE = 'This page has changes that have not been saved. Leave and lose them?';
+    var startsUnsaved = forms.some(function(form) { return form.hasAttribute('data-unsaved-initially'); });
+    var snapshots = new Map();
+    var leaving = false;
+
+    // Field names and values in document order, so an added, removed or
+    // renumbered field counts as a change just as an edited one does.
+    function state(form) {
+      var parts = [];
+      new FormData(form).forEach(function(value, key) {
+        parts.push(key + '=' + (typeof value === 'string' ? value : value.name));
+      });
+      return parts.join('\n');
+    }
+
+    function dirty() {
+      if (leaving) return false;
+      return startsUnsaved
+        || checks.some(function(check) { return check(); })
+        || forms.some(function(form) { return snapshots.get(form) !== state(form); });
+    }
+
+    // On load rather than DOMContentLoaded: a page that fills fields from its
+    // own script on startup would otherwise look changed from the first second.
+    window.addEventListener('load', function() {
+      forms.forEach(function(form) { snapshots.set(form, state(form)); });
+    });
+
+    forms.forEach(function(form) {
+      // A form can block its own submit over something else that is wrong (the
+      // profile form does, when no audience is picked). The page stays, and so
+      // must the warning.
+      form.addEventListener('submit', function(ev) {
+        if (!ev.defaultPrevented) leaving = true;
+      });
+    });
+
+    // Navigating within the app. beforeunload would catch this too, but only
+    // with the browser's own wording, which names neither the page nor what is
+    // at stake; asking here means one dialog that says it.
+    document.addEventListener('click', function(ev) {
+      var link = ev.target.closest('a[href]');
+      if (!link) return;
+      var href = link.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#') return;
+      // mailto:, tel: and javascript: links leave the page where it is.
+      if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
+      if (link.target && link.target !== '_self') return;
+      if (link.hasAttribute('download') || link.dataset.bsToggle) return;
+      if (!dirty()) return;
+      if (window.confirm(MESSAGE)) {
+        // Answered once, so stay quiet on the way out. If the click turns out
+        // not to navigate after all, the warning comes back.
+        leaving = true;
+        setTimeout(function() { leaving = false; }, 2000);
+      } else {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    }, true);
+
+    // Closing the tab, reloading, or going back. Browsers show their own wording.
+    window.addEventListener('beforeunload', function(ev) {
+      if (!dirty()) return;
+      ev.preventDefault();
+      ev.returnValue = '';
+    });
   })();
 </script>
 <script>

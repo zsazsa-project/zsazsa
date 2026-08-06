@@ -2750,10 +2750,10 @@ window.cfgDirty = (function() {
   });
 
   if (form) form.addEventListener('submit', () => { submitting = true; });
-  window.addEventListener('beforeunload', (e) => {
-    if (submitting) return;
-    if (Object.values(groups).some((g) => g.dirty)) { e.preventDefault(); e.returnValue = ''; }
-  });
+  // The guard in base.html does the asking, on leaving the page and on any link
+  // out of it; this only answers whether a tab still holds unsaved edits.
+  (window.zsazsaUnsavedChecks = window.zsazsaUnsavedChecks || []).push(
+    () => !submitting && Object.values(groups).some((g) => g.dirty));
 
   return {
     clean: (name) => setDirty(name, false),

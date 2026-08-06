@@ -19,7 +19,7 @@
 {# Response and feedback can only be captured once the RFI has been triaged
    (acknowledged). A brand-new RFI starts as 'New' and is not yet triaged. #}
 {% set triaged = is_edit and rfi.status != 'New' %}
-<form method="post" class="row g-4">
+<form method="post" class="row g-4" data-unsaved-warning>
 
   <div class="col-lg-8">
 
