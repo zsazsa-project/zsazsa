@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect, tag_input %}
+{% from "_macros.html" import galaxy_multiselect, product_identity, tag_input %}
 
 {% set title_text = ('Edit ' + fia.fia_id) if is_edit else 'New flash intel alert' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
@@ -14,6 +14,12 @@
 {% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
 
 {% block content %}
+{{ product_identity('fa-bolt', 'Flash intel alert',
+                    fia.fia_id if is_edit and fia else '',
+                    source_events | length if source_events else 0,
+                    fia.review_state if is_edit and fia else 'draft',
+                    fia.tlp if fia and fia.tlp else 'amber') }}
+
 <form method="post" class="row g-4" id="fia-form" data-unsaved-warning>
 
   <div class="col-lg-8">
@@ -26,13 +32,14 @@
         <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
         <div class="d-flex gap-2 align-items-center">
           {% if not is_edit %}
-          <div class="btn-group" id="build-ai-group" role="group">
-            <button type="button" class="btn btn-sm btn-outline-success" id="build-ai-btn"
+          <span class="zs-toolbar-label">AI assistance</span>
+          <div class="zs-pill-group" id="build-ai-group" role="group">
+            <button type="button" class="zs-pill" id="build-ai-btn"
                     data-source-uuids='{{ source_events | map(attribute="uuid") | list | tojson }}'
                     {% if not any_reports %}disabled{% endif %}>
-              <i class="fas fa-wand-magic-sparkles me-1"></i>Build with AI
+              <i class="fas fa-wand-magic-sparkles"></i>Build with AI
             </button>
-            <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle dropdown-toggle-split"
+            <button type="button" class="zs-pill dropdown-toggle"
                     id="build-ai-mode-toggle" data-bs-toggle="dropdown" aria-expanded="false"
                     {% if not any_reports %}disabled{% endif %}>
               <span class="visually-hidden">Build options</span>
@@ -96,9 +103,9 @@
                       aria-expanded="{{ 'true' if loop.first else 'false' }}">
                 <span class="font-monospace text-muted me-2" style="font-size:.72rem;">{{ ev.uuid[:8] }}…</span>
                 {{ ev.info or '(untitled)' }}
-                {% if ev.date %}<span class="text-muted ms-2 fw-normal" style="font-size:.75rem;">{{ ev.date }}</span>{% endif %}
-                {% if ev.orgc %}<span class="badge text-bg-secondary ms-2 fw-normal" style="font-size:.65rem;">{{ ev.orgc }}</span>{% endif %}
-                {% if ev.source_label %}<span class="badge text-bg-light text-muted ms-1 fw-normal" style="font-size:.62rem;">{{ ev.source_label }}</span>{% endif %}
+                {% if ev.date %}<span class="mini-chip ms-2 fw-normal">{{ ev.date }}</span>{% endif %}
+                {% if ev.orgc %}<span class="mini-chip ms-1 fw-normal">{{ ev.orgc }}</span>{% endif %}
+                {% if ev.source_label %}<span class="mini-chip ms-1 fw-normal">{{ ev.source_label }}</span>{% endif %}
               </button>
             </h2>
             <div id="src-acc-{{ loop.index }}" class="accordion-collapse collapse {{ 'show' if loop.first }}" data-bs-parent="#src-acc">
@@ -330,10 +337,10 @@
           <div class="col-md-6">
             <label class="form-label">Immediate (0–24h)</label>
             {% if action_presets_immediate %}
-            <div class="mb-2 p-2 border rounded" style="background:var(--neutral-50);">
-              <div class="small text-muted mb-1">Presets (click to append):</div>
+            <div class="zs-preset-tray mb-2">
+              <div class="zs-toolbar-label mb-1">Presets, click to append</div>
               {% for p in action_presets_immediate %}
-              <button type="button" class="btn btn-xs btn-outline-secondary me-1 mb-1 action-preset-btn"
+              <button type="button" class="zs-pill zs-pill-sm me-1 mb-1 action-preset-btn"
                       data-target="actions_immediate" data-text="{{ p | e }}">{{ p }}</button>
               {% endfor %}
             </div>
@@ -344,10 +351,10 @@
           <div class="col-md-6">
             <label class="form-label">Near-term (1–7d)</label>
             {% if action_presets_near_term %}
-            <div class="mb-2 p-2 border rounded" style="background:var(--neutral-50);">
-              <div class="small text-muted mb-1">Presets (click to append):</div>
+            <div class="zs-preset-tray mb-2">
+              <div class="zs-toolbar-label mb-1">Presets, click to append</div>
               {% for p in action_presets_near_term %}
-              <button type="button" class="btn btn-xs btn-outline-secondary me-1 mb-1 action-preset-btn"
+              <button type="button" class="zs-pill zs-pill-sm me-1 mb-1 action-preset-btn"
                       data-target="actions_near_term" data-text="{{ p | e }}">{{ p }}</button>
               {% endfor %}
             </div>
@@ -557,21 +564,29 @@
       </div>
     </div>
 
-    <div class="d-grid gap-2">
+    {% if is_edit %}
+    {# Grouped and labelled the way the briefing groups its AI actions, and kept
+       out of the decision stack below: a QA check reports, it does not publish. #}
+    <div class="qa-review-block mb-3">
+      <div class="zs-toolbar">
+        <span class="zs-toolbar-label">AI assistance</span>
+        <button type="button" class="zs-pill qa-review-btn"
+                data-kind="fia" data-uuid="{{ fia.uuid }}"
+                title="Audit the last saved version against the source events. Save your edits first.">
+          <i class="fas fa-clipboard-check"></i> QA check against source
+        </button>
+      </div>
+      <div class="qa-review-output mt-2"></div>
+    </div>
+    {% endif %}
+
+    <div class="zs-actions d-grid gap-2">
       <button type="submit" name="action" value="submit" class="btn btn-primary" id="btn-fia-submit">
         <i class="fas fa-paper-plane me-1"></i> Submit for review
       </button>
       <button type="submit" name="action" value="save" class="btn btn-outline-secondary" id="btn-fia-save">
         <i class="fas fa-floppy-disk me-1"></i> Save draft
       </button>
-      {% if is_edit %}
-      <button type="button" class="btn btn-outline-info qa-review-btn"
-              data-kind="fia" data-uuid="{{ fia.uuid }}"
-              title="Audit the last saved version against the source events. Save your edits first.">
-        <i class="fas fa-clipboard-check me-1"></i> QA check against source
-      </button>
-      <div class="qa-review-output"></div>
-      {% endif %}
       {% if is_edit %}
       <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-fia-publish">
         <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
@@ -1065,4 +1080,5 @@
   syncMitreToTextarea();
 })();
 </script>
+{% include "_tlp_mirror_js.html" %}
 {% endblock %}

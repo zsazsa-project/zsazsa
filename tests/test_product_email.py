@@ -96,7 +96,7 @@ def _briefing():
     return SimpleNamespace(
         date="2026-07-30", title="Daily briefing", author="koen", tlp="clear",
         created_at=datetime(2026, 7, 30), stories=[story],
-        escalations="None today.", notes="",
+        escalations="None today.", notes="", summary="", summary_stale=False,
         geographic_scope=[], sectors=[], threat_actors=[], mitre_attack_techniques=[],
         threat_types=[], technology=[], vendor=[], incident=[], campaign=[],
     )
@@ -121,6 +121,16 @@ class BriefingHtml(unittest.TestCase):
 
     def test_preview_link_is_included(self):
         self.assertIn("https://cti.test/briefing/1", self.html)
+
+    def test_summary_opens_the_mail_above_the_stories(self):
+        briefing = _briefing()
+        briefing.summary = "Three stories, all ransomware against EU transport."
+        html = product_email.briefing_html(briefing)
+        self.assertIn("Three stories, all ransomware against EU transport.", html)
+        self.assertLess(html.index("Briefing summary"), html.index("Today&#x27;s stories"))
+
+    def test_no_summary_section_without_a_summary(self):
+        self.assertNotIn(">Briefing summary<", self.html)
 
     def test_story_lead_labels_are_muted(self):
         # Story labels are plain prose, not bold, so the bold-label rule alone

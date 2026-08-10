@@ -374,21 +374,24 @@ def briefing_html(briefing, preview_url: str = "") -> str:
         )
         for index, story in enumerate(briefing.stories, 1)
     )
-    body = _section(
+    body = ""
+    if briefing.summary:
+        body += _section("Briefing summary", _body_html(briefing.summary, brand), brand)
+    body += _section(
         f"Today's stories ({len(briefing.stories)} items)",
         stories or '<p style="color:#94a3b8;font-style:italic;">No stories added.</p>',
         brand,
     )
 
-    summary = briefing_combined_scope_summary(briefing)
-    if summary:
+    scope_summary = briefing_combined_scope_summary(briefing)
+    if scope_summary:
         groups = "".join(
             f'<div style="margin-bottom:8px;">{_pretext(label + ":", brand)}<br>'
             # The tag text is escaped, so this is the character, not an entity.
             + _scope_tags([f"{value} ×{count}" if count > 1 else value
                            for value, count in ranked])
             + "</div>"
-            for label, ranked in summary
+            for label, ranked in scope_summary
         )
         body += _section("Scope summary", groups, brand)
 

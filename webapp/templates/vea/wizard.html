@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import product_identity %}
 
 {% set title_text = ('Edit ' + vea.vea_id) if is_edit else 'New vulnerability advisory' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
@@ -28,6 +29,12 @@
 {% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
 
 {% block content %}
+{{ product_identity('fa-shield-halved', 'Vulnerability advisory',
+                    vea.vea_id if is_edit and vea else '',
+                    source_events | length if source_events else 0,
+                    vea.review_state if is_edit and vea else 'draft',
+                    vea.tlp if vea and vea.tlp else 'amber') }}
+
 <form method="post" class="row g-4" id="vea-form" data-unsaved-warning>
 
   <div class="col-lg-8">
@@ -51,9 +58,9 @@
                       aria-expanded="{{ 'true' if loop.first else 'false' }}">
                 <span class="font-monospace text-muted me-2" style="font-size:.72rem;">{{ ev.uuid[:8] }}…</span>
                 {{ ev.info or '(untitled)' }}
-                {% if ev.date %}<span class="text-muted ms-2 fw-normal" style="font-size:.75rem;">{{ ev.date }}</span>{% endif %}
-                {% if ev.orgc %}<span class="badge text-bg-secondary ms-2 fw-normal" style="font-size:.65rem;">{{ ev.orgc }}</span>{% endif %}
-                {% if ev.source_label %}<span class="badge text-bg-light text-muted ms-1 fw-normal" style="font-size:.62rem;">{{ ev.source_label }}</span>{% endif %}
+                {% if ev.date %}<span class="mini-chip ms-2 fw-normal">{{ ev.date }}</span>{% endif %}
+                {% if ev.orgc %}<span class="mini-chip ms-1 fw-normal">{{ ev.orgc }}</span>{% endif %}
+                {% if ev.source_label %}<span class="mini-chip ms-1 fw-normal">{{ ev.source_label }}</span>{% endif %}
               </button>
             </h2>
             <div id="vea-src-acc-{{ loop.index }}" class="accordion-collapse collapse {{ 'show' if loop.first }}" data-bs-parent="#vea-src-acc">
@@ -197,11 +204,14 @@
                    value="{{ vea.cwe if vea else '' }}">
           </div>
           <div class="col-md-4 d-flex align-items-end">
-            <button type="button" class="btn btn-outline-secondary w-100" id="btn-draft-vea"
-                    title="Draft sections with AI (run Vulnerability Lookup first)"
-                    {{ '' if (vea and vea.cve_id) else 'disabled' }}>
-              <i class="fas fa-wand-magic-sparkles me-1"></i>Draft sections with AI
-            </button>
+            <div class="zs-toolbar mb-1">
+              <span class="zs-toolbar-label">AI assistance</span>
+              <button type="button" class="zs-pill" id="btn-draft-vea"
+                      title="Draft sections with AI (run Vulnerability Lookup first)"
+                      {{ '' if (vea and vea.cve_id) else 'disabled' }}>
+                <i class="fas fa-wand-magic-sparkles"></i>Draft sections
+              </button>
+            </div>
           </div>
 
           <div class="col-12">
@@ -320,10 +330,10 @@
         <div class="mb-3">
           <label class="form-label">Immediate actions</label>
           {% if action_presets %}
-          <div class="mb-2 p-2 border rounded" style="background:var(--neutral-50);">
-            <div class="small text-muted mb-1">Presets (click to append):</div>
+          <div class="zs-preset-tray mb-2">
+            <div class="zs-toolbar-label mb-1">Presets, click to append</div>
             {% for p in action_presets %}
-            <button type="button" class="btn btn-xs btn-outline-secondary me-1 mb-1 vea-action-preset-btn"
+            <button type="button" class="zs-pill zs-pill-sm me-1 mb-1 vea-action-preset-btn"
                     data-target="immediate_actions" data-text="{{ p | e }}">{{ p }}</button>
             {% endfor %}
           </div>
@@ -544,21 +554,29 @@
       </div>
     </div>
 
-    <div class="d-grid gap-2">
+    {% if is_edit %}
+    {# Grouped and labelled the way the briefing groups its AI actions, and kept
+       out of the decision stack below: a QA check reports, it does not publish. #}
+    <div class="qa-review-block mb-3">
+      <div class="zs-toolbar">
+        <span class="zs-toolbar-label">AI assistance</span>
+        <button type="button" class="zs-pill qa-review-btn"
+                data-kind="vea" data-uuid="{{ vea.uuid }}"
+                title="Audit the last saved version against the source events. Save your edits first.">
+          <i class="fas fa-clipboard-check"></i> QA check against source
+        </button>
+      </div>
+      <div class="qa-review-output mt-2"></div>
+    </div>
+    {% endif %}
+
+    <div class="zs-actions d-grid gap-2">
       <button type="submit" name="action" value="submit" class="btn btn-primary" id="btn-vea-submit">
         <i class="fas fa-paper-plane me-1"></i> Submit for review
       </button>
       <button type="submit" name="action" value="save" class="btn btn-outline-secondary" id="btn-vea-save">
         <i class="fas fa-floppy-disk me-1"></i> Save draft
       </button>
-      {% if is_edit %}
-      <button type="button" class="btn btn-outline-info qa-review-btn"
-              data-kind="vea" data-uuid="{{ vea.uuid }}"
-              title="Audit the last saved version against the source events. Save your edits first.">
-        <i class="fas fa-clipboard-check me-1"></i> QA check against source
-      </button>
-      <div class="qa-review-output"></div>
-      {% endif %}
       {% if is_edit %}
       <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-vea-publish">
         <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
@@ -993,4 +1011,5 @@ document.getElementById('btn-draft-vea').addEventListener('click', function() {
   });
 });
 </script>
+{% include "_tlp_mirror_js.html" %}
 {% endblock %}

@@ -290,6 +290,81 @@ def briefing_overlap_check():
     return jsonify({"ok": True, "job_id": job["id"]})
 
 
+def _run_briefing_summary_job(job_id: str, stories: list[dict], date: str) -> None:
+    """Write the briefing's summary from its stories, on a worker thread."""
+    from analyser import llm
+
+    job_store.update_job(job_id, status="running",
+                         message=f"Summarising {len(stories)} stories...")
+    try:
+        with job_store.heartbeat(job_id, f"Summarising {len(stories)} stories"):
+            summary = llm.draft_briefing_summary(
+                stories, misp_store.briefing_scope_summary(stories), date)
+        if not summary:
+            empty = "The model returned an empty summary."
+            job_store.update_job(job_id, status="failed", error=empty, message=empty)
+            return
+        job_store.update_job(job_id, status="completed", result={"summary": summary},
+                             message="Briefing summary drafted")
+    except Exception as exc:
+        job_store.update_job(job_id, status="failed", error=str(exc),
+                             message=f"Failed: {exc}")
+        logger.exception("Briefing summary job %s failed", job_id)
+
+
+@bp.route("/draft-briefing-summary", methods=["POST"])
+@rate_limited("api_draft_briefing_summary", limit=20, window_s=60)
+def draft_briefing_summary():
+    """Start writing the summary that opens a daily briefing.
+
+    The stories come from the form rather than from a saved briefing, so the
+    summary can be drafted on a briefing that has not been saved yet and covers
+    the edits the analyst has just made. Like the overlap check this is one LLM
+    call over every story, long enough to lose a request to a proxy timeout, so
+    it runs on a background thread and this hands back the job to follow.
+
+    POST JSON: {"date": "...", "stories": [{"title", "content", scope lists}, ...]}
+    Returns: {"ok": true, "job_id": "..."}
+    """
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    stories = body.get("stories")
+    if not isinstance(stories, list):
+        return jsonify({"ok": False, "error": "Stories must be a list."}), 400
+
+    def _scope(story, key):
+        return [v.strip() for v in (story.get(key) or []) if isinstance(v, str) and v.strip()]
+
+    normalized = []
+    for s in stories:
+        if not isinstance(s, dict):
+            continue
+        normalized.append({
+            "title": (s.get("title") or "").strip(),
+            "content": (s.get("content") or "").strip(),
+            "sectors": _scope(s, "sectors"),
+            "geographic_scope": _scope(s, "geographic_scope"),
+            "threat_actors": _scope(s, "threat_actors"),
+            "techniques": _scope(s, "techniques"),
+            "vendor": _scope(s, "vendor"),
+            "threat_actor_types": _scope(s, "threat_actor_types"),
+        })
+
+    if not normalized:
+        return jsonify({"ok": False, "error": "Add at least one story before writing the summary."}), 400
+    if any(not s["content"] for s in normalized):
+        return jsonify({"ok": False, "error": "All stories need text before the summary can cover them."}), 400
+
+    job = job_store.create_job("briefing-summary", label="Briefing summary")
+    threading.Thread(
+        target=_run_briefing_summary_job,
+        args=(job["id"], normalized, (body.get("date") or "").strip()),
+        daemon=True, name=job_store.thread_name(job["id"]),
+    ).start()
+    return jsonify({"ok": True, "job_id": job["id"]})
+
+
 # The QA review audits what would actually be published, so it reads the same
 # markdown the notifier and the published report use.
 _QA_PRODUCTS = {

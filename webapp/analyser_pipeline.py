@@ -497,19 +497,24 @@ def run_daily_briefing_action(progress=None) -> dict:
 
         story_text = source_text
         actor_type = ""
+        # Empty unless the model wrote this story, so a story that fell back to
+        # the summary or the article text is not shown as an AI draft.
+        drafted_by = ""
         if source_text:
             try:
-                story_text, actor_type = llm.draft_briefing_story(
+                drafted, actor_type = llm.draft_briefing_story(
                     source_text, focus_points=focus_points, threat_actor_types=threat_actor_types_cfg,
                 )
-                story_text = story_text or source_text
+                if drafted:
+                    story_text = drafted
+                    drafted_by = "ai"
             except Exception as exc:
                 logger.warning("draft_briefing_story failed for %s: %s", event.uuid, exc)
-                story_text = source_text
 
         stories.append({
             "title": event.info or "",
             "content": story_text,
+            "drafted_by": drafted_by,
             "source_url": misp_store.extract_source_url(event),
             "source_event_uuid": event.uuid,
             "correlation": "",
@@ -564,6 +569,7 @@ def run_daily_briefing_action(progress=None) -> dict:
         decisions.append({"uuid": s.get("source_event_uuid", ""), "title": s.get("title", ""), "outcome": "included", "reason": ""})
 
     if not stories:
+        _emit(progress, "write-summary", "completed", "No stories to summarise.")
         _emit(progress, "create-drafts", "completed", "No daily briefing draft created (no eligible stories).")
         return {
             "ok": True,
@@ -581,6 +587,23 @@ def run_daily_briefing_action(progress=None) -> dict:
     vendor_values = _deduplicate_vendors(raw_vendors)
 
     now = datetime.now(timezone.utc)
+
+    # Written from the stories that survived the overlap check, so the summary
+    # describes the draft as it will actually be created. A draft is worth more
+    # without a summary than not at all, so a failure here only costs the
+    # paragraph and the analyst can write or redraft it on the form.
+    _emit(progress, "write-summary", "in_progress", "Writing the briefing summary across the stories...")
+    briefing_summary = ""
+    try:
+        briefing_summary = llm.draft_briefing_summary(
+            stories, misp_store.briefing_scope_summary(stories), now.date().isoformat(),
+        )
+    except Exception as exc:
+        logger.warning("draft_briefing_summary failed: %s", exc)
+    _emit(progress, "write-summary", "completed",
+          "Briefing summary written." if briefing_summary
+          else "No briefing summary written; the draft opens without one.")
+
     data = {
         "date": now.date().isoformat(),
         "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
@@ -588,6 +611,7 @@ def run_daily_briefing_action(progress=None) -> dict:
         "tlp": "clear",
         "escalations": "",
         "notes": "",
+        "summary": briefing_summary,
         "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
         "vendor": vendor_values,
         "stories": stories,

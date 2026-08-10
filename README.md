@@ -257,7 +257,8 @@ This option is about **situational awareness**, not requirements.
 1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing.
 2. For each event it asks the AI whether the story is relevant to your organisation, judged against the focus points (geographies, sectors, technologies, threat types and threat actors) set in Settings. Events that are not relevant are rejected, with the reason written back onto the event.
 3. For the events it keeps, it drafts a short write-up, extractt sectors, geographies, techniques, threat actors and vendors, and removes near-duplicate stories.
-4. The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
+4. From the stories that survive, it writes the **briefing summary**: a few sentences covering the day as a whole, grouping the stories that share a sector, geography, actor or technique.
+5. The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
 
 ### Flash intel alert
 

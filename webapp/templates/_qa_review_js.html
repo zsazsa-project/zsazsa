@@ -56,7 +56,9 @@
   }
 
   document.querySelectorAll('.qa-review-btn').forEach(function(btn) {
-    var out = btn.parentNode.querySelector('.qa-review-output');
+    // The button and the panel it writes into are wrapped together, so the
+    // wizards can group the button into an AI toolbar without losing it.
+    var out = btn.closest('.qa-review-block').querySelector('.qa-review-output');
     btn.addEventListener('click', function() {
       btn.disabled = true;
       out.textContent = 'Checking the draft against the source events…';

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import review_state_badge %}
 
 {% block title %}{{ fia.fia_id }} | Flash intel{% endblock %}
 {% block page_title %}{{ fia.fia_id }} - {{ fia.title or '(untitled)' }}{% endblock %}
@@ -24,10 +25,7 @@
       <div class="card-body">
         <div class="d-flex gap-2 mb-2">
           <span class="tlp-badge tlp-{{ fia.tlp | slug }}">TLP:{{ fia.tlp | upper }}</span>
-          {% if fia.review_state == 'approved' %}<span class="badge bg-success">approved</span>
-          {% elif fia.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
-          {% elif fia.review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
-          {% else %}<span class="badge bg-secondary">{{ fia.review_state }}</span>{% endif %}
+          {{ review_state_badge(fia.review_state) }}
           {% if fia.published %}<span class="badge bg-primary">published</span>{% endif %}
         </div>
         <h5>Summary</h5>
@@ -176,11 +174,13 @@
     <div class="card content-card mb-3">
       <div class="card-header"><strong>Review actions</strong></div>
       <div class="card-body">
-        <button type="button" class="btn btn-outline-info w-100 mb-2 qa-review-btn"
-                data-kind="fia" data-uuid="{{ fia.uuid }}">
-          <i class="fas fa-clipboard-check me-1"></i> QA check against source
-        </button>
-        <div class="qa-review-output mb-2"></div>
+        <div class="qa-review-block">
+          <button type="button" class="btn btn-outline-info w-100 mb-2 qa-review-btn"
+                  data-kind="fia" data-uuid="{{ fia.uuid }}">
+            <i class="fas fa-clipboard-check me-1"></i> QA check against source
+          </button>
+          <div class="qa-review-output mb-2"></div>
+        </div>
         <form method="post" action="{{ url_for('flash_intel.approve', id=fia.uuid) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-success w-100">

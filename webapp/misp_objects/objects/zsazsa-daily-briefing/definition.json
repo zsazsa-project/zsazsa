@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Daily Threat Briefing metadata managed by the zsazsa CTI program",
   "uuid": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-  "version": 3,
+  "version": 4,
   "attributes": {
     "date": {
       "misp-attribute": "text",
@@ -117,6 +117,18 @@
       "misp-attribute": "text",
       "ui-priority": 18,
       "description": "User who published this briefing",
+      "disable_correlation": true
+    },
+    "summary": {
+      "misp-attribute": "text",
+      "ui-priority": 19,
+      "description": "Narrative summary covering all stories, shown at the top of the briefing",
+      "disable_correlation": true
+    },
+    "summary-stale": {
+      "misp-attribute": "text",
+      "ui-priority": 20,
+      "description": "Set to true when the stories changed after the summary was written",
       "disable_correlation": true
     }
   }
