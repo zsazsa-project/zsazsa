@@ -37,6 +37,7 @@ def _steps_for_action(action: str) -> list[dict]:
             {"id": "review-relevance", "label": "Review relevance and usefulness", "state": "pending"},
             {"id": "build-briefing", "label": "Build briefing story set", "state": "pending"},
             {"id": "check-overlap", "label": "Check overlap and remove duplicates", "state": "pending"},
+            {"id": "write-summary", "label": "Write the briefing summary", "state": "pending"},
             {"id": "create-drafts", "label": "Create daily briefing draft", "state": "pending"},
         ])
     elif action == "flash-intel":
@@ -311,6 +312,7 @@ _AI_FEATURE_BY_ACTION = {
     "bulk-summarise": "summarise_report",
     "daily-briefing": "draft_briefing_story",
     "briefing-overlap": "detect_story_overlaps",
+    "briefing-summary": "draft_briefing_summary",
     "flash-intel": "generate_flash_intel",
     "vea": "draft_vea_sections",
     # The scheduled analyser calls check_relevance for every event before it

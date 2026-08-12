@@ -790,6 +790,93 @@ body {
   color: var(--text-muted);
 }
 
+/* ─── Product form vocabulary ────────────────────────────────────────────────
+   Shared by the daily briefing compose form and the flash intel and
+   vulnerability advisory wizards. Each product keeps its own layout, but an
+   AI action, a state chip and the save block read the same way in all three. */
+
+/* A labelled strip of AI actions. */
+.zs-toolbar { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.zs-toolbar-label {
+  font-size: .72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-right: .15rem;
+}
+
+/* The button an AI action gets, everywhere. Deliberately quieter than the
+   primary and publish buttons: drafting is assistance, not the decision. */
+.zs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  border: 1px solid var(--form-border);
+  background: var(--card-bg);
+  border-radius: 999px;
+  padding: .28rem .7rem;
+  font-size: .76rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.zs-pill:hover:not(:disabled) {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  background: var(--surface-tint);
+}
+.zs-pill:disabled { opacity: .5; cursor: not-allowed; }
+.zs-pill i { font-size: .72rem; color: var(--text-muted); }
+.zs-pill:hover:not(:disabled) i { color: var(--accent-blue); }
+
+/* An action with a menu beside it stays one control. */
+.zs-pill-group { display: inline-flex; }
+.zs-pill-group .zs-pill:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.zs-pill-group .zs-pill:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -1px;
+  padding-left: .5rem;
+  padding-right: .6rem;
+}
+
+/* Denser pill, for a tray of many of them. */
+.zs-pill-sm { padding: .18rem .55rem; font-size: .72rem; }
+
+/* The tray a set of one-click presets sits in. */
+.zs-preset-tray {
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius);
+  background: var(--surface-muted);
+  padding: .5rem .6rem;
+}
+
+.zs-counter { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.zs-counter strong { color: var(--text-primary); }
+.zs-sep { color: var(--neutral-400); }
+
+/* Small factual label: a state, a source, an organisation. Scope values have
+   their own, larger chip (.scope-chip); this one is for everything around them. */
+.mini-chip {
+  font-size: .63rem;
+  padding: .1rem .35rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mini-chip-warn { border-color: var(--accent-orange); color: var(--accent-orange); }
+
+/* The save block of a product form: set apart from the cards above it, so the
+   decisions read as one group rather than as more sidebar content. */
+.zs-actions {
+  border-top: 1px solid var(--border-light);
+  padding-top: .85rem;
+}
+
 /* ─── Tables ─────────────────────────────────────────────────────────────── */
 .zsazsa-table {
   font-size: 0.875rem;

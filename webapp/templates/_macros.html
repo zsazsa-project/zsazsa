@@ -56,6 +56,37 @@
 {% endmacro %}
 
 
+
+{% macro review_state_badge(review_state) %}
+{# Where a product stands in review, in the colours the rest of the app uses for
+   it. The detail and review pages still spell this out inline. #}
+{% if review_state == 'approved' %}<span class="badge bg-success">approved</span>
+{% elif review_state == 'published' %}<span class="badge bg-success">published</span>
+{% elif review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
+{% elif review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
+{% else %}<span class="badge bg-secondary">{{ review_state }}</span>{% endif %}
+{% endmacro %}
+
+
+{% macro product_identity(icon, label, product_id, source_count, review_state, tlp) %}
+{# The strip above a product wizard: what is being written and where it stands.
+   Read-only, mirroring fields that stay in the form below it. Include
+   _tlp_mirror_js.html to keep the badge in step with the form's TLP select. #}
+<div class="action-panel mb-3">
+  <div class="action-panel-head" style="padding:.5rem .9rem;">
+    <span class="action-panel-title"><i class="fas {{ icon }} me-1"></i>
+      {{ label }}{% if product_id %} {{ product_id }}{% endif %}
+    </span>
+    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end" style="font-size:.78rem;">
+      <span class="zs-counter"><strong>{{ source_count }}</strong> source events</span>
+      <span class="zs-sep">·</span>
+      {{ review_state_badge(review_state) }}
+      <span class="tlp-badge tlp-mirror tlp-{{ tlp }}">TLP:{{ tlp | upper }}</span>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
 {% macro story_scope(story, chip_class='scope-chip') %}
 {# Labelled scope rows under a briefing story, shared by the detail page, the
    list preview and the PDF. The rows come from misp_store, so the labels and

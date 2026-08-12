@@ -30,6 +30,14 @@
   </div>
 </div>
 
+{# ── Summary ──────────────────────────────────────────────────── #}
+{% if briefing.summary %}
+<div class="section-heading">Briefing summary</div>
+<div class="section-box">
+  {{ briefing.summary | md }}
+</div>
+{% endif %}
+
 {# ── Stories ──────────────────────────────────────────────────── #}
 {% for story in briefing.stories %}
 <div class="story-block">

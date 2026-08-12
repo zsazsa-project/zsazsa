@@ -1,0 +1,18 @@
+<script>
+/* Keeps the TLP badge in a product's identity strip in step with the TLP select
+   that owns it, so the classification is right wherever you are in the form. */
+(function() {
+  var select = document.querySelector('select[name="tlp"]');
+  var badges = document.querySelectorAll('.tlp-mirror');
+  if (!select || !badges.length) return;
+  function sync() {
+    var value = (select.value || '').toLowerCase();
+    badges.forEach(function(badge) {
+      badge.className = 'tlp-badge tlp-mirror tlp-' + value;
+      badge.textContent = 'TLP:' + value.toUpperCase();
+    });
+  }
+  select.addEventListener('change', sync);
+  sync();
+})();
+</script>

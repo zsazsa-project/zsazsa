@@ -39,6 +39,8 @@ def _render_briefing_form(
     mode: str,
     form_action: str,
     cancel_url: str,
+    summary: str = "",
+    summary_stale: bool = False,
     geographic_scope=None,
     sectors=None,
     threat_actors=None,
@@ -101,6 +103,8 @@ def _render_briefing_form(
         briefing_tlp=tlp,
         briefing_escalations=escalations,
         briefing_notes=notes,
+        briefing_summary=summary,
+        briefing_summary_stale=summary_stale,
         page_mode=mode,
         page_title_text=(f"Edit briefing {date or '(no date)'}" if is_edit else "Compose daily briefing"),
         browser_title=(f"Edit briefing {date or '(no date)'}" if is_edit else "Compose briefing"),
@@ -210,6 +214,11 @@ def _parse_briefing_scope_from_form(form):
     }
 
 
+# How a story's text came to be, as the compose form reports it. Anything else
+# posted under that name is read as hand-written.
+_STORY_ORIGINS = ("ai", "ai-edited")
+
+
 def _parse_stories_from_form(form):
     """Extract story dicts from a POST form with indexed story fields."""
     stories = []
@@ -218,6 +227,7 @@ def _parse_stories_from_form(form):
         title = form.get(f"story_{i}_title", "").strip()
         if not title and not form.get(f"story_{i}_source_event_uuid", "").strip():
             break
+        drafted_by = form.get(f"story_{i}_drafted_by", "").strip()
         cti_eval_raw = form.get(f"story_{i}_cti_evaluation", "").strip()
         try:
             cti_evaluation = json.loads(cti_eval_raw) if cti_eval_raw else {}
@@ -238,6 +248,7 @@ def _parse_stories_from_form(form):
             "information_credibility": form.get(f"story_{i}_information_credibility", "").strip(),
             "cti_evaluation": cti_evaluation,
             "threat_actor_types": [v.strip() for v in form.getlist(f"story_{i}_threat_actor_types") if v.strip()],
+            "drafted_by": drafted_by if drafted_by in _STORY_ORIGINS else "",
         })
         i += 1
     return stories
@@ -374,6 +385,11 @@ def save():
         "tlp": request.form.get("tlp", "clear"),
         "escalations": request.form.get("escalations", "").strip(),
         "notes": request.form.get("notes", "").strip(),
+        "summary": request.form.get("summary", "").strip(),
+        # The form tracks this while the analyst works: it knows a story was
+        # deleted or rewritten after the summary was drafted, which nothing on
+        # this side can tell from the posted values alone.
+        "summary_stale": request.form.get("summary_stale") == "true",
         "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
         "stories": stories,
         **_parse_briefing_scope_from_form(request.form),
@@ -485,6 +501,8 @@ def edit(id):
             "tlp": request.form.get("tlp", briefing.tlp),
             "escalations": request.form.get("escalations", "").strip(),
             "notes": request.form.get("notes", "").strip(),
+            "summary": request.form.get("summary", "").strip(),
+            "summary_stale": request.form.get("summary_stale") == "true",
             "review_state": briefing.review_state,
             "stories": stories,
             **_parse_briefing_scope_from_form(request.form),
@@ -505,6 +523,8 @@ def edit(id):
         tlp=briefing.tlp or "clear",
         escalations=briefing.escalations or "",
         notes=briefing.notes or "",
+        summary=briefing.summary or "",
+        summary_stale=briefing.summary_stale,
         mode="edit",
         form_action=url_for("daily_briefing.edit", id=briefing.uuid),
         cancel_url=url_for("daily_briefing.detail", id=briefing.uuid),
@@ -557,6 +577,10 @@ def add_stories(id):
         tlp=briefing.tlp or "clear",
         escalations=briefing.escalations or "",
         notes=briefing.notes or "",
+        summary=briefing.summary or "",
+        # The story set is changing right here, so a summary written for the
+        # earlier one no longer covers the briefing.
+        summary_stale=bool(briefing.summary),
         mode="edit",
         form_action=url_for("daily_briefing.edit", id=briefing.uuid),
         cancel_url=url_for("daily_briefing.detail", id=briefing.uuid),

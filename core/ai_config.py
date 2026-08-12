@@ -39,6 +39,11 @@ FEATURES = {
         "description": "Drafts a short 5-line briefing story from a collection event for use in the Daily Threat Briefing.",
         "default_prompt": "daily_briefing_story.md",
     },
+    "draft_briefing_summary": {
+        "label": "Draft daily briefing summary",
+        "description": "Writes the narrative summary that opens a Daily Threat Briefing, from the stories the briefing holds. Run by the analyser pipeline and by the Draft with AI button on the summary field.",
+        "default_prompt": "daily_briefing_summary.md",
+    },
     "review_briefing_relevance": {
         "label": "Review daily briefing relevance",
         "description": "Evaluates whether a source event/report is useful for a Daily Threat Briefing and should be included.",

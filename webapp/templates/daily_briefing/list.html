@@ -122,6 +122,17 @@
             <div class="px-4 py-3" style="background:var(--surface-muted);border-top:1px solid var(--border-light);">
               <div class="row g-3">
                 <div class="col-md-9">
+                  {% if b.summary %}
+                  <div class="mb-3">
+                    <div class="fw-semibold small mb-1">
+                      <i class="fas fa-align-left me-1 text-muted"></i>Briefing summary
+                      {% if b.summary_stale %}
+                      <span class="badge text-bg-warning" title="The stories changed after this summary was written">Out of date</span>
+                      {% endif %}
+                    </div>
+                    <div class="report-md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ b.summary | e }}"></div>
+                  </div>
+                  {% endif %}
                   {% for story in b.stories %}
                   <div class="mb-3">
                     <div class="fw-semibold small mb-1">

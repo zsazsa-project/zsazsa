@@ -282,6 +282,50 @@ def draft_briefing_story(article_content: str, focus_points: dict = None, threat
     return raw, suggested_actor_type
 
 
+def draft_briefing_summary(stories: list[dict], scope_summary: list = None, date: str = "") -> str:
+    """Draft the paragraph that opens a whole daily briefing.
+
+    Reads the stories as the briefing holds them, not the source articles they
+    were written from, so the summary can only describe what an analyst has
+    already seen and approved. `scope_summary` is what briefing_scope_summary()
+    returns, (field, label, [(value, count), ...]) per category, which is what
+    lets the model say a theme runs through four of eight stories rather than
+    guess at it. Returns "" when the model gives nothing back.
+    """
+    fc = _feature_cfg("draft_briefing_summary")
+    system = _build_system_prompt(
+        _resolve_prompt(fc.get("prompt") or "daily_briefing_summary.md")
+    )
+    themes = {
+        label: [{"value": value, "stories": count} for value, count in ranked]
+        for _field, label, ranked in (scope_summary or [])
+    }
+    # Briefing stories are short write-ups already, so the cap only catches a
+    # story an analyst pasted an article into.
+    payload = {
+        "date": date,
+        "story_count": len(stories),
+        "stories": [
+            {
+                "index": index,
+                "title": (s.get("title") or "").strip(),
+                "content": (s.get("content") or "").strip()[:1500],
+                "sectors": s.get("sectors") or [],
+                "geographic_scope": s.get("geographic_scope") or [],
+                "threat_actors": s.get("threat_actors") or [],
+                "techniques": s.get("techniques") or [],
+                "vendor": s.get("vendor") or [],
+                "threat_actor_types": s.get("threat_actor_types") or [],
+            }
+            for index, s in enumerate(stories, 1)
+        ],
+        "scope_across_briefing": themes,
+    }
+    text = _call(system, json.dumps(payload, ensure_ascii=True), 700,
+                 feature="draft_briefing_summary", cfg=fc)
+    return (text or "").strip()
+
+
 def review_briefing_relevance(event_title: str, report_title: str, content: str) -> dict:
     """Decide if a source story should be included in the daily briefing."""
     fc = _feature_cfg("review_briefing_relevance")

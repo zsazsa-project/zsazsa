@@ -11,80 +11,238 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  /* Workbench layout: pinned command shell, story rail, one story at a time. */
+  /* The offsets are measured at runtime: which bars are pinned, and how tall
+     they are, differs per theme. See positionStickyColumns(). */
+  .wb-shell { position: sticky; top: var(--wb-top, 0px); z-index: 20; margin-bottom: 1rem; }
+  .wb-shell .action-panel-head { padding: .5rem .9rem; gap: .75rem; }
+  .wb-shell .action-panel-body { padding: .55rem .9rem; }
+  /* Pills, counters and chips are the shared product-form vocabulary in
+     app.css; only what is particular to this layout lives here. */
+  .wb-counters { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .78rem; }
+
+  .wb-rail { position: sticky; top: var(--wb-rail-top, 4.6rem); }
+  .wb-rail-body { max-height: calc(100vh - var(--wb-rail-top, 4.6rem) - 9rem); overflow-y: auto; padding: .35rem; }
+  .wb-item {
+    display: flex; gap: .55rem; align-items: flex-start; width: 100%; text-align: left;
+    border: 1px solid transparent; border-radius: 6px; padding: .45rem .55rem;
+    background: transparent;
+  }
+  .wb-item:hover { background: var(--surface-hover); }
+  .wb-item.active { background: var(--surface-tint); border-color: var(--border-light); }
+  .wb-item.active .wb-item-title { color: var(--accent-blue); font-weight: 600; }
+  .wb-num {
+    flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 5px;
+    background: var(--neutral-100); color: var(--text-muted);
+    font-size: .7rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .wb-item.active .wb-num { background: var(--accent-blue); color: #fff; }
+  .wb-item-title { font-size: .78rem; line-height: 1.25; color: var(--text-primary); }
+  .wb-item-meta { display: flex; gap: .25rem; flex-wrap: wrap; margin-top: .2rem; }
+  .wb-dot { width: .45rem; height: .45rem; border-radius: 50%; display: inline-block; flex-shrink: 0; margin-top: .45rem; }
+  .wb-dot-inline { margin: 0 .25rem 0 0; }
+  .dot-empty { background: var(--neutral-400); }
+  .dot-written { background: var(--accent-blue); }
+  .dot-ai { background: var(--accent-green); }
+  .dot-edited { background: var(--accent-orange); }
+  /* Only the pane the rail points at is on screen; the rest stay in the form so
+     they are still submitted and still counted by the scope bookkeeping. */
+  .wb-pane { display: none; }
+  .wb-pane.active { display: block; }
+
+  @media (max-width: 991.98px) {
+    .wb-rail { position: static; }
+    .wb-rail-body { max-height: 20rem; }
+  }
+</style>
 <form method="post" action="{{ form_action }}" id="compose-form"
       data-unsaved-warning{% if starts_unsaved %} data-unsaved-initially{% endif %}>
 
-  <div class="card content-card mb-3">
-    <div class="card-header"><i class="fas fa-sliders me-2"></i>Briefing metadata</div>
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">Title <span class="text-muted small">(optional)</span></label>
-          <input name="title" class="form-control" value="{{ briefing_title or '' }}" placeholder="e.g. Weekly Threat Digest #12">
+  {# ── Command shell ────────────────────────────────────────────────────────
+     What the briefing currently holds, and the actions that apply to all of
+     it. Pinned, so the counters and Save stay reachable however long the
+     briefing runs. Editing of these values happens in the details pane; the
+     TLP badge and author here only mirror it. #}
+  <div class="action-panel wb-shell">
+    <div class="action-panel-head">
+      <span class="action-panel-title"><i class="fas fa-newspaper me-1"></i> Briefing {{ briefing_date }}</span>
+      <div class="d-flex align-items-center gap-3 flex-wrap justify-content-end">
+        <div class="wb-counters">
+          <span class="zs-counter"><strong id="count-stories">0</strong> stories</span>
+          <span class="zs-sep">·</span>
+          <span class="zs-counter"><strong id="count-with-text">0</strong> with text</span>
+          <span class="zs-sep">·</span>
+          <span class="zs-counter"><strong id="count-scope">0</strong> scope items</span>
+          <span class="zs-sep">·</span>
+          <span class="tlp-badge tlp-{{ briefing_tlp or 'clear' }}" id="shell-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
+          <span class="zs-counter" id="shell-author">{{ briefing_author or '' }}</span>
         </div>
-        <div class="col-md-2">
-          <label class="form-label">Date</label>
-          <input type="date" name="date" class="form-control" value="{{ briefing_date }}" required>
+        <div class="d-flex gap-2">
+          <a href="{{ cancel_url }}" class="btn btn-sm btn-outline-secondary">{{ cancel_label }}</a>
+          <button type="submit" class="btn btn-sm btn-primary">
+            <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
+          </button>
         </div>
-        <div class="col-md-2">
-          <label class="form-label">Author</label>
-          <input name="author" class="form-control" value="{{ briefing_author or '' }}" placeholder="Analyst name">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">TLP</label>
-          <select name="tlp" class="form-select">
-            <option value="clear" {{ 'selected' if briefing_tlp == 'clear' }}>clear</option>
-            <option value="green" {{ 'selected' if briefing_tlp == 'green' }}>green</option>
-            <option value="amber" {{ 'selected' if briefing_tlp == 'amber' }}>amber</option>
-          </select>
-        </div>
-        {% if briefing_created_at %}
-        <div class="col-12">
-          <p class="text-muted mb-0 small"><i class="fas fa-clock me-1"></i>Saved: {{ briefing_created_at.strftime('%d %B %Y, %H:%M') }} UTC</p>
-        </div>
-        {% endif %}
+      </div>
+    </div>
+    <div class="action-panel-body">
+      <div class="zs-toolbar">
+        <span class="zs-toolbar-label">AI assistance</span>
+        <button type="button" class="zs-pill" id="btn-draft-all">
+          <i class="fas fa-wand-magic-sparkles"></i> Draft all
+        </button>
+        <button type="button" class="zs-pill" id="btn-use-all-summaries"
+                title="Paste the existing MISP AI summary into every story that has one, skipping stories without an AI summary">
+          <i class="fas fa-robot"></i> Use existing AI summaries
+        </button>
+        <button type="button" class="zs-pill btn-draft-summary"
+                title="Write a short narrative covering all the stories in this briefing">
+          <i class="fas fa-align-left"></i> Draft summary
+        </button>
+        <button type="button" class="zs-pill" id="btn-check-overlap" disabled>
+          <i class="fas fa-layer-group"></i> Check overlap
+        </button>
+        <span class="zs-sep mx-1">|</span>
+        <button type="button" class="zs-pill" id="btn-auto-delete-excluded"
+                title="{% if story_title_exclusions %}Exclusion patterns: {{ story_title_exclusions | join(' | ') }}{% else %}No exclusion patterns configured in Configuration > Products.{% endif %}">
+          <i class="fas fa-filter-circle-xmark"></i> Apply exclusions
+        </button>
+        <span id="draft-all-status" class="text-muted small ms-1"></span>
       </div>
     </div>
   </div>
 
-  <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
-    <button type="button" class="btn btn-outline-info btn-sm" id="btn-draft-all">
-      <i class="fas fa-wand-magic-sparkles me-1"></i> Draft all with AI
-    </button>
-    <button type="button" class="btn btn-outline-success btn-sm" id="btn-use-all-summaries"
-            title="Paste the existing MISP AI summary into every story that has one, skipping stories without an AI summary">
-      <i class="fas fa-robot me-1"></i> Use existing AI summaries
-    </button>
-    <button type="button" class="btn btn-outline-warning btn-sm" id="btn-check-overlap" disabled>
-      <i class="fas fa-layer-group me-1"></i> Check overlap
-    </button>
-    <button type="button" class="btn btn-outline-danger btn-sm" id="btn-auto-delete-excluded"
-            title="{% if story_title_exclusions %}Exclusion patterns: {{ story_title_exclusions | join(' | ') }}{% else %}No exclusion patterns configured in Configuration > Products.{% endif %}">
-      <i class="fas fa-filter-circle-xmark me-1"></i> Auto delete stories that match the exclusion
-    </button>
-    {% if page_mode == 'edit' %}
-    <button type="submit" class="btn btn-primary btn-sm">
-      <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
-    </button>
-    {% endif %}
-    <span id="draft-all-status" class="text-muted small"></span>
+  <div class="row g-3">
+
+  {# ── Rail: the table of contents for the whole briefing ─────────────────── #}
+  <div class="col-lg-3">
+    <div class="card content-card wb-rail">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-list-ol me-2"></i>Contents</span>
+        <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-add-story" title="Add an empty story">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      {# One pane is on screen at a time and the rail chooses it, so the rail is a
+         tablist. The separator and the story wrapper are presentational, which
+         keeps every .wb-item a direct tab of this list. #}
+      <div class="wb-rail-body" role="tablist" aria-orientation="vertical" aria-label="Briefing contents">
+        <button type="button" class="wb-item" id="tab-details" data-pane="details"
+                role="tab" aria-controls="pane-details" aria-selected="false" tabindex="-1">
+          <span class="wb-dot" style="background:transparent;"></span>
+          <span class="wb-num"><i class="fas fa-sliders" style="font-size:.6rem;"></i></span>
+          <span class="flex-grow-1">
+            <span class="wb-item-title">Briefing details</span>
+            <span class="wb-item-meta">
+              <span class="mini-chip" id="rail-date">{{ briefing_date }}</span>
+              <span class="mini-chip" id="rail-author">{{ briefing_author or 'no author' }}</span>
+              <span class="mini-chip" id="rail-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
+            </span>
+          </span>
+        </button>
+        <button type="button" class="wb-item" id="tab-summary" data-pane="summary"
+                role="tab" aria-controls="pane-summary" aria-selected="false" tabindex="-1">
+          <span class="wb-dot" id="rail-summary-dot"></span>
+          <span class="wb-num"><i class="fas fa-align-left" style="font-size:.6rem;"></i></span>
+          <span class="flex-grow-1">
+            <span class="wb-item-title">Briefing summary</span>
+            <span class="wb-item-meta" id="rail-summary-meta"></span>
+          </span>
+        </button>
+        <hr class="my-1" role="presentation">
+        {# Story entries are built from the story cards themselves, so adding,
+           removing and renaming a story cannot leave the rail behind. #}
+        <div id="rail-stories" role="presentation"></div>
+      </div>
+      <div class="card-body py-2 px-3" style="border-top:1px solid var(--border-faint);">
+        <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;">Story state</div>
+        <div class="d-flex flex-wrap gap-2 mt-1" style="font-size:.7rem;color:var(--text-muted);">
+          <span><span class="wb-dot dot-ai wb-dot-inline"></span>AI-drafted</span>
+          <span><span class="wb-dot dot-edited wb-dot-inline"></span>Edited after drafting</span>
+          <span><span class="wb-dot dot-written wb-dot-inline"></span>Written by hand</span>
+          <span><span class="wb-dot dot-empty wb-dot-inline"></span>No text yet</span>
+        </div>
+      </div>
+    </div>
   </div>
+
+  {# ── Editor ─────────────────────────────────────────────────────────────── #}
+  <div class="col-lg-9">
 
   <div id="overlap-status" class="text-muted small mb-2" style="display:none"></div>
   <div id="overlap-results" class="mb-3" style="display:none"></div>
 
-  <div id="stories-container" class="accordion">
+  <div class="wb-pane" id="pane-details" role="tabpanel" aria-labelledby="tab-details">
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Briefing details</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Title <span class="text-muted small">(optional)</span></label>
+            <input name="title" class="form-control" value="{{ briefing_title or '' }}" placeholder="e.g. Weekly Threat Digest #12">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Date</label>
+            <input type="date" name="date" id="briefing-date" class="form-control" value="{{ briefing_date }}" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Author</label>
+            <input name="author" id="briefing-author" class="form-control" value="{{ briefing_author or '' }}" placeholder="Analyst name">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">TLP</label>
+            <select name="tlp" id="briefing-tlp" class="form-select">
+              <option value="clear" {{ 'selected' if briefing_tlp == 'clear' }}>clear</option>
+              <option value="green" {{ 'selected' if briefing_tlp == 'green' }}>green</option>
+              <option value="amber" {{ 'selected' if briefing_tlp == 'amber' }}>amber</option>
+            </select>
+          </div>
+          {% if briefing_created_at %}
+          <div class="col-12">
+            <p class="text-muted mb-0 small"><i class="fas fa-clock me-1"></i>Saved: {{ briefing_created_at.strftime('%d %B %Y, %H:%M') }} UTC</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wb-pane" id="pane-summary" role="tabpanel" aria-labelledby="tab-summary">
+    <div class="card content-card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-align-left me-2"></i>Briefing summary</span>
+        <button type="button" class="btn btn-xs btn-outline-info btn-draft-summary"
+                title="Write a short narrative covering all the stories in this briefing">
+          <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
+        </button>
+      </div>
+      <div class="card-body">
+        {# Kept in step with the stories by the form itself: a story deleted or
+           rewritten after the summary was written raises this, and it is posted
+           along so the detail page, the list and the next edit keep saying so. #}
+        <input type="hidden" name="summary_stale" id="summary-stale"
+               value="{{ 'true' if briefing_summary_stale else 'false' }}">
+        <div id="summary-stale-warning" class="alert alert-warning py-2 px-3 small mb-2"
+             {% if not briefing_summary_stale %}style="display:none"{% endif %}>
+          <i class="fas fa-triangle-exclamation me-1"></i>
+          The stories changed since this summary was written, so it no longer covers the briefing. Redraft it or edit it by hand.
+        </div>
+        <textarea name="summary" id="briefing-summary" class="form-control" rows="8"
+                  placeholder="A few sentences covering all of today's stories. Shown at the top of the preview, the mail and the PDF.">{{ briefing_summary or '' }}</textarea>
+        <div id="summary-status" class="text-muted small mt-1" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="stories-container">
     {% for story in stories %}
     {% set idx = loop.index %}
-    <div class="card content-card mb-3 story-card">
+    <div class="card content-card mb-3 story-card wb-pane" id="pane-story-{{ idx }}" role="tabpanel">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <button type="button" class="btn btn-link text-start text-decoration-none p-0 flex-grow-1 me-3 story-collapse-toggle {{ '' if loop.first else 'collapsed' }}"
-                data-bs-toggle="collapse"
-                data-bs-target="#story-collapse-{{ idx }}"
-                aria-expanded="{{ 'true' if loop.first else 'false' }}"
-                aria-controls="story-collapse-{{ idx }}">
+        <span class="flex-grow-1 me-3 text-truncate">
           <i class="fas fa-newspaper me-2"></i><span class="story-heading-text">Story {{ idx }}: </span><span class="story-title-preview">{{ story.title | truncate(50) if story.title else '(no title yet)' }}</span>
-        </button>
+        </span>
         <div class="d-flex gap-2">
           {% if story.ai_summary %}
           <button type="button" class="btn btn-xs btn-outline-success btn-use-ai-summary"
@@ -120,10 +278,14 @@
           </button>
         </div>
       </div>
-      <div id="story-collapse-{{ idx }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}" data-bs-parent="#stories-container">
       <div class="card-body">
         <input type="hidden" name="story_{{ idx }}_source_event_uuid" value="{{ story.source_event_uuid }}">
         <input type="hidden" name="story_{{ idx }}_source_id" value="{{ story.source_id or '' }}">
+        {# How the text got here: "ai" when a model wrote it and nobody has
+           touched it since, "ai-edited" once an analyst has, empty when it was
+           written by hand. Carried through a save so the rail can still tell
+           them apart when the briefing is reopened. #}
+        <input type="hidden" name="story_{{ idx }}_drafted_by" class="story-drafted-by" value="{{ story.drafted_by or '' }}">
         {# JSON, like the CTI evaluation below: a comma-joined field turned an
            actor named "UNC3753 (also known as Luna Moth, Chatty Spider)" into
            two actors, and those were what the next save wrote to MISP. #}
@@ -191,19 +353,19 @@
         </div>
         <div class="ai-status-{{ idx }} text-muted small mt-1" style="display:none"></div>
       </div>
-      </div>
     </div>
     {% endfor %}
   </div>
 
-  <div class="mb-3">
-    <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-add-story">
-      <i class="fas fa-plus me-1"></i> Add story
-    </button>
-  </div>
-
+  {# Both blocks below are about the briefing as a whole, so they stay under
+     whichever pane is open rather than becoming rail entries of their own. #}
   <div class="card content-card mb-3">
-    <div class="card-header"><i class="fas fa-layer-group me-2"></i>Scope elements</div>
+    <div class="card-header collapsed" data-bs-toggle="collapse" data-bs-target="#briefing-scope-card"
+         aria-expanded="false" style="cursor:pointer;">
+      <i class="fas fa-layer-group me-2"></i>Scope elements
+      <i class="fas fa-chevron-right ms-2 small text-muted"></i>
+    </div>
+    <div class="collapse" id="briefing-scope-card">
     <div class="card-body">
 
       {% set _ns = namespace(vendor_in_summary=false) %}
@@ -341,10 +503,16 @@
       </div>
       </div>
     </div>
+    </div>
   </div>
 
   <div class="card content-card mb-3">
-    <div class="card-header"><i class="fas fa-arrow-up-right-dots me-2"></i>Escalations &amp; notes</div>
+    <div class="card-header collapsed" data-bs-toggle="collapse" data-bs-target="#briefing-notes-card"
+         aria-expanded="false" style="cursor:pointer;">
+      <i class="fas fa-arrow-up-right-dots me-2"></i>Escalations &amp; notes
+      <i class="fas fa-chevron-right ms-2 small text-muted"></i>
+    </div>
+    <div class="collapse" id="briefing-notes-card">
     <div class="card-body">
       <div class="row g-3">
         <div class="col-md-6">
@@ -359,14 +527,11 @@
         </div>
       </div>
     </div>
+    </div>
   </div>
 
-  <div class="d-flex gap-2">
-    <button type="submit" class="btn btn-primary flex-grow-1">
-      <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
-    </button>
-    <a href="{{ cancel_url }}" class="btn btn-outline-secondary">{{ cancel_label }}</a>
-  </div>
+  </div>{# /editor column #}
+  </div>{# /row #}
 
 </form>
 
@@ -432,12 +597,16 @@ document.addEventListener('change', function(e) {
     var pill = e.target.closest('.actor-type-pill');
     if (pill) pill.classList.toggle('selected', e.target.checked);
   }
+  if (e.target.id === 'briefing-tlp') syncShellMeta();
 });
 
 document.getElementById('btn-add-story').addEventListener('click', function() {
   storyCount++;
   addStoryCard(storyCount, '', '', '', '');
   updateOverlapButtonState();
+  markSummaryStale();
+  var title = document.querySelector('[name="story_' + storyCount + '_title"]');
+  if (title) title.focus();
 });
 
 document.addEventListener('click', function(e) {
@@ -446,10 +615,13 @@ document.addEventListener('click', function(e) {
       return;
     }
     var card = e.target.closest('.story-card');
-    if (card) removeStoryCard(card);
+    if (!card) return;
+    var position = _getStoryCards().indexOf(card) + 1;
+    removeStoryCard(card);
     renumberStories();
     updateOverlapButtonState();
     clearOverlapVisuals();
+    showPaneAfterRemoval(position);
   }
   if (e.target.closest('.btn-draft-story')) {
     var btn = e.target.closest('.btn-draft-story');
@@ -474,8 +646,11 @@ document.addEventListener('click', function(e) {
     var textarea = card.querySelector('.story-content');
     if (textarea) {
       textarea.value = summary;
+      markStoryDrafted(card);
       updateOverlapButtonState();
       clearOverlapVisuals();
+      markSummaryStale();
+      refreshRail();
       var statusEl = card.querySelector('[class^=ai-status]');
       if (statusEl) {
         statusEl.style.display = '';
@@ -490,9 +665,21 @@ document.addEventListener('input', function(e) {
     var card = e.target.closest('.story-card');
     var preview = card.querySelector('.story-title-preview');
     if (preview) preview.textContent = e.target.value.substring(0, 50) || '(no title yet)';
+    markSummaryStale();
+    refreshRail();
   }
   if (e.target.classList.contains('story-content')) {
+    markStoryEdited(e.target.closest('.story-card'));
     updateOverlapButtonState();
+    markSummaryStale();
+    refreshRail();
+  }
+  /* Rewriting the summary by hand is the analyst dealing with the warning. */
+  if (e.target.id === 'briefing-summary') {
+    setSummaryStale(false);
+  }
+  if (e.target.id === 'briefing-author' || e.target.id === 'briefing-date') {
+    syncShellMeta();
   }
 });
 
@@ -502,21 +689,13 @@ function renumberStories() {
     card.querySelectorAll('[name]').forEach(function(el) {
       el.name = el.name.replace(/story_\d+_/, 'story_' + idx + '_');
     });
+    card.id = 'pane-story-' + idx;
     var draftBtn = card.querySelector('.btn-draft-story');
     if (draftBtn) draftBtn.dataset.idx = idx;
     var attrBtn = card.querySelector('.btn-include-attributes');
     if (attrBtn) attrBtn.dataset.idx = idx;
     var reportsBtn = card.querySelector('.btn-view-reports');
     if (reportsBtn) reportsBtn.dataset.idx = idx;
-    var collapseEl = card.querySelector('.accordion-collapse');
-    if (collapseEl) {
-      collapseEl.id = 'story-collapse-' + idx;
-    }
-    var collapseBtn = card.querySelector('.story-collapse-toggle');
-    if (collapseBtn) {
-      collapseBtn.setAttribute('data-bs-target', '#story-collapse-' + idx);
-      collapseBtn.setAttribute('aria-controls', 'story-collapse-' + idx);
-    }
     var scopeEl = card.querySelector('[class^=scope-chips]');
     if (scopeEl) scopeEl.className = 'scope-chips-' + idx + ' mt-2';
     var reusedEl = card.querySelector('[class^=reused-context]');
@@ -527,11 +706,224 @@ function renumberStories() {
     if (heading) heading.textContent = 'Story ' + idx + ': ';
   });
   storyCount = document.querySelectorAll('.story-card').length;
+  refreshRail();
 }
 
 function _getStoryCards() {
   return Array.prototype.slice.call(document.querySelectorAll('.story-card'));
 }
+
+/* ── Rail, panes and story state ────────────────────────────────────────────
+   The rail is the table of contents for the whole briefing. It is built from
+   the story cards rather than kept alongside them, so adding, removing and
+   renaming a story cannot leave it describing something else. */
+
+function showPane(name) {
+  document.querySelectorAll('.wb-pane').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'pane-' + name);
+  });
+  // Roving tabindex: only the selected tab is in the tab order, so Tab moves
+  // out of the rail and into the pane rather than through every story.
+  document.querySelectorAll('.wb-item').forEach(function(item) {
+    var selected = item.dataset.pane === name;
+    item.classList.toggle('active', selected);
+    item.setAttribute('aria-selected', selected ? 'true' : 'false');
+    item.tabIndex = selected ? 0 : -1;
+  });
+}
+
+function activePaneName() {
+  var pane = document.querySelector('.wb-pane.active');
+  return pane ? pane.id.replace(/^pane-/, '') : '';
+}
+
+/* Deleting stories can take the pane that was on screen with it, leaving the
+   editor blank. Land on the story that took its place, counting from where the
+   analyst was, or on the details when the last story is gone. Does nothing when
+   the pane they were looking at is still there. */
+function showPaneAfterRemoval(position) {
+  if (document.querySelector('.wb-pane.active')) return;
+  var left = _getStoryCards().length;
+  showPane(left ? 'story-' + Math.min(position || 1, left) : 'details');
+}
+
+/* Where a story's text came from, shown in the rail as a coloured dot. The
+   hidden field is set when a model writes the text (the draft button, or the
+   AI summary the source event already carries) and downgraded to 'ai-edited'
+   as soon as an analyst types into it, which is what reviewers want to tell
+   apart. Stories written by hand carry nothing and need no chip. */
+function storyState(card) {
+  if (!card.querySelector('.story-content').value.trim()) return 'empty';
+  var drafted = card.querySelector('.story-drafted-by').value;
+  if (drafted === 'ai') return 'ai';
+  if (drafted === 'ai-edited') return 'edited';
+  return 'written';
+}
+
+function markStoryDrafted(card) {
+  card.querySelector('.story-drafted-by').value = 'ai';
+}
+
+function markStoryEdited(card) {
+  var flag = card.querySelector('.story-drafted-by');
+  if (flag.value === 'ai') flag.value = 'ai-edited';
+}
+
+var STATE_LABEL = {empty: 'no text', ai: 'AI-drafted', edited: 'edited'};
+
+function _railChip(text, warn) {
+  var chip = document.createElement('span');
+  chip.className = warn ? 'mini-chip mini-chip-warn' : 'mini-chip';
+  chip.textContent = text;
+  return chip;
+}
+
+function refreshRail() {
+  var container = document.getElementById('rail-stories');
+  var active = activePaneName();
+  // Typing in a story rebuilds these rows, which would otherwise send a
+  // scrolled rail back to the top on every keystroke.
+  var railBody = container.closest('.wb-rail-body');
+  var scrolled = railBody.scrollTop;
+  container.replaceChildren();
+
+  _getStoryCards().forEach(function(card, i) {
+    var idx = i + 1;
+    var titleEl = card.querySelector('.story-title-input');
+    var title = titleEl && titleEl.value.trim() ? titleEl.value.trim() : '(no title yet)';
+    var state = storyState(card);
+
+    var selected = active === 'story-' + idx;
+    var item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'wb-item' + (selected ? ' active' : '');
+    item.dataset.pane = 'story-' + idx;
+    item.id = 'tab-story-' + idx;
+    item.setAttribute('role', 'tab');
+    item.setAttribute('aria-controls', card.id);
+    item.setAttribute('aria-selected', selected ? 'true' : 'false');
+    item.tabIndex = selected ? 0 : -1;
+    // Renumbering renames the panes, so the pane is labelled from here rather
+    // than carrying an id it would have to keep in step on its own.
+    card.setAttribute('aria-labelledby', item.id);
+
+    var dot = document.createElement('span');
+    dot.className = 'wb-dot dot-' + state;
+    var num = document.createElement('span');
+    num.className = 'wb-num';
+    num.textContent = idx;
+
+    var body = document.createElement('span');
+    body.className = 'flex-grow-1';
+    var name = document.createElement('span');
+    name.className = 'wb-item-title';
+    name.textContent = title.length > 52 ? title.slice(0, 52) + '…' : title;
+    var meta = document.createElement('span');
+    meta.className = 'wb-item-meta';
+
+    if (STATE_LABEL[state]) meta.appendChild(_railChip(STATE_LABEL[state]));
+    // Stories the overlap check paired up are marked on the card; say so here
+    // too, otherwise the finding is invisible from every other pane.
+    if (card.classList.contains('border-warning')) {
+      meta.appendChild(_railChip('possible duplicate', true));
+    }
+    ['sectors', 'geographic_scope'].forEach(function(field) {
+      var values = _storyScopeValues(card, field);
+      if (values.length) meta.appendChild(_railChip(values[0]));
+    });
+
+    body.appendChild(name);
+    body.appendChild(meta);
+    item.appendChild(dot);
+    item.appendChild(num);
+    item.appendChild(body);
+    container.appendChild(item);
+  });
+
+  railBody.scrollTop = scrolled;
+  refreshSummaryRail();
+  updateShellCounters();
+}
+
+function refreshSummaryRail() {
+  var written = !!document.getElementById('briefing-summary').value.trim();
+  var stale = document.getElementById('summary-stale').value === 'true';
+  document.getElementById('rail-summary-dot').className =
+    'wb-dot ' + (written ? (stale ? 'dot-edited' : 'dot-ai') : 'dot-empty');
+  document.getElementById('rail-summary-meta').replaceChildren(_railChip(
+    written ? (stale ? 'out of date' : 'written') : 'not written yet',
+    written && stale));
+}
+
+function updateShellCounters() {
+  var cards = _getStoryCards();
+  var withText = cards.filter(function(c) { return storyState(c) !== 'empty'; }).length;
+  var values = new Set();
+  cards.forEach(function(card) {
+    ['geographic_scope', 'sectors', 'threat_actors', 'techniques', 'vendor'].forEach(function(field) {
+      _storyScopeValues(card, field).forEach(function(v) { values.add(field + ':' + v.toLowerCase()); });
+    });
+  });
+  document.getElementById('count-stories').textContent = cards.length;
+  document.getElementById('count-with-text').textContent = withText;
+  document.getElementById('count-scope').textContent = values.size;
+}
+
+/* The shell shows the classification and the author wherever you are, so the
+   details pane has to push its changes up to it. */
+function syncShellMeta() {
+  var tlp = document.getElementById('briefing-tlp').value || 'clear';
+  var author = document.getElementById('briefing-author').value;
+  var badge = document.getElementById('shell-tlp');
+  badge.className = 'tlp-badge tlp-' + tlp;
+  badge.textContent = 'TLP:' + tlp.toUpperCase();
+  document.getElementById('shell-author').textContent = author;
+  document.getElementById('rail-tlp').textContent = badge.textContent;
+  document.getElementById('rail-author').textContent = author || 'no author';
+  document.getElementById('rail-date').textContent = document.getElementById('briefing-date').value;
+}
+
+document.addEventListener('click', function(e) {
+  var item = e.target.closest('.wb-item');
+  if (item && item.dataset.pane) {
+    showPane(item.dataset.pane);
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+});
+
+/* Arrow keys walk a tablist, which is what the rail claims to be. Selection
+   follows focus: opening a pane is only a class change, so there is no reason to
+   make the analyst confirm with Enter. */
+document.addEventListener('keydown', function(e) {
+  var item = e.target.closest('.wb-item');
+  if (!item) return;
+  var step = {ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1}[e.key];
+  var items = Array.prototype.slice.call(document.querySelectorAll('.wb-item'));
+  var next;
+  if (step) {
+    next = items[(items.indexOf(item) + step + items.length) % items.length];
+  } else if (e.key === 'Home') {
+    next = items[0];
+  } else if (e.key === 'End') {
+    next = items[items.length - 1];
+  } else {
+    return;
+  }
+  e.preventDefault();
+  showPane(next.dataset.pane);
+  next.focus();
+});
+
+/* A required field on a pane that is not on screen cannot be focused, and the
+   browser then refuses the save without showing anything. Open the pane holding
+   it first, so the message lands on a visible field. 'invalid' does not bubble,
+   hence the capture phase. */
+document.addEventListener('invalid', function(e) {
+  var pane = e.target.closest('.wb-pane');
+  if (pane && !pane.classList.contains('active')) {
+    showPane(pane.id.replace(/^pane-/, ''));
+  }
+}, true);
 
 /* The scope values one story carries, read from the hidden fields it was
    rendered with (threat actor types are checkboxes instead). */
@@ -623,9 +1015,13 @@ function removeStoryCard(card) {
   card.remove();
   dropStoryScope(card);
   refreshGatheredScope();
+  markSummaryStale();
 }
 
-function _collectStoriesForOverlap() {
+/* The stories as they stand on the page rather than as MISP holds them, which
+   is what both the overlap check and the summary have to work from: neither is
+   worth running against a version the analyst has already moved past. */
+function _collectStories() {
   return _getStoryCards().map(function(card, i) {
     var titleEl = card.querySelector('[name="story_' + (i + 1) + '_title"]');
     var contentEl = card.querySelector('[name="story_' + (i + 1) + '_content"]');
@@ -635,6 +1031,12 @@ function _collectStoriesForOverlap() {
       title: titleEl ? titleEl.value.trim() : '',
       content: contentEl ? contentEl.value.trim() : '',
       source_url: sourceEl ? sourceEl.value.trim() : '',
+      sectors: _storyScopeValues(card, 'sectors'),
+      geographic_scope: _storyScopeValues(card, 'geographic_scope'),
+      threat_actors: _storyScopeValues(card, 'threat_actors'),
+      techniques: _storyScopeValues(card, 'techniques'),
+      vendor: _storyScopeValues(card, 'vendor'),
+      threat_actor_types: _storyScopeValues(card, 'threat_actor_types'),
     };
   });
 }
@@ -662,6 +1064,7 @@ function autoDeleteExcludedStories() {
     renumberStories();
     updateOverlapButtonState();
     clearOverlapVisuals();
+    showPaneAfterRemoval(1);
   }
   var statusEl = document.getElementById('overlap-status');
   if (statusEl) {
@@ -675,7 +1078,7 @@ function autoDeleteExcludedStories() {
 function updateOverlapButtonState() {
   var btn = document.getElementById('btn-check-overlap');
   if (!btn) return;
-  var stories = _collectStoriesForOverlap();
+  var stories = _collectStories();
   var hasEnoughStories = stories.length >= 2;
   var allHaveText = stories.length > 0 && stories.every(function(s) { return !!s.content; });
   btn.disabled = !(hasEnoughStories && allHaveText);
@@ -698,6 +1101,7 @@ function clearOverlapVisuals() {
     statusEl.style.display = 'none';
     statusEl.textContent = '';
   }
+  refreshRail();
 }
 
 function _highlightOverlapStories(overlaps) {
@@ -712,6 +1116,9 @@ function _highlightOverlapStories(overlaps) {
     if (!card) return;
     card.classList.add('border', 'border-warning', 'border-2');
   });
+  // Only one story pane is on screen, so the pairs have to show up in the rail
+  // as well or half the finding is invisible.
+  refreshRail();
 }
 
 function _renderOverlapResult(data) {
@@ -753,15 +1160,11 @@ function _renderOverlapResult(data) {
 
 function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
   var html = `
-    <div class="card content-card mb-3 story-card">
+    <div class="card content-card mb-3 story-card wb-pane" id="pane-story-${idx}" role="tabpanel">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <button type="button" class="btn btn-link text-start text-decoration-none p-0 flex-grow-1 me-3 story-collapse-toggle"
-                data-bs-toggle="collapse"
-                data-bs-target="#story-collapse-${idx}"
-                aria-expanded="true"
-                aria-controls="story-collapse-${idx}">
+        <span class="flex-grow-1 me-3 text-truncate">
           <i class="fas fa-newspaper me-2"></i><span class="story-heading-text">Story ${idx}: </span><span class="story-title-preview">(no title yet)</span>
-        </button>
+        </span>
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-xs btn-outline-info btn-draft-story"
                   data-idx="${idx}" data-event-uuid="${sourceUuid}" title="Draft with AI">
@@ -783,10 +1186,10 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
           </button>
         </div>
       </div>
-      <div id="story-collapse-${idx}" class="accordion-collapse collapse show" data-bs-parent="#stories-container">
       <div class="card-body">
         <input type="hidden" name="story_${idx}_source_event_uuid" value="${sourceUuid}">
         <input type="hidden" name="story_${idx}_source_id" value="">
+        <input type="hidden" name="story_${idx}_drafted_by" class="story-drafted-by" value="">
         <input type="hidden" name="story_${idx}_geographic_scope" value="[]">
         <input type="hidden" name="story_${idx}_sectors" value="[]">
         <input type="hidden" name="story_${idx}_threat_actors" value="[]">
@@ -826,9 +1229,10 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
         <div class="scope-chips-${idx} mt-2" style="display:none"><span class="text-muted small me-1">Scope:</span></div>
         <div class="ai-status-${idx} text-muted small mt-1" style="display:none"></div>
       </div>
-      </div>
     </div>`;
   document.getElementById('stories-container').insertAdjacentHTML('beforeend', html);
+  refreshRail();
+  showPane('story-' + idx);
 }
 
 function _renderScopeChips(idx, scope) {
@@ -885,8 +1289,13 @@ function draftStory(idx, eventUuid) {
       return;
     }
     var textarea = document.querySelector('[name=story_' + idx + '_content]');
-    if (textarea) textarea.value = data.story;
+    if (textarea) {
+      textarea.value = data.story;
+      markStoryDrafted(textarea.closest('.story-card'));
+    }
     updateOverlapButtonState();
+    markSummaryStale();
+    refreshRail();
     _renderScopeChips(idx, data.scope);
     if (data.threat_actor_type) {
       var anyChecked = document.querySelector('input[name="story_' + idx + '_threat_actor_types"]:checked');
@@ -1054,7 +1463,10 @@ function includeAttributes(idx, eventUuid) {
     var textarea = document.querySelector('[name=story_' + idx + '_content]');
     if (textarea && data.text) {
       textarea.value = textarea.value.trim() ? (textarea.value.replace(/\s+$/, '') + '\n\n' + data.text) : data.text;
+      markStoryEdited(textarea.closest('.story-card'));
       updateOverlapButtonState();
+      markSummaryStale();
+      refreshRail();
     }
     if (statusEl) statusEl.textContent = 'Attributes added. Review before saving.';
   })
@@ -1102,6 +1514,7 @@ document.getElementById('btn-use-all-summaries').addEventListener('click', funct
     var textarea = card.querySelector('.story-content');
     if (!textarea) return;
     textarea.value = summary;
+    markStoryDrafted(card);
     var statusEl = card.querySelector('[class^=ai-status]');
     if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'AI summary pasted. Review before saving.'; }
     applied++;
@@ -1110,6 +1523,8 @@ document.getElementById('btn-use-all-summaries').addEventListener('click', funct
   if (applied) {
     statusEl.textContent = applied + ' AI ' + (applied === 1 ? 'summary' : 'summaries') + ' applied.';
     updateOverlapButtonState();
+    markSummaryStale();
+    refreshRail();
   } else {
     statusEl.textContent = 'No existing AI summaries found on these stories.';
   }
@@ -1117,7 +1532,7 @@ document.getElementById('btn-use-all-summaries').addEventListener('click', funct
 
 document.getElementById('btn-check-overlap').addEventListener('click', function() {
   var btn = this;
-  var stories = _collectStoriesForOverlap();
+  var stories = _collectStories();
   if (!stories.length) return;
   if (stories.some(function(s) { return !s.content; })) {
     updateOverlapButtonState();
@@ -1169,6 +1584,97 @@ function setOverlapStatus(message) {
   statusEl.style.display = '';
   statusEl.textContent = message;
 }
+
+function setSummaryStatus(message, isError) {
+  var statusEl = document.getElementById('summary-status');
+  if (!statusEl) return;
+  statusEl.style.display = '';
+  statusEl.className = (isError ? 'text-danger' : 'text-muted') + ' small mt-1';
+  statusEl.textContent = message;
+}
+
+/* The summary covers the stories as they were when it was written, so any
+   change to them leaves it describing a briefing that no longer exists. An
+   empty summary has nothing to go stale. */
+function markSummaryStale() {
+  if (document.getElementById('briefing-summary').value.trim()) setSummaryStale(true);
+}
+
+function setSummaryStale(stale) {
+  document.getElementById('summary-stale').value = stale ? 'true' : 'false';
+  document.getElementById('summary-stale-warning').style.display = stale ? '' : 'none';
+  refreshSummaryRail();
+}
+
+/* The same action sits in the shell and on the summary pane, so both have to go
+   quiet while a draft is running; disabling only the one that was clicked leaves
+   the other free to start a second job over the same stories. */
+function setSummaryBusy(busy) {
+  document.querySelectorAll('.btn-draft-summary').forEach(function(btn) {
+    btn.disabled = busy;
+  });
+}
+
+/* Reachable from the shell, which is on screen everywhere, and from the summary
+   pane itself. Either way the answer lands in the summary pane, so switch to it. */
+function draftBriefingSummary() {
+  showPane('summary');
+  var stories = _collectStories();
+  if (!stories.length) {
+    setSummaryStatus('Add at least one story before writing the summary.', true);
+    return;
+  }
+  if (stories.some(function(s) { return !s.content; })) {
+    setSummaryStatus('Add text to all stories before writing the summary.', true);
+    return;
+  }
+
+  setSummaryBusy(true);
+  setSummaryStatus('Writing a summary across ' + stories.length + ' stor' + (stories.length === 1 ? 'y' : 'ies') + ' in the background...');
+
+  fetch(SCRIPT_ROOT + '/api/draft-briefing-summary', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+    },
+    body: JSON.stringify({
+      stories: stories,
+      date: document.getElementById('briefing-date').value,
+    }),
+  })
+    .then(zsazsaReadJson)
+    .then(function(data) {
+      if (!data.ok) {
+        setSummaryStatus('Error: ' + (data.error || 'the summary could not be started.'), true);
+        setSummaryBusy(false);
+        return;
+      }
+      if (window.zsazsaJobsChanged) zsazsaJobsChanged();
+      /* One call covering every story, so the answer comes back with the job
+         rather than with the request that started it. A summary the model left
+         empty fails the job, so anything that arrives here has text. */
+      zsazsaFollowJob(data.job_id, function(job) {
+        document.getElementById('briefing-summary').value = job.result.summary;
+        setSummaryStale(false);
+        setSummaryStatus('AI summary applied. Review and edit before saving.');
+        setSummaryBusy(false);
+      }, function(reason) {
+        setSummaryStatus('Summary did not complete: ' + reason, true);
+        setSummaryBusy(false);
+      }, function(job) {
+        if (job.message) setSummaryStatus(job.message);
+      });
+    })
+    .catch(function(err) {
+      setSummaryStatus('Summary did not start: ' + zsazsaErrorText(err), true);
+      setSummaryBusy(false);
+    });
+}
+
+document.querySelectorAll('.btn-draft-summary').forEach(function(btn) {
+  btn.addEventListener('click', draftBriefingSummary);
+});
 
 document.getElementById('btn-auto-delete-excluded').addEventListener('click', function() {
   autoDeleteExcludedStories();
@@ -1222,8 +1728,34 @@ document.querySelectorAll('[data-ti-field]').forEach(function(w) {
   });
 });
 
+/* The shell pins under whatever the theme keeps pinned above it: the top bar in
+   the sidebar layout, the top nav in the others. Measured rather than assumed,
+   so a theme change cannot slide the shell underneath one of them. */
+function positionStickyColumns() {
+  var offset = 0;
+  ['topnav', 'topbar'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && getComputedStyle(el).position === 'sticky' && el.offsetParent !== null) {
+      offset += el.offsetHeight;
+    }
+  });
+  var root = document.documentElement.style;
+  root.setProperty('--wb-top', offset + 'px');
+  root.setProperty('--wb-rail-top',
+                   (offset + document.querySelector('.wb-shell').offsetHeight + 16) + 'px');
+}
+window.addEventListener('resize', positionStickyColumns);
+// The shell grows when the AI toolbar wraps or a status line appears under it,
+// and the rail pins to its underside, so a resize event alone is not enough.
+new ResizeObserver(positionStickyColumns).observe(document.querySelector('.wb-shell'));
+
 updateOverlapButtonState();
 fillMissingReportCounts();
+refreshRail();
+syncShellMeta();
+positionStickyColumns();
+// Open on the first story, or on the details when the briefing has none yet.
+showPane(_getStoryCards().length ? 'story-1' : 'details');
 </script>
 
 <style>

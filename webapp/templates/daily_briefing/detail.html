@@ -15,6 +15,27 @@
 <div class="row g-3">
   <div class="col-md-8">
 
+    {% if briefing.summary %}
+    <div class="card content-card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-align-left me-2"></i>Briefing summary</span>
+        {% if briefing.summary_stale %}
+        <span class="badge text-bg-warning" title="The stories changed after this summary was written">
+          <i class="fas fa-triangle-exclamation me-1"></i>Out of date
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="report-md-body" data-md="{{ briefing.summary | e }}"></div>
+        {% if briefing.summary_stale %}
+        <p class="text-muted small mb-0 mt-2">
+          The stories changed since this summary was written. Redraft it on the edit page before publishing.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     {% for story in briefing.stories %}
     {% set idx = loop.index %}
     <div class="card content-card mb-3">
@@ -164,8 +185,16 @@
     <div class="card content-card mb-3">
       <div class="card-header"><strong>Publish</strong></div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('daily_briefing.publish', id=briefing.uuid) }}">
+        <form method="post" action="{{ url_for('daily_briefing.publish', id=briefing.uuid) }}"
+              {% if briefing.summary_stale %}onsubmit="return confirm('The briefing summary is marked out of date. Send it to stakeholders anyway?');"{% endif %}>
           <p class="small text-muted mb-2">Publishing will notify subscribed stakeholders.</p>
+          {% if briefing.summary_stale %}
+          {# The summary goes out at the top of the mail and the PDF, and neither
+             carries the out-of-date marker the review pages show. #}
+          <p class="small text-warning mb-2">
+            <i class="fas fa-triangle-exclamation me-1"></i>The summary is out of date.
+          </p>
+          {% endif %}
           <button class="btn btn-success w-100">
             <i class="fas fa-paper-plane me-1"></i> Publish briefing
           </button>

@@ -5046,7 +5046,26 @@ def _briefing_obj(data):
     _oa_json(obj, "campaign", data.get("campaign", []))
     _oa(obj, "creator", data.get("creator"))
     _oa(obj, "approved-by", data.get("approved_by"))
+    _oa(obj, "summary", data.get("summary"))
+    # Only written when there is a summary for it to be about, and only when it
+    # is true, so a briefing whose summary still matches its stories carries no
+    # attribute at all. Everything downstream can then trust the flag on its own.
+    if data.get("summary") and data.get("summary_stale"):
+        _oa(obj, "summary-stale", "true")
     return obj
+
+
+# Everything the briefing object carries, under the same name on the write dict
+# _briefing_obj() takes and on the namespace _briefing_ns() reads back. Changing
+# the object means changing all three, so publishing a briefing rebuilds its
+# write dict from this rather than listing the fields again.
+_BRIEFING_FIELDS = (
+    "date", "title", "author", "tlp", "review_state", "story_count",
+    "escalations", "notes", "summary", "summary_stale",
+    "geographic_scope", "sectors", "threat_actors", "mitre_attack_techniques",
+    "threat_types", "technology", "vendor", "incident", "campaign",
+    "creator", "approved_by",
+)
 
 
 def _briefing_ns(event):
@@ -5093,6 +5112,11 @@ def _briefing_ns(event):
         campaign=_json_list(_obj_attr(obj, "campaign")),
         creator=g("creator"),
         approved_by=g("approved-by"),
+        summary=g("summary"),
+        # Set when a story was added, removed or rewritten after the summary was
+        # written, so every view can say the summary no longer covers what is
+        # underneath it.
+        summary_stale=g("summary-stale") == "true",
         stories=stories,
         published=bool(getattr(event, "published", False)),
         published_at=_published_at(event),
@@ -5258,9 +5282,20 @@ def render_briefing_markdown(briefing, preview_url: str = ""):
         "",
         "---",
         "",
+    ]
+    if briefing.summary:
+        lines.extend([
+            "## Briefing summary",
+            "",
+            briefing.summary,
+            "",
+            "---",
+            "",
+        ])
+    lines.extend([
         f"## Today's stories ({len(briefing.stories)} items)",
         "",
-    ]
+    ])
     for i, s in enumerate(briefing.stories, 1):
         title = getattr(s, "title", "") or f"Story {i}"
         content = getattr(s, "content", "") or ""
@@ -5290,10 +5325,10 @@ def render_briefing_markdown(briefing, preview_url: str = ""):
             "---",
             "",
         ])
-    summary = briefing_combined_scope_summary(briefing)
-    if summary:
+    scope_summary = briefing_combined_scope_summary(briefing)
+    if scope_summary:
         lines.extend(["## Scope summary", ""])
-        for label, ranked in summary:
+        for label, ranked in scope_summary:
             lines.append(f"**{label}:**")
             for value, count in ranked:
                 if count > 1:
@@ -5358,18 +5393,27 @@ def _write_briefing_story_report(misp, event_uuid, index, story):
         "cti_evaluation": story.get("cti_evaluation", {}),
         "threat_actor_types": story.get("threat_actor_types", []),
         "vendor": story.get("vendor", []),
+        # "ai" when a model wrote the text and nobody has touched it since,
+        # "ai-edited" once an analyst has, empty when written by hand. The
+        # compose form shows it as the state of each story.
+        "drafted_by": story.get("drafted_by", ""),
     })
     er.distribution = 0
     _check(misp.add_event_report(event_uuid, er), f"add briefing story {index}")
 
 
-def _write_briefing_summary_report(misp, event_uuid, briefing):
+def _write_briefing_report(misp, event_uuid, briefing):
+    """Store the whole briefing as one readable markdown report on its event.
+
+    Not to be confused with the briefing's summary, which is the paragraph
+    render_briefing_markdown() puts at the top of what this writes.
+    """
     from pymisp import MISPEventReport
     er = MISPEventReport()
     er.name = f"briefing-{briefing.date or 'unknown'}"
     er.content = render_briefing_markdown(briefing)
     er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), "add briefing summary report")
+    _check(misp.add_event_report(event_uuid, er), "add briefing report")
 
 
 def list_briefings():
@@ -5412,7 +5456,7 @@ def create_briefing(data):
 
         refreshed = misp.get_event(uuid, pythonify=True)
         briefing = _briefing_ns(refreshed)
-        _write_briefing_summary_report(misp, uuid, briefing)
+        _write_briefing_report(misp, uuid, briefing)
     except Exception:
         # Clean up the shell event so it doesn't appear as a dateless entry.
         try:
@@ -5457,7 +5501,7 @@ def update_briefing(uuid, data):
 
     refreshed = misp.get_event(uuid, pythonify=True)
     briefing = _briefing_ns(refreshed)
-    _write_briefing_summary_report(misp, uuid, briefing)
+    _write_briefing_report(misp, uuid, briefing)
 
     for src in added_sources:
         _tag_scraper_event_as_product_source(src, "daily-briefing")
@@ -5475,23 +5519,11 @@ def publish_briefing(uuid):
     old = _get_obj(event, "zsazsa-daily-briefing")
     if old:
         misp.delete_object(old.id)
-    data = {
-        "date": briefing.date, "title": briefing.title, "author": briefing.author, "tlp": briefing.tlp,
-        "review_state": BRIEFING_REVIEW_PUBLISHED,
-        "story_count": briefing.story_count,
-        "escalations": briefing.escalations, "notes": briefing.notes,
-        "geographic_scope": briefing.geographic_scope,
-        "sectors": briefing.sectors,
-        "threat_actors": briefing.threat_actors,
-        "mitre_attack_techniques": briefing.mitre_attack_techniques,
-        "threat_types": briefing.threat_types,
-        "technology": briefing.technology,
-        "vendor": briefing.vendor,
-        "incident": briefing.incident,
-        "campaign": briefing.campaign,
-        "creator": briefing.creator,
-        "approved_by": misp_session.current_user_email(),
-    }
+    # The object is rebuilt from scratch, so everything it held has to be
+    # carried across; only the review state and the approver change here.
+    data = {field: getattr(briefing, field) for field in _BRIEFING_FIELDS}
+    data["review_state"] = BRIEFING_REVIEW_PUBLISHED
+    data["approved_by"] = misp_session.current_user_email()
     _check(misp.add_object(_event_ref(event), _briefing_obj(data)), "publish briefing object")
     for tag in list(getattr(event, "tags", []) or []):
         if tag.name.startswith("workflow:state="):

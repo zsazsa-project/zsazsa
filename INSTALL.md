@@ -241,6 +241,7 @@ This tab lists every prompt template file found in `zsazsaprompts/`.
 | `daily_briefing_story` | Must keep the five-line structure followed by the `Threat actor type: <type>` line, which is parsed out separately |
 | `daily_briefing_relevance` | Must keep returning only the `include` and `reason` JSON keys |
 | `daily_briefing_overlap` | Must keep returning the `summary` and `overlaps` JSON structure, with 1-based story indexes |
+| `daily_briefing_summary` | Must keep returning one plain paragraph, since it is rendered as-is at the top of the briefing preview, mail and PDF |
 | `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, since each key fills a named form field or panel |
 
 Changing these headings or structure will cause the corresponding feature to fail silently.
