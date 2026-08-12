@@ -523,6 +523,25 @@ def _apply_scope_tags(misp, event, sectors, geo, techniques):
     return applied
 
 
+def _summarisable_sources() -> dict:
+    """Sources we can summarise, mapped to their kind.
+
+    The summary is written back as a MISP report on the event, so it needs a
+    connection zsazsa may write to: the scraper MISP, or the webapp MISP that
+    holds the manual entries. Events pulled from a third-party MISP server are
+    not ours to write to.
+
+    This reads the manual sources from MISP, so callers working through a batch
+    resolve it once rather than per event.
+    """
+    return {s["id"]: s["kind"] for s in _sources() if s["kind"] in ("scraper", "manual")}
+
+
+def _summarise_misp(kind: str):
+    """The MISP connection holding the events of a source of this kind."""
+    return misp_store._scraper_misp() if kind == "scraper" else misp_store._misp()
+
+
 def _generate_ai_summary(misp, event, source_id, user=""):
     """Generate an LLM summary from an event's first MISP report and save it back to MISP.
 
@@ -620,8 +639,9 @@ def summarise(uuid):
     if err:
         return err
     source_id = data.get("source") or _SCRAPER_SOURCE_ID
-    if source_id != _SCRAPER_SOURCE_ID:
-        return jsonify({"ok": False, "error": "Summarisation is only available for scraper events"}), 400
+    if source_id not in _summarisable_sources():
+        return jsonify({"ok": False,
+                        "error": "Summarisation is only available for scraper and manual events"}), 400
 
     job = job_store.create_job("summarise", label="AI summary")
     threading.Thread(
@@ -1518,18 +1538,27 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
     job_store.update_job(job_id, status="running", message=f"Summarising {len(batch)} event(s)...")
 
     try:
-        misp = misp_store._scraper_misp()
+        # A batch can mix scraper events with manual entries, which live on the
+        # webapp MISP, so both the source list and the connections are resolved
+        # once here and shared by every event that needs them.
+        kind_by_source = _summarisable_sources()
+        misp_by_kind = {}
         for position, ev in enumerate(batch, start=1):
             uuid = (ev.get("uuid") or "").strip()
             source_id = (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip()
             job_store.update_job(job_id, message=f"Event {position} of {len(batch)}: generating summary")
 
-            if not uuid or source_id != _SCRAPER_SOURCE_ID:
+            kind = kind_by_source.get(source_id)
+            if not uuid or kind is None:
                 skipped += 1
                 continue
             if cached_by_uuid.get(uuid, {}).get("has_ai_summary"):
                 skipped += 1
                 continue
+
+            if kind not in misp_by_kind:
+                misp_by_kind[kind] = _summarise_misp(kind)
+            misp = misp_by_kind[kind]
 
             try:
                 event = misp.get_event(uuid, pythonify=True)
@@ -1539,7 +1568,7 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
                 errors += 1
                 continue
             if not event or isinstance(event, dict):
-                job_store.append_log(job_id, f"{uuid[:8]}: not found on the scraper MISP")
+                job_store.append_log(job_id, f"{uuid[:8]}: not found on {source_id}")
                 errors += 1
                 continue
 
@@ -1572,14 +1601,14 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
 @bp.route("/bulk-summarise", methods=["POST"])
 @rate_limited("collection_summarise", limit=15, window_s=60)
 def bulk_summarise():
-    """Start LLM summaries for a batch of selected scraper-sourced collection events.
+    """Start LLM summaries for a batch of selected collection events.
 
     POST JSON: {"events": [{"uuid": "...", "sourceId": "..."}]}
     One LLM call per event takes long enough that the work runs on a background
     thread: this answers with a job id, and the job carries the progress and the
-    outcome so they survive the analyst leaving the page. Non-scraper events and
-    events that already have a summary are skipped, and only the first
-    _BULK_SUMMARISE_LIMIT events are processed.
+    outcome so they survive the analyst leaving the page. Events from a source we
+    cannot write the summary back to, and events that already have a summary, are
+    skipped, and only the first _BULK_SUMMARISE_LIMIT events are processed.
     Returns JSON: {ok, job_id, message}
     """
     data, err = _json_object()

@@ -6,6 +6,7 @@ drafts from the analyser pipeline land in the same review queue.
 
 import logging
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import config as _cfg
 
@@ -52,6 +53,7 @@ def _form_data(form, fia_id=""):
         "affected_assets": form.get("affected_assets", ""),
         "actor_types": form.getlist("actor_types"),
         "actor_context": form.get("actor_context", ""),
+        "write_up": form.get("write_up", ""),
         "mitre_attack_techniques": form.getlist("mitre_attack_techniques"),
         "geographic_scope": form.getlist("geographic_scope"),
         "sectors": form.getlist("sectors"),
@@ -67,6 +69,7 @@ def _form_data(form, fia_id=""):
         "hunting_hypotheses": misp_store._split_lines(form.get("hunting_hypotheses")),
         "external_references": [r.strip() for r in misp_store._split_lines(form.get("external_references"))
                                  if r.strip() and r.strip().startswith(("http://", "https://"))],
+        "intelligence_gaps": form.get("intelligence_gaps", ""),
         "feedback_deadline": form.get("feedback_deadline") or "",
         "author": form.get("author", ""),
         "source_event_uuids": source_event_uuids,
@@ -138,12 +141,13 @@ def _seed_from_sources(source_uuids, source_hints=None):
         what_happened=[], source_description=", ".join(labels),
         source_reliability="", information_credibility="",
         likely_impact="", affected_assets="", actor_types=[], actor_context="",
+        write_up="",
         mitre_attack_techniques=mitre_attack_techniques,
         geographic_scope=geographic_scope, sectors=sectors, threat_actors=threat_actors,
         threat_types=[], technology=[], vendor=[], incident=[], campaign=[],
         actions_immediate=[], actions_near_term=[],
         mitre_techniques=[], hunting_hypotheses=[],
-        external_references=[], feedback_deadline=None,
+        external_references=[], intelligence_gaps="", feedback_deadline=None,
         author="", source_event_uuids=source_uuids,
         source_event_hints=source_hints,
         source_event_uuid=source_uuids[0] if source_uuids else "",
@@ -375,6 +379,64 @@ def add_feedback(id):
     return redirect(url_for("flash_intel.detail", id=id))
 
 
+@bp.route("/<string:id>/attachments", methods=["POST"])
+def attachment_add(id):
+    fia = misp_store.get_fia(id)
+    if fia is None:
+        return "FIA not found", 404
+    if fia.review_state == misp_store.FIA_REVIEW_APPROVED:
+        flash("Published alerts cannot be changed.", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
+    f = request.files.get("attachment")
+    if not f or not f.filename:
+        flash("No file selected.", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
+    try:
+        misp_store.add_fia_attachment(id, f.filename, f.read(), f.mimetype or "")
+        audit.record("attach", "fia", entity_id=id, entity_label=fia.fia_id,
+                     details=f.filename)
+        flash(f"Attachment '{f.filename}' added.", "success")
+    except Exception as exc:
+        logger.warning("attachment_add FIA %s failed: %s", id, exc)
+        flash(f"Could not add attachment: {exc}", "warning")
+    return redirect(url_for("flash_intel.detail", id=id))
+
+
+@bp.route("/<string:id>/attachments/<string:attr_uuid>/delete", methods=["POST"])
+def attachment_delete(id, attr_uuid):
+    fia = misp_store.get_fia(id)
+    if fia is None:
+        return "FIA not found", 404
+    if fia.review_state == misp_store.FIA_REVIEW_APPROVED:
+        flash("Published alerts cannot be changed.", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
+    label = fia.fia_id
+    try:
+        misp_store.delete_fia_attachment(attr_uuid)
+        audit.record("update", "fia", entity_id=id, entity_label=label,
+                     details="attachment deleted")
+        flash("Attachment deleted.", "success")
+    except Exception as exc:
+        logger.warning("attachment_delete FIA %s failed: %s", id, exc)
+        flash(f"Could not delete attachment: {exc}", "warning")
+    return redirect(url_for("flash_intel.detail", id=id))
+
+
+@bp.route("/<string:id>/attachments/<string:attr_uuid>/download")
+def attachment_download(id, attr_uuid):
+    try:
+        content, filename, content_type = misp_store.get_fia_attachment_content(attr_uuid)
+        return Response(
+            content,
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+            mimetype=content_type or "application/octet-stream",
+        )
+    except Exception as exc:
+        logger.warning("attachment_download FIA %s failed: %s", id, exc)
+        flash(f"Download failed: {exc}", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
+
+
 @bp.route("/<string:id>/pdf")
 def pdf(id):
     fia = misp_store.get_fia(id)
@@ -424,8 +486,13 @@ def _deliver_flash_intel(uuid, preview_url, reason):
         content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
         log(f"{reason}: {len(stakeholders)} eligible recipient(s).")
 
+        # Downloaded once for the whole delivery rather than per channel.
+        attachments = misp_store.fia_attachment_files(fia.attachments)
+        if attachments:
+            log(f"{len(attachments)} attachment(s) sent with the e-mail.")
+
         ok, detail = notify_jobs.to_channels(
-            lambda: dispatcher.send_flash_intel(fia, content, stakeholders), log)
+            lambda: dispatcher.send_flash_intel(fia, content, stakeholders, attachments), log)
         notify_jobs.to_flowintel(
             stakeholders, "Flash intel alert",
             lambda instance: flowintel_client.send_flash_intel_to_flowintel(

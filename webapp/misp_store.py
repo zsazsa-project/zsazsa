@@ -33,6 +33,7 @@ from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.models import STAKEHOLDER_ROLES
+from webapp.utils import human_size
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -1922,16 +1923,26 @@ def delete_rfi_attachment(attr_uuid):
     misp.delete_attribute(attr_uuid)
 
 
-def get_rfi_attachment_content(attr_uuid):
-    import base64
+def fetch_attachment(attr_uuid):
+    """Return one attachment attribute with the file itself attached.
+
+    with_attachments is what makes MISP send the bytes along; a plain attribute
+    fetch describes the attachment without carrying it.
+    """
     misp = _misp()
-    attr = misp.get_attribute(attr_uuid, pythonify=True)
-    if isinstance(attr, dict) or attr is None:
-        raise RuntimeError(f"Attribute {attr_uuid} not found")
-    content = misp.download_attachment(attr.id)
-    if isinstance(content, dict):
-        raise RuntimeError(f"Download failed: {content.get('errors', 'unknown')}")
-    return content, attr.value
+    found = misp.search(controller="attributes", uuid=attr_uuid,
+                        with_attachments=True, pythonify=True)
+    if isinstance(found, dict) or not found:
+        raise RuntimeError(f"Attachment {attr_uuid} not found")
+    attr = found[0]
+    if attr.data is None:
+        raise RuntimeError(f"Attachment {attr_uuid} carries no file")
+    return attr
+
+
+def get_rfi_attachment_content(attr_uuid):
+    attr = fetch_attachment(attr_uuid)
+    return attr.data.getvalue(), attr.value
 
 
 def add_rfi_note(event_uuid, title, content):
@@ -3531,13 +3542,18 @@ def create_manual_collection_event(data: dict) -> str:
         a.to_ids = False
         misp.add_attribute(created.id, a)
 
-    for url in data.get("references") or []:
-        url = url.strip()
-        if url:
+    # "link" rather than "url": these point at the article or advisory this entry
+    # was written from, which is a reference and not an indicator. It is also the
+    # type every reader of a source event looks for, so a reference stored as
+    # "url" never reaches a product's reference list.
+    for reference in data.get("references") or []:
+        reference = reference.strip()
+        if reference:
             a = MISPAttribute()
-            a.type = "url"
+            a.type = "link"
             a.category = "External analysis"
-            a.value = url
+            a.value = reference
+            a.comment = "External reference"
             a.to_ids = False
             misp.add_attribute(created.id, a)
 
@@ -3808,6 +3824,7 @@ def _fia_obj(data):
     _oa(obj, "affected-assets", data.get("affected_assets"))
     _oa_json(obj, "actor-types", data.get("actor_types", []))
     _oa(obj, "actor-context", data.get("actor_context"))
+    _oa(obj, "write-up", data.get("write_up"))
     _oa_json(obj, "mitre-attack-techniques", data.get("mitre_attack_techniques", []))
     _oa_json(obj, "geographic-scope", data.get("geographic_scope", []))
     _oa_json(obj, "sectors", data.get("sectors", []))
@@ -3822,6 +3839,7 @@ def _fia_obj(data):
     _oa(obj, "mitre-techniques", _join_lines(data.get("mitre_techniques")))
     _oa(obj, "hunting-hypotheses", _join_lines(data.get("hunting_hypotheses")))
     _oa(obj, "external-references", _join_lines(data.get("external_references")))
+    _oa(obj, "intelligence-gaps", data.get("intelligence_gaps"))
     _oa(obj, "feedback-deadline", data.get("feedback_deadline"))
     _oa(obj, "author", data.get("author"))
     _oa(obj, "review-state", data.get("review_state", FIA_REVIEW_DRAFT))
@@ -3874,6 +3892,7 @@ def _fia_ns(event):
         affected_assets=g("affected-assets"),
         actor_types=_json_list(g("actor-types")),
         actor_context=g("actor-context"),
+        write_up=g("write-up"),
         mitre_attack_techniques=_json_list(g("mitre-attack-techniques")),
         geographic_scope=_json_list(g("geographic-scope")),
         sectors=_json_list(g("sectors")),
@@ -3888,6 +3907,7 @@ def _fia_ns(event):
         mitre_techniques=g("mitre-techniques").splitlines(),
         hunting_hypotheses=g("hunting-hypotheses").splitlines(),
         external_references=g("external-references").splitlines(),
+        intelligence_gaps=g("intelligence-gaps"),
         feedback_deadline=_parse_date(g("feedback-deadline")),
         author=g("author"),
         review_state=review_state,
@@ -3899,6 +3919,7 @@ def _fia_ns(event):
         linked_pir_uuid=g("linked-pir-uuid"),
         creator=g("creator"),
         approved_by=g("approved-by"),
+        attachments=_fia_attachments(event),
         published=bool(getattr(event, "published", False)),
         published_at=_published_at(event),
         created_at=_parse_dt(event.date.isoformat() if event.date else None),
@@ -3966,6 +3987,32 @@ def source_event_link_urls(uuids, hints=None):
     return list(dict.fromkeys(links))
 
 
+FIA_ASSESSMENT_FIELDS = [
+    ("likely_impact", "Likely impact"),
+    ("affected_assets", "Affected assets"),
+    ("actor_types", "Threat actor types"),
+    ("actor_context", "Threat actor context"),
+]
+
+
+def fia_assessment_rows(fia):
+    """Return the (label, value) pairs of "Why it matters" that were filled in.
+
+    An assessment left blank says nothing, so it is dropped rather than carried
+    as "unspecified". The alert page, the review queue, the PDF and the markdown
+    every notification is built from all show the same four, so they decide what
+    to leave out here rather than each repeating the rule.
+    """
+    rows = []
+    for field, label in FIA_ASSESSMENT_FIELDS:
+        value = getattr(fia, field, "") or ""
+        if isinstance(value, list):
+            value = ", ".join(value)
+        if value:
+            rows.append((label, value))
+    return rows
+
+
 def render_fia_markdown(fia, fia_id=None, include_source_links=False):
     """Render an FIA namespace into the markdown report content.
 
@@ -3984,6 +4031,18 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
     source_hints = getattr(fia, "source_event_hints", {}) or {}
     source_refs = source_event_urls(source_uuids, source_hints)
     source_links = source_event_link_urls(source_uuids, source_hints) if include_source_links else []
+
+    # The write-up is markdown the analyst wrote, and follows the bullets it
+    # expands on. With neither, the section has nothing to say and is dropped.
+    why_it_matters = [f"- **{label}:** {value}" for label, value in fia_assessment_rows(fia)]
+    write_up = (fia.write_up or "").strip()
+    if write_up:
+        if why_it_matters:
+            why_it_matters.append("")
+        why_it_matters.append(write_up)
+    why_it_matters_section = (
+        ["## Why it matters", "", *why_it_matters, "", "---", ""] if why_it_matters else []
+    )
 
     parts = [
         f"# Flash intel alert: {fia.title or '(untitled)'}",
@@ -4014,15 +4073,7 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
         "",
         "---",
         "",
-        "## Why it matters",
-        "",
-        f"- **Likely impact:** {fia.likely_impact or 'unspecified'}",
-        f"- **Affected assets:** {fia.affected_assets or 'unspecified'}",
-        f"- **Threat actor types:** {', '.join(getattr(fia, 'actor_types', []) or []) or 'unspecified'}",
-        f"- **Threat actor context:** {fia.actor_context or 'unspecified'}",
-        "",
-        "---",
-        "",
+        *why_it_matters_section,
         "## Scope",
         "",
         *([f"- **Geographic scope:** {', '.join(fia.geographic_scope)}"] if fia.geographic_scope else []),
@@ -4071,6 +4122,16 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
         "",
         bullets(list(dict.fromkeys((fia.external_references or []) + source_links + source_refs))),
     ]
+    attachments = getattr(fia, "attachments", []) or []
+    if attachments:
+        parts.extend([
+            "", "---", "", "## Attachments", "",
+            *[f"- {a.filename} ({a.content_type or 'unknown type'}, {human_size(a.size)})"
+              for a in attachments],
+        ])
+    intelligence_gaps = (getattr(fia, "intelligence_gaps", "") or "").strip()
+    if intelligence_gaps:
+        parts.extend(["", "---", "", "## Intelligence gaps", "", intelligence_gaps])
     if fia.feedback_deadline:
         parts.extend([
             "",
@@ -4263,12 +4324,14 @@ def set_fia_review_state(uuid, state, reason=None):
         "affected_assets": fia.affected_assets,
         "actor_types": list(getattr(fia, "actor_types", []) or []),
         "actor_context": fia.actor_context,
+        "write_up": fia.write_up,
         "mitre_attack_techniques": list(getattr(fia, "mitre_attack_techniques", []) or []),
         "actions_immediate": fia.actions_immediate,
         "actions_near_term": fia.actions_near_term,
         "mitre_techniques": fia.mitre_techniques,
         "hunting_hypotheses": fia.hunting_hypotheses,
         "external_references": fia.external_references,
+        "intelligence_gaps": fia.intelligence_gaps,
         "feedback_deadline": fia.feedback_deadline.isoformat() if fia.feedback_deadline else "",
         "author": fia.author,
         "source_event_uuids": list(getattr(fia, "source_event_uuids", []) or []),
@@ -4325,6 +4388,92 @@ def reject_fia(uuid, reason=""):
 def delete_fia(uuid):
     misp = _misp()
     misp.delete_event(uuid)
+
+
+# ── Flash intel attachments ──────────────────────────────────────────────────
+#
+# The file itself is a MISP attachment attribute, as on an RFI. What MISP does
+# not carry back on an event fetch is how large the file is or what type it is,
+# and the notifications have to name both without downloading every attachment
+# first, so they are recorded in the comment when the file is stored:
+#
+#     zsazsa:fia-attachment|application/pdf|20841
+
+FIA_ATTACHMENT_COMMENT = "zsazsa:fia-attachment"
+
+
+def _fia_attachment_comment(content_type: str, size: int) -> str:
+    return f"{FIA_ATTACHMENT_COMMENT}|{content_type or 'application/octet-stream'}|{int(size)}"
+
+
+def _parse_fia_attachment_comment(comment: str) -> tuple[str, int]:
+    """Return (content_type, size) from an attachment comment, tolerating older ones."""
+    parts = (comment or "").split("|")
+    content_type = parts[1].strip() if len(parts) > 1 else ""
+    try:
+        size = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        size = 0
+    return content_type, size
+
+
+def _fia_attachments(event) -> list:
+    attachments = []
+    for a in (getattr(event, "attributes", []) or []):
+        comment = getattr(a, "comment", "") or ""
+        if not comment.startswith(FIA_ATTACHMENT_COMMENT) or getattr(a, "deleted", False):
+            continue
+        content_type, size = _parse_fia_attachment_comment(comment)
+        attachments.append(SimpleNamespace(uuid=a.uuid, filename=a.value,
+                                           content_type=content_type, size=size))
+    return attachments
+
+
+def add_fia_attachment(event_uuid, filename, file_bytes, content_type=""):
+    """Attach a file to a flash intel alert. Returns the new attribute UUID."""
+    import base64
+    misp = _misp()
+    attr = MISPAttribute()
+    attr.type = "attachment"
+    attr.category = "External analysis"
+    attr.value = filename
+    attr.data = base64.b64encode(file_bytes).decode("utf-8")
+    attr.comment = _fia_attachment_comment(content_type, len(file_bytes))
+    attr.to_ids = False
+    result = _check(misp.add_attribute(event_uuid, attr, pythonify=True), "add FIA attachment")
+    return result.uuid
+
+
+def delete_fia_attachment(attr_uuid):
+    misp = _misp()
+    misp.delete_attribute(attr_uuid)
+
+
+def get_fia_attachment_content(attr_uuid):
+    """Return (bytes, filename, content_type) for one flash intel attachment."""
+    attr = fetch_attachment(attr_uuid)
+    content_type, _size = _parse_fia_attachment_comment(attr.comment or "")
+    return attr.data.getvalue(), attr.value, content_type
+
+
+def fia_attachment_files(attachments) -> list[tuple]:
+    """Download a flash intel alert's attachments as e-mail attachment tuples.
+
+    Takes the attachment list off an FIA namespace and returns
+    [(filename, bytes, maintype, subtype)], the shape notifier.email expects. An
+    attachment that cannot be downloaded is left out rather than failing the
+    delivery: the alert itself still has to go.
+    """
+    files = []
+    for att in attachments or []:
+        try:
+            content, filename, content_type = get_fia_attachment_content(att.uuid)
+        except Exception as exc:
+            logger.warning("Could not download FIA attachment %s: %s", att.uuid, exc)
+            continue
+        maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+        files.append((filename, content, maintype or "application", subtype or "octet-stream"))
+    return files
 
 
 def counts():

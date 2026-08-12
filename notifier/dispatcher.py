@@ -245,8 +245,13 @@ def send_indicator_feed(feed, markdown: str, csv_bytes: bytes, stakeholders: lis
     return _dispatch(stakeholders, senders, "indicator feed", getattr(feed, "feed_id", ""))
 
 
-def send_flash_intel(fia, content: str, stakeholders: list) -> dict:
-    """Deliver a Flash Intel Alert to stakeholder channels across all channel types."""
+def send_flash_intel(fia, content: str, stakeholders: list, attachments: list | None = None) -> dict:
+    """Deliver a Flash Intel Alert to stakeholder channels across all channel types.
+
+    `attachments` are (filename, bytes, maintype, subtype) tuples that ride along
+    with the e-mail. The other channels only name them, which the rendered
+    content already does.
+    """
     fia_id = getattr(fia, "fia_id", "") or "FIA"
     event_ref = getattr(fia, "uuid", "") or getattr(fia, "id", "")
 
@@ -260,7 +265,8 @@ def send_flash_intel(fia, content: str, stakeholders: list) -> dict:
             )
         ),
         "email": lambda channel_ids: bool(
-            email.send_flash_intel_alert(fia, content, channel_ids=channel_ids)
+            email.send_flash_intel_alert(fia, content, channel_ids=channel_ids,
+                                         attachments=attachments)
         ),
     }
     return _dispatch(stakeholders, senders, "flash intel", fia_id)

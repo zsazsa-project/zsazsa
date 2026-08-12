@@ -273,6 +273,12 @@
             <label class="form-label">Threat actor context</label>
             <textarea name="actor_context" class="form-control" rows="2">{{ fia.actor_context if fia else '' }}</textarea>
           </div>
+          <div class="col-12">
+            <label class="form-label">Write-up</label>
+            <textarea name="write_up" class="form-control" rows="4"
+              placeholder="Room to explain the assessment above in full.">{{ fia.write_up if fia else '' }}</textarea>
+            <div class="form-text">Rendered as Markdown wherever the alert is shown. Left out when empty.</div>
+          </div>
         </div>
 
         <hr class="my-3">
@@ -392,6 +398,13 @@
           <textarea name="external_references" id="external_references" class="form-control font-monospace" rows="4"
                     style="font-size:.88rem;">{{ lines(fia.external_references) if fia else '' }}</textarea>
           <div class="form-text">One URL per line. Vendor advisory, NVD/GCVE entry, blog post, etc.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Intelligence gaps</label>
+          <textarea name="intelligence_gaps" class="form-control" rows="4"
+            placeholder="What is still unknown, and what would close the gap.">{{ fia.intelligence_gaps if fia else '' }}</textarea>
+          <div class="form-text">Rendered as Markdown, next to the references. Left out when empty.</div>
         </div>
 
         <div class="mb-3">

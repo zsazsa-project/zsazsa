@@ -174,15 +174,22 @@
                   {% endif %}
 
                   {# Why it matters #}
+                  {% set assessments = f | assessment_rows %}
+                  {% if assessments or f.write_up %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Why it matters</div>
+                    {% if assessments %}
                     <ul class="mb-0 ps-3">
-                      <li style="font-size:.82rem;"><span class="pretext">Likely impact:</span> {{ (f.likely_impact or 'unspecified') | md_inline }}</li>
-                      <li style="font-size:.82rem;"><span class="pretext">Affected assets:</span> {{ (f.affected_assets or 'unspecified') | md_inline }}</li>
-                      <li style="font-size:.82rem;"><span class="pretext">Threat actor types:</span> {{ f.actor_types | join(', ') if f.actor_types else 'unspecified' }}</li>
-                      <li style="font-size:.82rem;"><span class="pretext">Threat actor context:</span> {{ (f.actor_context or 'unspecified') | md_inline }}</li>
+                      {% for label, value in assessments %}
+                      <li style="font-size:.82rem;"><span class="pretext">{{ label }}:</span> {{ value | md_inline }}</li>
+                      {% endfor %}
                     </ul>
+                    {% endif %}
+                    {% if f.write_up %}
+                    <div class="report-md-body mt-2" data-md="{{ f.write_up | e }}" style="font-size:.85rem;"></div>
+                    {% endif %}
                   </div>
+                  {% endif %}
 
                   {# Recommended actions #}
                   {% if f.actions_immediate or f.actions_near_term %}
@@ -263,6 +270,24 @@
                       {% for ref in preview_reference_items %}
                       <li><a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer"
                              style="word-break:break-all;font-size:.78rem;">{{ ref.url }}</a></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                  {% endif %}
+                  {% if f.intelligence_gaps %}
+                  <div class="border rounded p-2 mt-2" style="font-size:.8rem;background:var(--card-bg);">
+                    <div class="fw-semibold small mb-1">Intelligence gaps</div>
+                    <div class="report-md-body" data-md="{{ f.intelligence_gaps | e }}" style="font-size:.78rem;"></div>
+                  </div>
+                  {% endif %}
+                  {% if f.attachments %}
+                  <div class="border rounded p-2 mt-2" style="font-size:.8rem;background:var(--card-bg);">
+                    <div class="fw-semibold small mb-1">Attachments</div>
+                    <ul class="mb-0 ps-3">
+                      {% for att in f.attachments %}
+                      <li style="font-size:.78rem;">{{ att.filename }}
+                        <span class="text-muted">({{ att.content_type or 'unknown type' }}, {{ att.size | filesize }})</span>
+                      </li>
                       {% endfor %}
                     </ul>
                   </div>

@@ -46,6 +46,21 @@ def mute_lead_labels(html: str, open_tag: str = '<span class="pretext">') -> str
         lambda m: f"{m.group(1)}{m.group(2)}{open_tag}{m.group(3)}</span>", html or "")
 
 
+def human_size(size) -> str:
+    """Format a byte count for a reader, e.g. 20841 -> "20.4 KB"."""
+    try:
+        value = float(size)
+    except (TypeError, ValueError):
+        return "unknown size"
+    if value < 1024:
+        return f"{value:.0f} B"
+    for unit in ("KB", "MB"):
+        value /= 1024
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+    return f"{value / 1024:.1f} GB"
+
+
 def dedup_lower(values: list) -> list:
     """Deduplicate strings case-insensitively, keeping first-occurrence casing.
 

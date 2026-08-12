@@ -78,6 +78,19 @@ MIGRATIONS = [
         ),
         "supports_apply": True,
     },
+    {
+        "id": "convert_url_attributes_to_link",
+        "name": "Convert URL references to link",
+        "script": "scripts/convert_url_attributes_to_link.py",
+        "description": (
+            "Retype the external references on manual collection entries from MISP's "
+            "\"url\" type to \"link\". Entries created before this was fixed stored them "
+            "as \"url\", where nothing that builds a product's reference list picks them "
+            "up. Only External analysis attributes are touched, so genuine URL "
+            "indicators are left alone."
+        ),
+        "supports_apply": True,
+    },
 ]
 
 _MIGRATIONS_BY_ID = {m["id"]: m for m in MIGRATIONS}

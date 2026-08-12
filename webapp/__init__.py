@@ -13,7 +13,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import config
 from webapp import audit, misp_session, org_store, sso_users, collection_cache, indicator_meta_store
-from webapp.utils import md_to_html, md_to_html_inline
+from webapp.utils import human_size, md_to_html, md_to_html_inline
 from webapp.version import APP_VERSION
 
 
@@ -130,12 +130,24 @@ def create_app():
 
         return mitre_technique_label(s)
 
+    @app.template_filter("filesize")
+    def _filesize(size):
+        """Format a byte count the way the notifications do, e.g. "20.4 KB"."""
+        return human_size(size)
+
     @app.template_filter("scope_rows")
     def _scope_rows(story):
         """A briefing story's (label, values) scope pairs, as the e-mail shows them."""
         from webapp.misp_store import briefing_story_scope_rows
 
         return briefing_story_scope_rows(story)
+
+    @app.template_filter("assessment_rows")
+    def _assessment_rows(fia):
+        """A flash intel alert's filled-in "Why it matters" (label, value) pairs."""
+        from webapp.misp_store import fia_assessment_rows
+
+        return fia_assessment_rows(fia)
 
     from webapp.routes.dashboard import bp as dashboard_bp
     from webapp.routes.stakeholders import bp as stakeholders_bp

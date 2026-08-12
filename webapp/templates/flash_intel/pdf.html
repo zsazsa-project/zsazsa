@@ -64,17 +64,20 @@
   </div>
 </div>
 
-{# The same four assessments the e-mail carries, so an empty field reads as
-   "unspecified" here too instead of leaving the box blank. #}
+{% set assessments = fia | assessment_rows %}
+{% if assessments or fia.write_up %}
 <div class="section-heading">Why it matters</div>
 <div class="section-box">
+  {% if assessments %}
   <table class="detail-table">
-    <tr><th>Likely impact</th><td>{{ (fia.likely_impact or 'unspecified') | md_inline }}</td></tr>
-    <tr><th>Affected assets</th><td>{{ (fia.affected_assets or 'unspecified') | md_inline }}</td></tr>
-    <tr><th>Threat actor types</th><td>{{ fia.actor_types | join(', ') if fia.actor_types else 'unspecified' }}</td></tr>
-    <tr><th>Threat actor context</th><td>{{ (fia.actor_context or 'unspecified') | md_inline }}</td></tr>
+    {% for label, value in assessments %}
+    <tr><th>{{ label }}</th><td>{{ value | md_inline }}</td></tr>
+    {% endfor %}
   </table>
+  {% endif %}
+  {% if fia.write_up %}{{ fia.write_up | md }}{% endif %}
 </div>
+{% endif %}
 
 {% set techniques = (fia.mitre_attack_techniques or []) | map('mitre') | list %}
 {% if fia.geographic_scope or fia.sectors or fia.threat_actors or techniques
@@ -111,14 +114,31 @@
   {{ bullets(fia.hunting_hypotheses) }}
 </div>
 
-{% if reference_items %}
+{% if fia.attachments %}
+<div class="section-heading">Attachments</div>
+<div class="section-box">
+  <table class="detail-table">
+    {% for att in fia.attachments %}
+    <tr><th>{{ att.filename }}</th><td>{{ att.content_type or 'unknown type' }} &middot; {{ att.size | filesize }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if reference_items or fia.intelligence_gaps %}
 <div class="section-heading">References &amp; feedback</div>
 <div class="section-box">
+  {% if reference_items %}
   <ul>
     {% for ref in reference_items %}
     <li>{{ ref.url }}{% if ref.info %} - {{ ref.info }}{% endif %}{% if ref.date %} ({{ ref.date }}){% endif %}{% if ref.orgc %} &middot; {{ ref.orgc }}{% endif %}</li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if fia.intelligence_gaps %}
+  <h3>Intelligence gaps</h3>
+  {{ fia.intelligence_gaps | md }}
+  {% endif %}
   {% if fia.feedback_deadline %}
   <p style="margin-top:6pt;"><span class="pretext">Feedback requested by:</span> {{ fia.feedback_deadline.strftime('%Y-%m-%d') }}</p>
   {% endif %}

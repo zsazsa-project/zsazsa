@@ -16,7 +16,7 @@ import config
 from flask import Blueprint, jsonify, request, url_for
 
 from core.vuln_lookup import fetch_cve_info
-from webapp import audit, job_store, misp_store
+from webapp import audit, job_store, misp_session, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object, parse_bool as _parse_bool
@@ -1040,28 +1040,54 @@ def collection_used_in(uuid):
     return jsonify({"ok": True, "products": products})
 
 
+def _run_summarise_content_job(job_id: str, content: str, title: str, user: str) -> None:
+    """Summarise pasted content on a worker thread, for a form that has no event yet."""
+    from analyser import llm
+
+    job_store.update_job(job_id, status="running", message="Generating summary...")
+    try:
+        with job_store.heartbeat(job_id, "Generating summary"):
+            summary = llm.summarise_report(content[:12000], event_info=title)
+        if not summary.strip():
+            empty = ("The model returned an empty summary. Check the LLM settings "
+                     "and the analyser log.")
+            job_store.update_job(job_id, status="failed", error=empty, message=empty)
+            return
+        audit.record("generate", "ai_summary", details=title or f"{len(content)} chars",
+                     user=user)
+        job_store.update_job(job_id, status="completed", result={"summary": summary},
+                             message="Summary generated")
+    except Exception as exc:
+        job_store.update_job(job_id, status="failed", error=str(exc),
+                             message=f"Failed: {exc}")
+        logger.exception("Summarise content job %s failed", job_id)
+
+
 @bp.route("/summarise-content", methods=["POST"])
 @rate_limited("api_summarise_content", limit=15, window_s=60)
 def summarise_content():
-    """Generate an AI summary from raw text content.
+    """Start an AI summary of raw text content, on a background thread.
+
+    The manual collection entry form has no MISP event yet, so the content comes
+    from the form rather than from a report. One LLM call is long enough to lose
+    the request to a proxy timeout, so this hands back a job to follow instead;
+    it also puts the work in the top bar's job list like every other AI run.
 
     POST JSON: {"content": "...", "title": "optional event title"}
-    Returns: {"summary": "...", "error": null}
+    Returns: {"ok": true, "job_id": "..."}
     """
     body, err = _json_object()
     if err:
-        return jsonify({"summary": "", "error": "Invalid JSON payload."}), 400
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
     content = (body.get("content") or "").strip()
     title = (body.get("title") or "").strip()
     if not content:
-        return jsonify({"summary": "", "error": "Content required."})
-    try:
-        from analyser import llm
-        summary = llm.summarise_report(content[:12000], event_info=title)
-        if not summary.strip():
-            return jsonify({"summary": "", "error": "The model returned an empty summary. Check the LLM settings and the analyser log."}), 502
-        audit.record("generate", "ai_summary", details=title or f"{len(content)} chars")
-        return jsonify({"summary": summary, "error": None})
-    except Exception as exc:
-        logger.warning("summarise_content LLM call failed: %s", exc)
-        return jsonify({"summary": "", "error": "Failed to generate summary."}), 502
+        return jsonify({"ok": False, "error": "Content required."}), 400
+
+    job = job_store.create_job("summarise-content", label="AI summary")
+    threading.Thread(
+        target=_run_summarise_content_job,
+        args=(job["id"], content, title, misp_session.current_user_email()),
+        daemon=True, name=job_store.thread_name(job["id"]),
+    ).start()
+    return jsonify({"ok": True, "job_id": job["id"]})

@@ -63,16 +63,20 @@
       </div>
     </div>
 
-    {% set url_attrs = event.attributes | selectattr("type", "equalto", "url") | list %}
+    {# References are stored as "link". Entries created before that change carry
+       them as "url", so both are listed here. #}
+    {% set reference_attrs = event.attributes | selectattr("type", "in", ["link", "url"]) | list %}
     {% set file_attrs = event.attributes | selectattr("type", "equalto", "attachment") | list %}
 
-    {% if url_attrs %}
+    {% if reference_attrs %}
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-link me-2"></i>External references</div>
       <div class="card-body">
         <ul class="mb-0 small">
-          {% for a in url_attrs %}
-          <li><a href="{{ a.value | e }}" target="_blank" rel="noopener">{{ a.value }}</a></li>
+          {% for a in reference_attrs %}
+          <li><a href="{{ a.value | e }}" target="_blank" rel="noopener">{{ a.value }}</a>
+            {% if a.comment %}<span class="text-muted ms-1">({{ a.comment }})</span>{% endif %}
+          </li>
           {% endfor %}
         </ul>
       </div>

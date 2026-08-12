@@ -358,10 +358,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     var titleInput = document.querySelector('input[name="title"]');
     var title = titleInput ? titleInput.value.trim() : '';
-    status.textContent = 'Generating summary…';
+    status.textContent = 'Queueing summary…';
     status.className = 'form-text';
     status.style.display = '';
     btn.disabled = true;
+
+    function fail(message) {
+      status.textContent = message;
+      status.className = 'form-text text-danger';
+      btn.disabled = false;
+    }
+
     fetch(SCRIPT_ROOT + '/api/summarise-content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
@@ -369,20 +376,23 @@ document.addEventListener('DOMContentLoaded', function() {
     })
     .then(zsazsaReadJson)
     .then(function(data) {
-      if (data.error) {
-        status.textContent = 'Error: ' + data.error;
-        status.className = 'form-text text-danger';
-      } else {
-        document.getElementById('summary').value = data.summary || '';
+      if (!data.ok) {
+        fail('Error: ' + (data.error || 'unknown error'));
+        return;
+      }
+      // The summary runs as a job, so the top bar shows it straight away and
+      // keeps reporting even if this page is left before the model answers.
+      if (window.zsazsaJobsChanged) zsazsaJobsChanged();
+      status.textContent = 'Generating summary… (job ' + data.job_id.slice(0, 8) + ')';
+      zsazsaFollowJob(data.job_id, function(job) {
+        document.getElementById('summary').value = (job.result || {}).summary || '';
         status.textContent = 'Summary generated.';
         status.className = 'form-text text-success';
-      }
-      btn.disabled = false;
+        btn.disabled = false;
+      }, fail);
     })
     .catch(function(err) {
-      status.textContent = 'Summary did not complete: ' + zsazsaErrorText(err);
-      status.className = 'form-text text-danger';
-      btn.disabled = false;
+      fail('Summary did not complete: ' + zsazsaErrorText(err));
     });
   });
 })();

@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Flash Intel Alert (FIA) draft fields managed by the zsazsa CTI program",
   "uuid": "9b1c2d3e-4f5a-4b6c-9d7e-8f9a0b1c2d3e",
-  "version": 1,
+  "version": 2,
   "attributes": {
     "fia-id": {
       "misp-attribute": "text",
@@ -89,6 +89,12 @@
       "description": "Threat actor motivation or capability context",
       "disable_correlation": true
     },
+    "write-up": {
+      "misp-attribute": "text",
+      "ui-priority": 10,
+      "description": "Free-form Markdown write-up expanding on why the alert matters",
+      "disable_correlation": true
+    },
     "geographic-scope": {
       "misp-attribute": "text",
       "ui-priority": 12,
@@ -171,6 +177,12 @@
       "misp-attribute": "text",
       "ui-priority": 17,
       "description": "External resource URLs (one per line)",
+      "disable_correlation": true
+    },
+    "intelligence-gaps": {
+      "misp-attribute": "text",
+      "ui-priority": 17,
+      "description": "What is not known yet, and what would be needed to close the gap",
       "disable_correlation": true
     },
     "feedback-deadline": {

@@ -199,17 +199,20 @@ def send_threat_actor_profile_notification(tap, markdown: str, channel_ids: list
                       f"threat actor profile {tap_id}", attachments, html_body=html)
 
 
-def send_flash_intel_alert(fia, content: str, channel_ids: list[str] | None = None) -> bool:
+def send_flash_intel_alert(fia, content: str, channel_ids: list[str] | None = None,
+                           attachments: list[tuple] | None = None) -> bool:
     """Send a flash intel alert e-mail using the FIA object as source of truth.
 
     Subject classification should come from the product metadata, not by parsing
-    rendered markdown.
+    rendered markdown. Files attached to the alert ride along with the e-mail;
+    the content already names them for the channels that cannot carry files.
     """
     fia_id = getattr(fia, "fia_id", "") or "FIA"
     tlp = getattr(fia, "tlp", "") or ""
     subject = _subject(tlp, f"{fia_id}: Flash Intel Alert")
     html = product_email.markdown_html(content, "Flash Intel Alert")
-    return send_email(_recipients(channel_ids), subject, content, fia_id, html_body=html)
+    return send_email(_recipients(channel_ids), subject, content, fia_id,
+                      attachments, html_body=html)
 
 
 def send_indicator_feed_notification(feed, markdown: str, channel_ids: list[str] | None = None,

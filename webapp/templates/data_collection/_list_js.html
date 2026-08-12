@@ -1726,7 +1726,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     selectionSummariseBtn.addEventListener('click', function() {
       var selected = getSelectedEvents();
       if (!selected.length) { alert('Select at least one event using the checkboxes.'); return; }
-      if (!confirm('Generate AI summaries for the selected events?\n\nThis only applies to scraper events that do not yet have a summary; the rest are skipped.')) {
+      if (!confirm('Generate AI summaries for the selected events?\n\nThis only applies to scraper and manual events that do not yet have a summary; the rest are skipped.')) {
         return;
       }
 

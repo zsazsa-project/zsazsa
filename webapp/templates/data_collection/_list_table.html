@@ -369,7 +369,7 @@
                         title="Apply CTI evaluation tags to MISP">
                   <i class="fas fa-microscope fa-xs"></i>
                 </button>
-                {% if e.source_kind == 'scraper' and not e.has_ai_summary %}
+                {% if e.source_kind in ('scraper', 'manual') and not e.has_ai_summary %}
                 <button class="btn btn-xs btn-outline-secondary create-summary-btn"
                         data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}"
                         title="Generate LLM summary from first MISP report">

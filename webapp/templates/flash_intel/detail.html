@@ -50,16 +50,21 @@
           <span class="pretext">Reliability:</span> {{ fia.source_reliability or '-' }} &middot;
           <span class="pretext">Credibility:</span> {{ fia.information_credibility or '-' }}
         </p>
+        {% set assessments = fia | assessment_rows %}
+        {% if assessments or fia.write_up %}
         <hr>
-        {# The same four assessments the e-mail carries, so an unfilled field
-           reads as "unspecified" instead of leaving this section blank. #}
         <h5>Why it matters</h5>
+        {% if assessments %}
         <ul>
-          <li><span class="pretext">Likely impact:</span> {{ (fia.likely_impact or 'unspecified') | md_inline }}</li>
-          <li><span class="pretext">Affected assets:</span> {{ (fia.affected_assets or 'unspecified') | md_inline }}</li>
-          <li><span class="pretext">Threat actor types:</span> {{ fia.actor_types | join(', ') if fia.actor_types else 'unspecified' }}</li>
-          <li><span class="pretext">Threat actor context:</span> {{ (fia.actor_context or 'unspecified') | md_inline }}</li>
+          {% for label, value in assessments %}
+          <li><span class="pretext">{{ label }}:</span> {{ value | md_inline }}</li>
+          {% endfor %}
         </ul>
+        {% endif %}
+        {% if fia.write_up %}
+        <div class="report-md-body" data-md="{{ fia.write_up | e }}"></div>
+        {% endif %}
+        {% endif %}
         {% set techniques = (fia.mitre_attack_techniques or []) | map('mitre') | list %}
         {% if fia.geographic_scope or fia.sectors or fia.threat_actors or techniques
               or fia.threat_types or fia.technology or fia.vendor or fia.incident or fia.campaign %}
@@ -108,6 +113,10 @@
           </ul>
         {% else %}
           <span class="text-muted">none recorded</span>
+        {% endif %}
+        {% if fia.intelligence_gaps %}
+        <h6 class="mt-3">Intelligence gaps</h6>
+        <div class="report-md-body" data-md="{{ fia.intelligence_gaps | e }}"></div>
         {% endif %}
         {% if fia.feedback_deadline %}
         <p class="mt-3 mb-0 small"><i class="fas fa-clock me-1 text-muted"></i><span class="pretext">Feedback requested by:</span>
@@ -198,6 +207,62 @@
       </div>
     </div>
     {% endif %}
+
+    {# Attachments are alert content, so they follow the same rule as the rest of
+       it: once the alert is published it no longer changes. #}
+    {% set editable = fia.review_state != 'approved' %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-paperclip me-2"></i>Attachments</div>
+      <div class="card-body">
+        {% if fia.attachments %}
+        <table class="table table-sm mb-3">
+          <tbody>
+            {% for att in fia.attachments %}
+            <tr>
+              <td>
+                <i class="fas fa-file me-2 text-muted"></i>{{ att.filename }}
+                <div class="text-muted" style="font-size:.72rem;">
+                  {{ att.content_type or 'unknown type' }} &middot; {{ att.size | filesize }}
+                </div>
+              </td>
+              <td class="text-end text-nowrap">
+                <a href="{{ url_for('flash_intel.attachment_download', id=fia.uuid, attr_uuid=att.uuid) }}"
+                   class="btn btn-xs btn-outline-secondary me-1" title="Download">
+                  <i class="fas fa-download"></i>
+                </a>
+                {% if editable %}
+                <form method="post" class="d-inline"
+                      action="{{ url_for('flash_intel.attachment_delete', id=fia.uuid, attr_uuid=att.uuid) }}"
+                      onsubmit="return confirm('Delete this attachment?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-xs btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted small mb-3"><em>No attachments yet.</em></p>
+        {% endif %}
+        {% if editable %}
+        <form method="post" enctype="multipart/form-data"
+              action="{{ url_for('flash_intel.attachment_add', id=fia.uuid) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <input type="file" name="attachment" class="form-control form-control-sm" required>
+            <div class="form-text">Listed in the notifications and sent along with the e-mail.</div>
+          </div>
+          <button type="submit" class="btn btn-sm btn-secondary w-100">
+            <i class="fas fa-upload me-1"></i> Upload
+          </button>
+        </form>
+        {% else %}
+        <p class="text-muted small mb-0"><em>Published alerts cannot be changed.</em></p>
+        {% endif %}
+      </div>
+    </div>
 
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback</div>
