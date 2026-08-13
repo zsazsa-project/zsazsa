@@ -80,6 +80,17 @@ def _form_data(form, fia_id=""):
     }
 
 
+def _linked_pir(fia):
+    """The PIR a draft is linked to, whether it came from MISP or from the form.
+
+    The wizard is rendered from a namespace when an alert is opened and from the
+    posted form dict when validation sends it back, so both have to answer.
+    """
+    if isinstance(fia, dict):
+        return fia.get("linked_pir_uuid") or ""
+    return getattr(fia, "linked_pir_uuid", "") or ""
+
+
 def _wizard_context(fia=None, source_events=None):
     return {
         "fia": fia,
@@ -95,7 +106,7 @@ def _wizard_context(fia=None, source_events=None):
         "mitre_attack_items": misp_store.galaxy_mitre_attack_patterns(),
         "action_presets_immediate": getattr(_cfg, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
         "action_presets_near_term": getattr(_cfg, "RECOMMENDED_ACTIONS_NEAR_TERM", []),
-        "pirs": misp_store.list_pirs(),
+        "pirs": misp_store.list_selectable_pirs(_linked_pir(fia)),
         "source_event_tags": sorted({t for ev in (source_events or []) for t in ev.get("tags", [])}),
     }
 

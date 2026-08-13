@@ -6,13 +6,6 @@ import config
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from webapp import audit, matching as _matching, misp_session, misp_store, notify_jobs
-
-logger = logging.getLogger(__name__)
-
-
-def _sync_focus_points():
-    """Legacy no-op: organisation-wide focus points are now managed in Configuration."""
-    return
 from webapp.models import (
     FOCUS_CATEGORIES,
     INTEL_LEVELS,
@@ -24,8 +17,16 @@ from webapp.models import (
     REVIEW_CYCLES,
     TIME_SENSITIVITIES,
 )
+from webapp.utils import dedup_lower
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("requirements", __name__)
+
+
+def _sync_focus_points():
+    """Legacy no-op: organisation-wide focus points are now managed in Configuration."""
+    return
 
 _SCOPE_PREVIEW_TIMEFRAME_OPTIONS = [
     ("all", "All cache entries"),

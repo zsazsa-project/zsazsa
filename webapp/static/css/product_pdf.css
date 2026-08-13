@@ -7,6 +7,20 @@
    --c3  secondary (labels, footer, meta text)
 */
 
+/* The running classification header has to carry the document's own TLP colour.
+   A page margin box cannot see the cover badge or any element, so the colour is
+   put on the root, where the margin box can read it, from the data-tlp the
+   templates set on <html>. It is an attribute rather than a class because the
+   .tlp-* classes further down paint a background for the pills, and the root
+   picking one of those up would wash the whole page in it. The values are those
+   rules' text colours, which are the ones meant for a light background. */
+:root                          { --tlp-color: #334155; }
+:root[data-tlp="red"]          { --tlp-color: #991b1b; }
+:root[data-tlp="amber"]        { --tlp-color: #92400e; }
+:root[data-tlp="amber-strict"] { --tlp-color: #7c2d12; }
+:root[data-tlp="green"]        { --tlp-color: #166534; }
+:root[data-tlp="clear"]        { --tlp-color: #334155; }
+
 @page {
   size: A4;
   margin: 16mm 0 18mm 0;
@@ -26,7 +40,7 @@
     content: string(tlp-label);
     font-size: 7.5pt;
     font-weight: 700;
-    color: #b45309;
+    color: var(--tlp-color, #334155);
     margin-right: 18mm;
     margin-top: 5mm;
   }

@@ -1314,6 +1314,18 @@ def rename_subscription_product(old_name: str, new_name: str, apply: bool = Fals
 
 # ── PIR CRUD ──────────────────────────────────────────────────────────────────
 
+def list_selectable_pirs(linked_uuid=""):
+    """The PIRs a product may be linked to, newest intake state respected.
+
+    A PIR that is still in intake has not been agreed yet, so a product must not
+    claim to answer it. The one exception is the PIR a product is already linked
+    to: it stays in the list whatever its status has become, or reopening an
+    older product and saving it would quietly drop the link.
+    """
+    return [p for p in list_pirs()
+            if p.status == "Active" or (linked_uuid and p.uuid == linked_uuid)]
+
+
 def list_pirs():
     misp = _misp()
     events = misp.search(tags=[config.TAG_PIR], limit=200, pythonify=True)
