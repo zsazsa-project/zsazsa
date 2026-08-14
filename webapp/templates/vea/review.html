@@ -155,6 +155,11 @@
                 {% if v.audience %}<span class="text-muted small">{{ v.audience }}</span>{% endif %}
                 {% if v.cvss %}<span class="badge bg-secondary">{{ v.cvss }}</span>{% endif %}
                 {% if v.cisa_kev == 'Yes' %}<span class="badge bg-danger">CISA KEV</span>{% endif %}
+                <button type="button" class="btn btn-xs btn-outline-secondary ms-auto"
+                        data-recipients-url="{{ url_for('vea.recipients_fragment', id=v.uuid) }}"
+                        title="Preview recipients">
+                  <i class="fas fa-users me-1"></i>Recipients
+                </button>
               </div>
 
               <div class="row g-3">
@@ -227,6 +232,7 @@
   </div>
 </div>
 {% include "_published_delete_note.html" %}
+{% include "_recipients_modal.html" %}
 
 {# ── Inline feedback modal ── #}
 <div class="modal fade" id="feedback-modal" tabindex="-1" aria-hidden="true">

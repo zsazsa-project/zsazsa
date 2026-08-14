@@ -67,9 +67,19 @@ def _parse_subscriptions(form):
     return selected, modes
 
 
-def _parse_notification_channels(form) -> list[str]:
-    allowed = {channel.get("id") for channel in _active_notification_channels() if channel.get("id")}
-    return [channel_id for channel_id in form.getlist("notification_channels") if channel_id in allowed]
+def _parse_notification_channels(form, subscribed: list | None = None) -> list[str]:
+    """Channel subscriptions from the form, keeping the ones it cannot show.
+
+    Only active channels get a checkbox, so a channel that is disabled while it is
+    being reconfigured is absent from the submission. Dropping it would silently
+    unsubscribe the stakeholder, and re-enabling the channel would not bring the
+    subscription back. Channels that were deleted outright do fall away here.
+    """
+    channels = _notification_channels()
+    active = {c["id"] for c in channels if c.get("id") and c.get("enabled")}
+    hidden = [c["id"] for c in channels if c.get("id") and not c.get("enabled")]
+    selected = [cid for cid in form.getlist("notification_channels") if cid in active]
+    return selected + [cid for cid in hidden if cid in (subscribed or [])]
 
 
 def _parse_scale(form, name, default=5):
@@ -271,7 +281,8 @@ def edit(id):
             "notes": request.form.get("notes"),
             "products": products,
             "product_modes": product_modes,
-            "notification_channels": _parse_notification_channels(request.form),
+            "notification_channels": _parse_notification_channels(
+                request.form, getattr(stakeholder, "notification_channels", None)),
             "influence": _parse_scale(request.form, "influence"),
             "interest": _parse_scale(request.form, "interest"),
             "engagement_strategy": request.form.get("engagement_strategy"),

@@ -1051,7 +1051,7 @@ def pir_notify(id):
             logger.exception("PIR notify failed: pir=%s", pir.pir_id)
             flash(f"Could not start the notification: {exc}", "warning")
         return redirect(url_for("requirements.pir_detail", id=id))
-    diagnostics = dispatcher.describe_pir_delivery(recipients)
+    diagnostics = dispatcher.describe_delivery(recipients)
     return jsonify({
         "markdown": md,
         "preview_url": preview_url,

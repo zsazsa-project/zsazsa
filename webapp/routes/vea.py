@@ -235,6 +235,21 @@ def detail(id):
     )
 
 
+@bp.route("/<string:id>/recipients")
+def recipients_fragment(id):
+    """Recipients preview for an advisory, loaded by the review page button."""
+    vea = misp_store.get_vea(id)
+    if vea is None:
+        return "VEA not found", 404
+    return render_template(
+        "_recipients_preview.html",
+        product_label="Vulnerability advisory",
+        recipients=misp_store.recipient_preview("Vulnerability advisory", vea.tlp, vea.audience),
+        tlp_label=vea.tlp,
+        audience_label=vea.audience,
+    )
+
+
 @bp.route("/<string:id>/edit", methods=["GET", "POST"])
 def wizard_edit(id):
     vea = misp_store.get_vea(id)

@@ -11,31 +11,36 @@ logger = logging.getLogger(__name__)
 
 
 def _channels_by_type(stakeholders: list) -> dict[str, set[str]]:
-    """Return channel-id sets grouped by channel type from stakeholder preferences."""
+    """Return channel-id sets grouped by channel type from stakeholder preferences.
+
+    Only channels that are still configured and enabled count. A stakeholder keeps
+    a subscription to a channel that was since disabled or deleted, and handing
+    that id to a sender would have it reach nothing and report the publish as
+    failed, when in fact there is nothing to deliver to and nothing wrong.
+    """
     from core import flowintel_client
 
+    channels = normalize_notification_channels(
+        getattr(config, "NOTIFICATION_CHANNELS", []),
+        legacy_url=getattr(config, "MATTERMOST_WEBHOOK_URL", ""),
+        legacy_enabled=getattr(config, "MATTERMOST_ENABLED", False),
+    ) + flowintel_client.notification_channels()
     configured = {
         (c.get("id") or "").strip(): (c.get("type") or "mattermost").strip().lower()
-        for c in normalize_notification_channels(
-            getattr(config, "NOTIFICATION_CHANNELS", []),
-            legacy_url=getattr(config, "MATTERMOST_WEBHOOK_URL", ""),
-            legacy_enabled=getattr(config, "MATTERMOST_ENABLED", False),
-        )
-        if isinstance(c, dict)
+        for c in channels
+        if c.get("enabled") and (c.get("id") or "").strip()
     }
-    for c in flowintel_client.notification_channels():
-        cid = (c.get("id") or "").strip()
-        if cid:
-            configured[cid] = (c.get("type") or "flowintel").strip().lower()
+
     grouped: dict[str, set[str]] = defaultdict(set)
     for s in stakeholders or []:
         for channel_id in (getattr(s, "notification_channels", None) or []):
-            if not isinstance(channel_id, str):
-                continue
-            cid = channel_id.strip()
-            if cid:
-                ctype = configured.get(cid, "mattermost")
+            cid = channel_id.strip() if isinstance(channel_id, str) else ""
+            ctype = configured.get(cid)
+            if ctype:
                 grouped[ctype].add(cid)
+            elif cid:
+                logger.debug("Stakeholder %s subscribes to unknown or disabled channel %s",
+                             getattr(s, "name", "?"), cid)
     return grouped
 
 
@@ -47,10 +52,6 @@ def describe_delivery(stakeholders: list) -> dict:
         "channel_types": sorted(channels.keys()),
         "channels_by_type": {k: len(v) for k, v in channels.items()},
     }
-
-
-def describe_pir_delivery(stakeholders: list) -> dict:
-    return describe_delivery(stakeholders)
 
 
 def _dispatch(stakeholders: list, senders: dict, entity_label: str, entity_id: str) -> dict:

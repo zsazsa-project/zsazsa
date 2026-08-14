@@ -289,7 +289,7 @@
       </div>
       <div class="modal-body">
         <p class="text-muted small mb-3">
-          Showing stakeholders currently subscribed to <strong>Daily threat briefing</strong>.
+          Showing delivery eligibility based on subscription and TLP clearance.
         </p>
         {% if recipients %}
         <h6 class="mb-2"><i class="fas fa-circle-check text-success me-1"></i>Will receive <span class="badge bg-success rounded-pill">{{ recipients | length }}</span></h6>
@@ -297,13 +297,13 @@
           {% for r in recipients %}
           <span class="badge rounded-pill delivery-ok px-3 py-2"
                 style="font-size:.82rem;cursor:default;"
-                title="Subscribed to Daily threat briefing">
+                title="Subscribed and cleared for TLP:{{ briefing.tlp | upper }}">
             {{ r.name }}{% if r.role %} <span style="opacity:.65;font-size:.75em;">({{ r.role }})</span>{% endif %}
           </span>
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-muted mb-0">No stakeholders are currently subscribed to Daily threat briefing.</p>
+        <p class="text-muted mb-0">No stakeholders are subscribed to Daily threat briefing and cleared for TLP:{{ briefing.tlp | upper }}.</p>
         {% endif %}
       </div>
       <div class="modal-footer">

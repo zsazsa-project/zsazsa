@@ -186,6 +186,35 @@ class ProductSenders(unittest.TestCase):
         self.assertEqual(subject, "[CTI] TLP:RED - FIA-001: Flash Intel Alert")
         markdown_html.assert_called_once()
 
+    def test_a_classified_product_shows_the_tlp_its_subject_claims(self):
+        """The badge comes from the product object, not from parsing the markdown.
+        A renderer that states the classification as prose (threat actor profiles)
+        or a model that leaves the line out (analyser drafts) would otherwise mail
+        a product whose subject and face disagree."""
+        bare = "# Product\n\n*classification stated as prose*\n\n## Summary\n\nBody."
+        for send_product in (
+            lambda: email.send_rfi_notification(
+                SimpleNamespace(rfi_id="RFI-1", question="q", deliverable_tlp="red"), bare),
+            lambda: email.send_vea_notification(
+                SimpleNamespace(vea_id="VEA-1", cve_id="CVE-1", title="t", tlp="red"), bare),
+            lambda: email.send_threat_actor_profile_notification(
+                SimpleNamespace(tap_id="TAP-1", title="t", tlp="red"), bare),
+            lambda: email.send_flash_intel_alert(
+                SimpleNamespace(fia_id="FIA-1", tlp="red"), bare),
+            lambda: email.send_indicator_feed_notification(
+                SimpleNamespace(feed_id="IF-1", name="n", tlp="red"), bare),
+        ):
+            with mock.patch.object(email, "send_email", return_value=True) as send:
+                send_product()
+            self.assertIn("TLP:RED", send.call_args.args[1])
+            self.assertIn("TLP:RED", send.call_args.kwargs["html_body"])
+
+    def test_a_requirement_carries_no_classification_at_all(self):
+        with mock.patch.object(email, "send_email", return_value=True) as send:
+            email.send_pir_notification(SimpleNamespace(pir_id="PIR-1", question="q"), "# PIR")
+        self.assertNotIn("TLP:", send.call_args.args[1])
+        self.assertNotIn("TLP:", send.call_args.kwargs["html_body"])
+
 
 if __name__ == "__main__":
     unittest.main()

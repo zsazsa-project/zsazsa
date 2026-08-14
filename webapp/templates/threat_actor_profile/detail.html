@@ -402,8 +402,8 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        {% with tlp_label = tap.tlp, audience_label = tap.audience %}
-        {% include "threat_actor_profile/_recipients.html" %}
+        {% with tlp_label = tap.tlp, audience_label = tap.audience, product_label = "Threat actor profile" %}
+        {% include "_recipients_preview.html" %}
         {% endwith %}
       </div>
       <div class="modal-footer">

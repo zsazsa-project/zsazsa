@@ -1,8 +1,9 @@
 {# Recipients preview body. Expects `recipients` (from recipient_preview),
-   plus `tlp_label` and `audience_label` for the heading. Rendered both inside
-   the detail modal and on demand by the form's live preview endpoint. #}
+   `product_label`, and `tlp_label` and `audience_label` for the heading.
+   Rendered inside a detail modal, on demand by a form's live preview endpoint,
+   and by the recipients button on the review pages. #}
 <p class="text-muted small mb-3">
-  Delivery eligibility based on subscription to <strong>Threat actor profile</strong>, TLP clearance and audience role.
+  Delivery eligibility based on subscription to <strong>{{ product_label }}</strong>, TLP clearance and audience role.
   TLP: <strong>{{ tlp_label | upper }}</strong> &middot; Audience: <strong>{{ audience_label or '(none)' }}</strong>
 </p>
 {% set green_recipients = recipients | selectattr("status", "eq", "green") | list %}
