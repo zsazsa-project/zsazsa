@@ -354,9 +354,12 @@
           <div class="alert alert-info d-flex align-items-start gap-2 mt-3 mb-0" role="alert">
             <i class="fas fa-circle-info mt-1"></i>
             <div>
-              MISP names its session cookie <code>MISP-&lt;instance&nbsp;uuid&gt;</code>, which is unique to each
-              MISP install. You do not need to set this by hand: when you enable single sign-on and save,
-              zsazsa detects it from the connected MISP server and stores it in <code>MISP_SESSION_COOKIE_NAME</code>.
+              MISP usually names its session cookie <code>MISP-&lt;instance&nbsp;uuid&gt;</code>, which is unique to
+              each MISP install. You do not normally need to set this by hand: when you enable single sign-on
+              and save, zsazsa detects it from the connected MISP server and stores it in
+              <code>MISP_SESSION_COOKIE_NAME</code>. The name comes from MISP's own configuration though, and
+              installs that leave it at the CakePHP default send <code>CAKEPHP</code> instead. Use the check
+              below to see what your browser actually sends, and set the name by hand if it differs.
               <div class="mt-2">
                 Session cookie in use:
                 {% if cfg.MISP_SESSION_COOKIE_NAME %}
@@ -365,15 +368,23 @@
                   <span class="text-muted">not detected yet — enable single sign-on and save to detect it from MISP.</span>
                 {% endif %}
               </div>
+              <div class="mt-3 d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="test-sso-btn">
+                  <i class="fas fa-stethoscope me-1"></i>Test single sign-on
+                </button>
+                <span class="small text-muted">Checks this request against MISP's session.</span>
+              </div>
+              <div id="test-sso-result" class="mt-2 small"></div>
             </div>
           </div>
 
           <hr>
 
           <div class="form-text mb-3">
-            MISP stores its PHP sessions in Redis. zsazsa connects to that same Redis instance to
-            read the logged-in user from MISP's session cookie. Leave username and password empty
-            if Redis requires no authentication.
+            zsazsa reads the logged-in user from MISP's PHP session, which it expects to find in
+            Redis. That only works when PHP is configured to put it there, with
+            <code>session.save_handler = redis</code> and a <code>session.save_path</code> pointing at
+            the instance below. Leave username and password empty if Redis requires no authentication.
           </div>
           <div class="row g-3 mb-3">
             <div class="col-md-6">
@@ -2711,7 +2722,12 @@
   });
 })();
 
-document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+// Deferred: base.html loads Bootstrap at the foot of the body, so it does not
+// exist yet while this block is being parsed. Calling it here threw, and the
+// throw took out everything below it in this script.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+});
 
 // ── Unsaved-change tracking ────────────────────────────────────────────────
 // Each tab's save button starts disabled and only enables once something on
@@ -2759,6 +2775,42 @@ window.cfgDirty = (function() {
     clean: (name) => setDirty(name, false),
     dirty: (name) => setDirty(name, true),
   };
+})();
+
+// ── Single sign-on check ──────────────────────────────────────────────────────
+// Runs against the cookies of this very request, which is the only place that
+// can see what the browser actually sends to zsazsa.
+(function () {
+  const btn = document.getElementById('test-sso-btn');
+  const out = document.getElementById('test-sso-result');
+  if (!btn || !out) return;
+
+  const row = (c) => `<div class="d-flex gap-2 align-items-start">
+      <i class="fas ${c.ok ? 'fa-circle-check text-success' : 'fa-circle-xmark text-danger'} mt-1"></i>
+      <div><strong>${escapeHtml(c.label)}:</strong> ${escapeHtml(c.detail)}</div>
+    </div>`;
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  btn.addEventListener('click', async () => {
+    out.innerHTML = '<span class="text-muted">Checking…</span>';
+    try {
+      const resp = await fetch(SCRIPT_ROOT + '/config/test-sso');
+      const data = await resp.json();
+      if (!data.ok) {
+        out.innerHTML = `<span class="text-danger">${escapeHtml(data.error || 'Check failed')}</span>`;
+        return;
+      }
+      out.innerHTML = data.checks.map(row).join('')
+        + (data.hint ? `<div class="alert alert-warning py-2 px-3 mt-2 mb-0">${escapeHtml(data.hint)}</div>` : '');
+    } catch (e) {
+      out.innerHTML = '<span class="text-danger">Could not run the check.</span>';
+    }
+  });
 })();
 
 </script>

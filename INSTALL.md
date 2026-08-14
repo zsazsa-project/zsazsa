@@ -20,7 +20,7 @@ zsazsa uses Redis.
 
 | Use | Settings | Needed for |
 |---|---|---|
-| MISP's own session store | `MISP_SESSION_REDIS_*` | Single sign-on: reading the logged-in MISP user from MISP's session cookie |
+| MISP's own session store | `MISP_SESSION_REDIS_*` | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
 | Background jobs | `JOB_REDIS_*` | Running-job states |
 | misp-scraper queue | `SCRAPER_REDIS_*` | Sending newsletter article URLs to the scraper |
 
@@ -215,7 +215,14 @@ The System tab holds six cards.
 
 #### Single sign-on against MISP
 
-zsazsa has no user accounts of its own. It identifies the analyst from MISP's own session. This only works when zsazsa is served under the same host as MISP. The cookie is named `MISP-<instance uuid>` and is therefore unique per install. You do not need to look it up: enable single sign-on and save, and zsazsa queries the MISP server for its instance UUID and stores the resulting name in `MISP_SESSION_COOKIE_NAME`. Set that value by hand only to override the detected one. The name is derived from, and the login redirect points at, the MISP server configured as `MISP_WEBAPP_URL`, which is the instance zsazsa is served behind and whose session cookie the browser sends. The misp-scraper instance in `MISP_URL` is not involved.
+zsazsa has no user accounts of its own. It identifies the analyst from MISP's own session. This only works when zsazsa is served under the same host as MISP. The cookie is named `MISP-<instance uuid>` and is therefore unique per install. You do not need to look it up: enable single sign-on and save, and zsazsa queries the MISP server for its instance UUID and stores the resulting name in `MISP_SESSION_COOKIE_NAME`. The name is derived from, and the login redirect points at, the MISP server configured as `MISP_WEBAPP_URL`, which is the instance zsazsa is served behind and whose session cookie the browser sends. The misp-scraper instance in `MISP_URL` is not involved.
+
+Two things have to be true on the MISP side, and neither is something zsazsa can arrange for you:
+
+- **PHP must keep MISP's sessions in Redis**, since that is where zsazsa reads them. Set `session.save_handler = redis` and `session.save_path = "tcp://localhost:6379"` in your PHP configuration, and point `MISP_SESSION_REDIS_*` at the same instance. With sessions in files instead, zsazsa finds nothing and treats every visitor as unauthenticated.
+- **The cookie name has to match.** `MISP-<instance uuid>` is what current MISP uses, but the name comes from MISP's own configuration, and installs that leave it at the CakePHP default send `CAKEPHP`. Set `MISP_SESSION_COOKIE_NAME` by hand when it differs.
+
+Both failures look the same from the outside: nobody is ever identified, and with the redirect on it resembles a login loop. The **Test single sign-on** button in the Single sign-on section reports which cookie name zsazsa expects, which cookies your browser actually sent, whether Redis is reachable and whether a session was found there, which distinguishes the two.
 
 With `MISP_SESSION_REDIRECT_TO_LOGIN` on, a visitor without a valid MISP session is redirected to MISP's login page. With it off, such requests fall back to the `admin@admin.test`. Users seen through a session are recorded and listed on the community page. The public indicator feed URL and the Diamond Model image endpoint stay reachable without a session, since they are capability URLs meant to be handed out.
 

@@ -1137,6 +1137,17 @@ def server_usage():
         return jsonify({"ok": False, "error": "Could not compute server usage."}), 500
 
 
+@bp.route("/config/test-sso")
+@rate_limited("config_test_sso", limit=20, window_s=60)
+def test_sso():
+    """Report why single sign-on did or did not identify this request (AJAX)."""
+    try:
+        return jsonify({"ok": True, **misp_session.diagnose(request.cookies)})
+    except Exception:
+        logger.exception("test_sso failed")
+        return jsonify({"ok": False, "error": "Could not run the single sign-on check."}), 500
+
+
 @bp.route("/config/save-notification-channel", methods=["POST"])
 @rate_limited("config_save_notification_channel", limit=30, window_s=60)
 def save_notification_channel():
