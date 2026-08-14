@@ -355,6 +355,25 @@ The source name is what events are attributed to: `scraper:data-collection-sourc
 
 Each source runs in one of two modes. In **automatic** mode a matched newsletter is archived and its links are pushed to the scraper straight away. In **manual review** mode it is archived and put in a pending queue, so a human picks the articles first, from the Data collection page under "Email sources". If an automatic push finds no scraper listening, the edition moves to the pending queue rather than being lost, so you can retry it.
 
+#### Example: adding IT-ISAC Open Source News to an existing mailbox
+
+A mailbox can hold several newsletters, so a second one is added as another collection source rather than as another mailbox. On the Collection sources page (`/config/sources/`), under **IMAP mailboxes**, click the header of the mailbox that receives the newsletter to open it. Inside, the **Data collection sources** panel lists the sources already configured for that mailbox, with an **Add source** button. Add one and fill it in:
+
+| Field | Value |
+|---|---|
+| Name | `IT-ISAC` |
+| Parser | `IT-ISAC Open Source News` |
+| Mode | `Automatic`, or `Manual review` to pick the articles yourself |
+| Match subjects | `[IT-ISAC]` |
+| Match senders | leave empty |
+| Reliability | your own assessment of the source, for example `B` |
+
+Leave **Enabled** on and press **Save** on the source itself, not only on the mailbox. The next poll then picks up the edition, archives it and handles its articles according to the mode.
+
+Match on the subject rather than the sender for this one. IT-ISAC distributes through the FIRST `first-news` mailing list, so the message arrives with `first-news@lists.first.org` in its `From` header and the `it-isac.org` address only in `Reply-To`, which the sender match does not read. A sender term of `it-isac.org` therefore matches nothing. `lists.first.org` would match, but it also catches every other message from that list and hands it to a parser that will find no articles in it. `[IT-ISAC]` appears in the subject of every edition and nowhere else.
+
+Unlike the ETDA digest, IT-ISAC does not grade its articles, so none are pre-selected in manual review and you tick the ones worth collecting.
+
 Polling is done by `run_imap_collector.py`, from cron.
 
 ```
