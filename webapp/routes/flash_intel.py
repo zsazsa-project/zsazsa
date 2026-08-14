@@ -298,16 +298,13 @@ def wizard_edit(id):
             misp_store.update_fia(id, data)
             audit.record("update", "fia", entity_id=id, entity_label=fia.fia_id)
             if action == "publish":
-                ok, detail = _publish_and_notify(id)
-                audit.record(
-                    "notify",
-                    "fia",
-                    entity_id=id,
-                    entity_label=fia.fia_id,
-                    details=f"publish notification; result={'ok' if ok else 'failed'}; {detail}",
-                )
+                # publish_fia also publishes the MISP event, which updating the
+                # review state alone does not. Delivery runs as a background job,
+                # which writes its own notify audit entry when it finishes.
+                misp_store.publish_fia(id)
+                _start_flash_intel_delivery(fia.fia_id, id, "publish")
                 flash(f"{fia.fia_id} published.", "success")
-                flash(f"Notifications: {detail}.", "success" if ok else "warning")
+                flash("Notifications are being sent in the background; the job badge reports the result.", "info")
             else:
                 flash(f"{fia.fia_id} saved.", "success")
             return redirect(url_for("flash_intel.detail", id=id))
