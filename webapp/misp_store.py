@@ -2952,6 +2952,8 @@ FIA_REVIEW_STATES = [
 
 FIA_AUDIENCES = list(STAKEHOLDER_ROLES)
 FIA_TLP_LEVELS = ["clear", "green", "amber", "amber+strict", "red"]
+# Least to most restrictive, so a clearance covers every level at or below its own.
+_TLP_RANK = {level: i for i, level in enumerate(FIA_TLP_LEVELS)}
 FIA_RELIABILITIES = ["A", "B", "C", "D", "E", "F"]
 FIA_CREDIBILITIES = ["1", "2", "3", "4", "5", "6"]
 
@@ -4638,6 +4640,39 @@ def stakeholders_subscribed_to(product_type: str) -> list:
     return [s for s in list_stakeholders() if product_type in (s.products or [])]
 
 
+def _tlp_cleared(clearance: str, tlp: str) -> bool:
+    """Whether a stakeholder's clearance covers a product's classification.
+
+    Both sides fall back to amber when unset or unrecognised, the default the
+    stakeholder and product forms already use.
+    """
+    amber = _TLP_RANK["amber"]
+    return _TLP_RANK.get((clearance or "amber").lower(), amber) >= _TLP_RANK.get((tlp or "amber").lower(), amber)
+
+
+def stakeholders_cleared_for(product_type: str, tlp: str) -> list:
+    """Subscribers to `product_type` whose clearance covers its classification.
+
+    For a product that names no audience, the daily briefing being the only one:
+    recipient_preview() blocks every stakeholder once the audience is empty, so it
+    cannot pick the recipients, but the classification still has to be honoured.
+    """
+    return [s for s in stakeholders_subscribed_to(product_type)
+            if _tlp_cleared(s.tlp_clearance, tlp)]
+
+
+def stakeholders_on_automated_mode(product_type: str, tlp: str) -> list:
+    """Stakeholders who take `product_type` unattended and are cleared for its TLP.
+
+    The audience test recipient_preview() applies is left out here on purpose: a
+    product the analyser publishes has no analyst to pick an audience, and putting
+    a product on automated mode is the stakeholder's own statement that they want
+    every one of them. TLP clearance still decides.
+    """
+    return [s for s in stakeholders_cleared_for(product_type, tlp)
+            if (s.product_modes or {}).get(product_type) == "automated"]
+
+
 def recipient_preview(product_type: str, tlp: str, audience_str: str) -> list:
     """Return eligibility data for all stakeholders for a given product.
 
@@ -4645,8 +4680,6 @@ def recipient_preview(product_type: str, tlp: str, audience_str: str) -> list:
     Green = all conditions met. Yellow = subscribed but TLP or audience blocks delivery.
     Grey = not subscribed to this product type.
     """
-    tlp_rank = {t: i for i, t in enumerate(FIA_TLP_LEVELS)}
-    product_rank = tlp_rank.get((tlp or "amber").lower(), 2)
     audiences = {
         _canonical_role(a)
         for a in (audience_str or "").split(",")
@@ -4655,8 +4688,7 @@ def recipient_preview(product_type: str, tlp: str, audience_str: str) -> list:
     result = []
     for s in list_stakeholders():
         subscribed = product_type in (s.products or [])
-        s_rank = tlp_rank.get((s.tlp_clearance or "amber").lower(), 2)
-        tlp_ok = s_rank >= product_rank
+        tlp_ok = _tlp_cleared(s.tlp_clearance, tlp)
         audience_ok = bool(audiences) and (_canonical_role(s.role or "") in audiences)
         if subscribed and tlp_ok and audience_ok:
             status = "green"

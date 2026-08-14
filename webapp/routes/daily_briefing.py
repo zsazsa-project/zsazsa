@@ -266,9 +266,9 @@ def _start_briefing_delivery(uuid, date_label, preview_url, reason):
         briefing = misp_store.get_briefing(uuid)
         if briefing is None:
             return False, "the briefing could not be loaded"
-        stakeholders = misp_store.stakeholders_subscribed_to("Daily threat briefing")
+        stakeholders = misp_store.stakeholders_cleared_for("Daily threat briefing", briefing.tlp)
         markdown = misp_store.render_briefing_markdown(briefing, preview_url=preview_url)
-        log(f"{reason}: {len(stakeholders)} subscribed stakeholder(s).")
+        log(f"{reason}: {len(stakeholders)} eligible recipient(s).")
         summary = dispatcher.send_daily_briefing(briefing, markdown, stakeholders,
                                                  preview_url=preview_url)
         ok, detail = dispatcher.delivery_outcome(summary)
@@ -415,7 +415,7 @@ def detail(id):
     if briefing is None:
         return "Briefing not found", 404
     feedback = misp_store.list_product_feedback(briefing.uuid)
-    recipients = misp_store.stakeholders_subscribed_to("Daily threat briefing")
+    recipients = misp_store.stakeholders_cleared_for("Daily threat briefing", briefing.tlp)
     notify_status = audit.latest_notify_status("daily-briefing", id)
 
     # Enrich story source-event references with cache metadata (date, org, title)

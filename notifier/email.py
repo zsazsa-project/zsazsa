@@ -203,14 +203,15 @@ def send_flash_intel_alert(fia, content: str, channel_ids: list[str] | None = No
                            attachments: list[tuple] | None = None) -> bool:
     """Send a flash intel alert e-mail using the FIA object as source of truth.
 
-    Subject classification should come from the product metadata, not by parsing
-    rendered markdown. Files attached to the alert ride along with the e-mail;
-    the content already names them for the channels that cannot carry files.
+    Subject and badge both come from the product metadata rather than from parsing
+    the markdown, which the analyser has a model write and which may leave the
+    classification line out. Files attached to the alert ride along with the
+    e-mail; the content already names them for the channels that cannot carry files.
     """
     fia_id = getattr(fia, "fia_id", "") or "FIA"
     tlp = getattr(fia, "tlp", "") or ""
     subject = _subject(tlp, f"{fia_id}: Flash Intel Alert")
-    html = product_email.markdown_html(content, "Flash Intel Alert")
+    html = product_email.markdown_html(content, "Flash Intel Alert", tlp)
     return send_email(_recipients(channel_ids), subject, content, fia_id,
                       attachments, html_body=html)
 

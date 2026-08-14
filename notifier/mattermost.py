@@ -22,25 +22,20 @@ def _notification_channels() -> list[dict]:
 def _active_webhooks(channel_ids: list | None = None) -> list[dict]:
     """Return webhook URLs for enabled Mattermost channels.
 
-    If channel_ids is provided, only return URLs for those IDs.
-    Falls back to the legacy MATTERMOST_WEBHOOK_URL if NOTIFICATION_CHANNELS is absent.
+    If channel_ids is provided, only return URLs for those IDs. A legacy
+    single-webhook config arrives here as a synthesised channel, so it needs no
+    separate handling.
     """
-    channels = _notification_channels()
-    if channels:
-        targets = []
-        for ch in channels:
-            if ch.get("type") != "mattermost" or not ch.get("enabled"):
-                continue
-            if channel_ids is not None and ch.get("id") not in channel_ids:
-                continue
-            url = (ch.get("url") or "").strip()
-            if url:
-                targets.append({"url": url, "verify_tls": bool(ch.get("verify_tls", True))})
-        return targets
-    # Legacy fallback
-    if getattr(config, "MATTERMOST_ENABLED", False) and getattr(config, "MATTERMOST_WEBHOOK_URL", ""):
-        return [{"url": config.MATTERMOST_WEBHOOK_URL, "verify_tls": True}]
-    return []
+    targets = []
+    for ch in _notification_channels():
+        if ch.get("type") != "mattermost" or not ch.get("enabled"):
+            continue
+        if channel_ids is not None and ch.get("id") not in channel_ids:
+            continue
+        url = (ch.get("url") or "").strip()
+        if url:
+            targets.append({"url": url, "verify_tls": bool(ch.get("verify_tls", True))})
+    return targets
 
 
 def _webhook_host(url: str) -> str:
@@ -125,41 +120,6 @@ def _chunk_and_send(urls, body: str, label: str, max_chars: int = 3500) -> bool:
     return all_sent
 
 
-def send_product_published(product_type: str, product_id: str, description: str,
-                           stakeholders: list) -> bool:
-    """Notify that a product has been published. Sends to each subscribed stakeholder's channels."""
-    # Collect the union of channel IDs from stakeholders that have preferences set.
-    channel_ids = None
-    if stakeholders:
-        ids: set[str] = set()
-        for s in stakeholders:
-            for cid in (getattr(s, "notification_channels", None) or []):
-                ids.add(cid)
-        if ids:
-            channel_ids = list(ids)
-
-    urls = _active_webhooks(channel_ids)
-    if not urls:
-        logger.debug("No active notification channels for product %s", product_id)
-        return False
-
-    if stakeholders:
-        names = ", ".join(getattr(s, "name", str(s)) for s in stakeholders)
-        delivery_line = f"\n**Subscribed stakeholders:** {names}"
-    else:
-        delivery_line = "\n_No stakeholders currently subscribed to this product type._"
-
-    payload = {
-        "text": (
-            f"### :page_facing_up: {product_id} published\n"
-            f"**Type:** {product_type}\n"
-            f"**{description}**"
-            f"{delivery_line}"
-        )
-    }
-    return bool(_post(urls, payload, f"product {product_id}"))
-
-
 def send_pir_notification(
     pir,
     markdown: str,
@@ -227,23 +187,9 @@ def send_gir_notification(
     return send_text(text, f"GIR {gir.gir_id}", channel_ids=channel_ids)
 
 
-def send_daily_briefing_notification(briefing, markdown: str, stakeholders: list | None = None,
+def send_daily_briefing_notification(briefing, markdown: str,
                                      channel_ids: list[str] | None = None) -> bool:
-    """Send the full Daily Briefing content to the given Mattermost channels.
-
-    `channel_ids` selects the channels directly (used by the dispatcher, which
-    owns channel-type routing). When omitted, the Mattermost channels are
-    derived from the stakeholders' channel preferences for backwards compatibility.
-    """
-    if channel_ids is None and stakeholders:
-        ids: set[str] = set()
-        for s in stakeholders:
-            for cid in (getattr(s, "notification_channels", None) or []):
-                if cid:
-                    ids.add(cid)
-        if ids:
-            channel_ids = sorted(ids)
-
+    """Send the full Daily Briefing content to the given Mattermost channels."""
     headline = f"### :newspaper: Daily briefing {getattr(briefing, 'date', '')}"
     title = getattr(briefing, "title", "") or ""
     body = f"{headline}\n"
@@ -265,22 +211,8 @@ def send_indicator_feed_notification(feed, markdown: str, channel_ids: list[str]
     return _chunk_and_send(targets, body, label)
 
 
-def send_vea_notification(vea, markdown: str, stakeholders: list | None = None,
-                          channel_ids: list[str] | None = None) -> bool:
-    """Send a detailed VEA notification to subscribed stakeholders.
-
-    `channel_ids` selects the Mattermost channels directly (used by the
-    dispatcher). When omitted, they are derived from the stakeholders.
-    """
-    if channel_ids is None and stakeholders:
-        ids: set[str] = set()
-        for s in stakeholders:
-            for cid in (getattr(s, "notification_channels", None) or []):
-                if cid:
-                    ids.add(cid)
-        if ids:
-            channel_ids = sorted(ids)
-
+def send_vea_notification(vea, markdown: str, channel_ids: list[str] | None = None) -> bool:
+    """Send a detailed VEA notification to the given Mattermost channels."""
     headline = f"### :shield: {getattr(vea, 'vea_id', '')}: Vulnerability advisory"
     subtitle = f"**{getattr(vea, 'cve_id', '')}: {getattr(vea, 'title', '')}**".strip()
     body = f"{headline}\n"
@@ -292,23 +224,14 @@ def send_vea_notification(vea, markdown: str, stakeholders: list | None = None,
     return _chunk_and_send(targets, body, f"VEA {getattr(vea, 'vea_id', '')}")
 
 
-def send_threat_actor_profile_notification(tap, markdown: str, stakeholders: list | None = None,
+def send_threat_actor_profile_notification(tap, markdown: str,
                                            channel_ids: list[str] | None = None,
                                            diamond_url: str | None = None) -> bool:
-    """Send a threat actor profile notification to subscribed stakeholders.
+    """Send a threat actor profile notification to the given Mattermost channels.
 
     When `diamond_url` is given, the Diamond Model image is posted as a webhook
     message attachment (Mattermost fetches it by URL, so the URL must be reachable
     from the Mattermost server)."""
-    if channel_ids is None and stakeholders:
-        ids: set[str] = set()
-        for s in stakeholders:
-            for cid in (getattr(s, "notification_channels", None) or []):
-                if cid:
-                    ids.add(cid)
-        if ids:
-            channel_ids = sorted(ids)
-
     headline = f"### :detective: {getattr(tap, 'tap_id', '')}: Threat actor profile"
     subtitle = f"**{getattr(tap, 'title', '')}**".strip()
     body = f"{headline}\n"
@@ -348,22 +271,8 @@ def send_rfi_notification(
 
 
 def send_flash_intel_alert(product_event, fia_id: str, fia_content: str,
-                           stakeholders: list | None = None,
                            channel_ids: list[str] | None = None) -> bool:
-    """Send the full Flash Intel Alert report to subscribed stakeholders' Mattermost channels.
-
-    `channel_ids` selects the Mattermost channels directly (used by the
-    dispatcher). When omitted, they are derived from the stakeholders.
-    """
-    if channel_ids is None and stakeholders:
-        ids: set[str] = set()
-        for s in stakeholders:
-            for cid in (getattr(s, "notification_channels", None) or []):
-                if cid:
-                    ids.add(cid)
-        if ids:
-            channel_ids = sorted(ids)
-
+    """Send the full Flash Intel Alert report to the given Mattermost channels."""
     urls = _active_webhooks(channel_ids)
     if not urls:
         return False

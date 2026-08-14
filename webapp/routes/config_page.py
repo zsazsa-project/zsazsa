@@ -945,10 +945,18 @@ def _str_list(value) -> list[str]:
     return [str(i).strip() for i in items if str(i).strip()]
 
 
-def _slug_id(name: str, fallback: str) -> str:
-    """Kebab-case identifier from a display name, with repeated dashes collapsed."""
+def _slug_id(name: str, fallback: str, taken: set | None = None) -> str:
+    """Kebab-case identifier from a display name, with repeated dashes collapsed.
+
+    Pass `taken` to number off a name that is already spoken for, so two entries
+    named alike do not end up sharing an id.
+    """
     raw = "".join(c.lower() if c.isalnum() else "-" for c in name)
-    return "-".join(p for p in raw.split("-") if p) or fallback
+    slug = "-".join(p for p in raw.split("-") if p) or fallback
+    candidate, n = slug, 2
+    while taken and candidate in taken:
+        candidate, n = f"{slug}-{n}", n + 1
+    return candidate
 
 
 def _build_imap_source(raw: dict, position: int, taken_ids: set) -> dict:
@@ -963,10 +971,7 @@ def _build_imap_source(raw: dict, position: int, taken_ids: set) -> dict:
     mode = (raw.get("mode") or "auto").strip().lower()
     if mode not in ("auto", "manual"):
         mode = "auto"
-    sid = _slug_id(name, f"source-{position}")
-    base, n = sid, 2
-    while sid in taken_ids:
-        sid, n = f"{base}-{n}", n + 1
+    sid = _slug_id(name, f"source-{position}", taken_ids)
     taken_ids.add(sid)
     return {
         "id": sid,
@@ -1144,9 +1149,6 @@ def save_notification_channel():
     url = (data.get("url") or "").strip()
     if not name:
         return jsonify({"ok": False, "error": "Name required"}), 400
-    cid = (data.get("id") or "").strip()
-    if not cid:
-        cid = "".join(c.lower() if c.isalnum() else "-" for c in name).strip("-") or "channel"
     try:
         enabled = _parse_bool(data.get("enabled", True), default=True)
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
@@ -1156,6 +1158,19 @@ def save_notification_channel():
     recipient = (data.get("recipient") or "").strip()
     if channel_type == "email" and not recipient:
         return jsonify({"ok": False, "error": "Recipient email address required"}), 400
+
+    current = _read()
+    channels = list(current.get("NOTIFICATION_CHANNELS") or [])
+    index = next((i for i, ch in enumerate(channels) if ch.get("id") == original_id), None) if original_id else None
+    if index is None:
+        # Stakeholders subscribe by id, so two channels named alike must not share
+        # one: a collision would deliver to both.
+        cid = (data.get("id") or "").strip() or _slug_id(name, "channel", {ch.get("id") for ch in channels})
+    else:
+        # A rename keeps the id it was subscribed under; re-deriving it would leave
+        # every subscription pointing at a channel that no longer exists.
+        cid = original_id
+
     entry = {
         "id": cid,
         "name": name,
@@ -1166,19 +1181,12 @@ def save_notification_channel():
     }
     if channel_type == "email":
         entry["recipient"] = recipient
-    current = _read()
-    channels = list(current.get("NOTIFICATION_CHANNELS") or [])
-    action = "create"
-    if original_id:
-        for i, ch in enumerate(channels):
-            if ch.get("id") == original_id:
-                channels[i] = entry
-                action = "update"
-                break
-        if action == "create":
-            channels.append(entry)
-    else:
+    if index is None:
+        action = "create"
         channels.append(entry)
+    else:
+        action = "update"
+        channels[index] = entry
     current["NOTIFICATION_CHANNELS"] = channels
     try:
         _write(current)

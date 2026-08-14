@@ -21,6 +21,7 @@ class Dispatch(unittest.TestCase):
         config.NOTIFICATION_CHANNELS = [
             {"id": "mm1", "name": "MM", "type": "mattermost", "url": "x", "enabled": True},
             {"id": "em1", "name": "Mail", "type": "email", "recipient": "soc@x.test", "enabled": True},
+            {"id": "em2", "name": "Paused", "type": "email", "recipient": "old@x.test", "enabled": False},
         ]
         config.FLOWINTEL_INSTANCES = [
             {"id": "fi1", "name": "FI", "enabled": True},
@@ -99,6 +100,35 @@ class Dispatch(unittest.TestCase):
         summary = dispatcher._dispatch([stakeholder], {"mattermost": lambda ids: True}, "rfi", "RFI-001")
         self.assertEqual(summary["attempted_types"], [])
         self.assertEqual(summary["sent_types"], [])
+
+    def test_a_deleted_channel_is_not_a_delivery_failure(self):
+        """A subscription outliving its channel used to be read as a Mattermost
+        one, handed to the sender, and reported as a channel that could not be
+        reached, failing an otherwise complete delivery."""
+        stakeholder = SimpleNamespace(name="Acme", notification_channels=["gone", "em1"])
+        summary = dispatcher._dispatch(
+            [stakeholder],
+            {"mattermost": lambda ids: False, "email": lambda ids: True},
+            "rfi", "RFI-001",
+        )
+        self.assertEqual(summary["sent_types"], ["email"])
+        self.assertEqual(summary["failed_types"], [])
+        self.assertTrue(dispatcher.delivery_outcome(summary)[0])
+
+    def test_a_disabled_channel_is_left_alone(self):
+        stakeholder = SimpleNamespace(name="Acme", notification_channels=["em2"])
+        summary = dispatcher._dispatch([stakeholder], {"email": lambda ids: True}, "rfi", "RFI-001")
+        self.assertEqual(summary["attempted_types"], [])
+
+    def test_only_the_live_ids_reach_the_sender(self):
+        received = {}
+        stakeholder = SimpleNamespace(name="Acme", notification_channels=["em1", "em2", "gone"])
+        dispatcher._dispatch(
+            [stakeholder],
+            {"email": lambda ids: received.setdefault("ids", ids) or True},
+            "rfi", "RFI-001",
+        )
+        self.assertEqual(received["ids"], ["em1"])
 
 
 class DeliveryOutcome(unittest.TestCase):

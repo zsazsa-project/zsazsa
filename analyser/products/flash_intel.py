@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime
 from types import SimpleNamespace
@@ -11,7 +10,9 @@ from analyser import llm, tagger
 logger = logging.getLogger(__name__)
 
 _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
-_FLASH_INTEL_PRODUCT_NAME = "Flash intel"
+# Must be the product type as PRODUCT_TYPES spells it: stakeholder subscriptions
+# and delivery modes are keyed by that string, so a near miss matches nobody.
+_FLASH_INTEL_PRODUCT_NAME = "Flash intel alert"
 # Classification stamped on every auto-generated alert, and the one its
 # notifications are sent under.
 _AUTO_TLP = "amber"
@@ -98,7 +99,7 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
     product_event.threat_level_id = 2
     product_event.analysis = 2
     product_event.extends_uuid = event.uuid
-    product_event.add_tag("tlp:amber")
+    product_event.add_tag(f"tlp:{_AUTO_TLP}")
     product_event.add_tag("curation:source:OSINT")
 
     product_event = misp_webapp.add_event(product_event, pythonify=True)
@@ -140,11 +141,11 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
     routed = tagger.set_workflow_state(misp, event, "ongoing")
     detail = fia_id if routed else f"{fia_id} (source event still marked incomplete)"
 
-    auto = _has_automated_subscriber(misp_webapp, _FLASH_INTEL_PRODUCT_NAME)
+    recipients = _automated_subscribers()
+    auto = bool(recipients)
     if auto:
         try:
-            _auto_publish(misp_webapp, product_event, fia_id, fia_content)
-            logger.info("%s auto-published (subscriber on automated mode)", fia_id)
+            _auto_publish(misp_webapp, product_event, fia_id, fia_content, recipients)
         except Exception as exc:
             logger.warning("Auto-publish failed for %s: %s", fia_id, exc)
             auto = False
@@ -165,39 +166,20 @@ def process(misp, misp_webapp, event, focus_points: dict) -> dict:
     }
 
 
-def _has_automated_subscriber(misp_webapp, product_name: str) -> bool:
-    """True if at least one stakeholder is subscribed to ``product_name``
-    with delivery mode ``automated``."""
+def _automated_subscribers() -> list:
+    """The stakeholders an alert may be published to without an analyst."""
+    from webapp import misp_store
+
     try:
-        events = misp_webapp.search(tags=[config.TAG_STAKEHOLDER], pythonify=True)
+        return misp_store.stakeholders_on_automated_mode(_FLASH_INTEL_PRODUCT_NAME, _AUTO_TLP)
     except Exception as exc:
         logger.warning("Could not query stakeholders: %s", exc)
-        return False
-    if not events or isinstance(events, dict):
-        return False
-    for ev in events:
-        for obj in getattr(ev, "objects", []) or []:
-            if obj.name != "zsazsa-stakeholder":
-                continue
-            modes_attr = next(
-                (a for a in obj.attributes if a.object_relation == "product-modes"),
-                None,
-            )
-            if not modes_attr or not modes_attr.value:
-                continue
-            try:
-                modes = json.loads(modes_attr.value)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if isinstance(modes, dict) and modes.get(product_name) == "automated":
-                return True
-    return False
+        return []
 
 
-def _auto_publish(misp_webapp, product_event, fia_id, content):
-    """Mark the FIA approved, publish, and send Mattermost and email alerts."""
-    from notifier.mattermost import send_flash_intel_alert
-    from notifier import email
+def _auto_publish(misp_webapp, product_event, fia_id, content, recipients):
+    """Mark the FIA approved, publish, and deliver it to the automated subscribers."""
+    from notifier import dispatcher
 
     # Re-fetch so newly attached objects are present with server IDs.
     fresh = misp_webapp.get_event(product_event.uuid, pythonify=True)
@@ -222,10 +204,14 @@ def _auto_publish(misp_webapp, product_event, fia_id, content):
 
     tagger.set_workflow_state(misp_webapp, product_event, "complete")
     misp_webapp.publish(product_event.uuid)
-    send_flash_intel_alert(product_event, fia_id, content)
-    # The e-mail sender takes the alert itself so the subject carries the id and
-    # classification; the analyser has no FIA namespace, so name them directly.
-    email.send_flash_intel_alert(SimpleNamespace(fia_id=fia_id, tlp=_AUTO_TLP), content)
+
+    # The analyser has no FIA namespace of its own, so the fields the senders read
+    # are named directly; `id` carries the MISP link Mattermost puts under the
+    # message. A channel that could not be reached is already logged by the
+    # dispatcher, so the summary here only has to say who the alert was for.
+    fia = SimpleNamespace(fia_id=fia_id, tlp=_AUTO_TLP, id=product_event.id)
+    _ok, detail = dispatcher.delivery_outcome(dispatcher.send_flash_intel(fia, content, recipients))
+    logger.info("%s auto-published to %d subscriber(s): %s", fia_id, len(recipients), detail)
 
 
 def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, content, matched):
