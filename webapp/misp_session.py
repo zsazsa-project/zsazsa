@@ -145,20 +145,23 @@ _cookie_name_cache = {"value": "", "retry_after": 0.0}
 def derive_cookie_name():
     """Return MISP's session cookie name derived from the server's instance UUID.
 
-    MISP names its session cookie ``MISP-<instance uuid>``, unique per install.
+    MISP names its session cookie ``MISP-<instance uuid>``, unique per install,
+    so the name has to come from the MISP zsazsa is served behind: the one it
+    stores its data in, not the misp-scraper instance it only polls. Those are
+    often the same server, which is why reading the scraper went unnoticed.
     Returns ``MISP-<uuid>`` on success, or "" if the MISP server could not be
     reached or did not report a UUID.
     """
     try:
         from pymisp import PyMISP
-        misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT,
-                      timeout=_DERIVE_TIMEOUT_S)
+        misp = PyMISP(config.MISP_WEBAPP_URL, config.MISP_WEBAPP_KEY,
+                      config.MISP_WEBAPP_VERIFYCERT, timeout=_DERIVE_TIMEOUT_S)
         uuid = (misp.misp_instance_version or {}).get("uuid", "")
         if uuid:
             return f"MISP-{uuid}"
     except Exception as e:
         logger.warning("could not derive MISP session cookie name from %s: %s",
-                       getattr(config, "MISP_URL", ""), e)
+                       getattr(config, "MISP_WEBAPP_URL", ""), e)
     return ""
 
 
@@ -205,10 +208,12 @@ def login_redirect_url():
     """MISP login URL to redirect to, or None if the request can proceed.
 
     Only returns a URL when MISP_SESSION_REDIRECT_TO_LOGIN is enabled and no
-    valid MISP session was found for this request.
+    valid MISP session was found for this request. The login page has to be the
+    one on the MISP zsazsa is served behind, whose session cookie the browser
+    sends, so it points at MISP_WEBAPP_URL rather than the scraper instance.
     """
     if not getattr(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False):
         return None
     if getattr(g, "misp_user", None):
         return None
-    return f"{config.MISP_URL}/users/login"
+    return f"{config.MISP_WEBAPP_URL}/users/login"

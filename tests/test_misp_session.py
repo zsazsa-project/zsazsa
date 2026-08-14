@@ -10,6 +10,8 @@ again only now and then, not once per request.
 import unittest
 from unittest import mock
 
+from flask import Flask, g
+
 from webapp import misp_session
 
 
@@ -51,6 +53,45 @@ class CookieName(unittest.TestCase):
             misp_session._cookie_name_cache["retry_after"] = 0.0
             misp_session._session_cookie_name()
             self.assertEqual(derive.call_count, 2)
+
+
+class HostingInstance(unittest.TestCase):
+    """Single sign-on belongs to the MISP zsazsa is served behind, which is the
+    one it stores its data in. The misp-scraper instance is only polled, and is
+    often a different server, so reading it sent analysts to a login page that
+    was not theirs and looked for a session cookie that was never sent."""
+
+    def setUp(self):
+        self.split = [
+            mock.patch.object(misp_session.config, "MISP_URL", "https://scraper.test"),
+            mock.patch.object(misp_session.config, "MISP_KEY", "scraper-key"),
+            mock.patch.object(misp_session.config, "MISP_WEBAPP_URL", "https://misp.test"),
+            mock.patch.object(misp_session.config, "MISP_WEBAPP_KEY", "webapp-key"),
+        ]
+        for patcher in self.split:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_login_redirect_points_at_the_hosting_misp(self):
+        app = Flask(__name__)
+        with app.test_request_context("/"), \
+             mock.patch.object(misp_session.config, "MISP_SESSION_REDIRECT_TO_LOGIN", True):
+            self.assertEqual(misp_session.login_redirect_url(),
+                             "https://misp.test/users/login")
+
+    def test_no_redirect_when_the_request_already_has_a_user(self):
+        app = Flask(__name__)
+        with app.test_request_context("/"), \
+             mock.patch.object(misp_session.config, "MISP_SESSION_REDIRECT_TO_LOGIN", True):
+            g.misp_user = {"email": "analyst@misp.test"}
+            self.assertIsNone(misp_session.login_redirect_url())
+
+    def test_cookie_name_is_derived_from_the_hosting_misp(self):
+        with mock.patch("pymisp.PyMISP") as PyMISP:
+            PyMISP.return_value.misp_instance_version = {"uuid": "abc"}
+            self.assertEqual(misp_session.derive_cookie_name(), "MISP-abc")
+        url, key = PyMISP.call_args.args[0], PyMISP.call_args.args[1]
+        self.assertEqual((url, key), ("https://misp.test", "webapp-key"))
 
 
 if __name__ == "__main__":
