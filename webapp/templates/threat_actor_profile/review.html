@@ -131,6 +131,11 @@
                 {% if t.audience %}<span class="text-muted small">{{ t.audience }}</span>{% endif %}
                 {% if t.author %}<span class="text-muted small">by {{ t.author }}</span>{% endif %}
                 {% if t.assessment_confidence %}<span class="text-muted small">· {{ t.assessment_confidence | capitalize }} confidence</span>{% endif %}
+                <button type="button" class="btn btn-xs btn-outline-secondary ms-auto"
+                        data-recipients-url="{{ url_for('threat_actor_profile.recipients_fragment', id=t.uuid) }}"
+                        title="Preview recipients">
+                  <i class="fas fa-users me-1"></i>Recipients
+                </button>
               </div>
               {% if t.summary %}
               <div class="mb-3">
@@ -210,6 +215,7 @@
     </div>
   </div>
 </div>
+{% include "_recipients_modal.html" %}
 {% endblock %}
 
 {% block scripts %}

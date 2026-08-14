@@ -229,19 +229,11 @@
             <input class="form-check-input mt-0" type="checkbox" name="products" value="{{ p }}" id="prod_{{ loop.index }}"
               {{ 'checked' if is_edit and p in stakeholder.products }}>
             <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}">{{ p }}</label>
+            {# The mode picker is hidden for now, but the stored mode still has to
+               survive a save, so it travels with the form. #}
             <input type="hidden" name="mode__{{ p }}" value="{{ current_mode }}">
-            <select class="form-select form-select-sm" style="width:auto;" disabled title="Coming soon: subscription mode is not implemented yet">
-              {% for m in subscription_modes %}
-              <option value="{{ m }}" {{ 'selected' if m == current_mode }}>{{ m }}</option>
-              {% endfor %}
-            </select>
           </div>
           {% endfor %}
-        </div>
-        <div class="form-text">
-          <strong>automated</strong>: products are sent automatically as soon as the analyser drafts them.
-          <strong>after-approval</strong>: products are only sent after manual review and approval.
-          Mode selection is currently disabled until backend support is implemented.
         </div>
       </div>
     </div>

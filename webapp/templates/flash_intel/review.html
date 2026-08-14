@@ -144,6 +144,11 @@
                 <span class="tlp-badge tlp-{{ f.tlp | slug }}">TLP:{{ f.tlp | upper }}</span>
                 {% if f.audience %}<span class="text-muted small">{{ f.audience }}</span>{% endif %}
                 {% if f.author %}<span class="text-muted small">by {{ f.author }}</span>{% endif %}
+                <button type="button" class="btn btn-xs btn-outline-secondary ms-auto"
+                        data-recipients-url="{{ url_for('flash_intel.recipients_fragment', id=f.uuid) }}"
+                        title="Preview recipients">
+                  <i class="fas fa-users me-1"></i>Recipients
+                </button>
               </div>
 
               <div class="row g-3">
@@ -307,6 +312,7 @@
   </div>
 </div>
 {% include "_published_delete_note.html" %}
+{% include "_recipients_modal.html" %}
 
 {# ── Inline feedback modal ── #}
 <div class="modal fade" id="feedback-modal" tabindex="-1" aria-labelledby="feedback-modal-label" aria-hidden="true">

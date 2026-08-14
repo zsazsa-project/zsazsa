@@ -120,9 +120,22 @@ def recipients_preview():
     the form, before the profile is saved."""
     tlp = request.form.get("tlp", "amber")
     audience = ", ".join(request.form.getlist("audience"))
-    recipients = misp_store.recipient_preview(PRODUCT_NAME, tlp, audience)
-    return render_template("threat_actor_profile/_recipients.html",
-                           recipients=recipients, tlp_label=tlp, audience_label=audience)
+    return _recipients_fragment(tlp, audience)
+
+
+@bp.route("/<string:id>/recipients")
+def recipients_fragment(id):
+    """Recipients preview for a saved profile, loaded by the review page button."""
+    tap = misp_store.get_threat_actor_profile(id)
+    if tap is None:
+        return "Threat actor profile not found", 404
+    return _recipients_fragment(tap.tlp, tap.audience)
+
+
+def _recipients_fragment(tlp: str, audience: str):
+    return render_template("_recipients_preview.html", product_label=PRODUCT_NAME,
+                           recipients=misp_store.recipient_preview(PRODUCT_NAME, tlp, audience),
+                           tlp_label=tlp, audience_label=audience)
 
 
 def _validate(data):

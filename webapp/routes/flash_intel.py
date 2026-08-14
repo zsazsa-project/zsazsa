@@ -261,6 +261,21 @@ def detail(id):
     )
 
 
+@bp.route("/<string:id>/recipients")
+def recipients_fragment(id):
+    """Recipients preview for an alert, loaded by the review page button."""
+    fia = misp_store.get_fia(id)
+    if fia is None:
+        return "FIA not found", 404
+    return render_template(
+        "_recipients_preview.html",
+        product_label="Flash intel alert",
+        recipients=misp_store.recipient_preview("Flash intel alert", fia.tlp, fia.audience),
+        tlp_label=fia.tlp,
+        audience_label=fia.audience,
+    )
+
+
 @bp.route("/<string:id>/edit", methods=["GET", "POST"])
 def wizard_edit(id):
     fia = misp_store.get_fia(id)

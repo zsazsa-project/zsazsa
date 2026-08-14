@@ -1,0 +1,44 @@
+{# Recipients modal shared by the product review pages.
+
+   Include once per page. Any button carrying `data-recipients-url` opens it and
+   loads that URL into the body, so a listing does not have to render one modal
+   per row, nor work out eligibility for products nobody asked about. #}
+<div class="modal fade" id="recipients-modal" tabindex="-1" aria-labelledby="recipients-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="recipients-modal-label">
+          <i class="fas fa-users me-2"></i>Who gets this product?
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="recipients-modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Deferred: this include sits in the content block, which the page parses well
+// before base.html loads Bootstrap at the foot of the body.
+document.addEventListener('DOMContentLoaded', function () {
+  var modalEl = document.getElementById('recipients-modal');
+  var body = document.getElementById('recipients-modal-body');
+  if (!modalEl || !body) return;
+
+  document.querySelectorAll('[data-recipients-url]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      body.innerHTML = '<p class="text-muted mb-0">Loading…</p>';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      fetch(btn.dataset.recipientsUrl)
+        .then(function (r) { return r.text(); })
+        .then(function (html) { body.innerHTML = html; })
+        .catch(function () {
+          body.innerHTML = '<p class="text-danger mb-0">Could not load recipients.</p>';
+        });
+    });
+  });
+});
+</script>
