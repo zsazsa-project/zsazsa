@@ -351,6 +351,9 @@ def refresh_source(src: dict) -> dict:
 
     Returns {"events": n, "new": n, "error": str} for the caller to report on.
     """
+    # Imported here rather than at module scope: misp_store imports this module.
+    from webapp import misp_store
+
     source_id = src["id"]
     logger.info("collection cache: refresh start - %s", source_id)
     t0 = time.time()
@@ -365,7 +368,8 @@ def refresh_source(src: dict) -> dict:
         except (TypeError, ValueError):
             since_days = 30
         try:
-            misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT, False)
+            misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT, False,
+                          timeout=misp_store.HTTP_TIMEOUT)
             kwargs = dict(
                 tags=[config.SCRAPER_MARKER_TAG],
                 limit=scraper_limit, page=1, metadata=False, pythonify=True,
@@ -389,7 +393,8 @@ def refresh_source(src: dict) -> dict:
             error = "No URL or API key configured"
         else:
             try:
-                misp = PyMISP(src["url"], src["api_key"], src.get("verify_tls", True), False)
+                misp = PyMISP(src["url"], src["api_key"], src.get("verify_tls", True), False,
+                              timeout=misp_store.HTTP_TIMEOUT)
                 events = misp.search(
                     tags=['zsazsa:source-type="manual"'],
                     limit=src.get("limit") or 500, page=1, metadata=False, pythonify=True,
@@ -413,7 +418,8 @@ def refresh_source(src: dict) -> dict:
             error = "No URL or API key configured"
         else:
             try:
-                misp = PyMISP(src["url"], src["api_key"], src.get("verify_tls", True), False)
+                misp = PyMISP(src["url"], src["api_key"], src.get("verify_tls", True), False,
+                              timeout=misp_store.HTTP_TIMEOUT)
                 kwargs = dict(limit=src.get("limit") or 500, page=1, metadata=False, pythonify=True, published=True)
                 tags_or = src.get("tags") or []
                 tags_and = src.get("tags_and") or []

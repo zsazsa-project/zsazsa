@@ -163,8 +163,111 @@ def parse_etda(text: str) -> dict:
     return {"report_title": report_title, "tlp": tlp, "articles": articles}
 
 
+# IT-ISAC lays each article out as labelled fields, separated by a rule. The
+# labels wrap onto following lines, and an excerpt can run to several
+# paragraphs, so a field keeps collecting until the next label or rule.
+_ITISAC_RULE_RE = re.compile(r'^-{10,}$')
+_ITISAC_FIELD_RE = re.compile(r'^(Title|Date Published|Excerpt)\s*:\s*(.*)$', re.IGNORECASE)
+# The mail signature, '-- ' on its own line, which is not one of the rules above.
+_ITISAC_SIGNATURE_RE = re.compile(r'^--\s*$')
+
+
+def _itisac_article(block: list[str]) -> dict | None:
+    """One article from the lines between two rules, or None if there is no title."""
+    fields = {"title": [], "excerpt": []}
+    urls = []
+    current = None
+
+    for line in block:
+        line = line.strip()
+        label = _ITISAC_FIELD_RE.match(line)
+        # The excerpt is the last field of a block, so once it starts everything
+        # up to the next label is part of it: the blank lines between its
+        # paragraphs, and any link in the quoted prose, which is not the
+        # article's own URL and would take the rest of the sentence with it.
+        if current == "excerpt" and not label:
+            if line:
+                fields["excerpt"].append(line)
+            continue
+        if not line:
+            current = None
+            continue
+        if label:
+            # "Date Published" is recognised but not kept: matching it is what
+            # stops the title above from swallowing it.
+            name = label.group(1).lower()
+            current = name if name in fields else None
+            if current:
+                fields[current].append(label.group(2).strip())
+            continue
+        if _URL_RE.search(line):
+            urls.extend(_clean_url(u) for u in _URL_RE.findall(line))
+            current = None
+            continue
+        if current:
+            fields[current].append(line)
+
+    title = " ".join(fields["title"]).strip()
+    if not title:
+        return None
+    return {
+        "section": "",
+        "title": title,
+        "intro": _strip_quotes(" ".join(fields["excerpt"])),
+        "priority_rank": 0,
+        "priority_label": "",
+        "priority_key": "",
+        "relevance": "",
+        "primary_url": urls[0] if urls else "",
+        "related_urls": urls[1:],
+    }
+
+
+def parse_itisac(text: str) -> dict:
+    """Parse an IT-ISAC Open Source News mail into report metadata and articles.
+
+    IT-ISAC grades nothing, so the priority and section fields the ETDA parser
+    fills stay empty rather than being invented here.
+    """
+    text = _dequote(text.replace("\r\n", "\n").replace("\r", "\n"))
+    lines = text.split("\n")
+
+    report_title = ""
+    for line in lines[:20]:
+        if _FWD_HEADER_RE.match(line.strip()):
+            continue
+        if "[IT-ISAC]" in line:
+            report_title = line.strip()
+            break
+
+    tlp_match = _TLP_RE.search(text)
+
+    articles = []
+    block = []
+    for line in lines:
+        if _ITISAC_SIGNATURE_RE.match(line.rstrip()):
+            break
+        if _ITISAC_RULE_RE.match(line.strip()):
+            article = _itisac_article(block)
+            if article:
+                articles.append(article)
+            block = []
+            continue
+        block.append(line)
+    article = _itisac_article(block)
+    if article:
+        articles.append(article)
+
+    return {
+        "report_title": report_title,
+        "tlp": tlp_match.group(1).lower() if tlp_match else "",
+        "articles": articles,
+    }
+
+
 PARSERS = {
     "ETDA CTI Robot": parse_etda,
+    "IT-ISAC Open Source News": parse_itisac,
 }
 
 

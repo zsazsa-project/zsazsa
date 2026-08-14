@@ -678,6 +678,13 @@ def index():
             "LOCAL_LLM_MODEL": getattr(_config, "LOCAL_LLM_MODEL", ""),
             "LLM_DEFAULT_PROVIDER": getattr(_config, "LLM_DEFAULT_PROVIDER", "openai"),
             "NOTIFICATION_CHANNELS": _read_notification_channels(),
+            # The scraper queue is configured under Collection sources. Carried
+            # through here because the file is rewritten whole: left out, each
+            # save of this page would reset them to the defaults below.
+            "SCRAPER_REDIS_HOST": getattr(_config, "SCRAPER_REDIS_HOST", "127.0.0.1"),
+            "SCRAPER_REDIS_PORT": getattr(_config, "SCRAPER_REDIS_PORT", 6379),
+            "SCRAPER_REDIS_PASSWORD": getattr(_config, "SCRAPER_REDIS_PASSWORD", ""),
+            "SCRAPER_REDIS_CHANNEL": getattr(_config, "SCRAPER_REDIS_CHANNEL", "urls"),
             "SMTP_HOST": _form_str("SMTP_HOST"),
             "SMTP_PORT": _form_int("SMTP_PORT", 587),
             "SMTP_USE_TLS": _form_bool("SMTP_USE_TLS"),

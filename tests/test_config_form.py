@@ -74,6 +74,30 @@ class ConfigSave(unittest.TestCase):
         for kept in ("MISP_WEBAPP_KEY", "SMTP_PASSWORD", "SMTP_USE_TLS", "SCRAPER_MARKER_TAG"):
             self.assertEqual(after[kept], before[kept], kept)
 
+    def test_the_scraper_queue_settings_survive_a_save(self):
+        """They are edited under Collection sources, so this form has no inputs
+        for them, and the file is rewritten whole on every save. Left out of the
+        payload they fell back to the built-in defaults, quietly pointing the
+        newsletter imports at a Redis nobody listens on.
+
+        The values below are all deliberately unlike the defaults, so the check
+        cannot pass just because the developer's own config matches them."""
+        configured = {
+            "SCRAPER_REDIS_HOST": "10.0.0.9",
+            "SCRAPER_REDIS_PORT": 6380,
+            "SCRAPER_REDIS_PASSWORD": "s3cret",
+            "SCRAPER_REDIS_CHANNEL": "scraper-urls",
+        }
+        with mock.patch.multiple(_config, **configured):
+            form = self.full_form()
+            for key in configured:
+                form.pop(key, None)
+            self.client.post("/config", data=form)
+
+        after = self.saved()
+        for key, value in configured.items():
+            self.assertEqual(after[key], value, key)
+
     def test_the_lists_survive_a_post_that_omits_them(self):
         before = self.saved()
         form = self.full_form()   # the list fields are textareas, never in full_form

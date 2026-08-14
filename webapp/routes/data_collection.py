@@ -23,7 +23,7 @@ from pymisp import PyMISP, MISPEventReport
 import config
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (audit, collection_cache, job_store, matching as _matching, misp_session,
-                    misp_store, newsletter_ingest, newsletter_parsers)
+                    misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object
 
@@ -929,9 +929,14 @@ def _newsletter_push(source: str):
             "warning",
         )
     elif no_subscriber == published:
+        # Naming where we published is the difference between "the service is
+        # down" and "the service is up, on another Redis", which look identical
+        # from a PUBLISH that reached nobody.
         flash(
-            f"Sent {published} article(s) to the scraper channel, but no subscriber is listening. "
-            "Start the misp-scraper 'subscribe' service or the messages are dropped." + archived,
+            f"Sent {published} article(s) to {scraper_queue.target()}, but no subscriber is "
+            "listening, so the messages were dropped. Either the misp-scraper 'subscribe' "
+            "service is not running, or it is subscribed to a different Redis or channel "
+            "than the one above." + archived,
             "warning",
         )
     else:

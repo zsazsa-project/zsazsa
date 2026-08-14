@@ -8,6 +8,7 @@ run with no network and no real Redis.
 
 import json
 import unittest
+from unittest import mock
 
 import config
 from webapp import redis_client, scraper_queue
@@ -103,3 +104,15 @@ class Publish(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Target(unittest.TestCase):
+    """The delivery warning names where it published, because a PUBLISH that
+    reached nobody looks the same whether the scraper is down or subscribed to
+    a different Redis."""
+
+    def test_it_names_the_channel_and_the_instance(self):
+        with mock.patch.object(scraper_queue.config, "SCRAPER_REDIS_HOST", "10.0.0.9"), \
+             mock.patch.object(scraper_queue.config, "SCRAPER_REDIS_PORT", 6380), \
+             mock.patch.object(scraper_queue.config, "SCRAPER_REDIS_CHANNEL", "urls"):
+            self.assertEqual(scraper_queue.target(), "channel 'urls' on 10.0.0.9:6380")

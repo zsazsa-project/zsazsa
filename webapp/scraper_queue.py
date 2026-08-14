@@ -16,6 +16,21 @@ from webapp.redis_client import RedisError, read_reply, send_command
 logger = logging.getLogger(__name__)
 
 
+def _endpoint():
+    """The host, port and channel messages are published to."""
+    return (
+        getattr(config, "SCRAPER_REDIS_HOST", "127.0.0.1"),
+        int(getattr(config, "SCRAPER_REDIS_PORT", 6379) or 6379),
+        getattr(config, "SCRAPER_REDIS_CHANNEL", "urls") or "urls",
+    )
+
+
+def target() -> str:
+    """The endpoint in words, for a flash message that reports a delivery problem."""
+    host, port, channel = _endpoint()
+    return f"channel '{channel}' on {host}:{port}"
+
+
 def publish(message: dict) -> int:
     """Publish one message to the scraper channel.
 
@@ -23,10 +38,8 @@ def publish(message: dict) -> int:
     'subscribe' service is not listening, so the message was dropped). Raises
     OSError on a connection problem or RedisError on a protocol/AUTH error.
     """
-    host = getattr(config, "SCRAPER_REDIS_HOST", "127.0.0.1")
-    port = int(getattr(config, "SCRAPER_REDIS_PORT", 6379) or 6379)
+    host, port, channel = _endpoint()
     password = getattr(config, "SCRAPER_REDIS_PASSWORD", "")
-    channel = getattr(config, "SCRAPER_REDIS_CHANNEL", "urls") or "urls"
 
     sock = socket.create_connection((host, port), timeout=5)
     try:

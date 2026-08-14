@@ -331,7 +331,9 @@ Focus points are stored as text attributes with the comment `zsazsa:fp` and the 
 
 ## Importing newsletters
 
-Many teams receive curated security newsletters by e-mail, for example the **ETDA Cyber Threat Intelligence (CTI Robot)** digest, where one edition can list dozens of articles. Rather than copy them in one by one, the newsletter importer turns a pasted e-mail into a reviewable list. Open it from the Data collection page with "Import from newsletter", choose the format, paste the e-mail and select "Parse and review". The importer extracts each article, its criticality and its links, and pre-selects the **critical** and **urgent** items so you only confirm what is worth collecting.
+Many teams receive curated security newsletters by e-mail, where one edition can list dozens of articles. Rather than copy them in one by one, the newsletter importer turns a pasted e-mail into a reviewable list. Open it from the Data collection page with "Import from newsletter", choose the format, paste the e-mail and select "Parse and review". The importer extracts each article, its links and whatever grading the newsletter carries.
+
+Two formats are supported: the **ETDA Cyber Threat Intelligence (CTI Robot)** digest and **IT-ISAC Open Source News**. ETDA grades every item, so its **critical** and **urgent** articles are pre-selected and you only confirm what is worth collecting. IT-ISAC does not grade its items, so nothing is pre-selected there and you pick the articles yourself.
 
 Sending does two things. Each selected link is send to the misp-scraper, which fetches the article and creates a MISP event. The newsletter itself is archived as its own MISP event, with the raw e-mail kept as a report and the links attached.
 
