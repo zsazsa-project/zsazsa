@@ -165,7 +165,7 @@ def parse_etda(text: str) -> dict:
 
 # IT-ISAC lays each article out as labelled fields, separated by a rule. The
 # labels wrap onto following lines, and an excerpt can run to several
-# paragraphs, so a field keeps collecting until the next label or rule.
+# paragraphs, so a field keeps collecting until the next label, rule or title.
 _ITISAC_RULE_RE = re.compile(r'^-{10,}$')
 _ITISAC_FIELD_RE = re.compile(r'^(Title|Date Published|Excerpt)\s*:\s*(.*)$', re.IGNORECASE)
 # The mail signature, '-- ' on its own line, which is not one of the rules above.
@@ -173,7 +173,7 @@ _ITISAC_SIGNATURE_RE = re.compile(r'^--\s*$')
 
 
 def _itisac_article(block: list[str]) -> dict | None:
-    """One article from the lines between two rules, or None if there is no title."""
+    """One article from one block of lines, or None if the block has no title."""
     fields = {"title": [], "excerpt": []}
     urls = []
     current = None
@@ -242,21 +242,24 @@ def parse_itisac(text: str) -> dict:
 
     tlp_match = _TLP_RE.search(text)
 
-    articles = []
-    block = []
+    # A title opens an article and a rule closes one, so the mail's own header
+    # and anything between two articles land in a block of their own and are
+    # dropped for having no title. Splitting on the rule alone let a link above
+    # the first title, a "view this online" banner, pass as that article's URL,
+    # and folded two articles into one wherever an edition lost its rule.
+    blocks = [[]]
     for line in lines:
         if _ITISAC_SIGNATURE_RE.match(line.rstrip()):
             break
-        if _ITISAC_RULE_RE.match(line.strip()):
-            article = _itisac_article(block)
-            if article:
-                articles.append(article)
-            block = []
-            continue
-        block.append(line)
-    article = _itisac_article(block)
-    if article:
-        articles.append(article)
+        label = _ITISAC_FIELD_RE.match(line.strip())
+        if label and label.group(1).lower() == "title":
+            blocks.append([line])
+        elif _ITISAC_RULE_RE.match(line.strip()):
+            blocks.append([])
+        else:
+            blocks[-1].append(line)
+
+    articles = [a for a in (_itisac_article(b) for b in blocks) if a]
 
     return {
         "report_title": report_title,

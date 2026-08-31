@@ -22,8 +22,9 @@ from pymisp import PyMISP, MISPEventReport
 
 import config
 from core.db import log_pipeline_run_start, log_pipeline_run_end
-from webapp import (audit, collection_cache, job_store, matching as _matching, misp_session,
-                    misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
+from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
+                    misp_session, misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
+from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object
 
@@ -236,17 +237,13 @@ def _build_list_context() -> dict:
         key=lambda x: x["name"].lower(),
     )
 
-    # Daily briefing title exclusion matching
-    excl_raw = getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", []) or []
-    if isinstance(excl_raw, str):
-        excl_raw = excl_raw.splitlines()
-    excl_patterns = [str(p).strip().lower() for p in excl_raw if str(p).strip()]
+    # Which events the daily briefing analyser would drop on its title filter.
+    excl_patterns = analyser_pipeline.daily_briefing_title_exclusions()
     briefing_excluded_uuids: set[str] = set()
     briefing_pending_reject_uuids: set[str] = set()
     if excl_patterns:
         for ev in events:
-            title = (ev.get("info") or "").lower()
-            if any(p in title for p in excl_patterns):
+            if analyser_pipeline.title_excluded(ev.get("info") or "", excl_patterns):
                 briefing_excluded_uuids.add(ev["uuid"])
                 if not _is_set_aside(ev.get("tags", [])):
                     briefing_pending_reject_uuids.add(ev["uuid"])
@@ -476,34 +473,24 @@ def detail(uuid):
     )
 
 
-def _parse_scope_from_summary(text):
-    """Extract sectors, geo names, and MITRE T-numbers from the LLM summary output."""
-    sectors, geo, techniques = [], [], []
-    for line in text.split('\n'):
-        s = line.strip()
-        sl = s.lower()
-        if sl.startswith('- targeted sector'):
-            val = s.split(':', 1)[1].strip() if ':' in s else ''
-            if val and val.lower() != 'none identified':
-                sectors = [v.strip() for v in val.split(',') if v.strip()]
-        elif sl.startswith('- geographic scope'):
-            val = s.split(':', 1)[1].strip() if ':' in s else ''
-            if val and val.lower() != 'none identified':
-                geo = [v.strip() for v in val.split(',') if v.strip()]
-        elif sl.startswith('- mitre att'):
-            val = s.split(':', 1)[1].strip() if ':' in s else ''
-            if val and val.lower() != 'none identified':
-                techniques = _TECH_RE.findall(val)
-    return sectors, geo, techniques
+def _tag_event_scope(misp, event, context: dict) -> list:
+    """Tag an event with the galaxy clusters its AI summary's MISP context names.
 
+    `context` is what analyser_pipeline reads out of the summary. The analyser
+    applies the same tags when it writes a summary itself, so an event's scope
+    does not depend on who asked for the summary. Returns the tags applied.
+    """
+    scope = {
+        'geographic_scope': context["geographies"],
+        'sectors': context["sectors"],
+        'threat_actors': context["threat_actors"],
+    }
+    techniques = context["attack_techniques"]
+    if not (any(scope.values()) or techniques):
+        return []
 
-def _apply_scope_tags(misp, event, sectors, geo, techniques):
-    """Resolve extracted scope values to MISP galaxy tags and tag the event."""
     existing = {t.name for t in getattr(event, 'tags', []) or []}
-    tags_to_apply = misp_store._build_scope_tags({
-        'geographic_scope': geo,
-        'sectors': sectors,
-    })
+    tags_to_apply = misp_store._build_scope_tags(scope)
     # Resolve MITRE T-numbers to galaxy tag names
     if techniques:
         mitre_map = misp_store._galaxy_tag_map(misp_store.GALAXY_MITRE_ATTACK)
@@ -581,7 +568,7 @@ def _generate_ai_summary(misp, event, source_id, user=""):
 
     try:
         er = MISPEventReport()
-        er.name = f"[AI-Summary] {(event.info or uuid)[:80]}"
+        er.name = f"{AI_SUMMARY_PREFIX} {(event.info or uuid)[:80]}"
         er.content = summary
         er.distribution = 5
         misp.add_event_report(event.id, er)
@@ -597,15 +584,13 @@ def _generate_ai_summary(misp, event, source_id, user=""):
     except Exception as exc:
         logger.warning("Could not update workflow state for %s: %s", uuid, exc)
 
-    sectors, geo, techniques = _parse_scope_from_summary(summary)
     applied_tags = []
-    if sectors or geo or techniques:
-        try:
-            applied_tags = _apply_scope_tags(misp, event, sectors, geo, techniques)
-            if applied_tags:
-                logger.info("Applied scope tags to %s: %s", uuid, applied_tags)
-        except Exception as exc:
-            logger.warning("Could not apply scope tags to %s: %s", uuid, exc)
+    try:
+        applied_tags = _tag_event_scope(misp, event, analyser_pipeline.parse_misp_context(summary))
+    except Exception as exc:
+        logger.warning("Could not apply scope tags to %s: %s", uuid, exc)
+    if applied_tags:
+        logger.info("Applied scope tags to %s: %s", uuid, applied_tags)
 
     # Refresh cache row so new tags/galaxies are immediately visible without a manual refresh
     _refresh_cached_event(
@@ -753,7 +738,7 @@ def manual_new():
                 audit.record("create", "manual-collection-event", entity_id=uuid, entity_label=data["title"])
                 flash(f"Event '{data['title']}' created. You can add attachments below.", "success")
                 return redirect(url_for("data_collection.manual_detail", uuid=uuid))
-            except Exception as exc:
+            except Exception:
                 logger.exception("manual_new failed")
                 audit.record("create", "manual-collection-event", entity_label=data["title"], details="failed")
                 flash("Could not create event.", "warning")
@@ -892,6 +877,12 @@ def _selected_articles(source: str) -> list[dict]:
 
 def _newsletter_push(source: str):
     """Publish the selected articles to the misp-scraper Redis channel."""
+    # The review page carries the newsletter it was parsed with in a hidden
+    # field, so check it again here rather than archive whatever was posted.
+    if source not in newsletter_parsers.available_sources():
+        flash("Please choose a newsletter to parse.", "warning")
+        return redirect(url_for("data_collection.newsletter_new"))
+
     articles = _selected_articles(source)
     if not articles:
         flash("No articles were selected.", "warning")
@@ -969,7 +960,7 @@ def manual_attach(uuid):
         misp_store.add_manual_collection_attachment(uuid, f.filename, file_bytes)
         audit.record("attach", "manual-collection-event", entity_id=uuid, entity_label=f.filename)
         flash(f"Attachment '{f.filename}' added.", "success")
-    except Exception as exc:
+    except Exception:
         logger.exception("manual_attach failed for %s", uuid)
         audit.record("attach", "manual-collection-event", entity_id=uuid, entity_label=f.filename, details="failed")
         flash("Could not add attachment.", "warning")
@@ -1266,11 +1257,7 @@ def bulk_reject_excluded():
     Returns JSON: {ok, rejected, dismissed, already_rejected, already_dismissed,
                    errors, message}
     """
-    excl_raw = getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", []) or []
-    if isinstance(excl_raw, str):
-        excl_raw = excl_raw.splitlines()
-    excl_patterns = [str(p).strip().lower() for p in excl_raw if str(p).strip()]
-
+    excl_patterns = analyser_pipeline.daily_briefing_title_exclusions()
     if not excl_patterns:
         return jsonify({"ok": True, "rejected": 0, "dismissed": 0, "already_rejected": 0,
                         "already_dismissed": 0, "errors": 0,
@@ -1290,14 +1277,11 @@ def bulk_reject_excluded():
     if requested_uuids:
         events = [ev for ev in events if (ev.get("uuid") or "") in requested_uuids]
 
-    def _title_matches(ev):
-        return any(p in (ev.get("info") or "").lower() for p in excl_patterns)
-
     dismissed_tag = _dismissed_tag()
     to_set_aside = []
     already_rejected = already_dismissed = 0
     for ev in events:
-        if not _title_matches(ev):
+        if not analyser_pipeline.title_excluded(ev.get("info") or "", excl_patterns):
             continue
         tags = ev.get("tags", [])
         if _WORKFLOW_REJECTED_TAG in tags:

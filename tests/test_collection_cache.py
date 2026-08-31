@@ -10,6 +10,7 @@ import os
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from webapp import collection_cache
@@ -121,6 +122,45 @@ class GetEvents(unittest.TestCase):
         self.assertEqual((st["last_event_count"], st["last_new_count"], st["last_duration_s"]),
                          (87, 3, 4.2))
         self.assertEqual(st["event_count"], 1)
+
+
+def _attribute(value, type="vulnerability"):
+    return SimpleNamespace(type=type, value=value)
+
+
+class EventCves(unittest.TestCase):
+    """The CVEs on an event decide whether the analyser writes a vulnerability
+    advisory for it, and they are what the collection page shows against the
+    row. Both read them from here, so they cannot disagree about an event."""
+
+    def cves(self, attributes=(), objects=(), info=""):
+        return collection_cache.event_cves(
+            SimpleNamespace(attributes=list(attributes), objects=list(objects), info=info))
+
+    def test_vulnerability_attributes_are_read_and_normalised(self):
+        self.assertEqual(self.cves([_attribute(" cve-2026-1234 ")]), ["CVE-2026-1234"])
+
+    def test_other_attribute_types_are_left_alone(self):
+        self.assertEqual(self.cves([_attribute("evil.example", type="domain")]), [])
+
+    def test_a_cve_on_an_object_counts(self):
+        obj = SimpleNamespace(attributes=[_attribute("CVE-2026-4444")])
+        self.assertEqual(self.cves(objects=[obj]), ["CVE-2026-4444"])
+
+    def test_the_same_cve_twice_is_reported_once(self):
+        self.assertEqual(
+            self.cves([_attribute("CVE-2026-1234"), _attribute("cve-2026-1234")]),
+            ["CVE-2026-1234"])
+
+    def test_the_title_is_read_only_when_no_attribute_names_one(self):
+        """A scraped article often names its CVE in the title and nowhere else."""
+        self.assertEqual(self.cves(info="Patch now: CVE-2026-9999 exploited"), ["CVE-2026-9999"])
+        self.assertEqual(
+            self.cves([_attribute("CVE-2026-1234")], info="About CVE-2026-9999"),
+            ["CVE-2026-1234"])
+
+    def test_an_event_with_nothing_to_go_on_has_no_cves(self):
+        self.assertEqual(self.cves(info="A phishing campaign"), [])
 
 
 if __name__ == "__main__":

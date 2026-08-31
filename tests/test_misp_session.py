@@ -7,6 +7,7 @@ again only now and then, not once per request.
     python -m unittest tests.test_misp_session
 """
 
+import contextlib
 import unittest
 from unittest import mock
 
@@ -94,6 +95,11 @@ class HostingInstance(unittest.TestCase):
         self.assertEqual((url, key), ("https://misp.test", "webapp-key"))
 
 
+@contextlib.contextmanager
+def _reachable_redis():
+    yield mock.Mock()
+
+
 class Diagnosis(unittest.TestCase):
     """The two setups that break single sign-on, MISP naming its cookie something
     other than MISP-<uuid> and PHP not keeping sessions in Redis, are
@@ -105,9 +111,15 @@ class Diagnosis(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def diagnose(self, cookies, redis=None):
-        redis = redis if redis is not None else mock.DEFAULT
-        with mock.patch.object(misp_session, "_redis_get", redis), \
+    def diagnose(self, cookies, redis):
+        """Run the check against a reachable Redis whose GET answers `redis`.
+
+        The check opens its own connection to report on it, so a test that
+        stubs only the lookup connects to whatever Redis the developer has
+        configured and reads back its own failure instead of the case at hand.
+        """
+        with mock.patch.object(misp_session, "_redis_connect", _reachable_redis), \
+             mock.patch.object(misp_session, "_redis_get", redis), \
              mock.patch.object(misp_session.config, "MISP_SESSION_COOKIE_NAME", ""):
             return misp_session.diagnose(cookies)
 
@@ -159,8 +171,9 @@ class Diagnosis(unittest.TestCase):
     def test_the_session_id_is_never_reported_back(self):
         """The cookie value is a live session. Naming it on a settings page would
         hand it to anyone who can read the response."""
-        result = self.diagnose({"MISP-abc": "s3cr3t-session-id"},
-                               redis=mock.Mock(return_value=None))
+        with mock.patch.object(misp_session, "_holds_php_sessions", return_value=True):
+            result = self.diagnose({"MISP-abc": "s3cr3t-session-id"},
+                                   redis=mock.Mock(return_value=None))
         self.assertNotIn("s3cr3t-session-id", repr(result))
 
 

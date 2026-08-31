@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import config
 from core.db import row_connection as _conn
@@ -37,7 +37,8 @@ def record(action, entity_type, entity_id=None, entity_label=None, details=None,
             "(timestamp, user, action, entity_type, entity_id, entity_label, details) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                datetime.utcnow().isoformat(timespec="seconds"),
+                # Text column, compared against rows already written, so keep the format.
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
                 user or misp_session.current_user_email(),
                 action,
                 entity_type,

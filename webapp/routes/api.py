@@ -5,7 +5,6 @@ before_request hook). Results are returned as JSON.
 """
 
 import ipaddress
-import json
 import logging
 import re
 import socket
@@ -13,7 +12,7 @@ import threading
 from urllib.parse import urlsplit
 
 import config
-from flask import Blueprint, jsonify, request, url_for
+from flask import Blueprint, jsonify, url_for
 
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store

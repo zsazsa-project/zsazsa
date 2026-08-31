@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # WeasyPrint renders the product PDFs and needs pango at import time.
+      - run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0
+      - run: pip install -r requirements.txt pyflakes
+      # The suite imports config, which is not in the repository: it holds the
+      # MISP keys. The example carries the same names with empty values, which is
+      # all the tests need since none of them reach a server.
+      - run: cp config/__init__.py.example config/__init__.py
+      - run: python -m pyflakes $(git ls-files '*.py')
+      - run: python -m unittest discover -s tests -v

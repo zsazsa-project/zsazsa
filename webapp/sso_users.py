@@ -6,7 +6,7 @@ used zsazsa via SSO.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from core.db import row_connection as _conn
@@ -38,7 +38,8 @@ def record_sighting(user):
     email = user.get("email")
     if not email:
         return
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    # Text column, compared against rows already written, so keep the format.
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     misp_user_id = user.get("id", "")
     org = user.get("Organisation") or {}
     organisation = org.get("name", "")

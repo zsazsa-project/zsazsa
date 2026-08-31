@@ -12,6 +12,7 @@ from unittest import mock
 
 import config
 from notifier import email
+from webapp import branding
 
 
 class Recipients(unittest.TestCase):
@@ -86,8 +87,14 @@ class SendEmail(unittest.TestCase):
         self.assertIn("text/html", types)
 
     def test_brand_logo_travels_as_a_related_part(self):
+        """The header only references the logo when one is configured, so the
+        brand has to be stubbed as well as the bytes: reading it from whatever
+        the developer happens to have set is what made this pass locally and
+        fail everywhere else."""
+        brand = dict(branding.brand(), logo_uri="data:image/png;base64,x")
         with mock.patch("notifier.email.smtplib.SMTP") as smtp, \
-             mock.patch("webapp.branding.logo_bytes", return_value=(b"png", "image", "png")):
+             mock.patch.object(branding, "brand", return_value=brand), \
+             mock.patch.object(branding, "logo_bytes", return_value=(b"png", "image", "png")):
             server = smtp.return_value.__enter__.return_value
             email.send_email(["a@x.test"], "Subject", "# Hello", "label")
 

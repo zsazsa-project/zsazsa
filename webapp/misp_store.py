@@ -31,7 +31,7 @@ from types import SimpleNamespace
 import config
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
-from webapp.collection_cache import AI_SUMMARY_PREFIX
+from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
 from webapp.models import STAKEHOLDER_ROLES
 from webapp.utils import human_size
 
@@ -584,11 +584,6 @@ def _add_event(misp, event, local_tags=None, label="create event"):
     for name in local_tags or []:
         _tag_local(misp, uuid, name)
     return result
-
-
-def source_slug(name: str) -> str:
-    """Normalise a source name to the kebab-case ID used in the collection cache."""
-    return (name or "").lower().replace(" ", "-").replace("/", "-")
 
 
 def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
@@ -1169,7 +1164,9 @@ def _scan_max_sequence(misp, tag, prefix):
 
     Known limitation: the sequence is derived from event info titles. If a title
     is manually edited or the prefix format changes, the scan may produce a
-    duplicate or restart from 0.
+    duplicate or restart from 0. Deleting the most recent record also frees its
+    number for the next create, so an id already sent to a stakeholder can come
+    back attached to something else.
     """
     events = misp.search(tags=[tag], metadata=True, pythonify=True)
     if not events or isinstance(events, dict):
@@ -1378,7 +1375,10 @@ def update_pir(uuid, data):
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
     _sync_object_attributes(misp, event, "zsazsa-pir", _pir_obj(data), "PIR")
-    _replace_focus_points(uuid, data.get("focus_points", []))
+    # Only when the caller sent them: saving the form replaces the scope items,
+    # but a status change or a Kanban move posts none and must not wipe them.
+    if "focus_points" in data:
+        _replace_focus_points(uuid, data["focus_points"])
     _apply_scope_tags(misp, uuid, data, new_info=f"[zsazsa:pir] {data['pir_id']}")
     return uuid
 
@@ -1399,10 +1399,6 @@ def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, ch
         raise RuntimeError(f"PIR event {uuid} not found")
     pir = _pir_ns(event)
     data = _pir_data_from_ns(pir)
-    data["focus_points"] = [
-        {"category": fp.category, "value": fp.value, "notes": fp.notes}
-        for fp in pir.focus_points
-    ]
     today = date.today().isoformat()
     user = misp_session.current_user_email()
     data["intake_status"] = intake_status
@@ -1464,6 +1460,7 @@ def create_gir(data):
     uuid = _event_uuid(result)
     if not uuid:
         raise RuntimeError("create GIR: missing UUID in MISP response")
+    _replace_focus_points(uuid, data.get("focus_points", []))
     return uuid
 
 
@@ -1472,11 +1469,9 @@ def update_gir(uuid, data):
 
     Returns the UUID to redirect to (may be a new UUID if the event was gone).
 
-    Note: unlike update_pir(), this function does not call _replace_focus_points().
-    GIR focus points are stored as event-level attributes and are intentionally
-    preserved across saves. Calling _replace_focus_points() here would require
-    re-submitting all focus point values on every GIR edit form, which is not
-    the intended workflow.
+    Scope items are replaced only when the caller sends them, as for a PIR: the
+    edit form posts every scope list, a status change posts none and leaves them
+    alone.
     """
     misp = _misp()
     event = misp.get_event(uuid, pythonify=True)
@@ -1487,6 +1482,8 @@ def update_gir(uuid, data):
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
     _sync_object_attributes(misp, event, "zsazsa-gir", _gir_obj(data), "GIR")
+    if "focus_points" in data:
+        _replace_focus_points(uuid, data["focus_points"])
     topic = data.get("topic", "")
     gir_id = data.get("gir_id", "")
     _apply_scope_tags(misp, uuid, data, new_info=f"[zsazsa:gir] {gir_id}: {topic}")
@@ -1543,12 +1540,19 @@ def delete_focus_point(attr_uuid):
     misp.delete_attribute(attr_uuid)
 
 
-# Map a focus point category back to the PIR/GIR object scope relation.
+# Map a focus point category back to the PIR/GIR object scope relation. Every
+# category the detail page offers is here, so a scope item is the same thing
+# wherever it was typed: it shows on the requirement, it is matched against
+# events, and it reaches the notification.
 _FP_CATEGORY_TO_RELATION = {
     "Geography": "geographic-scope",
     "Sector": "sectors",
     "Threat Actor": "threat-actors",
     "Threat Type": "threat-types",
+    "Technology": "technology",
+    "Vendor": "vendor",
+    "Incident": "incident",
+    "Campaign": "campaign",
 }
 _RELATION_TO_FP_CATEGORY = {v: k for k, v in _FP_CATEGORY_TO_RELATION.items()}
 
@@ -1897,6 +1901,9 @@ def update_rfi(uuid, data):
     old = _get_obj(event, "zsazsa-rfi")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
+        # The id is the RFI's identity: dropping it here would delete the
+        # attribute and rewrite the event title without it.
+        data.setdefault("rfi_id", _obj_attr(old, "rfi-id") or "")
         # Triage fields are set only through update_rfi_triage; a plain content
         # edit or a Kanban move must not wipe them, so carry them over unless the
         # caller supplied a value.
@@ -2754,7 +2761,7 @@ def list_pending_feedback_products():
     except Exception:
         logger.exception("feedback-tag search failed")
 
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     pending = []
     for kind, items in (("flash-intel", list_fias()), ("vea", list_veas())):
         for p in items:
@@ -3505,7 +3512,7 @@ def create_manual_collection_event(data: dict) -> str:
 
     tlp = data.get("tlp", "amber")
     source = (data.get("source") or "").strip()
-    source_slug = source.lower().replace(" ", "-").replace("/", "-")
+    slug = source_slug(source)
 
     info = (data.get("title") or "").strip()
     event = _make_event(
@@ -3522,19 +3529,21 @@ def create_manual_collection_event(data: dict) -> str:
     uuid = created.uuid
 
     _tag_local(misp, uuid, 'zsazsa:source-type="manual"')
-    if source_slug:
-        _tag_local(misp, uuid, f'zsazsa:source="{source_slug}"')
+    if slug:
+        _tag_local(misp, uuid, f'zsazsa:source="{slug}"')
 
     for t in _build_scope_tags(data):
         try:
             misp.tag(uuid, t)
         except Exception:
-            pass
+            # The scope tags are what matches this entry against a PIR or GIR
+            # later, so a lost one is worth knowing about.
+            logger.warning("manual entry %s: could not apply scope tag %s", uuid, t)
 
     try:
         misp.tag(uuid, 'workflow:state="incomplete"', local=True)
     except Exception:
-        pass
+        logger.warning("manual entry %s: could not set its workflow state", uuid)
 
     source_reference = (data.get("source_reference") or "").strip()
     if source_reference:
@@ -3665,8 +3674,12 @@ def list_pending_newsletters() -> list[dict]:
         events = misp.search(tags=[NEWSLETTER_PENDING_TAG], limit=200,
                              metadata=True, pythonify=True)
         if isinstance(events, dict):
+            logger.warning("could not list pending newsletters: %s", events.get("errors") or events)
             return []
     except Exception:
+        # An empty queue and an unreachable MISP look the same on the page, and
+        # one of them means newsletters are waiting that nobody will see.
+        logger.exception("could not list pending newsletters")
         return []
     out = [
         {"uuid": ev.uuid, "info": getattr(ev, "info", ""), "date": str(getattr(ev, "date", ""))}
@@ -3691,6 +3704,7 @@ def get_newsletter_for_review(uuid: str) -> dict | None:
             return None
         reports = misp.get_event_reports(event.id, pythonify=True) or []
     except Exception:
+        logger.exception("could not read newsletter %s for review", uuid)
         return None
     parser = ""
     for tag in getattr(event, "tags", []) or []:
@@ -4036,7 +4050,7 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
     on the notification paths but not when re-writing the stored report.
     """
     fid = fia_id or fia.fia_id or "FIA-#####"
-    date_str = (fia.created_at or datetime.utcnow()).strftime("%Y-%m-%d %H:%M UTC")
+    date_str = (fia.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M UTC")
 
     def bullets(items):
         return "\n".join(f"- {ln}" for ln in items) if items else "- (none recorded)"
@@ -4884,7 +4898,7 @@ def _vea_id_from_event_id(event_id):
 
 def render_vea_markdown(vea, vea_id=None, preview_url: str = ""):
     vid = vea_id or vea.vea_id or "VEA-#####"
-    date_str = (vea.created_at or datetime.utcnow()).strftime("%Y-%m-%d")
+    date_str = (vea.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
 
     def bullets(items):
         return "\n".join(f"- {ln}" for ln in items) if items else "- (none recorded)"
@@ -5629,7 +5643,7 @@ def get_briefing(uuid):
 
 def create_briefing(data):
     misp = _misp()
-    bdate = data.get("date") or datetime.utcnow().strftime("%Y-%m-%d")
+    bdate = data.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     info = f"[zsazsa:briefing] Daily threat briefing {bdate}"
     extra = [f'tlp:{data.get("tlp", "clear")}', 'workflow:state="draft"']
     event = _make_event(info, extra_tags=extra)

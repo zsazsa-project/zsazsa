@@ -166,7 +166,8 @@
     </div>
 
     <!-- Scope -->
-    {% if gir.geographic_scope or gir.sectors or gir.threat_actors or gir.threat_types or gir.out_of_scope %}
+    {% if gir.geographic_scope or gir.sectors or gir.threat_actors or gir.threat_types
+          or gir.technology or gir.vendor or gir.incident or gir.campaign or gir.out_of_scope %}
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-map me-2"></i>Scope</div>
       <div class="card-body">
@@ -186,6 +187,22 @@
           {% if gir.threat_types %}
           <dt>Threat types</dt>
           <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.threat_types %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
+          {% endif %}
+          {% if gir.technology %}
+          <dt>Technology</dt>
+          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.technology %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
+          {% endif %}
+          {% if gir.vendor %}
+          <dt>Vendor</dt>
+          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.vendor %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
+          {% endif %}
+          {% if gir.incident %}
+          <dt>Incident</dt>
+          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.incident %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
+          {% endif %}
+          {% if gir.campaign %}
+          <dt>Campaign</dt>
+          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.campaign %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
           {% endif %}
           {% if gir.out_of_scope %}
           <dt>Out of scope</dt>

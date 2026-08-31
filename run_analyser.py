@@ -1,6 +1,5 @@
 import logging
 import time
-import warnings
 
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -12,8 +11,6 @@ from analyser.reader import get_new_scraper_events, save_last_run
 from core.db import init_db, log_event, log_pipeline_run_start, log_pipeline_run_end
 from core.misp_client import get_misp, get_misp_webapp
 from webapp import job_store
-
-
 
 
 def load_focus_points() -> dict:

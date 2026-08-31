@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from pymisp import MISPEvent, MISPEventReport
@@ -42,7 +42,7 @@ def _get_reports(misp, event) -> tuple[str | None, list]:
 def _event_date(event) -> str:
     if event.date:
         return str(event.date)
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def process(misp, misp_webapp, event, focus_points: dict) -> dict:

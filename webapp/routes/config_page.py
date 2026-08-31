@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-import ast
 from pathlib import Path
 
 import requests
@@ -88,6 +87,31 @@ MIGRATIONS = [
             "as \"url\", where nothing that builds a product's reference list picks them "
             "up. Only External analysis attributes are touched, so genuine URL "
             "indicators are left alone."
+        ),
+        "supports_apply": True,
+    },
+    {
+        "id": "align_requirement_scope_focus_points",
+        "name": "Align requirement scope and scope items",
+        "script": "scripts/align_requirement_scope_focus_points.py",
+        "description": (
+            "A PIR or GIR holds its scope both as lists on its object and as scope "
+            "items. Technology, vendor, incident and campaign were only ever written "
+            "to one of the two, so they were either invisible on the detail page or "
+            "matched nothing. This fills in whichever side is missing, in both "
+            "directions. Nothing is deleted and running it twice changes nothing."
+        ),
+        "supports_apply": True,
+    },
+    {
+        "id": "restore_rfi_ids",
+        "name": "Restore lost RFI ids",
+        "script": "scripts/restore_rfi_ids.py",
+        "description": (
+            "Before 1.0.0, saving feedback on an RFI sent an update carrying no id, "
+            "which took the id off the RFI and out of the event title. MISP still "
+            "holds it as a soft-deleted attribute, and this reads it back and puts "
+            "it in place. Run it only if some of your RFIs show no RFI-xxx id."
         ),
         "supports_apply": True,
     },
@@ -755,7 +779,7 @@ def index():
                 flash(f"Single sign-on enabled: detected MISP session cookie '{session_cookie_name}' and stored it.", "info")
             elif sso_enabled and not session_cookie_name:
                 flash("Single sign-on is enabled but the MISP session cookie name could not be detected. Check the MISP connection on the Connections tab.", "warning")
-        except Exception as exc:
+        except Exception:
             logger.exception("config save failed")
             audit.record("update", "config", details="save failed")
             flash("Could not save configuration.", "warning")
@@ -819,7 +843,7 @@ def save_scraper_config():
         importlib.reload(_config)
         audit.record("update", "config", entity_label="misp-scraper")
         flash("MISP scraper settings saved.", "success")
-    except Exception as exc:
+    except Exception:
         logger.exception("save_scraper_config failed")
         flash("Could not save configuration.", "warning")
     return redirect(url_for("collection_sources.index"))
@@ -910,7 +934,7 @@ def save_server_config():
         importlib.reload(_config)
         audit.record(action, "misp_server", entity_label=label)
         return jsonify({"ok": True, "new_id": sid})
-    except Exception as exc:
+    except Exception:
         logger.exception("save_server_config failed")
         audit.record(action, "misp_server", entity_label=label, details="failed")
         return jsonify({"ok": False, "error": "Could not save server settings."}), 500
@@ -935,7 +959,7 @@ def delete_server_config():
         importlib.reload(_config)
         audit.record("delete", "misp_server", entity_label=label)
         return jsonify({"ok": True})
-    except Exception as exc:
+    except Exception:
         logger.exception("delete_server_config failed")
         audit.record("delete", "misp_server", entity_label=label, details="failed")
         return jsonify({"ok": False, "error": "Could not delete server."}), 500
@@ -1139,7 +1163,7 @@ def server_usage():
         gir_count = sum(1 for g in girs if label in (g.collection_sources or []))
         return jsonify({"ok": True, "pir_count": pir_count, "gir_count": gir_count,
                         "in_use": (pir_count + gir_count) > 0})
-    except Exception as exc:
+    except Exception:
         logger.exception("server_usage failed")
         return jsonify({"ok": False, "error": "Could not compute server usage."}), 500
 
@@ -1570,6 +1594,6 @@ def save_ai_features():
 
         audit.record("update", "ai_features", details=f"{len(clean)} feature(s) saved")
         return jsonify({"ok": True})
-    except Exception as exc:
+    except Exception:
         logger.exception("save_ai_features failed")
         return jsonify({"ok": False, "error": "Could not save AI feature settings."}), 500

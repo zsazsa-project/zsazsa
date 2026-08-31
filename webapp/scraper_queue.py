@@ -11,7 +11,7 @@ import logging
 import socket
 
 import config
-from webapp.redis_client import RedisError, read_reply, send_command
+from webapp.redis_client import read_reply, send_command
 
 logger = logging.getLogger(__name__)
 

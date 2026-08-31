@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from flask import Blueprint, Response
@@ -34,7 +34,7 @@ def _pirs_markdown():
     stakeholders = misp_store.list_stakeholders()
     lines = [
         "# Priority Intelligence Requirements",
-        f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
     ]
     for pir in pirs:
@@ -99,7 +99,7 @@ def _girs_markdown():
     stakeholders = misp_store.list_stakeholders()
     lines = [
         "# General Intelligence Requirements",
-        f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
     ]
     for gir in girs:
@@ -141,7 +141,7 @@ def _rfis_markdown():
     rfis = misp_store.list_rfis()
     lines = [
         "# Requests for Information",
-        f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
     ]
     for rfi in rfis:
@@ -179,7 +179,7 @@ def _stakeholders_markdown():
     stakeholders = misp_store.list_stakeholders()
     lines = [
         "# Stakeholders",
-        f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
     ]
     for s in stakeholders:
@@ -232,27 +232,27 @@ def _dl(content, filename):
 
 @bp.route("/pirs")
 def pirs():
-    ts = datetime.utcnow().strftime("%Y%m%d")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
     audit.record("export", "pirs", details=f"pirs-{ts}.md")
     return _dl(_pirs_markdown(), f"pirs-{ts}.md")
 
 
 @bp.route("/girs")
 def girs():
-    ts = datetime.utcnow().strftime("%Y%m%d")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
     audit.record("export", "girs", details=f"girs-{ts}.md")
     return _dl(_girs_markdown(), f"girs-{ts}.md")
 
 
 @bp.route("/rfis")
 def rfis():
-    ts = datetime.utcnow().strftime("%Y%m%d")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
     audit.record("export", "rfis", details=f"rfis-{ts}.md")
     return _dl(_rfis_markdown(), f"rfis-{ts}.md")
 
 
 @bp.route("/stakeholders")
 def stakeholders():
-    ts = datetime.utcnow().strftime("%Y%m%d")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
     audit.record("export", "stakeholders", details=f"stakeholders-{ts}.md")
     return _dl(_stakeholders_markdown(), f"stakeholders-{ts}.md")

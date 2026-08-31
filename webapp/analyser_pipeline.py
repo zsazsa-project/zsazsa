@@ -21,8 +21,10 @@ from webapp.collection_cache import AI_SUMMARY_PREFIX
 logger = logging.getLogger(__name__)
 
 _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
-_CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
 _BRIEFING_REJECTION_PREFIX = "zsazsa:daily-briefing-rejection"
+# How alike two briefing stories have to be, on the 0..1 score
+# detect_story_overlaps gives, before the later one is dropped as duplicate.
+_OVERLAP_DROP_SCORE = 0.65
 
 _SECTOR_LINE_RE = re.compile(r'\*\*Targeted sector:\*\*\s*(.+)', re.IGNORECASE)
 _GEO_LINE_RE = re.compile(r'\*\*Geographic scope:\*\*\s*(.+)', re.IGNORECASE)
@@ -65,7 +67,12 @@ def _deduplicate_vendors(vendors: list) -> list:
     return kept
 
 
-def _parse_misp_context(text: str) -> dict:
+def parse_misp_context(text: str) -> dict:
+    """The scope an AI summary names, read from its "MISP context" lines.
+
+    Shared with the data collection page, which writes summaries of its own and
+    has to tag them with the same scope this run would.
+    """
     result = {"sectors": [], "geographies": [], "attack_techniques": [], "threat_actors": [], "vendor": []}
 
     def _csv(regex):
@@ -102,14 +109,20 @@ def _log(event, outcome, detail=None):
     )
 
 
-def _daily_briefing_title_exclusions() -> list[str]:
+def daily_briefing_title_exclusions() -> list[str]:
+    """The configured exclusion patterns, lower-cased for matching.
+
+    Shared with the data collection page, which marks the events this run would
+    drop and offers to set them aside, so both work off one reading of the
+    setting rather than two that can drift apart.
+    """
     raw = getattr(config, "DAILY_BRIEFING_TITLE_EXCLUSIONS", [])
     if isinstance(raw, str):
         raw = raw.splitlines()
     return [str(p).strip().lower() for p in (raw or []) if str(p).strip()]
 
 
-def _matches_title_exclusion(title: str, patterns: list[str]) -> bool:
+def title_excluded(title: str, patterns: list[str]) -> bool:
     haystack = (title or "").strip().lower()
     if not haystack:
         return False
@@ -119,10 +132,10 @@ def _matches_title_exclusion(title: str, patterns: list[str]) -> bool:
 def _event_or_report_title_excluded(event, reports, patterns: list[str]) -> bool:
     if not patterns:
         return False
-    if _matches_title_exclusion(getattr(event, "info", "") or "", patterns):
+    if title_excluded(getattr(event, "info", "") or "", patterns):
         return True
     for report in reports or []:
-        if _matches_title_exclusion(getattr(report, "name", "") or "", patterns):
+        if title_excluded(getattr(report, "name", "") or "", patterns):
             return True
     return False
 
@@ -252,52 +265,34 @@ def _build_galaxy_lookup() -> dict:
     }
 
 
+# Which context line feeds which galaxy lookup. ATT&CK is keyed on the technique
+# ID exactly as parsed, the rest on the lower-cased name.
+_CONTEXT_GALAXIES = (
+    ("attack_techniques", "attack_by_id", str, "ATT&CK"),
+    ("sectors", "sector_by_name", str.lower, "sector"),
+    ("geographies", "country_by_name", str.lower, "country"),
+    ("threat_actors", "threat_actor_by_name", str.lower, "threat actor"),
+)
+
+
 def _apply_misp_context_tags(misp, event, context: dict, lookup: dict) -> int:
+    """Tag an event with the galaxy clusters its summary's context lines name."""
     applied = 0
-    for tech_id in context.get("attack_techniques", []):
-        tag_name = lookup.get("attack_by_id", {}).get(tech_id)
-        if tag_name:
+    for context_key, lookup_key, key_for, label in _CONTEXT_GALAXIES:
+        by_name = lookup.get(lookup_key, {})
+        for value in context.get(context_key, []):
+            tag_name = by_name.get(key_for(value))
+            if not tag_name:
+                continue
             try:
                 r = misp.tag(event.uuid, tag_name)
-                if isinstance(r, dict) and "errors" in r:
-                    logger.warning("Could not apply ATT&CK tag %s to %s: %s", tech_id, event.uuid, r["errors"])
-                else:
-                    applied += 1
             except Exception as exc:
-                logger.warning("Could not apply ATT&CK tag %s to %s: %s", tech_id, event.uuid, exc)
-    for sector in context.get("sectors", []):
-        tag_name = lookup.get("sector_by_name", {}).get(sector.lower())
-        if tag_name:
-            try:
-                r = misp.tag(event.uuid, tag_name)
-                if isinstance(r, dict) and "errors" in r:
-                    logger.warning("Could not apply sector tag %s to %s: %s", sector, event.uuid, r["errors"])
-                else:
-                    applied += 1
-            except Exception as exc:
-                logger.warning("Could not apply sector tag %s to %s: %s", sector, event.uuid, exc)
-    for geo in context.get("geographies", []):
-        tag_name = lookup.get("country_by_name", {}).get(geo.lower())
-        if tag_name:
-            try:
-                r = misp.tag(event.uuid, tag_name)
-                if isinstance(r, dict) and "errors" in r:
-                    logger.warning("Could not apply country tag %s to %s: %s", geo, event.uuid, r["errors"])
-                else:
-                    applied += 1
-            except Exception as exc:
-                logger.warning("Could not apply country tag %s to %s: %s", geo, event.uuid, exc)
-    for actor in context.get("threat_actors", []):
-        tag_name = lookup.get("threat_actor_by_name", {}).get(actor.lower())
-        if tag_name:
-            try:
-                r = misp.tag(event.uuid, tag_name)
-                if isinstance(r, dict) and "errors" in r:
-                    logger.warning("Could not apply threat actor tag %s to %s: %s", actor, event.uuid, r["errors"])
-                else:
-                    applied += 1
-            except Exception as exc:
-                logger.warning("Could not apply threat actor tag %s to %s: %s", actor, event.uuid, exc)
+                logger.warning("Could not apply %s tag %s to %s: %s", label, value, event.uuid, exc)
+                continue
+            if isinstance(r, dict) and "errors" in r:
+                logger.warning("Could not apply %s tag %s to %s: %s", label, value, event.uuid, r["errors"])
+            else:
+                applied += 1
     return applied
 
 
@@ -326,7 +321,7 @@ def _ensure_ai_summary(misp, event, reports, galaxy_lookup: dict) -> tuple[str, 
         logger.warning("mark_ai_summary failed for %s: %s", event.uuid, exc)
 
     if galaxy_lookup:
-        context = _parse_misp_context(summary)
+        context = parse_misp_context(summary)
         applied = _apply_misp_context_tags(misp, event, context, galaxy_lookup)
         if applied:
             logger.info("Applied %d galaxy tag(s) to %s from MISP context", applied, event.uuid)
@@ -340,24 +335,6 @@ def _extract_admiralty(event, prefix: str) -> str:
         if name.startswith(prefix):
             return name.split("=", 1)[1].strip('"')
     return ""
-
-
-def _extract_cves(event) -> list[str]:
-    values = []
-    for attr in getattr(event, "attributes", []) or []:
-        if getattr(attr, "type", "") == "vulnerability":
-            v = (getattr(attr, "value", "") or "").strip().upper()
-            if v:
-                values.append(v)
-    for obj in getattr(event, "objects", []) or []:
-        for attr in getattr(obj, "attributes", []) or []:
-            if getattr(attr, "type", "") == "vulnerability":
-                v = (getattr(attr, "value", "") or "").strip().upper()
-                if v:
-                    values.append(v)
-    if not values:
-        values.extend(m.upper() for m in _CVE_RE.findall(getattr(event, "info", "") or ""))
-    return list(dict.fromkeys(values))
 
 
 def _common_candidate_events(progress=None, title_exclusions=None) -> tuple:
@@ -412,7 +389,9 @@ def _common_candidate_events(progress=None, title_exclusions=None) -> tuple:
 
     summaries = {}
     summary_created = 0
-    galaxy_lookup = _build_galaxy_lookup()
+    # Reading the galaxies costs several MISP calls, and a run with nothing left
+    # to summarise has no use for them.
+    galaxy_lookup = _build_galaxy_lookup() if kept else {}
 
     _emit(progress, "generate-summaries", "in_progress", "Ensuring AI summaries exist for eligible events...")
 
@@ -434,8 +413,24 @@ def _common_candidate_events(progress=None, title_exclusions=None) -> tuple:
     }, reports_cache
 
 
+def _duplicate_story_indexes(overlaps) -> set:
+    """1-based indexes of the stories to drop as duplicate coverage.
+
+    `overlaps` is (a, b, score) for pairs that scored at or above the drop
+    threshold. Of a pair the later story goes, closest pairs are settled first,
+    and a story already dropped does not take another with it: two write-ups of
+    one incident should cost the briefing one story, not both.
+    """
+    to_drop = set()
+    for a, b, _score in sorted(overlaps, key=lambda pair: pair[2], reverse=True):
+        if a in to_drop or b in to_drop:
+            continue
+        to_drop.add(max(a, b))
+    return to_drop
+
+
 def run_daily_briefing_action(progress=None) -> dict:
-    exclusions = _daily_briefing_title_exclusions()
+    exclusions = daily_briefing_title_exclusions()
     misp, events, summaries, stats, reports_cache = _common_candidate_events(
         progress=progress, title_exclusions=exclusions or None,
     )
@@ -493,7 +488,7 @@ def run_daily_briefing_action(progress=None) -> dict:
         summary = (summaries.get(event.uuid) or "").strip()
         article = _first_non_empty_report_content(reports_cache.get(event.uuid, []))
         source_text = summary or article
-        context = _parse_misp_context(summary) if summary else {}
+        context = parse_misp_context(summary) if summary else {}
 
         story_text = source_text
         actor_type = ""
@@ -534,25 +529,12 @@ def run_daily_briefing_action(progress=None) -> dict:
         _emit(progress, "check-overlap", "in_progress", "Checking overlap between stories and removing duplicates...")
         try:
             overlap = llm.detect_story_overlaps(stories)
-            raw = overlap.get("overlaps", []) if isinstance(overlap, dict) else []
-            candidates = []
-            for item in raw:
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    a = int(item.get("a", 0))
-                    b = int(item.get("b", 0))
-                    score = float(item.get("score", 0))
-                except (TypeError, ValueError):
-                    continue
-                if a > 0 and b > 0 and a != b and score >= 0.65:
-                    candidates.append((a, b, score))
+            # detect_story_overlaps has already dropped whatever it could not
+            # read; all that is left to decide here is how close is too close.
+            candidates = [(o["a"], o["b"], o["score"]) for o in overlap.get("overlaps", [])
+                          if o["score"] >= _OVERLAP_DROP_SCORE]
             overlap_pairs = len(candidates)
-            to_drop = set()
-            for a, b, _score in sorted(candidates, key=lambda x: x[2], reverse=True):
-                if a in to_drop or b in to_drop:
-                    continue
-                to_drop.add(max(a, b))
+            to_drop = _duplicate_story_indexes(candidates)
             if to_drop:
                 for i, s in enumerate(stories, start=1):
                     if i in to_drop:
@@ -735,7 +717,7 @@ def run_vea_action(progress=None) -> dict:
     cve_match_count = 0
     cve_map = {}
     for event in events:
-        cves = _extract_cves(event)
+        cves = collection_cache.event_cves(event)
         cve_map[event.uuid] = cves
         if cves:
             cve_match_count += 1

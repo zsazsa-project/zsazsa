@@ -38,6 +38,7 @@ def _req(**scope) -> SimpleNamespace:
         "vendor": [],
         "incident": [],
         "campaign": [],
+        "mitre_attack_techniques": [],
     }
     base.update(scope)
     return SimpleNamespace(**base)
@@ -115,6 +116,29 @@ class MatchEventToRequirement(unittest.TestCase):
         m = match_event_to_requirement(ev, req, "pir")
         self.assertIsNotNone(m)
         self.assertEqual(m.req_id, "PIR-001")
+
+
+class AttackTechniqueScope(unittest.TestCase):
+    """A technique put in a requirement's scope flags events the same way the
+    other scope dimensions do. It was the one documented scope element the
+    matcher did not read, so a PIR scoped on a technique matched nothing."""
+
+    TECHNIQUE = "Exploit Public-Facing Application - T1190"
+
+    def match(self, event):
+        return match_event_to_requirement(event, _req(mitre_attack_techniques=[self.TECHNIQUE]), "pir")
+
+    def test_a_galaxy_cluster_on_the_event_matches(self):
+        m = self.match(_event(info="Edge appliance abused", galaxy_names=[self.TECHNIQUE]))
+        self.assertIsNotNone(m)
+        self.assertEqual(m.evidence[0].label, "ATT&CK technique")
+
+    def test_the_galaxy_tag_matches(self):
+        tag = f'misp-galaxy:mitre-attack-pattern="{self.TECHNIQUE}"'
+        self.assertIsNotNone(self.match(_event(info="Edge appliance abused", tags=[tag])))
+
+    def test_another_technique_does_not_match(self):
+        self.assertIsNone(self.match(_event(info="Phishing wave", galaxy_names=["Phishing - T1566"])))
 
 
 if __name__ == "__main__":

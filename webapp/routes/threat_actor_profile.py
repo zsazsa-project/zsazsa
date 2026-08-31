@@ -3,7 +3,7 @@ the MISP threat-actor galaxy with the analyst's own investigation."""
 
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
@@ -157,10 +157,16 @@ def new():
                 flash(e, "warning")
             return render_template("threat_actor_profile/form.html",
                                    **_form_context(), form_values=data)
-        uuid = misp_store.create_threat_actor_profile(data)
-        tap = misp_store.get_threat_actor_profile(uuid)
-        audit.record("create", "threat-actor-profile", entity_id=uuid, entity_label=tap.tap_id)
-        flash(f"{tap.tap_id} created.", "success")
+        try:
+            # create_threat_actor_profile allocates the tap_id into data.
+            uuid = misp_store.create_threat_actor_profile(data)
+        except Exception as exc:
+            logger.exception("Could not create threat actor profile")
+            flash(f"Could not create the profile: {exc}", "warning")
+            return render_template("threat_actor_profile/form.html",
+                                   **_form_context(), form_values=data)
+        audit.record("create", "threat-actor-profile", entity_id=uuid, entity_label=data["tap_id"])
+        flash(f"{data['tap_id']} created.", "success")
         return redirect(url_for("threat_actor_profile.detail", id=uuid))
     return render_template("threat_actor_profile/form.html", **_form_context(), form_values=None)
 
@@ -234,7 +240,13 @@ def edit(id):
                 flash(e, "warning")
             return render_template("threat_actor_profile/form.html",
                                    **_form_context(tap), form_values=data)
-        misp_store.update_threat_actor_profile(id, data)
+        try:
+            misp_store.update_threat_actor_profile(id, data)
+        except Exception as exc:
+            logger.exception("Could not update threat actor profile %s", id)
+            flash(f"Could not update the profile: {exc}", "warning")
+            return render_template("threat_actor_profile/form.html",
+                                   **_form_context(tap), form_values=data)
         audit.record("update", "threat-actor-profile", entity_id=id, entity_label=tap.tap_id)
         flash(f"{tap.tap_id} updated.", "success")
         return redirect(url_for("threat_actor_profile.detail", id=id))
@@ -360,7 +372,7 @@ def note_delete(id, report_id):
 
 def _markdown(tap):
     """Build the notification body for a threat actor profile."""
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [f"# {tap.title}", "", f"*{tap.tap_id} - TLP:{tap.tlp.upper()} - as of {now}*", ""]
     if tap.threat_actors:
         lines += ["**Threat actors:** " + ", ".join(tap.threat_actors), ""]

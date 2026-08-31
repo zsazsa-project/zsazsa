@@ -24,10 +24,6 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("requirements", __name__)
 
 
-def _sync_focus_points():
-    """Legacy no-op: organisation-wide focus points are now managed in Configuration."""
-    return
-
 _SCOPE_PREVIEW_TIMEFRAME_OPTIONS = [
     ("all", "All cache entries"),
     ("24h", "Last 24h"),
@@ -167,7 +163,7 @@ def _galaxy_context():
     }
 
 
-_SCOPE_COUNT_FIELDS = (
+_SCOPE_FIELDS = (
     "geographic_scope", "sectors", "threat_actors", "threat_types",
     "technology", "vendor", "incident", "campaign", "mitre_attack_techniques",
 )
@@ -175,28 +171,55 @@ _SCOPE_COUNT_FIELDS = (
 
 def _scope_item_count(req):
     """Total number of scope items across every scope dimension of a PIR/GIR."""
-    return sum(len(getattr(req, field, None) or []) for field in _SCOPE_COUNT_FIELDS)
+    return sum(len(getattr(req, field, None) or []) for field in _SCOPE_FIELDS)
 
 
-def _scope_focus_points(form):
+def _scope_terms(req):
+    """Every scope value on a requirement, as terms for the scope preview.
+
+    All of them, not only the galaxy-backed four: a preview that leaves out the
+    vendor or the technique an analyst put in scope reports fewer matches than
+    the collection page will flag.
+    """
+    terms = [value for field in _SCOPE_FIELDS for value in (getattr(req, field, None) or [])]
+    terms += [fp.value for fp in (req.focus_points or []) if fp.value]
+    return terms
+
+
+# The scope field each focus point category is posted under, named as the form
+# names it. Taken from the store's own mapping so the two agree.
+_SCOPE_FP_FIELDS = {
+    category: relation.replace("-", "_")
+    for category, relation in misp_store._FP_CATEGORY_TO_RELATION.items()
+}
+
+
+def _scope_focus_points(form, existing=()):
+    """Focus points for a requirement being saved from its form.
+
+    Saving replaces every focus point, so each category is rebuilt from the
+    scope list posted for it. What the form cannot carry is taken from
+    `existing` instead: the notes an analyst typed against a scope item, and any
+    focus point in a category the form has no field for, which is how a record
+    written before a category was added survives a save.
+    """
+    notes = {(fp.category, (fp.value or "").lower()): fp.notes for fp in existing or []}
     points = []
-    mappings = [
-        ("Geography", form.getlist("geographic_scope")),
-        ("Sector", form.getlist("sectors")),
-        ("Threat Actor", form.getlist("threat_actors")),
-        ("Threat Type", form.getlist("threat_types")),
-    ]
     seen = set()
-    for category, values in mappings:
-        for value in values:
+    for category, field in _SCOPE_FP_FIELDS.items():
+        for value in form.getlist(field):
             clean = value.strip()
-            if not clean:
-                continue
             key = (category, clean.lower())
-            if key in seen:
+            if not clean or key in seen:
                 continue
             seen.add(key)
-            points.append({"category": category, "value": clean, "notes": ""})
+            points.append({"category": category, "value": clean, "notes": notes.get(key, "")})
+    for fp in existing or []:
+        key = (fp.category, (fp.value or "").lower())
+        if fp.category in _SCOPE_FP_FIELDS or key in seen:
+            continue
+        seen.add(key)
+        points.append({"category": fp.category, "value": fp.value, "notes": fp.notes})
     return points
 
 
@@ -330,10 +353,10 @@ def pir_new():
             pir_id = data["pir_id"]
             audit.record("create", "pir", entity_id=uuid, entity_label=pir_id)
             _matching.invalidate_cache()
-            _sync_focus_points()
             flash(f"{pir_id} created.", "success")
             return redirect(url_for("requirements.pir_detail", id=uuid))
         except Exception as exc:
+            logger.exception("Could not create PIR")
             flash(f"Could not create PIR: {exc}", "warning")
 
     return render_template(
@@ -423,7 +446,7 @@ def pir_edit(id):
             "collection_sources": request.form.getlist("collection_sources"),
             "output_format": output_format,
             "distribution": _distribution_ids(request.form, stakeholders),
-            "focus_points": _scope_focus_points(request.form),
+            "focus_points": _scope_focus_points(request.form, pir.focus_points),
             "resolution_note": request.form.get("resolution_note"),
             "next_review": request.form.get("next_review") or None,
             "mitre_attack_techniques": request.form.getlist("mitre_attack_techniques"),
@@ -444,10 +467,10 @@ def pir_edit(id):
             new_id = misp_store.update_pir(id, data)
             audit.record("update", "pir", entity_id=id, entity_label=pir.pir_id)
             _matching.invalidate_cache()
-            _sync_focus_points()
             flash(f"{pir.pir_id} updated.", "success")
             return redirect(url_for("requirements.pir_detail", id=new_id))
         except Exception as exc:
+            logger.exception("Could not update PIR %s", id)
             flash(f"Could not update PIR: {exc}", "warning")
 
     return render_template(
@@ -472,9 +495,9 @@ def pir_delete(id):
         misp_store.delete_pir(id)
         audit.record("delete", "pir", entity_id=id, entity_label=label)
         _matching.invalidate_cache()
-        _sync_focus_points()
         flash(f"{label} deleted.", "info")
     except Exception as exc:
+        logger.exception("Could not delete PIR %s", id)
         flash(f"Could not delete PIR: {exc}", "warning")
     return redirect(url_for("requirements.pir_list"))
 
@@ -560,14 +583,7 @@ def pir_scope_preview(id):
     if pir is None:
         return "PIR not found", 404
     timeframe_key, timeframe_hours = _scope_preview_timeframe(request.args.get("timeframe"))
-    terms = []
-    terms.extend(pir.geographic_scope or [])
-    terms.extend(pir.sectors or [])
-    terms.extend(pir.threat_actors or [])
-    terms.extend(pir.threat_types or [])
-    for fp in pir.focus_points:
-        if fp.value:
-            terms.append(fp.value)
+    terms = _scope_terms(pir)
     matches = misp_store.preview_scope_matches(terms, timeframe_hours=timeframe_hours)
     ctx = dict(
         terms=sorted(set(t for t in terms if t)),
@@ -655,6 +671,7 @@ def gir_new():
             "deadline": request.form.get("deadline"),
             "priority_justification": request.form.get("priority_justification"),
             "sub_questions": _sub_questions(request.form),
+            "focus_points": _scope_focus_points(request.form),
             "next_review": request.form.get("next_review") or None,
             "intel_level": request.form.getlist("intel_level"),
             "mitre_attack_techniques": request.form.getlist("mitre_attack_techniques"),
@@ -664,10 +681,10 @@ def gir_new():
             gir_id = data["gir_id"]
             audit.record("create", "gir", entity_id=uuid, entity_label=gir_id)
             _matching.invalidate_cache()
-            _sync_focus_points()
             flash(f"{gir_id} created.", "success")
             return redirect(url_for("requirements.gir_detail", id=uuid))
         except Exception as exc:
+            logger.exception("Could not create GIR")
             flash(f"Could not create GIR: {exc}", "warning")
 
     return render_template(
@@ -739,6 +756,7 @@ def gir_edit(id):
             "deadline": request.form.get("deadline"),
             "priority_justification": request.form.get("priority_justification"),
             "sub_questions": _sub_questions(request.form),
+            "focus_points": _scope_focus_points(request.form, gir.focus_points),
             "next_review": request.form.get("next_review") or None,
             "intel_level": request.form.getlist("intel_level"),
             "mitre_attack_techniques": request.form.getlist("mitre_attack_techniques"),
@@ -747,10 +765,10 @@ def gir_edit(id):
             new_id = misp_store.update_gir(id, data)
             audit.record("update", "gir", entity_id=id, entity_label=gir.gir_id)
             _matching.invalidate_cache()
-            _sync_focus_points()
             flash(f"{gir.gir_id} updated.", "success")
             return redirect(url_for("requirements.gir_detail", id=new_id))
         except Exception as exc:
+            logger.exception("Could not update GIR %s", id)
             flash(f"Could not update GIR: {exc}", "warning")
 
     return render_template(
@@ -773,9 +791,9 @@ def gir_delete(id):
         misp_store.delete_gir(id)
         audit.record("delete", "gir", entity_id=id, entity_label=label)
         _matching.invalidate_cache()
-        _sync_focus_points()
         flash(f"{label} deleted.", "info")
     except Exception as exc:
+        logger.exception("Could not delete GIR %s", id)
         flash(f"Could not delete GIR: {exc}", "warning")
     return redirect(url_for("requirements.gir_list"))
 
@@ -818,14 +836,7 @@ def gir_scope_preview(id):
     if gir is None:
         return "GIR not found", 404
     timeframe_key, timeframe_hours = _scope_preview_timeframe(request.args.get("timeframe"))
-    terms = []
-    terms.extend(gir.geographic_scope or [])
-    terms.extend(gir.sectors or [])
-    terms.extend(gir.threat_actors or [])
-    terms.extend(gir.threat_types or [])
-    for fp in gir.focus_points:
-        if fp.value:
-            terms.append(fp.value)
+    terms = _scope_terms(gir)
     matches = misp_store.preview_scope_matches(terms, timeframe_hours=timeframe_hours)
     ctx = dict(
         terms=sorted(set(t for t in terms if t)),
@@ -910,29 +921,47 @@ def gir_status_update(id):
 
 # ── Notify stakeholders ───────────────────────────────────────────────────────
 
-def _pir_notify_recipients(pir):
-    """Return registered stakeholders selected in PIR distribution."""
+def _notify_recipients(req):
+    """Registered stakeholders selected in a requirement's distribution."""
     stakeholders = misp_store.list_stakeholders()
-    return _selected_distribution_stakeholders(getattr(pir, "distribution", []) or [], stakeholders)
+    return _selected_distribution_stakeholders(getattr(req, "distribution", []) or [], stakeholders)
 
 
-def _gir_notify_recipients(gir):
-    """Return registered stakeholders selected in GIR distribution."""
-    stakeholders = misp_store.list_stakeholders()
-    return _selected_distribution_stakeholders(getattr(gir, "distribution", []) or [], stakeholders)
+_SCOPE_MARKDOWN_LABELS = (
+    ("Geography", "geographic_scope"),
+    ("Sectors", "sectors"),
+    ("Threat actors", "threat_actors"),
+    ("Threat types", "threat_types"),
+    ("Technology", "technology"),
+    ("Vendor", "vendor"),
+    ("Incident", "incident"),
+    ("Campaign", "campaign"),
+    ("ATT&CK techniques", "mitre_attack_techniques"),
+)
+
+
+def _scope_markdown(req):
+    """The "## Scope" section, the same for a PIR and a GIR."""
+    parts = []
+    for label, field in _SCOPE_MARKDOWN_LABELS:
+        values = getattr(req, field, None) or []
+        if values:
+            parts.append(f"**{label}:** {', '.join(values)}")
+    return ["", "## Scope", ""] + parts if parts else []
+
 
 def _pir_markdown(pir):
     today = date.today().strftime('%d-%m-%Y')
     stakeholders = misp_store.list_stakeholders()
     lines = [
         f"# {pir.pir_id}: Priority Intelligence Requirement",
-        f"",
+        "",
         f"**Date:** {today}",
         f"**Status:** {pir.status}",
         f"**Priority:** {pir.priority}",
-        f"",
-        f"## Intelligence Question",
-        f"",
+        "",
+        "## Intelligence Question",
+        "",
         f"{pir.question}",
     ]
     if pir.context:
@@ -947,30 +976,13 @@ def _pir_markdown(pir):
             else:
                 lines.append("**Decision makers:** " + ", ".join(pir.decision_maker))
         if pir.consequence:
-            lines.append(f"**Consequence if unanswered:** {pir.consequence}")
+            label = "Consequence" if len(pir.consequence) == 1 else "Consequences"
+            lines.append(f"**{label} if unanswered:** " + ", ".join(pir.consequence))
         if getattr(pir, "deadline", ""):
             lines.append(f"**Deadline:** {pir.deadline}")
     if getattr(pir, "priority_justification", ""):
         lines += ["", "## Priority Justification", "", pir.priority_justification]
-    scope_parts = []
-    if pir.geographic_scope:
-        scope_parts.append(f"**Geography:** {', '.join(pir.geographic_scope)}")
-    if pir.sectors:
-        scope_parts.append(f"**Sectors:** {', '.join(pir.sectors)}")
-    if pir.threat_actors:
-        scope_parts.append(f"**Threat actors:** {', '.join(pir.threat_actors)}")
-    if pir.threat_types:
-        scope_parts.append(f"**Threat types:** {', '.join(pir.threat_types)}")
-    if getattr(pir, "technology", []):
-        scope_parts.append(f"**Technology:** {', '.join(pir.technology)}")
-    if getattr(pir, "vendor", []):
-        scope_parts.append(f"**Vendor:** {', '.join(pir.vendor)}")
-    if getattr(pir, "incident", []):
-        scope_parts.append(f"**Incident:** {', '.join(pir.incident)}")
-    if getattr(pir, "campaign", []):
-        scope_parts.append(f"**Campaign:** {', '.join(pir.campaign)}")
-    if scope_parts:
-        lines += ["", "## Scope", ""] + scope_parts
+    lines += _scope_markdown(pir)
     distribution_labels = _distribution_labels(pir.distribution or [], stakeholders)
     if distribution_labels:
         lines += ["", "## Distribution", "", ", ".join(distribution_labels)]
@@ -983,38 +995,20 @@ def _gir_markdown(gir):
     stakeholders = misp_store.list_stakeholders()
     lines = [
         f"# {gir.gir_id}: General Intelligence Requirement",
-        f"",
+        "",
         f"**Date:** {today}",
         f"**Status:** {gir.status}",
         f"**Review cycle:** {gir.review_cycle}",
-        f"",
-        f"## Topic",
-        f"",
+        "",
+        "## Topic",
+        "",
         f"{gir.topic}",
     ]
     if gir.description:
         lines += ["", gir.description]
     if getattr(gir, "priority_justification", ""):
         lines += ["", "## Priority Justification", "", gir.priority_justification]
-    scope_parts = []
-    if gir.geographic_scope:
-        scope_parts.append(f"**Geography:** {', '.join(gir.geographic_scope)}")
-    if gir.sectors:
-        scope_parts.append(f"**Sectors:** {', '.join(gir.sectors)}")
-    if gir.threat_actors:
-        scope_parts.append(f"**Threat actors:** {', '.join(gir.threat_actors)}")
-    if gir.threat_types:
-        scope_parts.append(f"**Threat types:** {', '.join(gir.threat_types)}")
-    if getattr(gir, "technology", []):
-        scope_parts.append(f"**Technology:** {', '.join(gir.technology)}")
-    if getattr(gir, "vendor", []):
-        scope_parts.append(f"**Vendor:** {', '.join(gir.vendor)}")
-    if getattr(gir, "incident", []):
-        scope_parts.append(f"**Incident:** {', '.join(gir.incident)}")
-    if getattr(gir, "campaign", []):
-        scope_parts.append(f"**Campaign:** {', '.join(gir.campaign)}")
-    if scope_parts:
-        lines += ["", "## Scope", ""] + scope_parts
+    lines += _scope_markdown(gir)
     distribution_labels = _distribution_labels(getattr(gir, "distribution", []) or [], stakeholders)
     if distribution_labels:
         lines += ["", "## Distribution", "", ", ".join(distribution_labels)]
@@ -1029,7 +1023,7 @@ def pir_notify(id):
         return "PIR not found", 404
     preview_url = url_for("requirements.pir_detail", id=id, _external=True)
     md = _pir_markdown(pir) + f"\n\n[Open PIR preview]({preview_url})"
-    recipients = _pir_notify_recipients(pir)
+    recipients = _notify_recipients(pir)
 
     from notifier import dispatcher
 
@@ -1069,7 +1063,7 @@ def gir_notify(id):
         return "GIR not found", 404
     preview_url = url_for("requirements.gir_detail", id=id, _external=True)
     md = _gir_markdown(gir) + f"\n\n[Open GIR preview]({preview_url})"
-    recipients = _gir_notify_recipients(gir)
+    recipients = _notify_recipients(gir)
     from notifier import dispatcher
 
     if request.method == "POST":

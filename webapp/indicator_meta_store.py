@@ -13,10 +13,6 @@ from core.db import row_connection as _conn
 
 logger = logging.getLogger(__name__)
 
-# Attribute types are loaded locally (misp_store.local_attribute_types); only
-# organisations and tags need pulling/caching from the servers.
-KINDS = ("orgs", "tags")
-
 
 def init_db():
     with _conn() as db:
@@ -80,9 +76,11 @@ def _put(db, kind, items):
 
 
 def refresh_all():
-    """Pull orgs, tags and attribute types from MISP into the cache.
+    """Pull the organisation and tag lists from MISP into the cache.
 
-    Returns {kind: count} for the kinds successfully refreshed.
+    Attribute types are not among them: they are a fixed list that
+    misp_store.local_attribute_types reads without asking a server. Returns
+    {kind: count} for the kinds successfully refreshed.
     """
     from webapp import misp_store
     pulls = {

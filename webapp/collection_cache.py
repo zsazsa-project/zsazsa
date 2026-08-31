@@ -21,8 +21,6 @@ import threading
 import time
 from contextlib import contextmanager
 
-_CVE_RE = re.compile(r'\bCVE-\d{4}-\d{4,}\b', re.IGNORECASE)
-
 import urllib3
 from pymisp import PyMISP
 
@@ -34,6 +32,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _DB_FILE = "data/collection_cache.db"
 _DEFAULT_INTERVAL_MIN = 15
+_CVE_RE = re.compile(r'\bCVE-\d{4}-\d{4,}\b', re.IGNORECASE)
 
 
 def interval_s() -> int:
@@ -229,6 +228,26 @@ def filter_events_by_org(events, org_filter_type: str, org_filter: set):
     return events
 
 
+def event_cves(event) -> list[str]:
+    """CVE IDs carried by an event, in the order found and without duplicates.
+
+    Read from the vulnerability attributes, on the event and on its objects, and
+    only failing those from the title, which is where a scraped article often
+    names the CVE it is about.
+    """
+    values = []
+    for attr in getattr(event, "attributes", []) or []:
+        if getattr(attr, "type", "") == "vulnerability" and getattr(attr, "value", ""):
+            values.append(attr.value.strip().upper())
+    for obj in getattr(event, "Object", []) or getattr(event, "objects", []) or []:
+        for attr in getattr(obj, "attributes", []) or []:
+            if getattr(attr, "type", "") == "vulnerability" and getattr(attr, "value", ""):
+                values.append(attr.value.strip().upper())
+    if not values:
+        values = [m.upper() for m in _CVE_RE.findall(getattr(event, "info", "") or "")]
+    return list(dict.fromkeys(values))
+
+
 def _extract_row(e, source_id: str) -> dict:
     tags = [t.name for t in getattr(e, "tags", []) or []]
     galaxies = []
@@ -252,17 +271,6 @@ def _extract_row(e, source_id: str) -> dict:
         (getattr(r, "name", "") or "").startswith(AI_SUMMARY_PREFIX)
         for r in reports
     )
-    vuln_ids = []
-    for a in getattr(e, "attributes", []) or []:
-        if getattr(a, "type", "") == "vulnerability" and getattr(a, "value", ""):
-            vuln_ids.append(a.value.strip())
-    for obj in getattr(e, "Object", []) or getattr(e, "objects", []) or []:
-        for a in getattr(obj, "attributes", []) or []:
-            if getattr(a, "type", "") == "vulnerability" and getattr(a, "value", ""):
-                vuln_ids.append(a.value.strip())
-    # Fall back to extracting CVE IDs from the event title when none found via attributes
-    if not vuln_ids and e.info:
-        vuln_ids = [m.upper() for m in _CVE_RE.findall(e.info)]
     return {
         "uuid": e.uuid,
         "event_id": str(e.id),
@@ -276,7 +284,7 @@ def _extract_row(e, source_id: str) -> dict:
         "galaxy_names": galaxies,
         "report_count": len(reports),
         "has_ai_summary": has_ai,
-        "vulnerability_ids": list(dict.fromkeys(vuln_ids)),
+        "vulnerability_ids": event_cves(e),
         "source_id": source_id,
     }
 
@@ -297,13 +305,14 @@ def _search_payload_error(payload) -> str | None:
     return None
 
 
-def _source_slug(name: str) -> str:
-    return name.lower().replace(" ", "-").replace("/", "-")
+def source_slug(name: str) -> str:
+    """Normalise a source name to the kebab-case ID the cache stores it under."""
+    return (name or "").lower().replace(" ", "-").replace("/", "-")
 
 
 def manual_source_id(name: str) -> str:
     """Source id a manual collection source is cached under."""
-    return f"manual-{_source_slug(name)}"
+    return f"manual-{source_slug(name)}"
 
 
 def _build_sources() -> list:
@@ -331,7 +340,7 @@ def _build_sources() -> list:
         for src in misp_store.list_collection_sources():
             if not src.enabled or not (src.name or "").strip():
                 continue
-            slug = _source_slug(src.name)
+            slug = source_slug(src.name)
             srcs.append({
                 "id": manual_source_id(src.name),
                 "label": src.name,
@@ -600,7 +609,6 @@ def trigger_refresh(job_id: str = "") -> bool:
     queued, False when the worker could not be started; it never raises, so
     callers can fire it from inside a "did the save work" try block.
     """
-    global _worker_thread
     if not (_worker_thread and _worker_thread.is_alive()):
         try:
             start_worker()

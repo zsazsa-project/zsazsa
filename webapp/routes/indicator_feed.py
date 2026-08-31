@@ -9,7 +9,8 @@ results to subscribed stakeholders.
 import csv
 import io
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from flask import (
@@ -256,6 +257,12 @@ def delete(id):
     return redirect(url_for("indicator_feed.index"))
 
 
+def _filename_stem(name):
+    """A feed name as a download filename: it ends up in a quoted header."""
+    stem = re.sub(r"[^a-z0-9._-]+", "-", (name or "").lower()).strip("-.")
+    return stem or "indicator-feed"
+
+
 def _download(rows, fmt, stem):
     if fmt == "txt":
         return Response(
@@ -282,7 +289,7 @@ def download_feed(id, fmt):
     if feed is None:
         return "Indicator feed not found", 404
     rows = _run_search(_merge_filters(feed.query))
-    stem = (feed.name or feed.feed_id or "indicator-feed").lower().replace(" ", "-")
+    stem = _filename_stem(feed.name or feed.feed_id)
     return _download(rows, fmt, stem)
 
 
@@ -294,7 +301,7 @@ def notify(id):
     rows = _run_search(_merge_filters(feed.query))
     # Deliver to the stakeholders who will actually receive it (subscribed, TLP
     # cleared, audience match) — the green set shown by the Recipients preview.
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [f"# {feed.name}", ""]
     if feed.description:
         lines += [feed.description, ""]

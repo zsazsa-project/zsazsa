@@ -25,14 +25,15 @@ logger = logging.getLogger(__name__)
 # stripped) so "Agent Tesla" matches "AgentTesla" and vice versa.
 
 _SCOPE_CATEGORIES = [
-    ("geographic_scope", ["galaxy", "tag_value", "tag_name", "title"], "Geography",    1.5),
-    ("sectors",          ["galaxy", "tag_value", "tag_name", "title"], "Sector",       1.5),
-    ("threat_actors",    ["galaxy", "tag_value", "tag_name", "title"], "Threat actor", 2.0),
-    ("threat_types",     ["galaxy", "tag_name", "title"],              "Threat type",  1.0),
-    ("technology",       ["title"],                                     "Technology",   1.0),
-    ("vendor",           ["title"],                                     "Vendor",       1.0),
-    ("incident",         ["title"],                                     "Incident",     0.8),
-    ("campaign",         ["galaxy", "tag_name", "title"],              "Campaign",     1.0),
+    ("geographic_scope",        ["galaxy", "tag_value", "tag_name", "title"], "Geography",        1.5),
+    ("sectors",                 ["galaxy", "tag_value", "tag_name", "title"], "Sector",           1.5),
+    ("threat_actors",           ["galaxy", "tag_value", "tag_name", "title"], "Threat actor",     2.0),
+    ("threat_types",            ["galaxy", "tag_name", "title"],              "Threat type",      1.0),
+    ("technology",              ["title"],                                    "Technology",       1.0),
+    ("vendor",                  ["title"],                                    "Vendor",           1.0),
+    ("incident",                ["title"],                                    "Incident",         0.8),
+    ("campaign",                ["galaxy", "tag_name", "title"],              "Campaign",         1.0),
+    ("mitre_attack_techniques", ["galaxy", "tag_value", "tag_name", "title"], "ATT&CK technique", 1.0),
 ]
 
 # Minimum compact length before compound-word matching is attempted.

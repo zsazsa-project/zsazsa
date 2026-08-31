@@ -7,7 +7,7 @@ with LLM assistance), then publishes the briefing.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import config
 import weasyprint
@@ -175,6 +175,33 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
     return story
 
 
+# How many collection events one selection seeds onto a briefing at a time.
+_MAX_SEEDED_STORIES = 8
+
+
+def _seed_stories(selected_events):
+    """Story stubs for the events selected on the collection page.
+
+    An event that cannot be read is logged and skipped rather than losing the
+    analyst the whole selection, and a selection past the cap says so instead
+    of quietly arriving short.
+    """
+    selected_uuids, source_hints, _pairs = parse_source_tokens(selected_events)
+    if len(selected_uuids) > _MAX_SEEDED_STORIES:
+        flash(f"Only the first {_MAX_SEEDED_STORIES} selected events were loaded. "
+              "Add the rest once these are saved.", "warning")
+    stories = []
+    for ev_uuid in selected_uuids[:_MAX_SEEDED_STORIES]:
+        try:
+            story = _seed_story_from_event(ev_uuid, source_hints.get(ev_uuid, ""))
+        except Exception as exc:
+            logger.warning("Could not fetch event %s for briefing: %s", ev_uuid, exc)
+            continue
+        if story:
+            stories.append(story)
+    return stories
+
+
 def _parse_scope_field(form, key):
     """Read a story scope list out of a hidden form field.
 
@@ -231,7 +258,8 @@ def _parse_stories_from_form(form):
         cti_eval_raw = form.get(f"story_{i}_cti_evaluation", "").strip()
         try:
             cti_evaluation = json.loads(cti_eval_raw) if cti_eval_raw else {}
-        except Exception:
+        except ValueError:
+            logger.warning("Briefing story %d has an unreadable CTI evaluation; dropping it", i)
             cti_evaluation = {}
         stories.append({
             "title": title,
@@ -318,20 +346,11 @@ def compose():
     if request.method == "POST":
         # Submitted from the triage page: create a blank briefing shell with
         # selected events pre-loaded as story stubs, then redirect to edit.
-        selected_uuids, source_hints, _pairs = parse_source_tokens(request.form.getlist("selected_events"))
-        bdate = request.form.get("date", "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
+        bdate = request.form.get("date", "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         btitle = request.form.get("title", "").strip()
         author = request.form.get("author", "").strip()
         tlp = request.form.get("tlp", "clear")
-
-        stories = []
-        for ev_uuid in selected_uuids[:8]:
-            try:
-                story = _seed_story_from_event(ev_uuid, source_hints.get(ev_uuid, ""))
-                if story:
-                    stories.append(story)
-            except Exception as exc:
-                logger.warning("Could not fetch event %s for briefing: %s", ev_uuid, exc)
+        stories = _seed_stories(request.form.getlist("selected_events"))
 
         return _render_briefing_form(
             stories=stories,
@@ -347,7 +366,7 @@ def compose():
         )
 
     # GET: show empty compose form, optionally pre-seeded with one source event
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     stories = []
     seed_token = (request.args.get("source") or "").strip()
     if seed_token:
@@ -379,7 +398,7 @@ def save():
     """Save the composed briefing draft to MISP."""
     stories = _parse_stories_from_form(request.form)
     data = {
-        "date": request.form.get("date", "").strip() or datetime.utcnow().strftime("%Y-%m-%d"),
+        "date": request.form.get("date", "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "title": request.form.get("title", "").strip(),
         "author": request.form.get("author", "").strip(),
         "tlp": request.form.get("tlp", "clear"),
@@ -405,6 +424,7 @@ def save():
         flash(f"{label} saved as draft.", "success")
         return redirect(url_for("daily_briefing.detail", id=uuid))
     except Exception as exc:
+        logger.exception("Could not save briefing")
         flash(f"Could not save briefing: {exc}", "warning")
         return redirect(url_for("daily_briefing.compose"))
 
@@ -514,6 +534,7 @@ def edit(id):
             flash("Briefing updated.", "success")
             return redirect(url_for("daily_briefing.detail", id=id))
         except Exception as exc:
+            logger.exception("Could not update briefing %s", id)
             flash(f"Could not update briefing: {exc}", "warning")
     return _render_briefing_form(
         stories=briefing.stories,
@@ -555,16 +576,7 @@ def add_stories(id):
         flash("Only draft briefings can receive additional stories.", "warning")
         return redirect(url_for("daily_briefing.detail", id=id))
 
-    selected_uuids, source_hints, _pairs = parse_source_tokens(request.form.getlist("selected_events"))
-    new_stories = []
-    for ev_uuid in selected_uuids[:8]:
-        try:
-            story = _seed_story_from_event(ev_uuid, source_hints.get(ev_uuid, ""))
-            if story:
-                new_stories.append(story)
-        except Exception as exc:
-            logger.warning("Could not fetch event %s for briefing: %s", ev_uuid, exc)
-
+    new_stories = _seed_stories(request.form.getlist("selected_events"))
     if not new_stories:
         flash("No stories could be added from the selected events.", "warning")
         return redirect(url_for("daily_briefing.edit", id=id))

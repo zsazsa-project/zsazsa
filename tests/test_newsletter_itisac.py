@@ -181,6 +181,42 @@ class Parse(unittest.TestCase):
             self.assertEqual(article["section"], "")
 
 
+class Boundaries(unittest.TestCase):
+    """A title opens an article and a rule closes one. Lines outside both, the
+    mail's own header above the first article, belong to no article and must not
+    be attached to the nearest one."""
+
+    def parse(self, text):
+        return parsers.parse("IT-ISAC Open Source News", text)["articles"]
+
+    def test_a_banner_link_above_the_first_article_is_not_its_url(self):
+        """Splitting on the rule alone put the mail header in the same block as
+        the first article, so a 'view this online' link was published as that
+        article's URL and sent the scraper to the newsletter itself."""
+        articles = self.parse(
+            "IT-ISAC Public\n"
+            "View this newsletter online: https://example.org/editions/2026-08-14\n\n"
+            "[IT-ISAC] Open Source News August 14, 2026\n\n"
+            "Title: Fake Zoom Installer Delivers Overlord RAT\n\n"
+            "https://example.org/blog/fake-zoom\n\n"
+            "Excerpt: “Jamf Threat Labs identified a campaign.”\n\n" + "-" * 30 + "\n")
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["primary_url"], "https://example.org/blog/fake-zoom")
+        self.assertEqual(articles[0]["related_urls"], [])
+
+    def test_a_lost_rule_does_not_fold_two_articles_into_one(self):
+        """An edition that reaches us without a rule between two articles, one
+        reflowed by a mail client, used to collect them as a single article
+        carrying both titles, and the second link was never published."""
+        articles = self.parse(
+            "Title: First story\n\nhttps://example.org/one\n\nExcerpt: “One.”\n\n"
+            "Title: Second story\n\nhttps://example.org/two\n\nExcerpt: “Two.”\n\n"
+            + "-" * 30 + "\n")
+        self.assertEqual([(a["title"], a["primary_url"]) for a in articles],
+                         [("First story", "https://example.org/one"),
+                          ("Second story", "https://example.org/two")])
+
+
 class ForwardedCopy(unittest.TestCase):
     """The same mail forwarded, which arrives quoted with '> ' like the ETDA one."""
 

@@ -102,10 +102,6 @@ class Publish(unittest.TestCase):
         self.assertIn(b"pw", self.fake.sent)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Target(unittest.TestCase):
     """The delivery warning names where it published, because a PUBLISH that
     reached nobody looks the same whether the scraper is down or subscribed to
@@ -116,3 +112,7 @@ class Target(unittest.TestCase):
              mock.patch.object(scraper_queue.config, "SCRAPER_REDIS_PORT", 6380), \
              mock.patch.object(scraper_queue.config, "SCRAPER_REDIS_CHANNEL", "urls"):
             self.assertEqual(scraper_queue.target(), "channel 'urls' on 10.0.0.9:6380")
+
+
+if __name__ == "__main__":
+    unittest.main()

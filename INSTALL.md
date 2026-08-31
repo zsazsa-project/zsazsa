@@ -93,6 +93,26 @@ zsazsa is designed to run alongside MISP and can be served under a subpath of th
 
 Serving zsazsa under the MISP host is also what makes single sign-on possible: the browser only sends MISP's session cookie to zsazsa when both are on the same host.
 
+### The server zsazsa runs on
+
+zsazsa is served by **Flask's built-in server**, in threaded mode, as a single
+process. That is a deliberate choice rather than an oversight, and it is the
+supported way to run it: Apache sits in front, terminates TLS and is what should
+face the network. For the load a CTI team puts on it, a few analysts and a
+background refresh every fifteen minutes, that is enough.
+
+Its own listener binds to every interface, so port 5000 is reachable directly
+unless you stop it. Keep that port closed on the firewall, or edit `run_webapp.py`
+to bind to `127.0.0.1` as the service template describes. `HOSTNAME` in the
+settings does not change this; it is kept for reference and for building links.
+
+It also has to stay a single process. Several things live in this one and assume
+it: the data collection cache worker, the requirement cache the collection page
+matches against, and the lock that hands out the next PIR, GIR, RFI, FEED and TAP
+number. Running zsazsa under gunicorn or uWSGI with more than one worker gives
+you a cache refresh per worker and lets two workers allocate the same requirement
+id. If you move to such a server, run exactly one worker.
+
 ### 1. Systemd
 
 Copy the service template and adjust the paths and user:
@@ -157,6 +177,12 @@ Then restart the service to pick up the changes:
 sudo systemctl restart zsazsa.service
 ```
 
+After restarting, open Configuration > System and run any migration listed there that
+you have not run before. They are dry-run first and safe to run twice. Upgrading to
+1.0.0 needs **Align requirement scope and scope items**: before it, a technology,
+vendor, incident or campaign was written to only one of the two places a requirement
+keeps its scope, so it was either invisible on the detail page or matched nothing.
+
 ## Configuration settings
 
 Almost all runtime settings are in `config/__init__.py`, and most of them can be changed from the web interface Saving regenerates the whole file from a fixed template rather than editing lines in place. Anything you added by hand that the template does not know about is dropped.
@@ -198,7 +224,7 @@ The System tab holds six cards.
 
 **Single sign-on** is described in its own section below.
 
-**Migration** lists the one-off maintenance scripts that rewrite existing data in MISP. Each one runs as a dry-run first and reports what it would change, then applies the change when you run it for real. The scripts are `scripts/make_zsazsa_tags_local.py` (re-attach `zsazsa:` namespace tags as local tags so they never sync to connected instances), `scripts/rename_vea_subscription_product.py` (rewrite the old VEA product name in stakeholder subscriptions) and `scripts/backfill_product_source_log.py` (record the source events of products created before source logging existed). Only these three can be launched from the page, and the browser only ever sends a migration id, never a path.
+**Migration** lists the one-off maintenance scripts that rewrite existing data in MISP. Each one runs as a dry-run first and reports what it would change, then applies the change when you run it for real. The scripts are `scripts/make_zsazsa_tags_local.py` (re-attach `zsazsa:` namespace tags as local tags so they never sync to connected instances), `scripts/rename_vea_subscription_product.py` (rewrite the old VEA product name in stakeholder subscriptions), `scripts/backfill_product_source_log.py` (record the source events of products created before source logging existed), `scripts/convert_url_attributes_to_link.py` (retype the external references on manual collection entries) `scripts/align_requirement_scope_focus_points.py` (give a PIR or GIR the scope items its scope lists imply, and the other way round) and `scripts/restore_rfi_ids.py` (put back the id of an RFI that lost it when its feedback was saved before 1.0.0). Only these can be launched from the page, and the browser only ever sends a migration id, never a path.
 
 | Setting | Description |
 |---|---|

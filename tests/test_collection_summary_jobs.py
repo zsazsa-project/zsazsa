@@ -199,5 +199,108 @@ class BatchAcrossSources(unittest.TestCase):
         self.assertEqual(run.update.call_args.kwargs["result"]["skipped"], 1)
 
 
+# The layout zsazsaprompts/summarise_misp_report.md asks the model for. The
+# context lines are what the scope tags are read from.
+_SUMMARY = """**Summary**
+
+**What happened:** A campaign delivered Overlord RAT to hauliers.
+**Recommended action:** Investigate.
+
+**Severity:** High
+**Urgency:** This week
+
+**MISP context** (extract from the article content - always include all five lines):
+- **Targeted sector:** Transportation
+- **Geographic scope:** Belgium
+- **MITRE ATT&CK techniques:** T1190
+- **Threat actor:** Lazarus Group
+- **Vendor/Technology:** None identified
+"""
+
+_MITRE_CLUSTERS = {
+    "Exploit Public-Facing Application - T1190":
+        'misp-galaxy:mitre-attack-pattern="Exploit Public-Facing Application - T1190"',
+    "Phishing - T1566": 'misp-galaxy:mitre-attack-pattern="Phishing - T1566"',
+}
+
+
+class _FakeMisp:
+    def __init__(self, article="An article about a RAT."):
+        self.reports = [SimpleNamespace(name="Article", content=article)]
+        self.tagged = []
+
+    def get_event_reports(self, event_id, pythonify=True):
+        return self.reports
+
+    def add_event_report(self, event_id, report):
+        self.reports.append(report)
+
+    def tag(self, event, tag_name):
+        self.tagged.append(tag_name)
+
+
+class SummaryScopeTags(unittest.TestCase):
+    """Summarising from data collection tags the event with the scope its
+    summary names, the same tags the analyser applies when it writes one. The
+    two read the same model output, so they have to read it the same way: the
+    page had its own parser for an older, plain-text layout and silently tagged
+    nothing once the prompt moved to markdown."""
+
+    def summarise(self, summary):
+        misp = _FakeMisp()
+        event = SimpleNamespace(id=7, uuid="u" * 36, info="Overlord RAT campaign", tags=[])
+        scope_calls = []
+
+        def build_scope_tags(data):
+            scope_calls.append(data)
+            tags = []
+            for sector in data.get("sectors") or []:
+                tags.append(f'misp-galaxy:sector="{sector}"')
+            for geo in data.get("geographic_scope") or []:
+                tags.append(f'misp-galaxy:country="{geo}"')
+            for actor in data.get("threat_actors") or []:
+                tags.append(f'misp-galaxy:threat-actor="{actor}"')
+            return tags
+
+        with mock.patch("analyser.llm.summarise_report", return_value=summary), \
+             mock.patch("analyser.tagger.set_workflow_state"), \
+             mock.patch.object(data_collection.collection_cache, "mark_ai_summary"), \
+             mock.patch.object(data_collection, "_refresh_cached_event"), \
+             mock.patch.object(data_collection.audit, "record") as audit_record, \
+             mock.patch.object(data_collection.misp_store, "_build_scope_tags", build_scope_tags), \
+             mock.patch.object(data_collection.misp_store, "_galaxy_tag_map", return_value=_MITRE_CLUSTERS):
+            ok, message, status = data_collection._generate_ai_summary(misp, event, "scraper")
+
+        self.assertEqual((ok, status), (True, 200), message)
+        return misp.tagged, (scope_calls[0] if scope_calls else {}), dict(audit_record.call_args.kwargs)
+
+    def test_the_context_lines_become_galaxy_tags(self):
+        tagged, scope, _audit = self.summarise(_SUMMARY)
+        self.assertEqual(scope["sectors"], ["Transportation"])
+        self.assertEqual(scope["geographic_scope"], ["Belgium"])
+        self.assertEqual(scope["threat_actors"], ["Lazarus Group"])
+        self.assertIn('misp-galaxy:sector="Transportation"', tagged)
+        self.assertIn('misp-galaxy:country="Belgium"', tagged)
+        self.assertIn('misp-galaxy:threat-actor="Lazarus Group"', tagged)
+
+    def test_only_the_techniques_named_are_tagged(self):
+        tagged, _scope, _audit = self.summarise(_SUMMARY)
+        self.assertIn(_MITRE_CLUSTERS["Exploit Public-Facing Application - T1190"], tagged)
+        self.assertNotIn(_MITRE_CLUSTERS["Phishing - T1566"], tagged)
+
+    def test_the_applied_tags_are_recorded_in_the_audit_trail(self):
+        _tagged, _scope, audit = self.summarise(_SUMMARY)
+        self.assertIn('misp-galaxy:sector="Transportation"', audit["details"])
+
+    def test_a_summary_that_identifies_nothing_tags_nothing(self):
+        empty = _SUMMARY.replace("Transportation", "None identified") \
+                        .replace("Belgium", "None identified") \
+                        .replace("T1190", "None identified") \
+                        .replace("Lazarus Group", "None identified")
+        tagged, scope, _audit = self.summarise(empty)
+        self.assertEqual(tagged, [])
+        self.assertEqual(scope, {})
+
+
 if __name__ == "__main__":
     unittest.main()

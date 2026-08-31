@@ -5,13 +5,12 @@ intake → acknowledge → triage → respond → feedback. RFIs are stored as
 MISP events tagged 'zsazsa:type="rfi"' and 'zsazsa:ctiproduct="rfi"'.
 """
 
-import json
 import logging
 from datetime import date, timedelta
 from urllib.parse import quote
 
-import config
-from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, flash, jsonify, redirect, render_template,
+                   request, url_for)
 
 from webapp import audit, misp_session, misp_store, notify_jobs
 from webapp.models import cti_products, TLP_LEVELS
@@ -223,27 +222,13 @@ def rfi_feedback(id):
     rfi = misp_store.get_rfi(id)
     if rfi is None:
         return "RFI not found", 404
-    data = {
-        "feedback_requirement_met": request.form.get("feedback_requirement_met", ""),
-        "feedback_on_time": request.form.get("feedback_on_time", ""),
-        "feedback_usefulness": request.form.get("feedback_usefulness", ""),
-        "feedback_suggestions": request.form.get("feedback_suggestions", "").strip(),
-    }
-    update_data = {
-        "question": rfi.question, "context": rfi.context or "",
-        "requester_name": rfi.requester_name or "", "requester_team": rfi.requester_team or "",
-        "owner_uuid": rfi.owner_uuid or "", "owner_name": rfi.owner_name or "",
-        "priority": rfi.priority, "assigned_analyst": rfi.assigned_analyst or "",
-        "due_date": rfi.due_date.isoformat() if rfi.due_date else None,
-        "linked_pir_uuid": rfi.linked_pir_uuid or "", "linked_gir_uuid": rfi.linked_gir_uuid or "",
-        "output_format_list": list(rfi.output_format_list),
-        "response": rfi.response or "",
-        "response_confidence": rfi.response_confidence or "",
-        "status": rfi.status,
-        **data,
-    }
+    data = _rfi_data_from_store(rfi)
+    data["feedback_requirement_met"] = request.form.get("feedback_requirement_met", "")
+    data["feedback_on_time"] = request.form.get("feedback_on_time", "")
+    data["feedback_usefulness"] = request.form.get("feedback_usefulness", "")
+    data["feedback_suggestions"] = request.form.get("feedback_suggestions", "").strip()
     try:
-        misp_store.update_rfi(id, update_data)
+        misp_store.update_rfi(id, data)
         audit.record("update", "rfi_feedback", entity_id=id, entity_label=rfi.rfi_id)
         flash("Feedback saved.", "success")
     except Exception as exc:
@@ -355,7 +340,6 @@ def rfi_triage(id):
 
 @bp.route("/<string:id>/status", methods=["POST"])
 def rfi_status_update(id):
-    from flask import jsonify
     rfi = misp_store.get_rfi(id)
     if rfi is None:
         return jsonify({"error": "RFI not found"}), 404
@@ -377,8 +361,6 @@ def rfi_status_update(id):
 
 @bp.route("/<string:id>/notify", methods=["GET", "POST"])
 def rfi_notify(id):
-    from datetime import date
-    from flask import jsonify
     rfi = misp_store.get_rfi(id)
     if rfi is None:
         return "RFI not found", 404
@@ -391,14 +373,14 @@ def rfi_notify(id):
     today = date.today().strftime('%d-%m-%Y')
     lines = [
         f"# {rfi.rfi_id}: Request for Information",
-        f"",
+        "",
         f"**Date:** {today}",
         f"**Status:** {rfi.status}",
         f"**Priority:** {rfi.priority}",
         f"**TLP:** TLP:{(rfi.deliverable_tlp or 'AMBER').upper()}",
-        f"",
-        f"## Question",
-        f"",
+        "",
+        "## Question",
+        "",
         f"{rfi.question}",
     ]
     if rfi.context:

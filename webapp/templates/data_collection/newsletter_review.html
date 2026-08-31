@@ -28,7 +28,10 @@
       <div class="d-flex align-items-center gap-3">
         <span class="text-muted small">
           <span class="fw-semibold text-body" id="sel-count">0</span> of {{ articles | length }} selected
+          {# Only newsletters that grade their articles pre-select any. #}
+          {% if articles | selectattr('priority_key') | first %}
           <span class="ms-1">· critical and urgent are pre-selected</span>
+          {% endif %}
         </span>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="select-all-toggle">
           <i class="fas fa-check-double me-1"></i>Select all
@@ -63,8 +66,8 @@
                 <span class="badge text-bg-danger">Critical</span>
               {% elif a.priority_key == 'urgent' %}
                 <span class="badge text-bg-warning">Urgent</span>
-              {% else %}
-                <span class="badge text-bg-secondary">{{ a.priority_label or 'Important' }}</span>
+              {% elif a.priority_label %}
+                <span class="badge text-bg-secondary">{{ a.priority_label }}</span>
               {% endif %}
               <span class="fw-semibold">{{ a.title }}</span>
             </div>
