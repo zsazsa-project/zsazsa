@@ -83,19 +83,28 @@ _REQ_TTL = 300  # 5 minutes
 def get_requirements() -> tuple:
     """Return active (pirs, girs) with a 5-minute in-memory cache."""
     now = time.time()
+    data, ts = _req_cache["data"], _req_cache["ts"]
+    if data is not None and (now - ts) <= _REQ_TTL:
+        return data
+
     with _req_cache_lock:
-        if _req_cache["data"] is None or (now - _req_cache["ts"]) > _REQ_TTL:
-            try:
-                from webapp import misp_store
-                pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
-                girs = [g for g in (misp_store.list_girs() or []) if getattr(g, "status", None) == "Active"]
-                _req_cache["data"] = (pirs, girs)
-                _req_cache["ts"] = now
-            except Exception as exc:
-                logger.warning("Could not load PIRs/GIRs for matching: %s", exc)
-                if _req_cache["data"] is not None:
-                    return _req_cache["data"]  # return stale on error
-                return [], []
+        # Re-check: another thread may have refreshed the cache while we
+        # were waiting for the lock, or the network fetch below is slow
+        # enough that readers shouldn't block on each other unnecessarily.
+        now = time.time()
+        if _req_cache["data"] is not None and (now - _req_cache["ts"]) <= _REQ_TTL:
+            return _req_cache["data"]
+        try:
+            from webapp import misp_store
+            pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
+            girs = [g for g in (misp_store.list_girs() or []) if getattr(g, "status", None) == "Active"]
+            _req_cache["data"] = (pirs, girs)
+            _req_cache["ts"] = now
+        except Exception as exc:
+            logger.warning("Could not load PIRs/GIRs for matching: %s", exc)
+            if _req_cache["data"] is not None:
+                return _req_cache["data"]  # return stale on error
+            return [], []
         return _req_cache["data"]
 
 
