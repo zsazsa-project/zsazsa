@@ -50,6 +50,18 @@ fi
 
 echo "Python $PYTHON_VERSION found."
 
+# The venv module ships separately from python3 on Debian/Ubuntu (e.g. the
+# python3.12-venv package). Check it here so the failure is a clear one-line
+# message naming the exact package, rather than a raw traceback part-way
+# through creating the virtual environment below.
+if ! "$PYTHON" -c "import venv, ensurepip" &>/dev/null; then
+    echo "ERROR: the 'venv'/'ensurepip' module is not available for $PYTHON."
+    echo "  On Debian/Ubuntu, install it with:"
+    echo "    sudo apt-get install python3.${PYTHON_MINOR}-venv"
+    echo "  Then re-run this installer."
+    exit 1
+fi
+
 # ── 2. Create virtual environment ─────────────────────────────────────────────
 
 if [[ -d "$VENV_DIR" ]]; then
@@ -67,6 +79,20 @@ echo "Installing dependencies from requirements.txt ..."
 "$PIP" install --upgrade pip --quiet
 "$PIP" install -r requirements.txt --quiet
 echo "Dependencies installed."
+
+# WeasyPrint (PDF export for every CTI product) needs native libraries that
+# pip cannot install (cairo, pango, gdk-pixbuf). Warn now, without failing the
+# install, so the gap is caught here and not the first time someone exports a
+# product.
+if ! "$VENV_DIR/bin/python" -c "import weasyprint" &>/dev/null; then
+    echo ""
+    echo "WARNING: WeasyPrint could not be imported - PDF export will not work"
+    echo "  until the required system libraries are installed. See the"
+    echo "  'System packages' section of INSTALL.md, or:"
+    echo "    sudo apt-get install libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \\"
+    echo "        libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info"
+    echo ""
+fi
 
 # ── 4. Create data directory ──────────────────────────────────────────────────
 
