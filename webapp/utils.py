@@ -4,6 +4,7 @@ import ast
 import re
 from datetime import datetime
 
+import config
 from flask import jsonify, request
 from markdown_it import MarkdownIt
 from werkzeug.routing import BuildError
@@ -167,6 +168,62 @@ def sort_products(items: list, sort: str, direction: str) -> list:
     return items
 
 
+_PRODUCT_TAG_PREFIX = 'zsazsa:ctiproduct='
+_PRODUCT_TYPE_CONFIG = {
+    "Flash intel alert": {"config_attr": "TAG_FLASH_INTEL", "fallback": "flash-intel", "endpoint": "flash_intel.detail"},
+    "Vulnerability advisory": {"config_attr": "TAG_VEA", "fallback": "vea", "endpoint": "vea.detail"},
+    "Daily threat briefing": {"config_attr": "TAG_BRIEFING", "fallback": "daily-briefing", "endpoint": "daily_briefing.detail"},
+    "Threat landscape report": {"config_attr": "TAG_TLR", "fallback": "threat-landscape-report", "endpoint": "threat_landscape.detail"},
+    "Indicator feed": {"config_attr": "TAG_INDICATOR_FEED", "fallback": "indicator-feed", "endpoint": "indicator_feed.detail"},
+    "Threat actor profile": {"config_attr": "TAG_THREAT_ACTOR_PROFILE", "fallback": "threat-actor-profile", "endpoint": "threat_actor_profile.detail"},
+}
+_PRODUCT_TYPE_ALIASES = {
+    "flash-intel": "Flash intel alert",
+    "vea": "Vulnerability advisory",
+    "vulnerability exploitation advisory": "Vulnerability advisory",
+    "daily-briefing": "Daily threat briefing",
+    "threat-landscape-report": "Threat landscape report",
+    "indicator-feed": "Indicator feed",
+    "threat-actor-profile": "Threat actor profile",
+}
+
+
+def _normalized_product_type(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _configured_product_tag_value(config_attr: str, fallback: str) -> str:
+    raw = str(getattr(config, config_attr, "") or "").strip()
+    if raw.startswith(_PRODUCT_TAG_PREFIX):
+        return raw.split("=", 1)[1].strip().strip('"')
+    return fallback
+
+
+def product_type_tag_value(product_type: str) -> str:
+    value = (product_type or "").strip()
+    if not value:
+        return ""
+    wanted = _normalized_product_type(value)
+    for label, meta in _PRODUCT_TYPE_CONFIG.items():
+        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
+        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
+            return tag_value
+    return value
+
+
+def product_type_label(product_type: str) -> str:
+    value = (product_type or "").strip()
+    if not value:
+        return ""
+    wanted = _normalized_product_type(value)
+    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, wanted))
+    for label, meta in _PRODUCT_TYPE_CONFIG.items():
+        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
+        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
+            return label
+    return value
+
+
 def product_detail_url(product_type: str, entity_id: str, fallback_url: str = "") -> str:
     """Return the app-detail URL for a known CTI product type.
 
@@ -175,17 +232,14 @@ def product_detail_url(product_type: str, entity_id: str, fallback_url: str = ""
     """
     from flask import url_for
 
-    key = (product_type or "").strip().lower()
-    endpoint = {
-        "flash-intel": "flash_intel.detail",
-        "flash intel alert": "flash_intel.detail",
-        "vea": "vea.detail",
-        "vulnerability exploitation advisory": "vea.detail",
-        "daily-briefing": "daily_briefing.detail",
-        "daily threat briefing": "daily_briefing.detail",
-        "threat-landscape-report": "threat_landscape.detail",
-        "threat landscape report": "threat_landscape.detail",
-    }.get(key)
+    endpoint = None
+    wanted = _normalized_product_type(product_type)
+    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, wanted))
+    for label, meta in _PRODUCT_TYPE_CONFIG.items():
+        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
+        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
+            endpoint = meta["endpoint"]
+            break
 
     if not endpoint:
         return fallback_url

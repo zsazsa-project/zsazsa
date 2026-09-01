@@ -165,6 +165,14 @@ SCRAPER_REDIS_PORT = 6379
 SCRAPER_REDIS_PASSWORD = ''
 SCRAPER_REDIS_CHANNEL = 'urls'
 
+# Background-job state (Redis hash shared across browser tabs and page reloads)
+JOB_REDIS_HOST = '127.0.0.1'
+JOB_REDIS_PORT = 6379
+JOB_REDIS_DB = 0
+JOB_REDIS_USERNAME = ''
+JOB_REDIS_PASSWORD = ''
+JOB_REDIS_KEY = 'zsazsa:jobs'
+
 # Paths
 STATE_FILE = 'data/state.json'
 DB_FILE = 'data/analyser.db'
