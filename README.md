@@ -176,7 +176,7 @@ More often you will not need to copy anything, because zsazsa gives **each feed 
 
 ![docs/x-indicatorfeed3.png](docs/x-indicatorfeed3.png)
 
-A typical use case: your SOC needs a set of indicators to investigate. Instead of copying them by hand or asking the SOC to get the data out of MISP, you build an indicator feed, perhaps tied to a threat actor profile, send it as a product through the notification channels, and the recipients receive it as a plain value list or as CSV.
+A typical use case: your SOC needs a set of indicators to investigate. Instead of copying them by hand or asking the SOC to get the data out of MISP, you build an indicator feed, perhaps tied to a threat actor profile, send it as a product through the notification channels, and the recipients receive it as a plain value list (deduplicated, one unique value per line) or as CSV (one row per matching attribute, with full event/server context, so a value seen on multiple events or servers appears multiple times).
 
 ### Statistics
 

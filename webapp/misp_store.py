@@ -2624,7 +2624,11 @@ INDICATOR_FEED_COLUMNS = [
 
 
 def indicator_feed_csv_text(feed) -> str:
-    """Run a saved feed's query and return its results as CSV text."""
+    """Run a saved feed's query and return its results as CSV text.
+
+    One row per matching attribute, so a value repeated across events/servers
+    appears on multiple rows (each with its own event/server context) rather
+    than being de-duplicated - unlike the plain-text value list."""
     import csv
     import io
     query = feed.query or {}
@@ -2663,15 +2667,30 @@ def count_indicators(filters, server_ids=None, cap=100000):
 
     MISP cannot sort attribute search, so the result table only sorts the
     fetched page. This count tells the analyst how many match in total (so they
-    know whether the limit truncates the set). It counts attributes (not unique
-    values - the `text` format de-duplicates) without the heavier event context,
-    bounded by `cap`; returns (total, capped). Server-side filters only (the
-    local tag AND/exclude refinement isn't applied), so it is the MISP-level total.
+    know whether the limit truncates the set). It counts attributes (not
+    unique values - the `text` export de-duplicates those, the row/CSV output
+    does not), bounded by `cap`; returns (total, capped).
+
+    The tag include/exclude filters are AND/exclude semantics applied locally
+    (see `_parse_attribute_rows`), because MISP's own tag search is OR-only.
+    To keep the total in sync with what the result table actually shows, the
+    same local refinement is applied here, which needs each attribute's (and
+    its event's) tags - so `include_context` is only requested when a tag
+    filter is active, keeping the common case light.
+
+    `capped` reflects whether *any* server's raw (pre-refinement) fetch hit
+    `cap`, i.e. whether that server's true count could be higher than what
+    was retrieved - the aggregate total across servers may therefore be a
+    lower bound even when no individual server count looks large.
     """
+    tags_inc = filters.get("tags_include") or []
+    tags_exc = filters.get("tags_exclude") or []
     kwargs = _indicator_search_kwargs(filters)
     for key in ("include_context", "limit"):
         kwargs.pop(key, None)
     kwargs["limit"] = cap
+    if tags_inc or tags_exc:
+        kwargs["include_context"] = True
     total, capped = 0, False
     for sid, _label, _url, client in _indicator_feed_clients(server_ids):
         try:
@@ -2686,10 +2705,21 @@ def count_indicators(filters, server_ids=None, cap=100000):
             attrs = attrs or []
         else:
             attrs = raw or []
-        n = len(attrs)
-        total += n
-        if n >= cap:
+        if len(attrs) >= cap:
             capped = True
+        if tags_inc or tags_exc:
+            for a in attrs:
+                if isinstance(a, dict) and "Attribute" in a:
+                    a = a["Attribute"]
+                event = a.get("Event") or {}
+                tag_names = _attr_tag_names(a, event)
+                if tags_inc and not all(t in tag_names for t in tags_inc):
+                    continue
+                if tags_exc and any(t in tag_names for t in tags_exc):
+                    continue
+                total += 1
+        else:
+            total += len(attrs)
     return total, capped
 
 
