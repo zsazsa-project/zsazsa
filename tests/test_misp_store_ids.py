@@ -13,7 +13,6 @@ import tempfile
 from unittest import mock
 
 import config
-from core import db
 from webapp import misp_store
 
 
