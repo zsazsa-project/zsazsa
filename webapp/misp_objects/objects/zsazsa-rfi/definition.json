@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Request for Information (RFI) managed by the zsazsa CTI program",
   "uuid": "7a8b9c0d-1e2f-4a5b-8c6d-7e8f9a0b1c2d",
-  "version": 2,
+  "version": 3,
   "attributes": {
     "rfi-id": {
       "misp-attribute": "text",
@@ -91,7 +91,7 @@
     },
     "output-format": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 25,
       "description": "Deliverable format (Briefing / Email / Report) - legacy single-format field",
       "disable_correlation": true
     },

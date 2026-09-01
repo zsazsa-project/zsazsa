@@ -2,7 +2,7 @@
     "name": "zsazsa-threat-landscape-report",
     "meta-category": "intelligence",
     "description": "Threat landscape report (TLR) managed by the zsazsa CTI program",
-    "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "uuid": "a1b2c3d4-e5f6-4890-abcd-ef1234567890",
     "version": 1,
     "attributes": {
         "tlr-id": {
