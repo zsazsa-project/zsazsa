@@ -234,7 +234,7 @@ def product_detail_url(product_type: str, entity_id: str, fallback_url: str = ""
 
     endpoint = None
     wanted = _normalized_product_type(product_type)
-    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, product_type))
+    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, wanted))
     for label, meta in _PRODUCT_TYPE_CONFIG.items():
         tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
         if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
