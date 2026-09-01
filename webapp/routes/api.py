@@ -4,16 +4,14 @@ All endpoints require the CSRF token (POST methods are covered by the global
 before_request hook). Results are returned as JSON.
 """
 
-import ipaddress
 import logging
 import re
-import socket
 import threading
-from urllib.parse import urlsplit
 
 import config
 from flask import Blueprint, jsonify, url_for
 
+from core.net_safety import is_safe_public_url
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
@@ -575,40 +573,8 @@ def correlate():
         return jsonify({"matches": [], "error": "Search failed."}), 502
 
 
-def _is_safe_public_url(url: str) -> bool:
-    """Return True only for http(s) URLs whose host resolves to public IPs.
-
-    Guards the server-side fetch against SSRF: rejects non-web schemes and any
-    host that resolves to a loopback, link-local, private, reserved or
-    multicast address (e.g. cloud metadata at 169.254.169.254, internal
-    services on 127.0.0.1 or RFC1918 ranges). Every resolved address must be
-    global, so a hostname with a mix of public and private records is rejected.
-
-    Note: this validates the host at check time. DNS rebinding between this
-    check and the actual fetch remains a residual risk; authentication and
-    authorization on this endpoint are the primary control.
-    """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        return False
-    host = parts.hostname
-    if not host:
-        return False
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-    except (socket.gaierror, UnicodeError, ValueError):
-        return False
-    if not infos:
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        if not ip.is_global or ip.is_multicast:
-            return False
-    return True
+# Kept as a thin alias: tests and other modules import this name from here.
+_is_safe_public_url = is_safe_public_url
 
 
 @bp.route("/fetch-url", methods=["POST"])

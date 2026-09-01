@@ -4,6 +4,7 @@ import re
 import requests
 
 import config
+from core.net_safety import is_safe_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,12 @@ _CWE_ID_RE = re.compile(r"cwe-\d+", re.IGNORECASE)
 
 
 CHANNEL_PREFIX = "flowintel:"
+
+
+def _unsafe_url_error(url: str) -> dict:
+    """Standard error result for a Flowintel URL that fails the SSRF guard."""
+    logger.warning("flowintel_client rejected non-public URL: %s", url)
+    return {"ok": False, "error": "Flowintel URL must be a public http(s) address."}
 
 
 def get_instances() -> list[dict]:
@@ -66,6 +73,8 @@ def send_to_eligible_instances(stakeholders, product_key: str, send_fn):
 def test_connection(url: str, api_key: str, verify_tls: bool = True) -> dict:
     """Check connectivity to a Flowintel instance without creating or sending anything."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.get(f"{url}/api/case/all", headers={"X-API-KEY": api_key}, timeout=10, verify=verify_tls)
         if r.status_code == 403:
@@ -83,6 +92,8 @@ def get_case_templates(url: str, api_key: str, verify_tls: bool = True) -> dict:
     or {"ok": False, "error": ...} on failure.
     """
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.get(f"{url}/api/templating/cases", headers={"X-API-KEY": api_key}, timeout=10, verify=verify_tls)
         r.raise_for_status()
@@ -101,6 +112,8 @@ def create_case_from_template(url: str, api_key: str, template_id: str, title: s
     on failure (network error, missing template, or a title that already exists).
     """
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/templating/create_case_from_template/{template_id}",
@@ -130,6 +143,8 @@ def create_case_from_template(url: str, api_key: str, template_id: str, title: s
 def _create_misp_object(url: str, api_key: str, case_id: str, template: dict, attributes: list[dict], verify_tls: bool = True) -> dict:
     """Create a MISP object on a case from an object template and a list of attributes."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/case/{case_id}/create_misp_object",
@@ -190,6 +205,8 @@ def add_weakness_object(url: str, api_key: str, case_id: str, cwe_id: str = None
 def append_case_note(url: str, api_key: str, case_id: str, note: str, verify_tls: bool = True) -> dict:
     """Append a note to a case."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/case/{case_id}/append_case_note",
@@ -214,6 +231,8 @@ def append_case_note(url: str, api_key: str, case_id: str, note: str, verify_tls
 def find_task_by_title(url: str, api_key: str, case_id: str, title: str, verify_tls: bool = True) -> dict:
     """Return the id of the first open task in a case matching the given title."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.get(f"{url}/api/case/{case_id}/tasks", headers={"X-API-KEY": api_key}, timeout=10, verify=verify_tls)
         r.raise_for_status()
@@ -229,6 +248,8 @@ def find_task_by_title(url: str, api_key: str, case_id: str, title: str, verify_
 def _post_external_reference(url: str, api_key: str, task_id: str, ref_url: str, verify_tls: bool = True) -> dict:
     """Add a single external reference URL to a task."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/task/{task_id}/create_external_reference",
@@ -267,6 +288,8 @@ def get_case_template_tasks(url: str, api_key: str, template_id: str, verify_tls
     or {"ok": False, "error": ...} on failure.
     """
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.get(f"{url}/api/templating/case/{template_id}", headers={"X-API-KEY": api_key}, timeout=10, verify=verify_tls)
         r.raise_for_status()
@@ -280,6 +303,8 @@ def get_case_template_tasks(url: str, api_key: str, template_id: str, verify_tls
 def add_case_tags(url: str, api_key: str, case_id: str, tags: list[str], verify_tls: bool = True) -> dict:
     """Set the taxonomy tags on a case, replacing any existing tags."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/case/{case_id}/edit",
@@ -304,6 +329,8 @@ def add_case_tags(url: str, api_key: str, case_id: str, tags: list[str], verify_
 def add_task_note(url: str, api_key: str, task_id: str, note: str, verify_tls: bool = True) -> dict:
     """Append a note to a task."""
     url = url.rstrip("/")
+    if not is_safe_public_url(url):
+        return _unsafe_url_error(url)
     try:
         r = requests.post(
             f"{url}/api/task/{task_id}/create_note",

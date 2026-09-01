@@ -15,6 +15,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from markupsafe import escape
 from core import flowintel_client
 from core.atomic_write import write_atomically
+from core.net_safety import is_safe_public_url
 from webapp import audit, misp_session, misp_store, newsletter_parsers
 from webapp.rate_limit import rate_limited
 from webapp.utils import (
@@ -1295,6 +1296,9 @@ def ping_notification_channel():
     url = (ch.get("url") or "").strip()
     if not url:
         return jsonify({"ok": False, "error": "Channel has no webhook URL configured"}), 400
+    if not is_safe_public_url(url):
+        logger.warning("ping_notification_channel rejected non-public URL for channel %s", channel_id)
+        return jsonify({"ok": False, "error": "Webhook URL must be a public http(s) address."}), 400
     verify_tls = bool(ch.get("verify_tls", True))
     try:
         r = requests.post(url, json={"text": "zsazsa test notification: channel is reachable."}, timeout=10, verify=verify_tls)
@@ -1412,6 +1416,9 @@ def test_flowintel_connection():
         return jsonify({"ok": False, "error": str(exc)}), 400
     if not url or not api_key:
         return jsonify({"ok": False, "error": "URL and API key are required"}), 400
+    if not is_safe_public_url(url):
+        logger.warning("test_flowintel_connection rejected non-public URL: %s", url)
+        return jsonify({"ok": False, "error": "URL must be a public http(s) address."}), 400
     return jsonify(flowintel_client.test_connection(url, api_key, verify_tls))
 
 
