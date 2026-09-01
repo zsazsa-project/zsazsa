@@ -98,6 +98,25 @@ class ConfigSave(unittest.TestCase):
         for key, value in configured.items():
             self.assertEqual(after[key], value, key)
 
+    def test_the_job_redis_settings_survive_a_save(self):
+        configured = {
+            "JOB_REDIS_HOST": "10.0.0.19",
+            "JOB_REDIS_PORT": 6381,
+            "JOB_REDIS_DB": 5,
+            "JOB_REDIS_USERNAME": "jobs",
+            "JOB_REDIS_PASSWORD": "s3cret-jobs",
+            "JOB_REDIS_KEY": "zsazsa:jobs:test",
+        }
+        with mock.patch.multiple(_config, **configured):
+            form = self.full_form()
+            for key in configured:
+                form.pop(key, None)
+            self.client.post("/config", data=form)
+
+        after = self.saved()
+        for key, value in configured.items():
+            self.assertEqual(after[key], value, key)
+
     def test_the_lists_survive_a_post_that_omits_them(self):
         before = self.saved()
         form = self.full_form()   # the list fields are textareas, never in full_form

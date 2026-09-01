@@ -278,6 +278,12 @@ def _read() -> dict:
         "SCRAPER_REDIS_PORT": getattr(_config, "SCRAPER_REDIS_PORT", 6379),
         "SCRAPER_REDIS_PASSWORD": getattr(_config, "SCRAPER_REDIS_PASSWORD", ""),
         "SCRAPER_REDIS_CHANNEL": getattr(_config, "SCRAPER_REDIS_CHANNEL", "urls"),
+        "JOB_REDIS_HOST": getattr(_config, "JOB_REDIS_HOST", "127.0.0.1"),
+        "JOB_REDIS_PORT": getattr(_config, "JOB_REDIS_PORT", 6379),
+        "JOB_REDIS_DB": getattr(_config, "JOB_REDIS_DB", 0),
+        "JOB_REDIS_USERNAME": getattr(_config, "JOB_REDIS_USERNAME", ""),
+        "JOB_REDIS_PASSWORD": getattr(_config, "JOB_REDIS_PASSWORD", ""),
+        "JOB_REDIS_KEY": getattr(_config, "JOB_REDIS_KEY", "zsazsa:jobs"),
         "EVENT_LOG_RETENTION_DAYS": getattr(_config, "EVENT_LOG_RETENTION_DAYS", 90),
         "PIPELINE_RUN_LOG_RETENTION_DAYS": getattr(_config, "PIPELINE_RUN_LOG_RETENTION_DAYS", 365),
         "LOG_LEVEL": _config.LOG_LEVEL,
@@ -586,6 +592,14 @@ SCRAPER_REDIS_PORT = {int(values.get('SCRAPER_REDIS_PORT') or 6379)}
 SCRAPER_REDIS_PASSWORD = {values.get('SCRAPER_REDIS_PASSWORD', '')!r}
 SCRAPER_REDIS_CHANNEL = {values.get('SCRAPER_REDIS_CHANNEL') or 'urls'!r}
 
+# Background-job state (Redis hash shared across browser tabs and page reloads)
+JOB_REDIS_HOST = {values.get('JOB_REDIS_HOST', '127.0.0.1')!r}
+JOB_REDIS_PORT = {int(values.get('JOB_REDIS_PORT') or 6379)}
+JOB_REDIS_DB = {int(values.get('JOB_REDIS_DB') or 0)}
+JOB_REDIS_USERNAME = {values.get('JOB_REDIS_USERNAME', '')!r}
+JOB_REDIS_PASSWORD = {values.get('JOB_REDIS_PASSWORD', '')!r}
+JOB_REDIS_KEY = {values.get('JOB_REDIS_KEY', 'zsazsa:jobs')!r}
+
 # Paths
 STATE_FILE = {_config.STATE_FILE!r}
 DB_FILE = {_config.DB_FILE!r}
@@ -710,6 +724,12 @@ def index():
             "SCRAPER_REDIS_PORT": getattr(_config, "SCRAPER_REDIS_PORT", 6379),
             "SCRAPER_REDIS_PASSWORD": getattr(_config, "SCRAPER_REDIS_PASSWORD", ""),
             "SCRAPER_REDIS_CHANNEL": getattr(_config, "SCRAPER_REDIS_CHANNEL", "urls"),
+            "JOB_REDIS_HOST": getattr(_config, "JOB_REDIS_HOST", "127.0.0.1"),
+            "JOB_REDIS_PORT": getattr(_config, "JOB_REDIS_PORT", 6379),
+            "JOB_REDIS_DB": getattr(_config, "JOB_REDIS_DB", 0),
+            "JOB_REDIS_USERNAME": getattr(_config, "JOB_REDIS_USERNAME", ""),
+            "JOB_REDIS_PASSWORD": getattr(_config, "JOB_REDIS_PASSWORD", ""),
+            "JOB_REDIS_KEY": getattr(_config, "JOB_REDIS_KEY", "zsazsa:jobs"),
             "SMTP_HOST": _form_str("SMTP_HOST"),
             "SMTP_PORT": _form_int("SMTP_PORT", 587),
             "SMTP_USE_TLS": _form_bool("SMTP_USE_TLS"),
