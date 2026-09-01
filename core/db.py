@@ -86,6 +86,12 @@ def init_db() -> None:
                 result_json  TEXT
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sequence_counter (
+                name  TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            )
+        """)
         # The pipeline page reads this table newest first, page by page.
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_event_log_processed_at"
@@ -108,6 +114,36 @@ def init_db() -> None:
             ("output_tokens", "INTEGER NOT NULL DEFAULT 0"),
             ("total_tokens", "INTEGER NOT NULL DEFAULT 0"),
         ])
+
+
+@contextmanager
+def reserve_sequence(name: str, initial_value: int):
+    """Reserve the next sequence value in a transaction shared by all workers."""
+    conn = sqlite3.connect(config.DB_FILE, timeout=30, isolation_level=None)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sequence_counter (
+                name  TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            )
+        """)
+        row = conn.execute(
+            "SELECT value FROM sequence_counter WHERE name = ?", (name,)
+        ).fetchone()
+        value = max(int(row[0]) if row else 0, initial_value) + 1
+        conn.execute(
+            "INSERT INTO sequence_counter (name, value) VALUES (?, ?)"
+            " ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            (name, value),
+        )
+        yield value
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def log_llm_usage(feature: str, model: str, input_tokens: int, output_tokens: int, total_tokens: int,
@@ -249,5 +285,4 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
     except sqlite3.Error as e:
         logger.error("DB read failed for pipeline_run_log: %s", e)
         return []
-
 

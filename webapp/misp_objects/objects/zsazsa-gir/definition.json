@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "General Intelligence Requirement (GIR) managed by the zsazsa CTI program",
   "uuid": "6e7d8c9b-0a1b-4c3d-8e5f-6a7b8c9d0e1f",
-  "version": 5,
+  "version": 6,
   "attributes": {
     "gir-id": {
       "misp-attribute": "text",
@@ -91,55 +91,55 @@
     },
     "technology": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 16,
       "description": "JSON array of technology scope values",
       "disable_correlation": true
     },
     "vendor": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 17,
       "description": "JSON array of vendor scope values",
       "disable_correlation": true
     },
     "incident": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 18,
       "description": "JSON array of related incident identifiers",
       "disable_correlation": true
     },
     "campaign": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 19,
       "description": "JSON array of related campaign names",
       "disable_correlation": true
     },
     "output-format": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 20,
       "description": "JSON array of expected deliverable formats",
       "disable_correlation": true
     },
     "distribution": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 21,
       "description": "JSON array of stakeholder UUIDs for the deliverable recipients (legacy records may still contain stakeholder names)",
       "disable_correlation": true
     },
     "deadline": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 22,
       "description": "Hard deadline for this GIR (ISO 8601)",
       "disable_correlation": true
     },
     "priority-justification": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 23,
       "description": "Justification for the assigned priority",
       "disable_correlation": true
     },
     "sub-questions": {
       "misp-attribute": "text",
-      "ui-priority": 14,
+      "ui-priority": 24,
       "description": "JSON array of sub-questions",
       "disable_correlation": true
     },

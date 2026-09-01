@@ -372,66 +372,69 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
         ]
     }
     text = _call(system, json.dumps(payload, ensure_ascii=True), 1024, feature="detect_story_overlaps", cfg=fc)
-    try:
-        parsed = json.loads(_unfence(text))
-        overlaps = parsed.get("overlaps") if isinstance(parsed, dict) else []
-        if not isinstance(overlaps, list):
-            overlaps = []
-        cleaned = []
-        for item in overlaps:
-            if not isinstance(item, dict):
-                continue
-            try:
-                a = int(item.get("a", 0))
-                b = int(item.get("b", 0))
-                score = float(item.get("score", 0))
-            except (TypeError, ValueError):
-                continue
-            if a <= 0 or b <= 0 or a == b:
-                continue
-            cleaned.append({
-                "a": a,
-                "b": b,
-                "score": max(0.0, min(1.0, score)),
-                "reason": (item.get("reason") or "").strip(),
-            })
-        return {
-            "overlaps": cleaned,
-            "summary": (parsed.get("summary") or "").strip() if isinstance(parsed, dict) else "",
-        }
-    except json.JSONDecodeError:
-        # Deterministic fallback: crude title token overlap only.
-        def _tokens(v: str) -> set[str]:
-            return {t for t in (v or "").lower().replace("/", " ").replace("-", " ").split() if len(t) > 3}
-
-        items = [((s.get("title") or "").strip(), (s.get("content") or "").strip()) for s in (stories or [])]
+    parsed = _json_object(text, "detect_story_overlaps")
+    if parsed is None:
+        return _fallback_story_overlaps(stories)
+    overlaps = parsed.get("overlaps")
+    if not isinstance(overlaps, list):
         overlaps = []
-        for i in range(len(items)):
-            ti, ci = items[i]
-            set_i = _tokens(ti) | _tokens(ci[:220])
-            if not set_i:
+    cleaned = []
+    for item in overlaps:
+        if not isinstance(item, dict):
+            continue
+        try:
+            a = int(item.get("a", 0))
+            b = int(item.get("b", 0))
+            score = float(item.get("score", 0))
+        except (TypeError, ValueError):
+            continue
+        if a <= 0 or b <= 0 or a == b:
+            continue
+        cleaned.append({
+            "a": a,
+            "b": b,
+            "score": max(0.0, min(1.0, score)),
+            "reason": (item.get("reason") or "").strip(),
+        })
+    return {
+        "overlaps": cleaned,
+        "summary": (parsed.get("summary") or "").strip(),
+    }
+
+
+def _fallback_story_overlaps(stories: list[dict]) -> dict:
+    """Return deterministic title/opening-text overlap matches after parse failure."""
+    def _tokens(v: str) -> set[str]:
+        return {t for t in (v or "").lower().replace("/", " ").replace("-", " ").split() if len(t) > 3}
+
+    items = [((s.get("title") or "").strip(), (s.get("content") or "").strip()) for s in (stories or [])]
+    overlaps = []
+    for i in range(len(items)):
+        ti, ci = items[i]
+        set_i = _tokens(ti) | _tokens(ci[:220])
+        if not set_i:
+            continue
+        for j in range(i + 1, len(items)):
+            tj, cj = items[j]
+            set_j = _tokens(tj) | _tokens(cj[:220])
+            if not set_j:
                 continue
-            for j in range(i + 1, len(items)):
-                tj, cj = items[j]
-                set_j = _tokens(tj) | _tokens(cj[:220])
-                if not set_j:
-                    continue
-                inter = len(set_i & set_j)
-                union = len(set_i | set_j)
-                if union <= 0:
-                    continue
-                score = inter / union
-                if score >= 0.35:
-                    overlaps.append({
-                        "a": i + 1,
-                        "b": j + 1,
-                        "score": round(score, 2),
-                        "reason": "High lexical overlap in title/opening text.",
-                    })
-        return {
-            "overlaps": overlaps,
-            "summary": "Fallback overlap check used.",
-        }
+            inter = len(set_i & set_j)
+            union = len(set_i | set_j)
+            if union <= 0:
+                continue
+            score = inter / union
+            if score >= 0.35:
+                overlaps.append({
+                    "a": i + 1,
+                    "b": j + 1,
+                    "score": round(score, 2),
+                    "reason": "High lexical overlap in title/opening text.",
+                })
+    return {
+        "overlaps": overlaps,
+        "summary": "Fallback overlap check used.",
+    }
 
 
 def summarise_report(report_content: str, event_info: str = "", tags: list = None) -> str:

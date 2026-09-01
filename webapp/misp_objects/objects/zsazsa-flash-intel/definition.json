@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Flash Intel Alert (FIA) draft fields managed by the zsazsa CTI program",
   "uuid": "9b1c2d3e-4f5a-4b6c-9d7e-8f9a0b1c2d3e",
-  "version": 2,
+  "version": 3,
   "attributes": {
     "fia-id": {
       "misp-attribute": "text",
@@ -67,7 +67,7 @@
     },
     "likely-impact": {
       "misp-attribute": "text",
-      "ui-priority": 10,
+      "ui-priority": 25,
       "description": "Likely impact (availability, data loss, fraud, ...)",
       "disable_correlation": true
     },
@@ -79,7 +79,7 @@
     },
     "actor-types": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 26,
       "description": "JSON array of selected threat actor type names (ENISA taxonomy)",
       "disable_correlation": true
     },
@@ -97,43 +97,43 @@
     },
     "geographic-scope": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 27,
       "description": "JSON array of geographic scope values",
       "disable_correlation": true
     },
     "sectors": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 28,
       "description": "JSON array of sector scope values",
       "disable_correlation": true
     },
     "threat-actors": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 29,
       "description": "JSON array of threat actor names",
       "disable_correlation": true
     },
     "threat-types": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 30,
       "description": "JSON array of threat type tags",
       "disable_correlation": true
     },
     "technology": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 31,
       "description": "JSON array of technology scope values",
       "disable_correlation": true
     },
     "vendor": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 32,
       "description": "JSON array of vendor scope values",
       "disable_correlation": true
     },
     "incident": {
       "misp-attribute": "text",
-      "ui-priority": 12,
+      "ui-priority": 33,
       "description": "JSON array of related incident identifiers",
       "disable_correlation": true
     },
@@ -145,7 +145,7 @@
     },
     "actions-immediate": {
       "misp-attribute": "text",
-      "ui-priority": 13,
+      "ui-priority": 34,
       "description": "Immediate (0-24h) actions, newline-separated",
       "disable_correlation": true
     },
@@ -163,7 +163,7 @@
     },
     "mitre-techniques": {
       "misp-attribute": "text",
-      "ui-priority": 16,
+      "ui-priority": 35,
       "description": "Relevant MITRE ATT&CK techniques (Txxxx: name) one per line — Detection guidance",
       "disable_correlation": true
     },
@@ -175,7 +175,7 @@
     },
     "external-references": {
       "misp-attribute": "text",
-      "ui-priority": 17,
+      "ui-priority": 36,
       "description": "External resource URLs (one per line)",
       "disable_correlation": true
     },

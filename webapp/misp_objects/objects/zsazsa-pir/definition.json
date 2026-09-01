@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Priority Intelligence Requirement (PIR) managed by the zsazsa CTI program",
   "uuid": "5f8a1b2c-3d4e-4f5a-8b9c-0d1e2f3a4b5c",
-  "version": 7,
+  "version": 8,
   "attributes": {
     "pir-id": {
       "misp-attribute": "text",
@@ -31,7 +31,7 @@
     },
     "priority": {
       "misp-attribute": "text",
-      "ui-priority": 4,
+      "ui-priority": 20,
       "description": "MoSCoW priority (Must have / Should have / Could have / Won't have)",
       "disable_correlation": true
     },
@@ -139,25 +139,25 @@
     },
     "technology": {
       "misp-attribute": "text",
-      "ui-priority": 18,
+      "ui-priority": 34,
       "description": "JSON array of technology scope values",
       "disable_correlation": true
     },
     "vendor": {
       "misp-attribute": "text",
-      "ui-priority": 18,
+      "ui-priority": 41,
       "description": "JSON array of vendor scope values",
       "disable_correlation": true
     },
     "incident": {
       "misp-attribute": "text",
-      "ui-priority": 18,
+      "ui-priority": 42,
       "description": "JSON array of related incident identifiers",
       "disable_correlation": true
     },
     "campaign": {
       "misp-attribute": "text",
-      "ui-priority": 18,
+      "ui-priority": 43,
       "description": "JSON array of related campaign names",
       "disable_correlation": true
     },

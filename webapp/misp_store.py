@@ -20,15 +20,16 @@ import json
 import logging
 import os
 import secrets
-import threading
 import time
 import urllib3
 import re
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import config
+from core.db import reserve_sequence
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
@@ -85,6 +86,29 @@ _GALAXY_TTL = 600  # seconds
 # connection probes on the pipeline page where several servers are checked.
 HTTP_TIMEOUT = 30
 HEALTH_CHECK_TIMEOUT = 8
+_SEARCH_PAGE_SIZE = 500
+
+
+def _search_all(misp, **kwargs):
+    """Return every page from a MISP event search, preserving error responses."""
+    page = 1
+    events = []
+    kwargs = dict(kwargs)
+    limit = int(kwargs.pop("limit", _SEARCH_PAGE_SIZE))
+    while True:
+        result = misp.search(limit=limit, page=page, **kwargs)
+        if isinstance(result, dict):
+            if not events:
+                return result
+            logger.warning("MISP search page %s failed after %s results: %s",
+                           page, len(events), result.get("errors") or result)
+            return events
+        if not result:
+            return events
+        events.extend(result)
+        if len(result) < limit:
+            return events
+        page += 1
 
 
 def _misp():
@@ -96,7 +120,6 @@ def _misp():
                 config.MISP_WEBAPP_URL,
                 config.MISP_WEBAPP_KEY,
                 config.MISP_WEBAPP_VERIFYCERT,
-                False,
                 timeout=HTTP_TIMEOUT,
             )
         return g._webapp_misp
@@ -105,7 +128,6 @@ def _misp():
             config.MISP_WEBAPP_URL,
             config.MISP_WEBAPP_KEY,
             config.MISP_WEBAPP_VERIFYCERT,
-            False,
             timeout=HTTP_TIMEOUT,
         )
 
@@ -118,7 +140,6 @@ def _scraper_misp():
                 config.MISP_URL,
                 config.MISP_KEY,
                 config.MISP_VERIFYCERT,
-                False,
                 timeout=HTTP_TIMEOUT,
             )
         return g._scraper_misp
@@ -127,7 +148,6 @@ def _scraper_misp():
             config.MISP_URL,
             config.MISP_KEY,
             config.MISP_VERIFYCERT,
-            False,
             timeout=HTTP_TIMEOUT,
         )
 
@@ -547,7 +567,7 @@ def _make_event(info, extra_tags=None):
     # Default to "Your organisation only" (0); an admin can widen this from the
     # System config tab. Guard against a hand-edited config holding a bad value.
     dist = int(getattr(config, "MISP_EVENT_DISTRIBUTION", 0) or 0)
-    e.distribution = dist if dist in (0, 1, 2, 3) else 0
+    e.distribution = dist if dist in range(6) else 0
     e.threat_level_id = 4
     e.analysis = 2
     for t in extra_tags or []:
@@ -1158,9 +1178,6 @@ def _gir_obj(data):
 
 # ── Sequential ID generation ──────────────────────────────────────────────────
 
-_id_lock = threading.Lock()
-
-
 def _scan_max_sequence(misp, tag, prefix):
     """Return the highest existing {prefix}-NNN sequence number, scanning event titles.
 
@@ -1170,7 +1187,7 @@ def _scan_max_sequence(misp, tag, prefix):
     number for the next create, so an id already sent to a stakeholder can come
     back attached to something else.
     """
-    events = misp.search(tags=[tag], metadata=True, pythonify=True)
+    events = _search_all(misp, tags=[tag], metadata=True, pythonify=True)
     if not events or isinstance(events, dict):
         return 0
     max_n = 0
@@ -1185,28 +1202,28 @@ def _scan_max_sequence(misp, tag, prefix):
     return max_n
 
 
-def _next_id(tag, prefix):
-    """Return the next {prefix}-NNN id as a non-authoritative suggestion.
-
-    Callers that pass the result back in as an explicit id (e.g. the demo seed
-    script) get exactly this value; callers that leave the id blank get one
-    allocated atomically at create time under _id_lock. Either way the persisted
-    id is unique, so this suggestion can safely go stale.
-    """
-    with _id_lock:
-        return f"{prefix}-{_scan_max_sequence(_misp(), tag, prefix) + 1:03d}"
-
-
 def _sequence_id(misp, tag, prefix, existing):
-    """Return `existing` if it is set, else the next {prefix}-NNN id.
-
-    Must be called while still holding _id_lock for the event write that follows,
-    so two near-simultaneous creates cannot allocate the same id. An `existing`
-    id (e.g. recreating a deleted event) is reused as-is. This guards a single
-    process only; a multi-process deployment would need a counter in MISP.
-    """
+    """Return `existing` if it is set, else the next reserved {prefix}-NNN id."""
     existing = (existing or "").strip()
-    return existing or f"{prefix}-{_scan_max_sequence(misp, tag, prefix) + 1:03d}"
+    if existing:
+        return existing
+    return f"{prefix}-{_scan_max_sequence(misp, tag, prefix) + 1:03d}"
+
+
+@contextmanager
+def _reserved_sequence_id(misp, tag, prefix, existing):
+    """Reserve an ID in the shared database until its MISP event is created."""
+    existing = (existing or "").strip()
+    if existing:
+        yield existing
+        return
+    with reserve_sequence(prefix, _scan_max_sequence(misp, tag, prefix)) as number:
+        yield f"{prefix}-{number:03d}"
+
+
+def _next_id(tag, prefix):
+    """Return a non-authoritative next ID suggestion."""
+    return _sequence_id(_misp(), tag, prefix, "")
 
 
 def next_pir_id():
@@ -1221,7 +1238,7 @@ def next_gir_id():
 
 def list_stakeholders():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_STAKEHOLDER], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_STAKEHOLDER], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_stakeholder_ns(e) for e in events]
@@ -1279,7 +1296,7 @@ def rename_subscription_product(old_name: str, new_name: str, apply: bool = Fals
     stakeholders. Only writes to MISP when ``apply`` is True (dry-run otherwise).
     """
     misp = _misp()
-    events = misp.search(tags=[config.TAG_STAKEHOLDER], limit=1000, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_STAKEHOLDER], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     affected = []
@@ -1327,7 +1344,7 @@ def list_selectable_pirs(linked_uuid=""):
 
 def list_pirs():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_PIR], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_PIR], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_pir_ns(e) for e in events]
@@ -1349,8 +1366,8 @@ def create_pir(data):
     data.setdefault("intake_status", "submitted")
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _id_lock:
-        data["pir_id"] = _sequence_id(misp, config.TAG_PIR, "PIR", data.get("pir_id"))
+    with _reserved_sequence_id(misp, config.TAG_PIR, "PIR", data.get("pir_id")) as pir_id:
+        data["pir_id"] = pir_id
         event = _make_event(f"[zsazsa:pir] {data['pir_id']}")
         for t in _build_scope_tags(data):
             event.add_tag(t)
@@ -1433,7 +1450,7 @@ def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, ch
 
 def list_girs():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_GIR], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_GIR], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_gir_ns(e) for e in events]
@@ -1452,8 +1469,8 @@ def get_gir(uuid):
 def create_gir(data):
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _id_lock:
-        data["gir_id"] = _sequence_id(misp, config.TAG_GIR, "GIR", data.get("gir_id"))
+    with _reserved_sequence_id(misp, config.TAG_GIR, "GIR", data.get("gir_id")) as gir_id:
+        data["gir_id"] = gir_id
         event = _make_event(f"[zsazsa:gir] {data['gir_id']}: {data.get('topic', '')}")
         for t in _build_scope_tags(data):
             event.add_tag(t)
@@ -1869,7 +1886,7 @@ def next_rfi_id():
 
 def list_rfis():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_RFI], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_RFI], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_rfi_ns(e) for e in events]
@@ -1888,8 +1905,8 @@ def get_rfi(uuid):
 def create_rfi(data):
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _id_lock:
-        data["rfi_id"] = _sequence_id(misp, config.TAG_RFI, "RFI", data.get("rfi_id"))
+    with _reserved_sequence_id(misp, config.TAG_RFI, "RFI", data.get("rfi_id")) as rfi_id:
+        data["rfi_id"] = rfi_id
         info = f"[zsazsa:rfi] {data['rfi_id']}: {data.get('question', '')[:80]}"
         event = _make_event(info)
         result = _add_event(misp, event, [config.TAG_RFI], "create RFI")
@@ -2041,7 +2058,7 @@ def next_indicator_feed_id():
 
 def list_indicator_feeds():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_INDICATOR_FEED], limit=500, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_INDICATOR_FEED], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_indicator_feed_ns(e) for e in events]
@@ -2063,8 +2080,8 @@ def create_indicator_feed(data):
     # Unguessable capability token for the public export URL.
     data["token"] = data.get("token") or secrets.token_urlsafe(16)
     misp = _misp()
-    with _id_lock:
-        data["feed_id"] = _sequence_id(misp, config.TAG_INDICATOR_FEED, "FEED", data.get("feed_id"))
+    with _reserved_sequence_id(misp, config.TAG_INDICATOR_FEED, "FEED", data.get("feed_id")) as feed_id:
+        data["feed_id"] = feed_id
         info = f"[zsazsa:indicator-feed] {data['feed_id']}: {(data.get('name') or '')[:80]}"
         event = _make_event(info)
         result = _add_event(misp, event, [config.TAG_INDICATOR_FEED], "create indicator feed")
@@ -2267,7 +2284,7 @@ def _tap_ns(event):
 
 def list_threat_actor_profiles(status=None):
     misp = _misp()
-    events = misp.search(tags=[config.TAG_THREAT_ACTOR_PROFILE], limit=500, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_THREAT_ACTOR_PROFILE], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_tap_ns(e) for e in events]
@@ -2292,8 +2309,8 @@ def create_threat_actor_profile(data):
     # only victimology is recorded server-side (it becomes a note).
     victimology = galaxy_enrichment(data.get("threat_actors") or [])["victimology"]
     misp = _misp()
-    with _id_lock:
-        data["tap_id"] = _sequence_id(misp, config.TAG_THREAT_ACTOR_PROFILE, "TAP", data.get("tap_id"))
+    with _reserved_sequence_id(misp, config.TAG_THREAT_ACTOR_PROFILE, "TAP", data.get("tap_id")) as tap_id:
+        data["tap_id"] = tap_id
         info = f"[zsazsa:threat-actor-profile] {data['tap_id']}: {(data.get('title') or '')[:80]}"
         event = _make_event(info)
         result = _add_event(misp, event, [config.TAG_THREAT_ACTOR_PROFILE], "create threat actor profile")
@@ -2765,7 +2782,7 @@ def list_pending_feedback_products():
     misp = _misp()
     have_feedback = set()
     try:
-        fb_events = misp.search(tags=[TAG_FEEDBACK], limit=1000, metadata=True, pythonify=True)
+        fb_events = _search_all(misp, tags=[TAG_FEEDBACK], metadata=True, pythonify=True)
         if fb_events and not isinstance(fb_events, dict):
             have_feedback = {e.uuid for e in fb_events}
     except Exception:
@@ -2862,8 +2879,8 @@ def products_for_stakeholder(stakeholder_uuid, stakeholder_name="", stakeholder_
         return []
     misp = _misp()
     try:
-        events = misp.search(
-            tags=['zsazsa:ctiproduct="%"'], limit=500,
+        events = _search_all(
+            misp, tags=['zsazsa:ctiproduct="%"'],
             metadata=False, pythonify=True,
         )
     except Exception as exc:
@@ -3349,7 +3366,7 @@ def list_collection_sources():
     """Return all manual collection source registry entries."""
     misp = _misp()
     try:
-        events = misp.search(tags=[TAG_COLLECTION_SOURCE], limit=200,
+        events = _search_all(misp, tags=[TAG_COLLECTION_SOURCE],
                              metadata=False, pythonify=True)
         if isinstance(events, dict):
             return []
@@ -3681,7 +3698,7 @@ def list_pending_newsletters() -> list[dict]:
     are pushed. Returns lightweight dicts (uuid, info, date)."""
     misp = _misp()
     try:
-        events = misp.search(tags=[NEWSLETTER_PENDING_TAG], limit=200,
+        events = _search_all(misp, tags=[NEWSLETTER_PENDING_TAG],
                              metadata=True, pythonify=True)
         if isinstance(events, dict):
             logger.warning("could not list pending newsletters: %s", events.get("errors") or events)
@@ -4210,7 +4227,7 @@ def _write_fia_report(misp, event_uuid, fia_id, content):
 
 def list_fias(review_state=None):
     misp = _misp()
-    events = misp.search(tags=[config.TAG_FLASH_INTEL], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_FLASH_INTEL], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_fia_ns(e) for e in events]
@@ -4520,7 +4537,7 @@ def counts():
     misp = _misp()
 
     def _count(tag):
-        events = misp.search(tags=[tag], metadata=True, limit=1000, pythonify=True)
+        events = _search_all(misp, tags=[tag], metadata=True, pythonify=True)
         if not events or isinstance(events, dict):
             return 0
         return len(events)
@@ -5045,7 +5062,7 @@ def _write_vea_report(misp, event_uuid, vea_id, content):
 
 def list_veas(review_state=None):
     misp = _misp()
-    events = misp.search(tags=[config.TAG_VEA], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_VEA], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_vea_ns(e) for e in events]
@@ -5637,7 +5654,7 @@ def _write_briefing_report(misp, event_uuid, briefing):
 
 def list_briefings():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_BRIEFING], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_BRIEFING], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_briefing_ns(e) for e in events]
@@ -5981,26 +5998,12 @@ def render_tlr_markdown(tlr):
 
 
 def _next_tlr_id():
-    with _id_lock:
-        misp = _misp()
-        events = misp.search(tags=[config.TAG_TLR], metadata=True, pythonify=True)
-        if not events or isinstance(events, dict):
-            return "TLR-001"
-        max_n = 0
-        for e in events:
-            for token in (e.info or "").split():
-                clean = token.rstrip(":")
-                if clean.startswith("TLR-"):
-                    try:
-                        max_n = max(max_n, int(clean[4:]))
-                    except ValueError:
-                        pass
-        return f"TLR-{max_n + 1:03d}"
+    return _next_id(config.TAG_TLR, "TLR")
 
 
 def list_tlrs():
     misp = _misp()
-    events = misp.search(tags=[config.TAG_TLR], limit=200, pythonify=True)
+    events = _search_all(misp, tags=[config.TAG_TLR], pythonify=True)
     if not events or isinstance(events, dict):
         return []
     result = [_tlr_ns(e) for e in events]
@@ -6018,12 +6021,12 @@ def get_tlr(uuid):
 
 def create_tlr(data):
     misp = _misp()
-    tlr_id = data.get("tlr_id") or _next_tlr_id()
-    title = data.get("title", "")
-    info = f"[zsazsa:tlr] {tlr_id}: {title}"
-    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
-    event = _make_event(info, extra_tags=extra)
-    result = _add_event(misp, event, [config.TAG_TLR], "create TLR")
+    with _reserved_sequence_id(misp, config.TAG_TLR, "TLR", data.get("tlr_id")) as tlr_id:
+        title = data.get("title", "")
+        info = f"[zsazsa:tlr] {tlr_id}: {title}"
+        extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+        event = _make_event(info, extra_tags=extra)
+        result = _add_event(misp, event, [config.TAG_TLR], "create TLR")
     uuid = _event_uuid(result)
     if not uuid:
         raise RuntimeError("create TLR: missing UUID in MISP response")
