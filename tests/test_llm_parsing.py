@@ -43,6 +43,16 @@ class JsonAnswers(unittest.TestCase):
             answer = llm.check_relevance("article", {}, "B")
         self.assertFalse(answer["relevant"])
 
+    def test_overlap_detection_uses_the_shared_parse_failure_fallback(self):
+        stories = [
+            {"title": "Ransomware disruption at port", "content": "Operators report ransomware disruption."},
+            {"title": "Port ransomware disruption update", "content": "Ransomware disruption affects operators."},
+        ]
+        with mock.patch.object(llm, "_call", return_value="not JSON"), \
+             mock.patch.object(llm, "_build_system_prompt", return_value="sys"):
+            result = llm.detect_story_overlaps(stories)
+        self.assertEqual(result["summary"], "Fallback overlap check used.")
+
 
 class EmptyAnswers(unittest.TestCase):
     def test_flash_intel_files_nothing_when_the_model_returns_nothing(self):
