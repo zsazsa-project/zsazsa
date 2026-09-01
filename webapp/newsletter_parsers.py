@@ -31,6 +31,13 @@ _FWD_HEADER_RE = re.compile(
 _OVERVIEW_ANCHOR_RE = re.compile(r'\s*<[^>]*>\s*$')
 
 
+def _parsed_tlp(match: re.Match | None) -> str:
+    """Return a supported canonical TLP value from a newsletter match."""
+    if not match:
+        return ""
+    return {"white": "clear"}.get(match.group(1).lower(), match.group(1).lower())
+
+
 def _dequote(text: str) -> str:
     """Strip one level of '> ' e-mail quoting when the text is a quoted forward.
 
@@ -92,7 +99,7 @@ def parse_etda(text: str) -> dict:
 
     sections = set(_etda_section_names(lines))
     tlp_match = _TLP_RE.search(text)
-    tlp = tlp_match.group(1).lower() if tlp_match else ""
+    tlp = _parsed_tlp(tlp_match)
 
     report_title = ""
     for line in lines[:20]:
@@ -263,7 +270,7 @@ def parse_itisac(text: str) -> dict:
 
     return {
         "report_title": report_title,
-        "tlp": tlp_match.group(1).lower() if tlp_match else "",
+        "tlp": _parsed_tlp(tlp_match),
         "articles": articles,
     }
 
