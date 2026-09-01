@@ -8,6 +8,7 @@ by passing a custom categories list to match_event_to_requirement().
 
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass
 
@@ -75,30 +76,33 @@ class ScopeMatch:
 # ── Requirement cache ─────────────────────────────────────────────────────────
 
 _req_cache: dict = {"data": None, "ts": 0.0}
+_req_cache_lock = threading.Lock()
 _REQ_TTL = 300  # 5 minutes
 
 
 def get_requirements() -> tuple:
     """Return active (pirs, girs) with a 5-minute in-memory cache."""
     now = time.time()
-    if _req_cache["data"] is None or (now - _req_cache["ts"]) > _REQ_TTL:
-        try:
-            from webapp import misp_store
-            pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
-            girs = [g for g in (misp_store.list_girs() or []) if getattr(g, "status", None) == "Active"]
-            _req_cache["data"] = (pirs, girs)
-            _req_cache["ts"] = now
-        except Exception as exc:
-            logger.warning("Could not load PIRs/GIRs for matching: %s", exc)
-            if _req_cache["data"] is not None:
-                return _req_cache["data"]  # return stale on error
-            return [], []
-    return _req_cache["data"]
+    with _req_cache_lock:
+        if _req_cache["data"] is None or (now - _req_cache["ts"]) > _REQ_TTL:
+            try:
+                from webapp import misp_store
+                pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
+                girs = [g for g in (misp_store.list_girs() or []) if getattr(g, "status", None) == "Active"]
+                _req_cache["data"] = (pirs, girs)
+                _req_cache["ts"] = now
+            except Exception as exc:
+                logger.warning("Could not load PIRs/GIRs for matching: %s", exc)
+                if _req_cache["data"] is not None:
+                    return _req_cache["data"]  # return stale on error
+                return [], []
+        return _req_cache["data"]
 
 
 def invalidate_cache() -> None:
     """Call after creating, updating, or deleting a PIR or GIR."""
-    _req_cache["ts"] = 0.0
+    with _req_cache_lock:
+        _req_cache["ts"] = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

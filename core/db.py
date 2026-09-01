@@ -193,7 +193,12 @@ def get_latest_pipeline_run(action: str) -> dict | None:
         if not row:
             return None
         r = dict(row)
-        r["result"] = json.loads(r.pop("result_json")) if r.get("result_json") else None
+        result_json = r.pop("result_json")
+        try:
+            r["result"] = json.loads(result_json) if result_json else None
+        except json.JSONDecodeError as e:
+            logger.error("Corrupt result_json for pipeline_run_log id=%s: %s", r.get("id"), e)
+            r["result"] = None
         return r
     except sqlite3.Error as e:
         logger.error("DB read failed for pipeline_run_log: %s", e)
@@ -212,7 +217,12 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
         result = []
         for row in rows:
             r = dict(row)
-            r["result"] = json.loads(r.pop("result_json")) if r.get("result_json") else None
+            result_json = r.pop("result_json")
+            try:
+                r["result"] = json.loads(result_json) if result_json else None
+            except json.JSONDecodeError as e:
+                logger.error("Corrupt result_json for pipeline_run_log id=%s: %s", r.get("id"), e)
+                r["result"] = None
             if r.get("started_at") and r.get("finished_at"):
                 try:
                     start = datetime.fromisoformat(r["started_at"])
