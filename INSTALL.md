@@ -20,13 +20,38 @@ zsazsa uses Redis.
 
 | Use | Settings | Needed for |
 |---|---|---|
-| MISP's own session store | `MISP_SESSION_REDIS_*` | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
-| Background jobs | `JOB_REDIS_*` | Running-job states |
-| misp-scraper queue | `SCRAPER_REDIS_*` | Sending newsletter article URLs to the scraper |
+| MISP's own session store | `MISP_SESSION_REDIS_*` (Settings page) | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
+| Background jobs | `JOB_REDIS_*` (`config/__init__.py` only) | Running-job states |
+| misp-scraper queue | `SCRAPER_REDIS_*` (Settings page) | Sending newsletter article URLs to the scraper |
+
+All three default to `127.0.0.1:6379`, database `0`, no password, so a single
+local Redis instance with no configuration needed is enough for most installs.
+`JOB_REDIS_*` is not exposed on the Settings page: only set it in
+`config/__init__.py` directly if background job state needs a different Redis
+target than the rest of the application.
 
 ### System packages
 
-zsazsa **Python 3.10** or later, with `venv` and `pip`.
+zsazsa needs **Python 3.10** or later, with `venv` and `pip`, plus the native
+libraries [WeasyPrint](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation)
+uses to render PDFs (every CTI product - flash alerts, advisories, briefings,
+reports - is exported through it). `pip install -r requirements.txt` succeeds
+without these; WeasyPrint only fails, with an import error, the first time a
+PDF is actually rendered, so install them upfront.
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt-get install python3-venv python3-pip python3-dev git \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
+    libffi-dev shared-mime-info
+```
+
+`python3-venv` is version-specific (e.g. `python3.12-venv`); if the command
+above cannot find it, install the package matching `python3 --version`.
+
+On Fedora/RHEL/CentOS the equivalent packages are `python3-devel`, `cairo`,
+`pango`, `gdk-pixbuf2`, `libffi-devel` and `shared-mime-info`.
 
 ## Installation
 
