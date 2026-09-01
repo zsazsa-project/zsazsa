@@ -180,6 +180,20 @@ def _prune_logs() -> None:
         logger.warning("Log pruning failed: %s", e)
 
 
+def _parse_result_json(r: dict) -> None:
+    """Pop and parse ``result_json`` into ``r["result"]``, in place.
+
+    A corrupted row should degrade to ``result=None`` rather than crash the
+    caller, since one bad row shouldn't take down the whole listing.
+    """
+    result_json = r.pop("result_json", None)
+    try:
+        r["result"] = json.loads(result_json) if result_json else None
+    except json.JSONDecodeError as e:
+        logger.error("Corrupt result_json for pipeline_run_log id=%s: %s", r.get("id"), e)
+        r["result"] = None
+
+
 def get_latest_pipeline_run(action: str) -> dict | None:
     """Return the most recent run of the given action, with its parsed result."""
     try:
@@ -193,7 +207,7 @@ def get_latest_pipeline_run(action: str) -> dict | None:
         if not row:
             return None
         r = dict(row)
-        r["result"] = json.loads(r.pop("result_json")) if r.get("result_json") else None
+        _parse_result_json(r)
         return r
     except sqlite3.Error as e:
         logger.error("DB read failed for pipeline_run_log: %s", e)
@@ -212,7 +226,7 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
         result = []
         for row in rows:
             r = dict(row)
-            r["result"] = json.loads(r.pop("result_json")) if r.get("result_json") else None
+            _parse_result_json(r)
             if r.get("started_at") and r.get("finished_at"):
                 try:
                     start = datetime.fromisoformat(r["started_at"])

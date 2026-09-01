@@ -8,6 +8,7 @@ by passing a custom categories list to match_event_to_requirement().
 
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass
 
@@ -75,13 +76,24 @@ class ScopeMatch:
 # ── Requirement cache ─────────────────────────────────────────────────────────
 
 _req_cache: dict = {"data": None, "ts": 0.0}
+_req_cache_lock = threading.Lock()
 _REQ_TTL = 300  # 5 minutes
 
 
 def get_requirements() -> tuple:
     """Return active (pirs, girs) with a 5-minute in-memory cache."""
     now = time.time()
-    if _req_cache["data"] is None or (now - _req_cache["ts"]) > _REQ_TTL:
+    data, ts = _req_cache["data"], _req_cache["ts"]
+    if data is not None and (now - ts) <= _REQ_TTL:
+        return data
+
+    with _req_cache_lock:
+        # Re-check: another thread may have refreshed the cache while we
+        # were waiting for the lock, or the network fetch below is slow
+        # enough that readers shouldn't block on each other unnecessarily.
+        now = time.time()
+        if _req_cache["data"] is not None and (now - _req_cache["ts"]) <= _REQ_TTL:
+            return _req_cache["data"]
         try:
             from webapp import misp_store
             pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
@@ -93,12 +105,13 @@ def get_requirements() -> tuple:
             if _req_cache["data"] is not None:
                 return _req_cache["data"]  # return stale on error
             return [], []
-    return _req_cache["data"]
+        return _req_cache["data"]
 
 
 def invalidate_cache() -> None:
     """Call after creating, updating, or deleting a PIR or GIR."""
-    _req_cache["ts"] = 0.0
+    with _req_cache_lock:
+        _req_cache["ts"] = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -863,7 +863,9 @@ def _replace_focus_points(req_uuid, focus_points):
     if isinstance(event, dict):
         return
     for old in _get_fp_attrs(event):
-        misp.delete_attribute(old.id)
+        result = misp.delete_attribute(old.id)
+        if not _is_not_found(result):
+            _check(result, "delete focus point")
     for fp in focus_points or []:
         category = (fp.get("category") or "").strip()
         value = (fp.get("value") or "").strip()
@@ -1266,7 +1268,7 @@ def delete_stakeholder(uuid):
     misp = _misp()
     if _stakeholder_event(uuid) is None:
         raise ValueError(f"Stakeholder {uuid} not found")
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete stakeholder")
 
 
 def rename_subscription_product(old_name: str, new_name: str, apply: bool = False) -> list[str]:
@@ -1385,7 +1387,7 @@ def update_pir(uuid, data):
 
 def delete_pir(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete PIR")
 
 
 def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, checklist=None):
@@ -1492,7 +1494,7 @@ def update_gir(uuid, data):
 
 def delete_gir(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete GIR")
 
 
 # ── Focus points ──────────────────────────────────────────────────────────────
@@ -1537,7 +1539,9 @@ def add_focus_point(req_uuid, category, value, notes=""):
 
 def delete_focus_point(attr_uuid):
     misp = _misp()
-    misp.delete_attribute(attr_uuid)
+    result = misp.delete_attribute(attr_uuid)
+    if not _is_not_found(result):
+        _check(result, "delete focus point")
 
 
 # Map a focus point category back to the PIR/GIR object scope relation. Every
@@ -1684,7 +1688,9 @@ def remove_focus_point_with_scope(req_uuid, attr_uuid):
             new_values = [v for v in getattr(current, field) if v != value]
             _rewrite_parent_scope(misp, event, relation, new_values)
 
-    misp.delete_attribute(attr_uuid)
+    result = misp.delete_attribute(attr_uuid)
+    if not _is_not_found(result):
+        _check(result, "delete focus point")
 
 
 def sync_focus_points_category(req_uuid, category, values, notes=""):
@@ -1710,7 +1716,9 @@ def sync_focus_points_category(req_uuid, category, values, notes=""):
     for a in _get_fp_attrs(event):
         ns = _fp_ns(a)
         if ns.category == category:
-            misp.delete_attribute(a.uuid)
+            result = misp.delete_attribute(a.uuid)
+            if not _is_not_found(result):
+                _check(result, "delete focus point")
 
     for v in cleaned:
         add_focus_point(req_uuid, category, v, notes)
@@ -1920,7 +1928,7 @@ def update_rfi(uuid, data):
 
 def delete_rfi(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete RFI")
 
 
 def add_rfi_attachment(event_uuid, filename, file_bytes):
@@ -1939,7 +1947,9 @@ def add_rfi_attachment(event_uuid, filename, file_bytes):
 
 def delete_rfi_attachment(attr_uuid):
     misp = _misp()
-    misp.delete_attribute(attr_uuid)
+    result = misp.delete_attribute(attr_uuid)
+    if not _is_not_found(result):
+        _check(result, "delete RFI attachment")
 
 
 def fetch_attachment(attr_uuid):
@@ -1980,7 +1990,7 @@ def delete_rfi_note(report_id):
     # Hard delete: a soft-deleted event report is still returned by get_event,
     # so the note would keep appearing after deletion.
     misp = _misp()
-    misp.delete_event_report(report_id, hard=True)
+    _check(misp.delete_event_report(report_id, hard=True), "delete RFI note")
 
 
 # ── Indicator feeds (saved MISP indicator searches) ──────────────────────────
@@ -2084,7 +2094,7 @@ def update_indicator_feed(uuid, data):
 
 def delete_indicator_feed(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete indicator feed")
 
 
 def get_indicator_feed_by_token(token):
@@ -2354,7 +2364,7 @@ def publish_threat_actor_profile(uuid):
 
 def delete_threat_actor_profile(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete threat actor profile")
 
 
 # ── Indicator-feed MISP servers (the data-collection sources) ────────────────
@@ -3553,7 +3563,7 @@ def create_manual_collection_event(data: dict) -> str:
         a.value = source_reference
         a.comment = "Source reference"
         a.to_ids = False
-        misp.add_attribute(created.id, a)
+        _check(misp.add_attribute(created.id, a), "add source reference")
 
     source_provider = (data.get("source_provider") or "").strip()
     if source_provider:
@@ -3563,7 +3573,7 @@ def create_manual_collection_event(data: dict) -> str:
         a.value = source_provider
         a.comment = "Source provider"
         a.to_ids = False
-        misp.add_attribute(created.id, a)
+        _check(misp.add_attribute(created.id, a), "add source provider")
 
     # "link" rather than "url": these point at the article or advisory this entry
     # was written from, which is a reference and not an indicator. It is also the
@@ -3578,7 +3588,7 @@ def create_manual_collection_event(data: dict) -> str:
             a.value = reference
             a.comment = "External reference"
             a.to_ids = False
-            misp.add_attribute(created.id, a)
+            _check(misp.add_attribute(created.id, a), "add external reference")
 
     description = (data.get("description") or "").strip()
     if description:
@@ -3586,7 +3596,7 @@ def create_manual_collection_event(data: dict) -> str:
         report.name = info or "Manual entry"
         report.content = description
         report.distribution = 5
-        misp.add_event_report(created.id, report)
+        _check(misp.add_event_report(created.id, report), "add manual entry report")
 
     summary = (data.get("summary") or "").strip()
     if summary:
@@ -3594,7 +3604,7 @@ def create_manual_collection_event(data: dict) -> str:
         ai_report.name = f"{AI_SUMMARY_PREFIX} {(info or 'Manual entry')[:80]}"
         ai_report.content = summary
         ai_report.distribution = 5
-        misp.add_event_report(created.id, ai_report)
+        _check(misp.add_event_report(created.id, ai_report), "add AI summary report")
 
     return uuid
 
@@ -3614,7 +3624,7 @@ def _add_scraper_link(misp, event_ref, url: str) -> None:
     a.value = url
     a.comment = "Pushed to scraper"
     a.to_ids = False
-    misp.add_attribute(event_ref, a)
+    _check(misp.add_attribute(event_ref, a), "add scraper link")
 
 
 def create_newsletter_event(source: str, raw_email: str, report_title: str = "",
@@ -3657,7 +3667,7 @@ def create_newsletter_event(source: str, raw_email: str, report_title: str = "",
         report.name = f"{_NEWSLETTER_REPORT_PREFIX}{source}"
         report.content = raw_email
         report.distribution = 5
-        misp.add_event_report(created.id, report)
+        _check(misp.add_event_report(created.id, report), "add newsletter report")
 
     for url in article_urls or []:
         if url.strip():
@@ -4415,7 +4425,7 @@ def reject_fia(uuid, reason=""):
 
 def delete_fia(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete FIA")
 
 
 # ── Flash intel attachments ──────────────────────────────────────────────────
@@ -4474,7 +4484,9 @@ def add_fia_attachment(event_uuid, filename, file_bytes, content_type=""):
 
 def delete_fia_attachment(attr_uuid):
     misp = _misp()
-    misp.delete_attribute(attr_uuid)
+    result = misp.delete_attribute(attr_uuid)
+    if not _is_not_found(result):
+        _check(result, "delete FIA attachment")
 
 
 def get_fia_attachment_content(attr_uuid):
@@ -5201,7 +5213,7 @@ def reject_vea(uuid, reason=""):
 
 def delete_vea(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete VEA")
 
 
 # ── Daily Threat Briefing ────────────────────────────────────────────────────
@@ -5750,7 +5762,7 @@ def publish_briefing(uuid):
 
 def delete_briefing(uuid):
     misp = _misp()
-    misp.delete_event(uuid)
+    _check(misp.delete_event(uuid), "delete briefing")
 
 
 def scraper_existing_uuids(uuids):
@@ -6071,7 +6083,7 @@ def publish_tlr(uuid):
 
 
 def delete_tlr(uuid):
-    _misp().delete_event(uuid)
+    _check(_misp().delete_event(uuid), "delete TLR")
 
 
 def find_products_using_source(src_uuid: str) -> list:
