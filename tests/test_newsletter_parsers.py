@@ -170,6 +170,10 @@ class ParseEtda(unittest.TestCase):
         self.assertIn("ETDA Cyber Threat Intelligence", self.result["report_title"])
         self.assertEqual(self.result["tlp"], "green")
 
+    def test_white_tlp_is_normalized_to_clear(self):
+        parsed = newsletter_parsers.parse("ETDA CTI Robot", SAMPLE.replace("TLP: GREEN", "TLP: WHITE"))
+        self.assertEqual(parsed["tlp"], "clear")
+
     def test_all_articles_found(self):
         self.assertEqual(len(self.articles), 4)
 

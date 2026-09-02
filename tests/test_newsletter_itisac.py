@@ -106,6 +106,10 @@ class Parse(unittest.TestCase):
         self.assertEqual(self.parsed["report_title"], "[IT-ISAC] Open Source News August 14, 2026")
         self.assertEqual(self.parsed["tlp"], "clear")
 
+    def test_white_tlp_is_normalized_to_clear(self):
+        parsed = parsers.parse("IT-ISAC Open Source News", SAMPLE.replace("TLP:CLEAR", "TLP:WHITE"))
+        self.assertEqual(parsed["tlp"], "clear")
+
     def test_every_article_is_found(self):
         self.assertEqual(len(self.articles), 3)
 
