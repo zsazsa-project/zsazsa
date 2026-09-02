@@ -43,15 +43,22 @@ class JsonAnswers(unittest.TestCase):
             answer = llm.check_relevance("article", {}, "B")
         self.assertFalse(answer["relevant"])
 
-    def test_overlap_detection_uses_the_shared_parse_failure_fallback(self):
+    def test_overlap_detection_falls_back_to_lexical_matching(self):
+        """An unparsable answer still has to flag the near-duplicate stories the
+        briefing editor is asking about."""
         stories = [
-            {"title": "Ransomware disruption at port", "content": "Operators report ransomware disruption."},
-            {"title": "Port ransomware disruption update", "content": "Ransomware disruption affects operators."},
+            {"title": "Ransomware disruption at Antwerp port",
+             "content": "Container terminal operations halted after ransomware"},
+            {"title": "Antwerp port ransomware disruption update",
+             "content": "Container terminal operations still halted"},
+            {"title": "New banking trojan campaign",
+             "content": "Credential theft against consumer accounts"},
         ]
         with mock.patch.object(llm, "_call", return_value="not JSON"), \
              mock.patch.object(llm, "_build_system_prompt", return_value="sys"):
             result = llm.detect_story_overlaps(stories)
         self.assertEqual(result["summary"], "Fallback overlap check used.")
+        self.assertEqual([(o["a"], o["b"]) for o in result["overlaps"]], [(1, 2)])
 
 
 class EmptyAnswers(unittest.TestCase):

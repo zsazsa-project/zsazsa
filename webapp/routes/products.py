@@ -12,7 +12,9 @@ from flask import Blueprint, render_template, request
 import config
 from webapp import misp_store
 from webapp.models import cti_products
-from webapp.utils import product_detail_url, product_type_label, product_type_tag_value
+from webapp.utils import (
+    PRODUCT_TAG_PREFIX, product_detail_url, product_type_label, product_type_tag_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ def _event_tags(ev):
 
 def _product_type_from_tags(tags):
     for t in tags:
-        if t.startswith('zsazsa:ctiproduct='):
+        if t.startswith(PRODUCT_TAG_PREFIX):
             return product_type_label(t.split('=', 1)[1].strip('"'))
     return ""
 
@@ -47,10 +49,10 @@ def _non_feedback_report_count(misp, event) -> int:
 def _list_product_events(type_filter: str | None, linked_pir: str | None):
     misp = misp_store._misp()
     if type_filter:
-        tags = [f'zsazsa:ctiproduct="{product_type_tag_value(type_filter)}"']
+        tags = [f'{PRODUCT_TAG_PREFIX}"{product_type_tag_value(type_filter)}"']
     else:
         # Match any zsazsa:ctiproduct value via wildcard
-        tags = ['zsazsa:ctiproduct="%"']
+        tags = [f'{PRODUCT_TAG_PREFIX}"%"']
     try:
         events = misp.search(tags=tags, limit=_LIMIT, metadata=False, pythonify=True)
     except Exception as exc:

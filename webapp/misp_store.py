@@ -24,12 +24,11 @@ import time
 import urllib3
 import re
 from collections import Counter, defaultdict
-from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import config
-from core.db import reserve_sequence
+from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
@@ -87,15 +86,21 @@ _GALAXY_TTL = 600  # seconds
 HTTP_TIMEOUT = 30
 HEALTH_CHECK_TIMEOUT = 8
 _SEARCH_PAGE_SIZE = 500
+# A server that ignores `page` would hand back a full page forever; stop there.
+_SEARCH_MAX_PAGES = 200
 
 
 def _search_all(misp, **kwargs):
-    """Return every page from a MISP event search, preserving error responses."""
-    page = 1
-    events = []
+    """Return every page of a MISP event search, or the error response as-is.
+
+    Callers check `isinstance(events, dict)` for a failed search, so an error on
+    the first page is returned unchanged. An error part-way through is logged
+    and the pages fetched so far are returned.
+    """
     kwargs = dict(kwargs)
     limit = int(kwargs.pop("limit", _SEARCH_PAGE_SIZE))
-    while True:
+    events = []
+    for page in range(1, _SEARCH_MAX_PAGES + 1):
         result = misp.search(limit=limit, page=page, **kwargs)
         if isinstance(result, dict):
             if not events:
@@ -108,7 +113,8 @@ def _search_all(misp, **kwargs):
         events.extend(result)
         if len(result) < limit:
             return events
-        page += 1
+    logger.warning("MISP search stopped at %s pages (%s results)", _SEARCH_MAX_PAGES, len(events))
+    return events
 
 
 def _misp():
@@ -540,7 +546,7 @@ def mitre_technique_labels(values) -> list:
 
 def _test_connection(url, key, verify):
     try:
-        m = PyMISP(url, key, verify, False, timeout=HEALTH_CHECK_TIMEOUT)
+        m = PyMISP(url, key, verify, timeout=HEALTH_CHECK_TIMEOUT)
         resp = m.misp_instance_version
         if isinstance(resp, dict) and "version" in resp:
             return {"ok": True, "version": resp["version"], "url": url}
@@ -567,7 +573,7 @@ def _make_event(info, extra_tags=None):
     # Default to "Your organisation only" (0); an admin can widen this from the
     # System config tab. Guard against a hand-edited config holding a bad value.
     dist = int(getattr(config, "MISP_EVENT_DISTRIBUTION", 0) or 0)
-    e.distribution = dist if dist in range(6) else 0
+    e.distribution = dist if dist in (0, 1, 2, 3) else 0
     e.threat_level_id = 4
     e.analysis = 2
     for t in extra_tags or []:
@@ -738,15 +744,10 @@ def _sync_object_attributes(misp, event, object_name, new_obj, label="object"):
             a.uuid = old_attr.uuid
     _check(misp.update_object(new_obj), f"update {label} object")
 
-    # Soft-delete attributes whose relation is no longer present. If MISP already
-    # considers the attribute gone (404 / "Invalid attribute"), that is the
-    # desired end state, so treat it as success rather than failing the edit.
+    # Soft-delete attributes whose relation is no longer present.
     for relation, old_attr in existing.items():
         if relation not in desired_relations:
-            result = misp.delete_attribute(old_attr.uuid)
-            if _is_not_found(result):
-                continue
-            _check(result, f"delete {label} {relation}")
+            _delete_attribute(misp, old_attr.uuid, f"delete {label} {relation}")
 
 
 def _get_fp_attrs(event):
@@ -805,6 +806,17 @@ def _is_not_found(result) -> bool:
         return False
     err = result["errors"]
     return isinstance(err, (list, tuple)) and bool(err) and err[0] == 404
+
+
+def _delete_attribute(misp, attr_ref, label):
+    """Delete an attribute, treating one that is already gone as done.
+
+    MISP answers a delete of a missing attribute with a 404; that is the state
+    the caller wanted, so only a real failure is raised.
+    """
+    result = misp.delete_attribute(attr_ref)
+    if not _is_not_found(result):
+        _check(result, label)
 
 
 def _json_list(raw):
@@ -883,9 +895,7 @@ def _replace_focus_points(req_uuid, focus_points):
     if isinstance(event, dict):
         return
     for old in _get_fp_attrs(event):
-        result = misp.delete_attribute(old.id)
-        if not _is_not_found(result):
-            _check(result, "delete focus point")
+        _delete_attribute(misp, old.id, "delete focus point")
     for fp in focus_points or []:
         category = (fp.get("category") or "").strip()
         value = (fp.get("value") or "").strip()
@@ -1203,26 +1213,34 @@ def _scan_max_sequence(misp, tag, prefix):
 
 
 def _sequence_id(misp, tag, prefix, existing):
-    """Return `existing` if it is set, else the next reserved {prefix}-NNN id."""
+    """Return `existing` if it is set, else the next free {prefix}-NNN id.
+
+    A suggestion only: nothing is claimed, so two callers can be handed the
+    same id. Creates go through _reserve_sequence_id instead.
+    """
     existing = (existing or "").strip()
     if existing:
         return existing
     return f"{prefix}-{_scan_max_sequence(misp, tag, prefix) + 1:03d}"
 
 
-@contextmanager
-def _reserved_sequence_id(misp, tag, prefix, existing):
-    """Reserve an ID in the shared database until its MISP event is created."""
+def _reserve_sequence_id(misp, tag, prefix, existing):
+    """Return `existing` if it is set, else claim the next {prefix}-NNN id.
+
+    The number comes from a counter in the local database, seeded from the
+    highest id already in MISP, so two creates at the same time (in one process
+    or across workers) cannot end up with the same id. A claimed number is
+    consumed even if the MISP write that follows fails, leaving a gap in the
+    sequence rather than a duplicate.
+    """
     existing = (existing or "").strip()
     if existing:
-        yield existing
-        return
-    with reserve_sequence(prefix, _scan_max_sequence(misp, tag, prefix)) as number:
-        yield f"{prefix}-{number:03d}"
+        return existing
+    number = next_sequence_value(prefix, _scan_max_sequence(misp, tag, prefix))
+    return f"{prefix}-{number:03d}"
 
 
 def _next_id(tag, prefix):
-    """Return a non-authoritative next ID suggestion."""
     return _sequence_id(_misp(), tag, prefix, "")
 
 
@@ -1366,12 +1384,11 @@ def create_pir(data):
     data.setdefault("intake_status", "submitted")
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_PIR, "PIR", data.get("pir_id")) as pir_id:
-        data["pir_id"] = pir_id
-        event = _make_event(f"[zsazsa:pir] {data['pir_id']}")
-        for t in _build_scope_tags(data):
-            event.add_tag(t)
-        result = _add_event(misp, event, [config.TAG_PIR], "create PIR")
+    data["pir_id"] = _reserve_sequence_id(misp, config.TAG_PIR, "PIR", data.get("pir_id"))
+    event = _make_event(f"[zsazsa:pir] {data['pir_id']}")
+    for t in _build_scope_tags(data):
+        event.add_tag(t)
+    result = _add_event(misp, event, [config.TAG_PIR], "create PIR")
     _check(misp.add_object(_event_ref(result), _pir_obj(data)), "add PIR object")
     req_uuid = _event_uuid(result)
     if not req_uuid:
@@ -1469,12 +1486,11 @@ def get_gir(uuid):
 def create_gir(data):
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_GIR, "GIR", data.get("gir_id")) as gir_id:
-        data["gir_id"] = gir_id
-        event = _make_event(f"[zsazsa:gir] {data['gir_id']}: {data.get('topic', '')}")
-        for t in _build_scope_tags(data):
-            event.add_tag(t)
-        result = _add_event(misp, event, [config.TAG_GIR], "create GIR")
+    data["gir_id"] = _reserve_sequence_id(misp, config.TAG_GIR, "GIR", data.get("gir_id"))
+    event = _make_event(f"[zsazsa:gir] {data['gir_id']}: {data.get('topic', '')}")
+    for t in _build_scope_tags(data):
+        event.add_tag(t)
+    result = _add_event(misp, event, [config.TAG_GIR], "create GIR")
     _check(misp.add_object(_event_ref(result), _gir_obj(data)), "add GIR object")
     uuid = _event_uuid(result)
     if not uuid:
@@ -1556,9 +1572,7 @@ def add_focus_point(req_uuid, category, value, notes=""):
 
 def delete_focus_point(attr_uuid):
     misp = _misp()
-    result = misp.delete_attribute(attr_uuid)
-    if not _is_not_found(result):
-        _check(result, "delete focus point")
+    _delete_attribute(misp, attr_uuid, "delete focus point")
 
 
 # Map a focus point category back to the PIR/GIR object scope relation. Every
@@ -1705,9 +1719,7 @@ def remove_focus_point_with_scope(req_uuid, attr_uuid):
             new_values = [v for v in getattr(current, field) if v != value]
             _rewrite_parent_scope(misp, event, relation, new_values)
 
-    result = misp.delete_attribute(attr_uuid)
-    if not _is_not_found(result):
-        _check(result, "delete focus point")
+    _delete_attribute(misp, attr_uuid, "delete focus point")
 
 
 def sync_focus_points_category(req_uuid, category, values, notes=""):
@@ -1733,9 +1745,7 @@ def sync_focus_points_category(req_uuid, category, values, notes=""):
     for a in _get_fp_attrs(event):
         ns = _fp_ns(a)
         if ns.category == category:
-            result = misp.delete_attribute(a.uuid)
-            if not _is_not_found(result):
-                _check(result, "delete focus point")
+            _delete_attribute(misp, a.uuid, "delete focus point")
 
     for v in cleaned:
         add_focus_point(req_uuid, category, v, notes)
@@ -1905,11 +1915,10 @@ def get_rfi(uuid):
 def create_rfi(data):
     data["creator"] = misp_session.current_user_email()
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_RFI, "RFI", data.get("rfi_id")) as rfi_id:
-        data["rfi_id"] = rfi_id
-        info = f"[zsazsa:rfi] {data['rfi_id']}: {data.get('question', '')[:80]}"
-        event = _make_event(info)
-        result = _add_event(misp, event, [config.TAG_RFI], "create RFI")
+    data["rfi_id"] = _reserve_sequence_id(misp, config.TAG_RFI, "RFI", data.get("rfi_id"))
+    info = f"[zsazsa:rfi] {data['rfi_id']}: {data.get('question', '')[:80]}"
+    event = _make_event(info)
+    result = _add_event(misp, event, [config.TAG_RFI], "create RFI")
     _check(misp.add_object(_event_ref(result), _rfi_obj(data)), "add RFI object")
     uuid = _event_uuid(result)
     if not uuid:
@@ -1964,9 +1973,7 @@ def add_rfi_attachment(event_uuid, filename, file_bytes):
 
 def delete_rfi_attachment(attr_uuid):
     misp = _misp()
-    result = misp.delete_attribute(attr_uuid)
-    if not _is_not_found(result):
-        _check(result, "delete RFI attachment")
+    _delete_attribute(misp, attr_uuid, "delete RFI attachment")
 
 
 def fetch_attachment(attr_uuid):
@@ -2080,11 +2087,10 @@ def create_indicator_feed(data):
     # Unguessable capability token for the public export URL.
     data["token"] = data.get("token") or secrets.token_urlsafe(16)
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_INDICATOR_FEED, "FEED", data.get("feed_id")) as feed_id:
-        data["feed_id"] = feed_id
-        info = f"[zsazsa:indicator-feed] {data['feed_id']}: {(data.get('name') or '')[:80]}"
-        event = _make_event(info)
-        result = _add_event(misp, event, [config.TAG_INDICATOR_FEED], "create indicator feed")
+    data["feed_id"] = _reserve_sequence_id(misp, config.TAG_INDICATOR_FEED, "FEED", data.get("feed_id"))
+    info = f"[zsazsa:indicator-feed] {data['feed_id']}: {(data.get('name') or '')[:80]}"
+    event = _make_event(info)
+    result = _add_event(misp, event, [config.TAG_INDICATOR_FEED], "create indicator feed")
     _check(misp.add_object(_event_ref(result), _indicator_feed_obj(data)), "add indicator feed object")
     uuid = _event_uuid(result)
     if not uuid:
@@ -2309,11 +2315,10 @@ def create_threat_actor_profile(data):
     # only victimology is recorded server-side (it becomes a note).
     victimology = galaxy_enrichment(data.get("threat_actors") or [])["victimology"]
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_THREAT_ACTOR_PROFILE, "TAP", data.get("tap_id")) as tap_id:
-        data["tap_id"] = tap_id
-        info = f"[zsazsa:threat-actor-profile] {data['tap_id']}: {(data.get('title') or '')[:80]}"
-        event = _make_event(info)
-        result = _add_event(misp, event, [config.TAG_THREAT_ACTOR_PROFILE], "create threat actor profile")
+    data["tap_id"] = _reserve_sequence_id(misp, config.TAG_THREAT_ACTOR_PROFILE, "TAP", data.get("tap_id"))
+    info = f"[zsazsa:threat-actor-profile] {data['tap_id']}: {(data.get('title') or '')[:80]}"
+    event = _make_event(info)
+    result = _add_event(misp, event, [config.TAG_THREAT_ACTOR_PROFILE], "create threat actor profile")
     _check(misp.add_object(_event_ref(result), _tap_obj(data)), "add threat actor profile object")
     uuid = _event_uuid(result)
     if not uuid:
@@ -2423,7 +2428,7 @@ def _indicator_feed_clients(server_ids=None):
         elif not s.get("enabled", True):
             continue
         try:
-            client = PyMISP(s["url"], s["api_key"], s.get("verify_tls", True), False, timeout=HTTP_TIMEOUT)
+            client = PyMISP(s["url"], s["api_key"], s.get("verify_tls", True), timeout=HTTP_TIMEOUT)
         except Exception as exc:
             logger.warning("Indicator feed: cannot connect to MISP server %r (%s): %s", sid, s.get("url"), exc)
             continue
@@ -2479,6 +2484,38 @@ def _attr_tag_names(attr, event):
     names = [t.get("name", "") for t in (attr.get("Tag") or [])]
     names += [t.get("name", "") for t in (event.get("Tag") or [])]
     return [n for n in names if n]
+
+
+def _attributes_from(raw):
+    """The attribute list out of a PyMISP attribute search response."""
+    if not isinstance(raw, dict):
+        return raw or []
+    attrs = raw.get("Attribute")
+    if attrs is None and "response" in raw:
+        attrs = (raw["response"] or {}).get("Attribute", [])
+    return attrs or []
+
+
+def _tag_filtered(attrs, filters):
+    """Return the attributes passing the feed's tag include/exclude filters.
+
+    MISP tag search is OR-only, so "must carry all of these tags" and the
+    exclusions are applied here, on the fetched attributes.
+    """
+    tags_inc = filters.get("tags_include") or []
+    tags_exc = filters.get("tags_exclude") or []
+    kept = []
+    for a in attrs:
+        if isinstance(a, dict) and "Attribute" in a:
+            a = a["Attribute"]
+        if tags_inc or tags_exc:
+            tag_names = _attr_tag_names(a, a.get("Event") or {})
+            if tags_inc and not all(t in tag_names for t in tags_inc):
+                continue
+            if tags_exc and any(t in tag_names for t in tags_exc):
+                continue
+        kept.append(a)
+    return kept
 
 
 def _indicator_search_kwargs(filters):
@@ -2559,27 +2596,10 @@ def pymisp_query_string(filters):
 
 
 def _parse_attribute_rows(raw, server_id, server_label, server_url, filters):
-    if isinstance(raw, dict):
-        attrs = raw.get("Attribute")
-        if attrs is None and "response" in raw:
-            attrs = (raw["response"] or {}).get("Attribute", [])
-        attrs = attrs or []
-    else:
-        attrs = raw or []
-
-    tags_inc = filters.get("tags_include") or []
-    tags_exc = filters.get("tags_exclude") or []
     rows = []
-    for a in attrs:
-        if isinstance(a, dict) and "Attribute" in a:
-            a = a["Attribute"]
+    for a in _tag_filtered(_attributes_from(raw), filters):
         event = a.get("Event") or {}
         tag_names = _attr_tag_names(a, event)
-        # MISP tag filtering is OR, so enforce "must have all" and exclusion here.
-        if tags_inc and not all(t in tag_names for t in tags_inc):
-            continue
-        if tags_exc and any(t in tag_names for t in tags_exc):
-            continue
         ts = a.get("timestamp")
         try:
             ts_epoch = int(ts) if ts else 0
@@ -2626,9 +2646,9 @@ INDICATOR_FEED_COLUMNS = [
 def indicator_feed_csv_text(feed) -> str:
     """Run a saved feed's query and return its results as CSV text.
 
-    One row per matching attribute, so a value repeated across events/servers
-    appears on multiple rows (each with its own event/server context) rather
-    than being de-duplicated - unlike the plain-text value list."""
+    One row per matching attribute, so a value found on several events or
+    servers appears once per row with its own context. The plain-text export
+    de-duplicates instead."""
     import csv
     import io
     query = feed.query or {}
@@ -2667,30 +2687,20 @@ def count_indicators(filters, server_ids=None, cap=100000):
 
     MISP cannot sort attribute search, so the result table only sorts the
     fetched page. This count tells the analyst how many match in total (so they
-    know whether the limit truncates the set). It counts attributes (not
-    unique values - the `text` export de-duplicates those, the row/CSV output
-    does not), bounded by `cap`; returns (total, capped).
+    know whether the limit truncates the set). It counts attributes, not unique
+    values: the `text` export de-duplicates those, the table and CSV do not.
 
-    The tag include/exclude filters are AND/exclude semantics applied locally
-    (see `_parse_attribute_rows`), because MISP's own tag search is OR-only.
-    To keep the total in sync with what the result table actually shows, the
-    same local refinement is applied here, which needs each attribute's (and
-    its event's) tags - so `include_context` is only requested when a tag
-    filter is active, keeping the common case light.
+    The tag filters are refined locally, exactly as the rows are, so the total
+    matches what the table shows. That needs the attribute and event tags, so
+    the heavier `include_context` is only asked for when a tag filter is set.
 
-    `capped` reflects whether *any* server's raw (pre-refinement) fetch hit
-    `cap`, i.e. whether that server's true count could be higher than what
-    was retrieved - the aggregate total across servers may therefore be a
-    lower bound even when no individual server count looks large.
+    `capped` says whether any server's fetch hit `cap` before the refinement,
+    meaning the real total can be higher than the number returned.
     """
-    tags_inc = filters.get("tags_include") or []
-    tags_exc = filters.get("tags_exclude") or []
     kwargs = _indicator_search_kwargs(filters)
-    for key in ("include_context", "limit"):
-        kwargs.pop(key, None)
     kwargs["limit"] = cap
-    if tags_inc or tags_exc:
-        kwargs["include_context"] = True
+    if not (filters.get("tags_include") or filters.get("tags_exclude")):
+        kwargs.pop("include_context", None)
     total, capped = 0, False
     for sid, _label, _url, client in _indicator_feed_clients(server_ids):
         try:
@@ -2698,28 +2708,10 @@ def count_indicators(filters, server_ids=None, cap=100000):
         except Exception:
             logger.exception("Indicator count failed on server %s", sid)
             continue
-        if isinstance(raw, dict):
-            attrs = raw.get("Attribute")
-            if attrs is None and "response" in raw:
-                attrs = (raw["response"] or {}).get("Attribute", [])
-            attrs = attrs or []
-        else:
-            attrs = raw or []
+        attrs = _attributes_from(raw)
         if len(attrs) >= cap:
             capped = True
-        if tags_inc or tags_exc:
-            for a in attrs:
-                if isinstance(a, dict) and "Attribute" in a:
-                    a = a["Attribute"]
-                event = a.get("Event") or {}
-                tag_names = _attr_tag_names(a, event)
-                if tags_inc and not all(t in tag_names for t in tags_inc):
-                    continue
-                if tags_exc and any(t in tag_names for t in tags_exc):
-                    continue
-                total += 1
-        else:
-            total += len(attrs)
+        total += len(_tag_filtered(attrs, filters))
     return total, capped
 
 
@@ -3119,7 +3111,7 @@ def _all_source_clients():
         api_key = s.get("api_key")
         if url and api_key:
             try:
-                clients.append((sid, _PyMISP(url, api_key, s.get("verify_tls", True), False),
+                clients.append((sid, _PyMISP(url, api_key, s.get("verify_tls", True)),
                                 s.get("label") or url))
             except Exception as exc:
                 logger.warning("skipping MISP server %r (%s): could not connect: %s",
@@ -4531,9 +4523,7 @@ def add_fia_attachment(event_uuid, filename, file_bytes, content_type=""):
 
 def delete_fia_attachment(attr_uuid):
     misp = _misp()
-    result = misp.delete_attribute(attr_uuid)
-    if not _is_not_found(result):
-        _check(result, "delete FIA attachment")
+    _delete_attribute(misp, attr_uuid, "delete FIA attachment")
 
 
 def get_fia_attachment_content(attr_uuid):
@@ -6027,10 +6017,6 @@ def render_tlr_markdown(tlr):
     return "\n".join(lines)
 
 
-def _next_tlr_id():
-    return _next_id(config.TAG_TLR, "TLR")
-
-
 def list_tlrs():
     misp = _misp()
     events = _search_all(misp, tags=[config.TAG_TLR], pythonify=True)
@@ -6051,16 +6037,14 @@ def get_tlr(uuid):
 
 def create_tlr(data):
     misp = _misp()
-    with _reserved_sequence_id(misp, config.TAG_TLR, "TLR", data.get("tlr_id")) as tlr_id:
-        title = data.get("title", "")
-        info = f"[zsazsa:tlr] {tlr_id}: {title}"
-        extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
-        event = _make_event(info, extra_tags=extra)
-        result = _add_event(misp, event, [config.TAG_TLR], "create TLR")
+    data["tlr_id"] = _reserve_sequence_id(misp, config.TAG_TLR, "TLR", data.get("tlr_id"))
+    info = f"[zsazsa:tlr] {data['tlr_id']}: {data.get('title', '')}"
+    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+    event = _make_event(info, extra_tags=extra)
+    result = _add_event(misp, event, [config.TAG_TLR], "create TLR")
     uuid = _event_uuid(result)
     if not uuid:
         raise RuntimeError("create TLR: missing UUID in MISP response")
-    data["tlr_id"] = tlr_id
     data.setdefault("review_state", TLR_REVIEW_DRAFT)
     data["creator"] = misp_session.current_user_email()
     _check(misp.add_object(_event_ref(result), _tlr_obj(data)), "add TLR object")

@@ -2,6 +2,7 @@
 
 import ast
 import re
+from collections import namedtuple
 from datetime import datetime
 
 import config
@@ -168,60 +169,62 @@ def sort_products(items: list, sort: str, direction: str) -> list:
     return items
 
 
-_PRODUCT_TAG_PREFIX = 'zsazsa:ctiproduct='
-_PRODUCT_TYPE_CONFIG = {
-    "Flash intel alert": {"config_attr": "TAG_FLASH_INTEL", "fallback": "flash-intel", "endpoint": "flash_intel.detail"},
-    "Vulnerability advisory": {"config_attr": "TAG_VEA", "fallback": "vea", "endpoint": "vea.detail"},
-    "Daily threat briefing": {"config_attr": "TAG_BRIEFING", "fallback": "daily-briefing", "endpoint": "daily_briefing.detail"},
-    "Threat landscape report": {"config_attr": "TAG_TLR", "fallback": "threat-landscape-report", "endpoint": "threat_landscape.detail"},
-    "Indicator feed": {"config_attr": "TAG_INDICATOR_FEED", "fallback": "indicator-feed", "endpoint": "indicator_feed.detail"},
-    "Threat actor profile": {"config_attr": "TAG_THREAT_ACTOR_PROFILE", "fallback": "threat-actor-profile", "endpoint": "threat_actor_profile.detail"},
-}
-_PRODUCT_TYPE_ALIASES = {
-    "flash-intel": "Flash intel alert",
-    "vea": "Vulnerability advisory",
-    "vulnerability exploitation advisory": "Vulnerability advisory",
-    "daily-briefing": "Daily threat briefing",
-    "threat-landscape-report": "Threat landscape report",
-    "indicator-feed": "Indicator feed",
-    "threat-actor-profile": "Threat actor profile",
+PRODUCT_TAG_PREFIX = 'zsazsa:ctiproduct='
+
+# The CTI products that have their own pages, by display name: the config tag
+# holding the tag value, the built-in value, and the detail endpoint.
+_PRODUCT_TYPES = {
+    "Flash intel alert": ("TAG_FLASH_INTEL", "flash-intel", "flash_intel.detail"),
+    "Vulnerability advisory": ("TAG_VEA", "vea", "vea.detail"),
+    "Daily threat briefing": ("TAG_BRIEFING", "daily-briefing", "daily_briefing.detail"),
+    "Threat landscape report": ("TAG_TLR", "threat-landscape-report", "threat_landscape.detail"),
+    "Indicator feed": ("TAG_INDICATOR_FEED", "indicator-feed", "indicator_feed.detail"),
+    "Threat actor profile": ("TAG_THREAT_ACTOR_PROFILE", "threat-actor-profile", "threat_actor_profile.detail"),
 }
 
+# Names used before the product was renamed, still stored on older events.
+_PRODUCT_TYPE_ALIASES = {"vulnerability exploitation advisory": "vulnerability advisory"}
 
-def _normalized_product_type(value: str) -> str:
-    return (value or "").strip().lower()
+_ProductType = namedtuple("_ProductType", "label tag_value endpoint")
 
 
-def _configured_product_tag_value(config_attr: str, fallback: str) -> str:
-    raw = str(getattr(config, config_attr, "") or "").strip()
-    if raw.startswith(_PRODUCT_TAG_PREFIX):
-        return raw.split("=", 1)[1].strip().strip('"')
-    return fallback
+def _configured_tag_value(config_attr: str, builtin: str) -> str:
+    """Return the value inside a configured product tag, e.g. 'flash-intel'.
+
+    An admin can rename the tag in config/__init__.py; anything that is not a
+    usable zsazsa:ctiproduct tag falls back to the value zsazsa ships with.
+    """
+    tag = str(getattr(config, config_attr, "") or "").strip()
+    if not tag.startswith(PRODUCT_TAG_PREFIX):
+        return builtin
+    return tag.split("=", 1)[1].strip().strip('"') or builtin
+
+
+def _find_product_type(product_type: str):
+    """Look up a product type given as a display name or as a tag value.
+
+    Returns None when it is not one of ours: the config page lets an admin add
+    product types that have no page of their own.
+    """
+    wanted = (product_type or "").strip().lower()
+    wanted = _PRODUCT_TYPE_ALIASES.get(wanted, wanted)
+    for label, (config_attr, builtin, endpoint) in _PRODUCT_TYPES.items():
+        tag_value = _configured_tag_value(config_attr, builtin)
+        if wanted in (label.lower(), tag_value.lower()):
+            return _ProductType(label, tag_value, endpoint)
+    return None
 
 
 def product_type_tag_value(product_type: str) -> str:
-    value = (product_type or "").strip()
-    if not value:
-        return ""
-    wanted = _normalized_product_type(value)
-    for label, meta in _PRODUCT_TYPE_CONFIG.items():
-        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
-        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
-            return tag_value
-    return value
+    """Return the zsazsa:ctiproduct tag value for a product type."""
+    found = _find_product_type(product_type)
+    return found.tag_value if found else (product_type or "").strip()
 
 
 def product_type_label(product_type: str) -> str:
-    value = (product_type or "").strip()
-    if not value:
-        return ""
-    wanted = _normalized_product_type(value)
-    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, wanted))
-    for label, meta in _PRODUCT_TYPE_CONFIG.items():
-        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
-        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
-            return label
-    return value
+    """Return the display name for a product type given by its tag value."""
+    found = _find_product_type(product_type)
+    return found.label if found else (product_type or "").strip()
 
 
 def product_detail_url(product_type: str, entity_id: str, fallback_url: str = "") -> str:
@@ -232,18 +235,10 @@ def product_detail_url(product_type: str, entity_id: str, fallback_url: str = ""
     """
     from flask import url_for
 
-    endpoint = None
-    wanted = _normalized_product_type(product_type)
-    wanted = _normalized_product_type(_PRODUCT_TYPE_ALIASES.get(wanted, wanted))
-    for label, meta in _PRODUCT_TYPE_CONFIG.items():
-        tag_value = _configured_product_tag_value(meta["config_attr"], meta["fallback"])
-        if wanted in {_normalized_product_type(label), _normalized_product_type(tag_value)}:
-            endpoint = meta["endpoint"]
-            break
-
-    if not endpoint:
+    found = _find_product_type(product_type)
+    if not found:
         return fallback_url
     try:
-        return url_for(endpoint, id=entity_id)
+        return url_for(found.endpoint, id=entity_id)
     except BuildError:
         return fallback_url

@@ -1,5 +1,98 @@
 # Changelog
 
+## 1.0.1
+
+A set of fixes for the product pages, for the way records get their id, and for
+MISP errors that zsazsa did not show. There is no migration to run.
+
+### Upgrading
+
+Pull and restart, that is all. The database gets a `sequence_counter` table on
+the first start. The first time you save the Configuration page, six
+`JOB_REDIS_*` settings are written to `config/__init__.py`. They hold the values
+zsazsa was already using, so nothing changes for the background jobs.
+
+One thing to know: record ids can have gaps now. A number for a PIR, GIR, RFI,
+indicator feed, threat actor profile or landscape report is taken the moment it
+is handed out, also when the MISP write after it fails. So you can see PIR-018
+followed by PIR-020. In return, the same id is never given to two records.
+
+### Fixed
+
+- The Products page could not filter on product type. The dropdown used the name
+  you see ("Flash intel alert") and the events carry the tag value
+  ("flash-intel"), so every count showed 0 and picking a type gave an empty
+  page. The two are now translated in both directions. Indicator feeds and
+  threat actor profiles also get a link to their own page instead of to MISP.
+- Two records created at the same moment could get the same id. The id came from
+  a scan of the MISP event titles, so deleting a record gave its number back to
+  the next one, and an id already sent to a stakeholder could come back on
+  something else. Ids now come from a counter in the local database. The scan is
+  still there, but only to set the starting point.
+- Deleting a PIR, GIR, RFI, indicator feed, briefing, advisory, flash alert,
+  landscape report or threat actor profile said "deleted" even when MISP refused
+  it. The same for attributes and reports written during a create. The error
+  from MISP now reaches the page. Deleting something that is already gone stays
+  a success: that is the state you asked for.
+- Lists stopped at the MISP page limit. With more than 200 stakeholders, PIRs or
+  advisories you saw only the first page, and the id scan could start again from
+  a number that was already used. All pages are read now.
+- Fetching a URL in a manual entry gave a server error instead of a message when
+  the address had an impossible port number, for example `:99999`.
+- A newsletter with the old `TLP:WHITE` was stored as `white`. That is not a TLP
+  level zsazsa knows, so the badge and the PDF stayed without colour. It is read
+  as `TLP:CLEAR` now.
+- The text export of an indicator feed repeated a value when it was found on
+  more than one attribute, event or server. Each value is listed once now, in
+  the order it was seen first. The CSV export does not change: it keeps one line
+  per attribute, with the event and the server on it.
+- The number of indicators above the result table did not apply the tag filters
+  that the table itself applies, so the count and the table said something
+  different as soon as you filtered on a tag.
+- Saving the Configuration page put the Redis settings of the background jobs
+  back to their default. Job state went to another Redis than before, without
+  telling you.
+- One unreadable row in the pipeline run log broke the whole pipeline page.
+- Several requests at the same time each refreshed the PIR and GIR cache used
+  for matching, and a save could still be lost when a refresh was busy.
+
+### Changed
+
+- The indicator count only asks MISP for the event context when you filter on a
+  tag. That is the only case where it is needed.
+- The distribution for new events takes the four levels the System tab offers.
+  Another value in a hand-edited config falls back to "Your organisation only".
+
+### Added
+
+- `JOB_REDIS_*` in `config/__init__.py.example`, with the values zsazsa already
+  used.
+- Tests for the id allocation and the paging, for MISP errors that must not get
+  lost, for the indicator count and export, for the product type mapping and for
+  the URL check.
+
+### Documentation
+
+- INSTALL lists the system libraries WeasyPrint needs. `pip install -r
+  requirements.txt` does not install them, and without them the PDF export only
+  fails the first time somebody exports a product.
+- INSTALL says which Redis settings you edit on the Settings page and which one
+  you set in `config/__init__.py` itself.
+- `docs/install.sh` checks `venv` and `ensurepip` before it creates the virtual
+  environment and names the package to install. After the install it warns when
+  WeasyPrint cannot be imported.
+- The README explains what you get in the two export formats of an indicator
+  feed.
+
+### Internal
+
+- The SSRF check for the URL fetch moved to `core/net_safety.py`. It is not used
+  for MISP, Flowintel and the notification webhooks: an admin configures those
+  and they are normally on an internal address.
+- Reading a MISP attribute search, applying the tag filters locally and deleting
+  an attribute that can already be gone are written once now, and used by the
+  search, the export and the count.
+
 ## 1.0.0
 
 First release labelled as stable. It carries three fixes for data that was being

@@ -573,10 +573,6 @@ def correlate():
         return jsonify({"matches": [], "error": "Search failed."}), 502
 
 
-# Kept as a thin alias: tests and other modules import this name from here.
-_is_safe_public_url = is_safe_public_url
-
-
 @bp.route("/fetch-url", methods=["POST"])
 @rate_limited("api_fetch_url", limit=20, window_s=60)
 def fetch_url():
@@ -591,7 +587,7 @@ def fetch_url():
     url = (body.get("url") or "").strip()
     if not url:
         return jsonify({"title": "", "content": "", "error": "URL required."})
-    if not _is_safe_public_url(url):
+    if not is_safe_public_url(url):
         logger.warning("fetch_url rejected non-public or invalid URL: %s", url)
         return jsonify({
             "title": "", "content": "",

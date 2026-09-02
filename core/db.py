@@ -116,32 +116,26 @@ def init_db() -> None:
         ])
 
 
-@contextmanager
-def reserve_sequence(name: str, initial_value: int):
-    """Reserve the next sequence value in a transaction shared by all workers."""
+def next_sequence_value(name: str, at_least: int = 0) -> int:
+    """Hand out the next value of the named counter, never below `at_least`.
+
+    The read and the write happen in one immediate transaction, so concurrent
+    callers (threads, or several workers sharing the database) each get their
+    own number. It is consumed straight away: if whatever it was allocated for
+    then fails, the number is skipped rather than handed out twice.
+    """
     conn = sqlite3.connect(config.DB_FILE, timeout=30, isolation_level=None)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS sequence_counter (
-                name  TEXT PRIMARY KEY,
-                value INTEGER NOT NULL
-            )
-        """)
-        row = conn.execute(
-            "SELECT value FROM sequence_counter WHERE name = ?", (name,)
-        ).fetchone()
-        value = max(int(row[0]) if row else 0, initial_value) + 1
+        row = conn.execute("SELECT value FROM sequence_counter WHERE name = ?", (name,)).fetchone()
+        value = max(int(row[0]) if row else 0, at_least) + 1
         conn.execute(
             "INSERT INTO sequence_counter (name, value) VALUES (?, ?)"
             " ON CONFLICT(name) DO UPDATE SET value = excluded.value",
             (name, value),
         )
-        yield value
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+        conn.execute("COMMIT")
+        return value
     finally:
         conn.close()
 
@@ -216,18 +210,20 @@ def _prune_logs() -> None:
         logger.warning("Log pruning failed: %s", e)
 
 
-def _parse_result_json(r: dict) -> None:
-    """Pop and parse ``result_json`` into ``r["result"]``, in place.
+def _run_row(row) -> dict:
+    """A pipeline_run_log row as a dict, with result_json parsed into "result".
 
-    A corrupted row should degrade to ``result=None`` rather than crash the
-    caller, since one bad row shouldn't take down the whole listing.
+    A row whose JSON is corrupt degrades to result=None: one bad row should not
+    take down the whole listing.
     """
-    result_json = r.pop("result_json", None)
+    r = dict(row)
+    raw = r.pop("result_json", None)
     try:
-        r["result"] = json.loads(result_json) if result_json else None
+        r["result"] = json.loads(raw) if raw else None
     except json.JSONDecodeError as e:
         logger.error("Corrupt result_json for pipeline_run_log id=%s: %s", r.get("id"), e)
         r["result"] = None
+    return r
 
 
 def get_latest_pipeline_run(action: str) -> dict | None:
@@ -242,9 +238,7 @@ def get_latest_pipeline_run(action: str) -> dict | None:
             ).fetchone()
         if not row:
             return None
-        r = dict(row)
-        _parse_result_json(r)
-        return r
+        return _run_row(row)
     except sqlite3.Error as e:
         logger.error("DB read failed for pipeline_run_log: %s", e)
         return None
@@ -261,8 +255,7 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
             ).fetchall()
         result = []
         for row in rows:
-            r = dict(row)
-            _parse_result_json(r)
+            r = _run_row(row)
             if r.get("started_at") and r.get("finished_at"):
                 try:
                     start = datetime.fromisoformat(r["started_at"])

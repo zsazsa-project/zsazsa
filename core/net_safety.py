@@ -1,8 +1,8 @@
-"""Shared SSRF guard for outbound HTTP requests to admin-configured URLs.
+"""SSRF guard for outbound requests to a URL supplied in a user request.
 
-Used by any code path that sends a request to a URL supplied through the
-config UI (webhooks, Flowintel instances, ad-hoc fetches) so a single check
-protects internal services and cloud metadata endpoints consistently.
+Used by /api/fetch-url, which fetches a URL an analyst pastes in and returns
+its content. Admin-configured integration targets (MISP, Flowintel, webhook
+channels) are deliberately not checked: those are expected to be internal.
 """
 
 import ipaddress
@@ -13,14 +13,14 @@ from urllib.parse import urlsplit
 def is_safe_public_url(url: str) -> bool:
     """Return True only for http(s) URLs whose host resolves to public IPs.
 
-    Guards outbound requests against SSRF: rejects non-web schemes and any
-    host that resolves to a loopback, link-local, private, reserved or
-    multicast address (e.g. cloud metadata at 169.254.169.254, internal
-    services on 127.0.0.1 or RFC1918 ranges). Every resolved address must be
-    global, so a hostname with a mix of public and private records is rejected.
+    Rejects non-web schemes and any host that resolves to a loopback,
+    link-local, private, reserved or multicast address (e.g. cloud metadata at
+    169.254.169.254, internal services on 127.0.0.1 or RFC1918 ranges). Every
+    resolved address must be global, so a hostname with a mix of public and
+    private records is rejected.
 
     Note: this validates the host at check time. DNS rebinding between this
-    check and the actual request remains a residual risk; authentication and
+    check and the actual fetch remains a residual risk; authentication and
     authorization on the calling endpoint are the primary control.
     """
     parts = urlsplit(url)
@@ -29,8 +29,9 @@ def is_safe_public_url(url: str) -> bool:
     host = parts.hostname
     if not host:
         return False
-    port = parts.port or (443 if parts.scheme == "https" else 80)
     try:
+        # A malformed port ("http://host:99999/") makes .port itself raise.
+        port = parts.port or (443 if parts.scheme == "https" else 80)
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError, ValueError):
         return False

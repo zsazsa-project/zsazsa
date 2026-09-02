@@ -11,7 +11,7 @@ import config
 from flask import Flask
 
 from webapp.routes import indicator_feed, products, threat_actor_profile
-from webapp.utils import product_detail_url
+from webapp.utils import product_detail_url, product_type_label, product_type_tag_value
 
 
 class ProductTypeMapping(unittest.TestCase):
@@ -50,6 +50,28 @@ class ProductTypeMapping(unittest.TestCase):
                                'zsazsa:ctiproduct="indicator-feed"', create=True):
             rows = products._list_product_events(None, None)
         self.assertEqual(rows[0]["product_type"], "Indicator feed")
+
+    def test_the_legacy_advisory_name_still_resolves(self):
+        """Events created before the rename carry the old product name."""
+        with mock.patch.object(config, "TAG_VEA", 'zsazsa:ctiproduct="vea"', create=True):
+            self.assertEqual(product_type_tag_value("Vulnerability exploitation advisory"), "vea")
+            self.assertEqual(product_type_label("Vulnerability exploitation advisory"),
+                             "Vulnerability advisory")
+
+    def test_an_unusable_configured_tag_falls_back_to_the_shipped_value(self):
+        for broken in ["", "not-a-tag", 'zsazsa:ctiproduct=']:
+            with mock.patch.object(config, "TAG_VEA", broken, create=True):
+                self.assertEqual(product_type_tag_value("Vulnerability advisory"), "vea", broken)
+
+    def test_a_product_type_without_a_page_is_left_alone(self):
+        # The config page lets an admin add product types zsazsa has no page for.
+        self.assertEqual(product_type_tag_value("Campaign profile"), "Campaign profile")
+        self.assertEqual(product_type_label("Campaign profile"), "Campaign profile")
+        with self.app.test_request_context("/"):
+            self.assertEqual(
+                product_detail_url("Campaign profile", "x", fallback_url="/fallback"),
+                "/fallback",
+            )
 
     def test_product_detail_url_covers_indicator_feed_and_threat_actor_profile(self):
         with self.app.test_request_context("/"):

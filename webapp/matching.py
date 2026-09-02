@@ -88,9 +88,9 @@ def get_requirements() -> tuple:
         return data
 
     with _req_cache_lock:
-        # Re-check: another thread may have refreshed the cache while we
-        # were waiting for the lock, or the network fetch below is slow
-        # enough that readers shouldn't block on each other unnecessarily.
+        # Another thread may have refreshed the cache while we waited for the
+        # lock; the fetch below reads two MISP searches and is worth not doing
+        # twice.
         now = time.time()
         if _req_cache["data"] is not None and (now - _req_cache["ts"]) <= _REQ_TTL:
             return _req_cache["data"]

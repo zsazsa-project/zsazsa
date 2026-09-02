@@ -116,22 +116,13 @@ def _csv_bytes(rows):
 
 
 def _values_text(rows):
-    """Plain value list for .txt/public text output: one line per unique
-    value, first-seen order preserved. The same attribute value can show up
-    more than once (duplicate attributes across events/servers), and a raw
-    join would repeat it in the exported list, so duplicates are dropped
-    here. CSV export is unaffected: it keeps one row per matching attribute
-    (including duplicate values) so each row's event/server context is
-    preserved."""
-    seen = set()
-    values = []
-    for r in rows:
-        value = str(r.get("value", ""))
-        if value in seen:
-            continue
-        seen.add(value)
-        values.append(value)
-    return "\n".join(values)
+    """One line per unique value, in first-seen order.
+
+    The same value can come back on several attributes, events or servers, and
+    a plain value list has no context to tell them apart. The CSV export keeps
+    every row.
+    """
+    return "\n".join(dict.fromkeys(str(r.get("value", "")) for r in rows))
 
 
 # Map a picker field to its cached metadata kind for the autocomplete endpoint.

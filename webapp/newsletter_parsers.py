@@ -32,10 +32,11 @@ _OVERVIEW_ANCHOR_RE = re.compile(r'\s*<[^>]*>\s*$')
 
 
 def _parsed_tlp(match: re.Match | None) -> str:
-    """Return a supported canonical TLP value from a newsletter match."""
+    """The TLP of a newsletter header, with the retired WHITE read as CLEAR."""
     if not match:
         return ""
-    return {"white": "clear"}.get(match.group(1).lower(), match.group(1).lower())
+    tlp = match.group(1).lower()
+    return "clear" if tlp == "white" else tlp
 
 
 def _dequote(text: str) -> str:
