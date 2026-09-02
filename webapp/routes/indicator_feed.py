@@ -116,7 +116,22 @@ def _csv_bytes(rows):
 
 
 def _values_text(rows):
-    return "\n".join(str(r.get("value", "")) for r in rows)
+    """Plain value list for .txt/public text output: one line per unique
+    value, first-seen order preserved. The same attribute value can show up
+    more than once (duplicate attributes across events/servers), and a raw
+    join would repeat it in the exported list, so duplicates are dropped
+    here. CSV export is unaffected: it keeps one row per matching attribute
+    (including duplicate values) so each row's event/server context is
+    preserved."""
+    seen = set()
+    values = []
+    for r in rows:
+        value = str(r.get("value", ""))
+        if value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return "\n".join(values)
 
 
 # Map a picker field to its cached metadata kind for the autocomplete endpoint.
