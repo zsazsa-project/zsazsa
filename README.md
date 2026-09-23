@@ -166,8 +166,12 @@ When tracking an actor you often want to list the infrastructure you have observ
 
 When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineering team to write one. The request sets out the hypothesis, the technique it covers, the log sources it needs, what a hit should look like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
 
+![docs/der1.png](docs/der1.png)
+
 A request is reviewed and approved like any other product. After that it moves along an engineering board (similar to intelligence
 requirements): Pending, In Dev, In Test, Active, Retired. It cannot leave Pending before it has been approved, and it never goes back there. Marking a request **Active** needs a draft rule that passes Rulezet's validator, so nothing is announced as live until the rule has been checked. 
+
+![docs/der3.png](docs/der3.png)
 
 ### Indicator feed
 
