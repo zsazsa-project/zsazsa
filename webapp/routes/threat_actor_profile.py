@@ -294,6 +294,9 @@ def notify(id):
         flash(misp_session.publish_denied_message("notify recipients"), "warning")
         return redirect(url_for("threat_actor_profile.detail", id=id))
     diamond_url = url_for("threat_actor_profile.diamond_png", id=id, _external=True)
+    # Resolved here rather than on the job thread: only the request knows the
+    # app's external address.
+    preview_url = url_for("threat_actor_profile.detail", id=id, _external=True)
 
     def deliver(log):
         profile = misp_store.get_threat_actor_profile(id)
@@ -305,6 +308,8 @@ def notify(id):
             if r["status"] == "green" and r.get("uuid")}
         recipients = [s for s in misp_store.list_stakeholders() if s.uuid in green]
         markdown = _markdown(profile) + _linked_feeds_markdown(profile)
+        # Last, so it sits below any embedded feed rather than in front of one.
+        markdown += f"\n[Open profile]({preview_url})\n"
         log(f"{len(recipients)} eligible recipient(s).")
         summary = dispatcher.send_threat_actor_profile(
             profile, markdown, recipients,
@@ -397,6 +402,16 @@ def _markdown(tap):
         lines += ["## Summary", "", tap.summary, ""]
     if tap.attribution_rationale:
         lines += ["## Attribution", "", tap.attribution_rationale, ""]
+    # The part a reader is meant to act on, and the only route by which a
+    # detection rule attached to the profile reaches them.
+    written = [(label, value) for label, value in
+               (("Prevention", tap.rec_prevention),
+                ("Detection", tap.rec_detection),
+                ("Response", tap.rec_response)) if value]
+    if written:
+        lines += ["## Recommendations", ""]
+        for label, value in written:
+            lines += [f"**{label}:**", "", value, ""]
     return "\n".join(lines)
 
 

@@ -12,7 +12,8 @@ import config
 from flask import Blueprint, jsonify, url_for
 
 from core.net_safety import is_safe_public_url
-from core.rulezet_lookup import search_rules_by_attack, search_rules_by_cve, validate_rule
+from core.rulezet_lookup import (get_rule, search_rules_by_attack, search_rules_by_cve,
+                                 validate_rule)
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
@@ -1032,6 +1033,37 @@ def rulezet_lookup():
 
     rules = search_rules_by_cve(cve_ids)
     return jsonify({"ok": True, "rules": rules})
+
+
+@bp.route("/rulezet-rule", methods=["POST"])
+# Higher than the searches allow: this is one cheap read per rule an analyst
+# opens, not a lookup that returns hundreds at once, and a product can list a
+# dozen rules to click through.
+@rate_limited("api_rulezet_rule", limit=60, window_s=60)
+def rulezet_rule():
+    """Proxy one rule, with its content, from a Rulezet instance by its id.
+
+    A saved product keeps only a rule's title and URL, so this is what the
+    "view rule" button on a product page reads to show the rule itself.
+
+    POST JSON: {"rule_id": "740025"}
+    Returns: {"ok": true, "rule": {...}}
+    """
+    if not getattr(config, "RULEZET_URL", ""):
+        return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
+
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    rule_id = str(body.get("rule_id") or "").strip()
+    # Digits only: this goes into the path of the URL called on the Rulezet side.
+    if not rule_id.isdigit():
+        return jsonify({"ok": False, "error": "A numeric rule id is required."}), 400
+
+    rule = get_rule(rule_id)
+    if not rule:
+        return jsonify({"ok": False, "error": "Rulezet did not return that rule."}), 502
+    return jsonify({"ok": True, "rule": rule})
 
 
 @bp.route("/rulezet-attack-lookup", methods=["POST"])

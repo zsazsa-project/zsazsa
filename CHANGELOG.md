@@ -6,6 +6,11 @@ Newsletters from a mailbox were read as if they had been pasted out of a mail
 client. The ETDA parser takes an edition in any of the shapes it arrives in now,
 and a mail it finds nothing in says so.
 
+New intelligence product: **detection engineering request**. / via @ecrou-exact
+
+Rulezet, the community detection-rule repository, is now part the daily threat briefing, flash intel alert, vulnerability advisory, threat actor profile and  detection engineering request. Rules are
+found by CVE or by MITRE ATT&CK technique. / via @ecrou-exact
+
 ### Upgrading
 
 Pull and restart. Nothing to migrate and no setting to change.
@@ -18,14 +23,20 @@ Approving, publishing, resending and switching a stakeholder to automated
 delivery now need the MISP publish permission (`perm_publish`) on the analyst's
 role. With single sign-on configured, a request zsazsa cannot tie to a MISP user
 is refused rather than let through. Check that the analysts who sign off on
-products have a role with publish rights before upgrading.
+products have a **role with publish rights** before upgrading.
 
 `RULEZET_URL` is new and optional. Left empty, the Rulezet buttons are disabled
 and a detection engineering request cannot be marked Active, since its rule
 cannot be validated.
 
+The flash intel alert object gained a `detection-rules` attribute, so its
+template is at version 3. Nothing needs doing: the template is read from
+zsazsa's own copy rather than from MISP, and an alert saved before this reads
+back with no rules and gains them the next time it is edited.
+
 ### Fixed
 
+- Fix notifying a threat actor profile with all details..
 - A forwarded newsletter without a plain text part gave no articles at all. The
   review page said "0 of 0" while the mail itself was fine.
 - Articles from the mailing list layout all landed in "Uncategorised", titled
@@ -50,6 +61,13 @@ cannot be validated.
 
 ### Added
 
+- The daily
+  threat briefing, flash intel alert, vulnerability advisory, threat actor
+  profile and detection engineering request show a view button beside each
+  Rulezet link, which opens
+  the rule in the viewer. Only its name and link   are stored.
+- The flash intel alert has a detection rules field, with the same Search
+  Rulezet button than the other products.
 - Detection engineering request, a product for asking the detection engineering
   team for a new detection on a technique, actor or campaign. It is reviewed
   and approved like the other products, and then follows its own engineering

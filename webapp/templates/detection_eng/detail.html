@@ -3,6 +3,7 @@
 
 {% block title %}{{ der.der_id }} | Detection engineering request{% endblock %}
 {% block page_title %}{{ der.der_id }}{% if der.title %}: {{ der.title }}{% endif %}{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block misp_object_url %}{{ der.misp_url }}{% endblock %}
 {% block topbar_actions %}
@@ -72,7 +73,7 @@
         Existing coverage (Rulezet)
       </div>
       <div class="card-body">
-        {{ bullets(der.existing_coverage) }}
+        <div data-rulezet-rules>{{ bullets(der.existing_coverage) }}</div>
       </div>
     </div>
     {% endif %}

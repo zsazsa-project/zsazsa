@@ -6,7 +6,11 @@ had been renamed out from under it, so it raised NameError after the alert had
 already been updated, leaving it marked approved with the MISP event unpublished
 and nobody notified.
 
-Nothing is published for real here: the store and the delivery job are stubbed.
+Nothing is published for real here: the store and the delivery job are stubbed,
+and the publish permission is granted so this exercises the wizard rather than
+the gate in front of it. Without that the gate refuses (no MISP session in a
+test request) and the test passes or fails depending on whether the developer
+running it has single sign-on configured.
 
     python -m unittest tests.test_flash_intel_publish_paths
 """
@@ -32,7 +36,8 @@ class WizardPublish(unittest.TestCase):
                                    review_state="draft", tlp="amber")
 
     def post(self, action):
-        with mock.patch.object(flash_intel.misp_store, "get_fia", return_value=self.fia), \
+        with mock.patch("webapp.misp_session.current_user_can_publish", return_value=True), \
+             mock.patch.object(flash_intel.misp_store, "get_fia", return_value=self.fia), \
              mock.patch.object(flash_intel.misp_store, "update_fia") as update, \
              mock.patch.object(flash_intel.misp_store, "publish_fia") as publish, \
              mock.patch.object(flash_intel.misp_store, "fetch_source_events", return_value=[]), \

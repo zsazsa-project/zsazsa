@@ -687,6 +687,8 @@ def run_flash_intel_action(progress=None) -> dict:
             "actions_near_term": [],
             "mitre_techniques": [],
             "hunting_hypotheses": [],
+            # Rules come from a Rulezet search an analyst runs, not from the model.
+            "detection_rules": [],
             "external_references": [],
             "feedback_deadline": "",
             "author": "analyser",

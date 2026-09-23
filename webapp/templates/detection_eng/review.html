@@ -3,6 +3,7 @@
 
 {% block title %}Detection engineering requests | zsazsa CTI{% endblock %}
 {% block page_title %}Detection engineering requests{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block topbar_actions %}
 <a href="{{ url_for('detection_eng.wizard_new') }}" class="btn btn-sm btn-primary">
@@ -268,7 +269,7 @@
                   {% if d.existing_coverage %}
                   <div class="border rounded p-2" style="font-size:.8rem;background:var(--card-bg);">
                     <div class="fw-semibold small mb-2">Existing coverage (Rulezet)</div>
-                    {{ bullets(d.existing_coverage) }}
+                    <div data-rulezet-rules>{{ bullets(d.existing_coverage) }}</div>
                   </div>
                   {% endif %}
                 </div>

@@ -2,6 +2,7 @@
 
 {% block title %}{{ tap.tap_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ tap.tap_id }}: {{ tap.title }}{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block misp_object_url %}{{ tap.misp_url }}{% endblock %}
 {% block topbar_actions %}
@@ -148,7 +149,7 @@
         {% endif %}
         {% if tap.rec_detection %}
         <p class="small fw-semibold text-muted mb-1">Detection</p>
-        <div class="report-md-body small mb-2" data-md="{{ tap.rec_detection | e }}"></div>
+        <div class="report-md-body small mb-2" data-rulezet-rules data-md="{{ tap.rec_detection | e }}"></div>
         {% endif %}
         {% if tap.rec_response %}
         <p class="small fw-semibold text-muted mb-1">Response</p>
@@ -431,6 +432,11 @@
   document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
     var raw = el.getAttribute('data-md') || '';
     el.innerHTML = raw.trim() ? DOMPurify.sanitize(marked.parse(raw)) : '';
+    // The Rulezet links only exist once the Markdown above has been rendered,
+    // which is after the page-wide pass in rulezet-rule-links.js has run.
+    if (el.hasAttribute('data-rulezet-rules') && window.zsazsaAddRulezetRuleButtons) {
+      window.zsazsaAddRulezetRuleButtons(el);
+    }
   });
 </script>
 {% endblock %}

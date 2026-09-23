@@ -1,0 +1,6 @@
+{# The Rulezet modal plus the script that puts a "view rule" button beside the
+   rule links on a product's detail page. Separate from _rulezet_assets.html,
+   which the wizards include on its own: they edit rules in a textarea and have
+   no rendered links to put a button next to. #}
+{% include "_rulezet_assets.html" %}
+<script src="{{ url_for('static', filename='js/rulezet-rule-links.js') }}?v={{ app_version }}"></script>

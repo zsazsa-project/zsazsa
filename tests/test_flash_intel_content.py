@@ -37,7 +37,7 @@ def _fia(**over):
         mitre_attack_techniques=[], geographic_scope=[], sectors=[], threat_actors=[],
         threat_types=[], technology=[], vendor=[], incident=[], campaign=[],
         actions_immediate=[], actions_near_term=[], mitre_techniques=[],
-        hunting_hypotheses=[], external_references=[], feedback_deadline=None,
+        hunting_hypotheses=[], detection_rules=[], external_references=[], feedback_deadline=None,
         author="koen", source_event_uuids=[], source_event_hints={},
         attachments=[], created_at=None,
     )
@@ -315,6 +315,7 @@ def _filled_fia_data():
         "campaign": ["Spider"], "actions_immediate": ["Patch"], "actions_near_term": ["Review"],
         "mitre_techniques": ["T1059: Command and Scripting Interpreter"],
         "hunting_hypotheses": ["EDR: encoded powershell"],
+        "detection_rules": ["arp_poison.detection - https://rulezet.org/rule/detail_rule/740025"],
         "external_references": ["https://example.org/advisory"],
         "intelligence_gaps": "The initial access vector is unknown.",
         "feedback_deadline": "2026-09-01", "author": "koen",

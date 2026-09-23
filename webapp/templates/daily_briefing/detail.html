@@ -3,6 +3,7 @@
 
 {% block title %}Briefing {{ briefing.date }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ briefing.title or ('Daily briefing - ' + (briefing.date or '(no date)')) }}{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block misp_object_url %}{{ briefing.misp_url }}{% endblock %}
 {% block topbar_actions %}
@@ -125,7 +126,7 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection rules</div>
       <div class="card-body">
-        <p style="white-space: pre-wrap;">{{ briefing.detection_rules }}</p>
+        <p style="white-space: pre-wrap;" data-rulezet-rules>{{ briefing.detection_rules }}</p>
       </div>
     </div>
     {% endif %}

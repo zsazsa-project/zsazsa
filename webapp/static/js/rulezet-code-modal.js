@@ -90,11 +90,13 @@
   }
 
   // Elements live in the shared modal shell (rulezet-search-modal.js's
-  // ensureModal()) — grabbed lazily since zsazsaShowRuleCode is only ever
-  // called after a search has already built that shell.
+  // ensureModal()), grabbed lazily. The shell is built here rather than
+  // assumed: a search builds it, but a product's detail page shows a rule
+  // straight from its "view rule" button without searching for it first.
   let els = null;
   function elements() {
     if (els) return els;
+    window.zsazsaEnsureRulezetModal();
     const modalEl = document.getElementById('zs-rulezet-modal');
     els = {
       codeEl: modalEl.querySelector('#zs-rc-code'),

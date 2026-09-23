@@ -3,6 +3,7 @@
 
 {% block title %}{{ vea.vea_id }} | VEA{% endblock %}
 {% block page_title %}{{ vea.vea_id }}{% if vea.cve_id %}: {{ vea.cve_id }}{% endif %}{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block misp_object_url %}{{ vea.misp_url }}{% endblock %}
 {% block topbar_actions %}
@@ -118,7 +119,7 @@
         <h6>Exploitation indicators</h6>
         {{ bullets(vea.exploitation_indicators) }}
         <h6 class="mt-3">Detection rules</h6>
-        {{ bullets(vea.detection_rules) }}
+        <div data-rulezet-rules>{{ bullets(vea.detection_rules) }}</div>
       </div>
     </div>
 

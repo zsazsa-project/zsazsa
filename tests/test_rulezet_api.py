@@ -102,6 +102,44 @@ class CveLookup(_Base):
         search.assert_not_called()
 
 
+class RuleById(_Base):
+    """The route behind the "view rule" button on a saved product."""
+
+    def _fetch(self, body, rule=None):
+        with mock.patch.object(api, "get_rule", return_value=rule) as get:
+            reply = self.client.post("/api/rulezet-rule", json=body)
+        return reply, get
+
+    def test_a_rule_is_returned_for_a_numeric_id(self):
+        reply, get = self._fetch({"rule_id": "740025"}, rule={"id": 740025, "title": "x"})
+        self.assertEqual(reply.get_json()["rule"]["title"], "x")
+        get.assert_called_once_with("740025")
+
+    def test_only_a_numeric_id_reaches_rulezet(self):
+        """It is pasted into the path of the URL Rulezet is called on."""
+        for bad in ("", "  ", "abc", "740025 ; drop", "../../admin", "7/8"):
+            reply, get = self._fetch({"rule_id": bad})
+            self.assertEqual(reply.status_code, 400)
+            get.assert_not_called()
+
+    def test_a_missing_id_is_a_400_not_a_500(self):
+        reply, get = self._fetch({})
+        self.assertEqual(reply.status_code, 400)
+        get.assert_not_called()
+
+    def test_a_rule_rulezet_will_not_give_is_a_502_with_a_reason(self):
+        reply, _get = self._fetch({"rule_id": "999999999"}, rule=None)
+        self.assertEqual(reply.status_code, 502)
+        self.assertFalse(reply.get_json()["ok"])
+
+    def test_without_rulezet_configured_nothing_is_asked(self):
+        with mock.patch.object(api.config, "RULEZET_URL", ""), \
+             mock.patch.object(api, "get_rule") as get:
+            reply = self.client.post("/api/rulezet-rule", json={"rule_id": "740025"})
+            self.assertFalse(reply.get_json()["ok"])
+            get.assert_not_called()
+
+
 class AttackLookup(_Base):
     def _lookup(self, ids):
         with mock.patch.object(api, "search_rules_by_attack", return_value=[]) as search:

@@ -32,6 +32,96 @@ _ITEM = {"id": 7, "uuid": "u-7", "title": "Log4Shell JNDI lookup", "format": "si
          "to_string": "title: x", "detail_url": "https://rulezet.org/rule/detail_rule/7"}
 
 
+_DETAIL = {"id": 740025, "title": "know_attacker_arp_poison.execve.detection",
+           "format": "kunai", "license": "GPL-3.0", "cve_id": "[]",
+           "source": "https://github.com/digisquad-repo/kunai-rules",
+           "original_uuid": "know_attacker_arp_poison.execve.detection",
+           "to_string": "name: arp poison\n", "user": {"first_name": "Benjamin",
+                                                       "last_name": "Collas"}}
+
+
+class GetRule(unittest.TestCase):
+    """get_rule() reads one rule back for a product that only stored its link."""
+
+    def setUp(self):
+        for p in (mock.patch.object(rulezet_lookup._cfg, "RULEZET_URL",
+                                    "https://rulezet.test/", create=True),
+                  mock.patch.object(rulezet_lookup, "logger")):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_a_rule_comes_back_in_the_shape_the_viewer_expects(self):
+        with mock.patch.object(requests, "get",
+                               return_value=_response(json_data=_DETAIL)) as get:
+            rule = rulezet_lookup.get_rule("740025")
+        self.assertEqual(get.call_args.args[0],
+                         "https://rulezet.test/api/rule/public/detail/740025")
+        self.assertEqual(rule["title"], "know_attacker_arp_poison.execve.detection")
+        self.assertEqual(rule["content"], "name: arp poison\n")
+        self.assertEqual(rule["author"], "Benjamin Collas")
+        self.assertEqual(rule["url"], "https://rulezet.test/rule/detail_rule/740025")
+
+    def test_the_fields_the_detail_endpoint_does_not_carry_are_left_empty(self):
+        """The viewer skips an empty field, so they simply do not show rather
+        than appearing with a made-up value."""
+        with mock.patch.object(requests, "get", return_value=_response(json_data=_DETAIL)):
+            rule = rulezet_lookup.get_rule("740025")
+        self.assertEqual(rule["uuid"], "")
+        self.assertEqual(rule["last_modif"], "")
+        self.assertIsNone(rule["quality_score"])
+        self.assertEqual(rule["matched_techniques"], [])
+
+    def test_a_record_whose_name_fields_are_not_strings_is_still_a_rule(self):
+        """Rulezet is a community instance and a record can carry anything. A
+        number where a name belongs used to raise a TypeError out of the module
+        and reach the analyst as a bare 500 instead of a rule."""
+        for user in ({"first_name": 87, "last_name": "Collas"},
+                     {"first_name": "B", "last_name": ["a"]},
+                     {"first_name": None, "last_name": None},
+                     "not a dict",
+                     None):
+            with mock.patch.object(requests, "get",
+                                   return_value=_response(json_data=dict(_DETAIL, user=user))):
+                rule = rulezet_lookup.get_rule("740025")
+            self.assertIsInstance(rule, dict)
+            self.assertIsInstance(rule["author"], str)
+
+    def test_an_author_on_the_record_survives_an_account_with_no_name(self):
+        """The submitting account is the usual attribution, but a record that
+        names its author kept it in the search results and lost it here."""
+        for user in (None, {}, {"first_name": "", "last_name": ""}):
+            item = dict(_DETAIL, author="Florian Roth", user=user)
+            with mock.patch.object(requests, "get", return_value=_response(json_data=item)):
+                self.assertEqual(rulezet_lookup.get_rule("740025")["author"], "Florian Roth")
+
+    def test_an_id_that_is_not_a_number_asks_rulezet_nothing(self):
+        """The id goes into the path of the URL called on the Rulezet side."""
+        with mock.patch.object(requests, "get") as get:
+            for bad in ("", "  ", "7/../../admin", "abc", None):
+                self.assertIsNone(rulezet_lookup.get_rule(bad))
+            get.assert_not_called()
+
+    def test_anything_other_than_a_rule_is_none_rather_than_an_exception(self):
+        for reply in (_response(status=404),
+                      _response(status=500),
+                      _response(text_only=True),
+                      _response(json_data=[]),
+                      _response(json_data={"detail": "gone"})):
+            with mock.patch.object(requests, "get", return_value=reply):
+                self.assertIsNone(rulezet_lookup.get_rule("740025"))
+
+    def test_an_unreachable_rulezet_is_none(self):
+        with mock.patch.object(requests, "get",
+                               side_effect=requests.RequestException("boom")):
+            self.assertIsNone(rulezet_lookup.get_rule("740025"))
+
+    def test_without_a_url_configured_nothing_is_asked(self):
+        with mock.patch.object(rulezet_lookup._cfg, "RULEZET_URL", ""), \
+             mock.patch.object(requests, "get") as get:
+            self.assertIsNone(rulezet_lookup.get_rule("740025"))
+            get.assert_not_called()
+
+
 class Configured(unittest.TestCase):
     def setUp(self):
         for p in (mock.patch.object(rulezet_lookup._cfg, "RULEZET_URL", "https://rulezet.test/", create=True),

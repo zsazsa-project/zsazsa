@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Flash Intel Alert (FIA) draft fields managed by the zsazsa CTI program",
   "uuid": "9b1c2d3e-4f5a-4b6c-9d7e-8f9a0b1c2d3e",
-  "version": 2,
+  "version": 3,
   "attributes": {
     "fia-id": {
       "misp-attribute": "text",
@@ -164,13 +164,19 @@
     "mitre-techniques": {
       "misp-attribute": "text",
       "ui-priority": 16,
-      "description": "Relevant MITRE ATT&CK techniques (Txxxx: name) one per line — Detection guidance",
+      "description": "Relevant MITRE ATT&CK techniques (Txxxx: name) one per line \u2014 Detection guidance",
       "disable_correlation": true
     },
     "hunting-hypotheses": {
       "misp-attribute": "text",
       "ui-priority": 16,
       "description": "Hunting hypotheses (log source: what to search for) one per line",
+      "disable_correlation": true
+    },
+    "detection-rules": {
+      "misp-attribute": "text",
+      "ui-priority": 16,
+      "description": "Detection rules or signatures (one per line)",
       "disable_correlation": true
     },
     "external-references": {

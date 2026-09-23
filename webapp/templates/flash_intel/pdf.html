@@ -112,6 +112,8 @@
   {{ bullets((fia.mitre_techniques or []) | map('mitre') | list) }}
   <h3>Hunting hypotheses</h3>
   {{ bullets(fia.hunting_hypotheses) }}
+  <h3>Detection rules</h3>
+  {{ bullets(fia.detection_rules) }}
 </div>
 
 {% if fia.attachments %}

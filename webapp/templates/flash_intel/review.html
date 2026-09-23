@@ -3,6 +3,7 @@
 
 {% block title %}Flash intel review | zsazsa CTI{% endblock %}
 {% block page_title %}Flash intel review queue{% endblock %}
+{% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
 
 {% block topbar_actions %}
 <a href="{{ url_for('flash_intel.wizard_new') }}" class="btn btn-sm btn-primary">
@@ -212,7 +213,7 @@
                   {% endif %}
 
                   {# Detection guidance #}
-                  {% if f.mitre_techniques or f.hunting_hypotheses %}
+                  {% if f.mitre_techniques or f.hunting_hypotheses or f.detection_rules %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Detection guidance</div>
                     {% if f.mitre_techniques %}
@@ -222,6 +223,10 @@
                     {% if f.hunting_hypotheses %}
                     <div class="small fw-semibold mt-2 mb-1">Hunting hypotheses</div>
                     {{ bullets(f.hunting_hypotheses) }}
+                    {% endif %}
+                    {% if f.detection_rules %}
+                    <div class="small fw-semibold mt-2 mb-1">Detection rules</div>
+                    <div data-rulezet-rules>{{ bullets(f.detection_rules) }}</div>
                     {% endif %}
                   </div>
                   {% endif %}

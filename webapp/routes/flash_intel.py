@@ -67,6 +67,7 @@ def _form_data(form, fia_id=""):
         "actions_near_term": misp_store._split_lines(form.get("actions_near_term")),
         "mitre_techniques": misp_store._split_lines(form.get("mitre_techniques")),
         "hunting_hypotheses": misp_store._split_lines(form.get("hunting_hypotheses")),
+        "detection_rules": misp_store._split_lines(form.get("detection_rules")),
         "external_references": [r.strip() for r in misp_store._split_lines(form.get("external_references"))
                                  if r.strip() and r.strip().startswith(("http://", "https://"))],
         "intelligence_gaps": form.get("intelligence_gaps", ""),
@@ -158,7 +159,7 @@ def _seed_from_sources(source_uuids, source_hints=None):
         geographic_scope=geographic_scope, sectors=sectors, threat_actors=threat_actors,
         threat_types=[], technology=[], vendor=[], incident=[], campaign=[],
         actions_immediate=[], actions_near_term=[],
-        mitre_techniques=[], hunting_hypotheses=[],
+        mitre_techniques=[], hunting_hypotheses=[], detection_rules=[],
         external_references=[], intelligence_gaps="", feedback_deadline=None,
         author="", source_event_uuids=source_uuids,
         source_event_hints=source_hints,

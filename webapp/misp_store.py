@@ -4283,6 +4283,7 @@ def _fia_obj(data):
     _oa(obj, "actions-near-term", _join_lines(data.get("actions_near_term")))
     _oa(obj, "mitre-techniques", _join_lines(data.get("mitre_techniques")))
     _oa(obj, "hunting-hypotheses", _join_lines(data.get("hunting_hypotheses")))
+    _oa(obj, "detection-rules", _join_lines(data.get("detection_rules")))
     _oa(obj, "external-references", _join_lines(data.get("external_references")))
     _oa(obj, "intelligence-gaps", data.get("intelligence_gaps"))
     _oa(obj, "feedback-deadline", data.get("feedback_deadline"))
@@ -4351,6 +4352,7 @@ def _fia_ns(event):
         actions_near_term=g("actions-near-term").splitlines(),
         mitre_techniques=g("mitre-techniques").splitlines(),
         hunting_hypotheses=g("hunting-hypotheses").splitlines(),
+        detection_rules=g("detection-rules").splitlines(),
         external_references=g("external-references").splitlines(),
         intelligence_gaps=g("intelligence-gaps"),
         feedback_deadline=_parse_date(g("feedback-deadline")),
@@ -4560,6 +4562,10 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
         "**Hunting hypotheses:**",
         "",
         bullets(fia.hunting_hypotheses),
+        "",
+        "**Detection rules:**",
+        "",
+        bullets(fia.detection_rules),
         "",
         "---",
         "",
@@ -4775,6 +4781,7 @@ def set_fia_review_state(uuid, state, reason=None):
         "actions_near_term": fia.actions_near_term,
         "mitre_techniques": fia.mitre_techniques,
         "hunting_hypotheses": fia.hunting_hypotheses,
+        "detection_rules": fia.detection_rules,
         "external_references": fia.external_references,
         "intelligence_gaps": fia.intelligence_gaps,
         "feedback_deadline": fia.feedback_deadline.isoformat() if fia.feedback_deadline else "",

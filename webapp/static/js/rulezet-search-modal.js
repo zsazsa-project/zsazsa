@@ -214,6 +214,10 @@
   // hide()/show() of the modal itself, so no transition and no backdrop
   // flicker going from the results table into a rule's code, or back.
   // Exposed globally so rulezet-code-modal.js can switch back to search.
+  // A product's detail page shows a single rule without searching first, so the
+  // shell has to be buildable without going through zsazsaRulezetSearch().
+  window.zsazsaEnsureRulezetModal = ensureModal;
+
   window.zsazsaShowRulezetSearchView = function () {
     ensureModal();
     modalEl.querySelector('#zs-rs-header').style.display = 'flex';

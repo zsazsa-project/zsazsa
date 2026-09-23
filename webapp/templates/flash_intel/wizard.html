@@ -4,6 +4,7 @@
 {% set title_text = ('Edit ' + fia.fia_id) if is_edit else 'New flash intel alert' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ title_text }}{% endblock %}
+{% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
 
 {% block topbar_actions %}
 <a href="{{ url_for('flash_intel.review') }}" class="btn btn-sm btn-light border shadow-sm">
@@ -385,6 +386,25 @@
             <label class="form-label">Hunting hypotheses</label>
             <textarea name="hunting_hypotheses" class="form-control" rows="4"
               placeholder="EDR: process spawning powershell with -enc">{{ lines(fia.hunting_hypotheses) if fia else '' }}</textarea>
+          </div>
+          <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+              <label class="form-label mb-0">Detection rules</label>
+              {# A disabled <button> is inert in every browser: it never fires the
+                 hover events a native title tooltip needs. The title lives on this
+                 wrapping span instead, which stays interactive either way. #}
+              <span id="btn-rulezet-attack-lookup-wrap"
+                    {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-attack-lookup" disabled>
+                  <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                       alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+                  Search Rulezet
+                </button>
+              </span>
+            </div>
+            <textarea name="detection_rules" id="detection_rules" class="form-control mt-1" rows="3"
+              placeholder="Sigma/EDR rule reference">{{ lines(fia.detection_rules) if fia else '' }}</textarea>
+            <div id="rulezet-attack-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
           </div>
         </div>
       </div>
@@ -1101,6 +1121,15 @@
   /* Initial sync in case the form was pre-filled (edit mode or seed from sources) */
   syncMitreToTextarea();
 })();
+
+/* ── Detection rule lookup (Rulezet, by MITRE ATT&CK technique) ── */
+zsazsaBindRulezetAttackLookup({
+  buttonId: 'btn-rulezet-attack-lookup',
+  statusId: 'rulezet-attack-status',
+  targetId: 'detection_rules',
+  checkboxName: 'mitre_attack_techniques',
+  readyTitle: 'Search Rulezet for public rules matching the MITRE ATT&CK techniques selected above',
+});
 </script>
 {% include "_tlp_mirror_js.html" %}
 {% endblock %}
