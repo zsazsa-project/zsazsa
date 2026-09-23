@@ -335,5 +335,21 @@ class Routes(unittest.TestCase):
         r.deliver.assert_called_once_with("DER-00042", DER_UUID, "resend")
 
 
+class FormatHints(unittest.TestCase):
+    """Every format Rulezet can check says what it expects to be handed.
+
+    A bare query in a format that wants a whole rule document comes back as
+    "Empty or invalid YAML content", which does not say what was wrong, so the
+    hint has to be there before the analyst presses Validate.
+    """
+
+    def test_every_offered_format_has_a_hint(self):
+        self.assertEqual(sorted(misp_store.DER_FORMAT_HINTS), sorted(misp_store.DER_FORMATS))
+
+    def test_no_hint_is_left_empty(self):
+        for fmt, hint in misp_store.DER_FORMAT_HINTS.items():
+            self.assertTrue(hint.strip(), fmt)
+
+
 if __name__ == "__main__":
     unittest.main()

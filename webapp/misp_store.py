@@ -5696,6 +5696,27 @@ DER_STATUSES = [DER_STATUS_PENDING, DER_STATUS_IN_DEV, DER_STATUS_IN_TEST,
 DER_FORMATS = ["yara", "sigma", "suricata", "zeek", "wazuh", "nse", "crs",
                "nova", "splunk", "elastic", "sagan", "kql", "atr", "kunai"]
 
+# What the validator expects to be given for each of them, shown next to the
+# draft rule. Most of these want a whole rule document rather than the query
+# on its own, and a bare query comes back as "Empty or invalid YAML content",
+# which does not say what was wrong.
+DER_FORMAT_HINTS = {
+    "yara": "One or more complete YARA rules.",
+    "sigma": "A complete Sigma rule in YAML, with its logsource and detection blocks.",
+    "suricata": "Suricata rule syntax, one rule per line.",
+    "zeek": "Zeek script source.",
+    "wazuh": "Wazuh rules as XML.",
+    "nse": "An Nmap NSE script, in Lua.",
+    "crs": "ModSecurity CRS rules.",
+    "nova": "A NOVA rule, including its meta section.",
+    "splunk": "A Splunk Security Content detection in YAML, with the query under search:.",
+    "elastic": "An Elastic detection rule in TOML.",
+    "sagan": "Sagan rule syntax, one rule per line.",
+    "kql": "A KQL query.",
+    "atr": "A complete rule document in YAML.",
+    "kunai": "A complete rule document in YAML.",
+}
+
 
 def _der_obj(data):
     obj = _build_obj("zsazsa-detection-eng-request")

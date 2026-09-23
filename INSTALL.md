@@ -221,7 +221,7 @@ This tab covers the MISP server zsazsa uses as its own **data store**, configure
 | `MISP_WEBAPP_URL` | URL of the MISP server zsazsa uses to store its own program data |
 | `MISP_WEBAPP_KEY` | API key for the webapp MISP server |
 | `MISP_WEBAPP_VERIFYCERT` | Whether to verify the webapp MISP server's TLS certificate |
-| `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance, searched for public detection rules by CVE ID or MITRE ATT&CK technique from the vulnerability advisory, threat actor profile and daily briefing forms, and used to validate the rule of a detection engineering request. Leave empty to disable the lookup |
+| `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance. Product forms search it for public detection rules by CVE ID or MITRE ATT&CK technique, and a product page reads a saved rule back from it. A detection engineering request also validates its draft rule against it. Leave empty to disable the lookup |
 
 ### Products
 

@@ -215,6 +215,7 @@ def detail(id):
         notify_status=notify_status,
         linked_pir=linked_pir,
         formats=misp_store.DER_FORMATS,
+        format_hints=misp_store.DER_FORMAT_HINTS,
         statuses=misp_store.DER_STATUSES,
         can_publish=misp_session.current_user_can_publish(),
     )

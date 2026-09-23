@@ -188,9 +188,14 @@
             <select name="format" id="der-format" class="form-select form-select-sm" style="max-width:180px;">
               <option value="">-</option>
               {% for f in formats %}
-              <option value="{{ f }}" {{ 'selected' if der.format == f }}>{{ f | upper }}</option>
+              <option value="{{ f }}" data-hint="{{ format_hints.get(f, '') }}"
+                      {{ 'selected' if der.format == f }}>{{ f | upper }}</option>
               {% endfor %}
             </select>
+            {# Most formats want a whole rule document, not the query on its own,
+               and Rulezet answers a bare query with a parser error that does not
+               say so. The hint rides on the options so picking one shows it. #}
+            <div id="der-format-hint" class="form-text mt-1"></div>
           </div>
           <textarea name="draft_rule" id="der-draft-rule" class="form-control font-monospace" rows="8"
                     style="font-size:.85rem;"
@@ -443,9 +448,20 @@
       ? 'Pick a format above first.'
       : (!contentEl.value.trim() ? 'Paste a draft rule to validate first.' : 'Dry-run this rule\'s syntax against Rulezet.');
   }
-  formatEl.addEventListener('change', refreshValidateButton);
+  // What the chosen format's validator expects to be handed.
+  var hintEl = document.getElementById('der-format-hint');
+  function showFormatHint() {
+    var opt = formatEl.options[formatEl.selectedIndex];
+    hintEl.textContent = (opt && opt.dataset.hint) || '';
+  }
+
+  formatEl.addEventListener('change', function() {
+    refreshValidateButton();
+    showFormatHint();
+  });
   contentEl.addEventListener('input', refreshValidateButton);
   refreshValidateButton();
+  showFormatHint();
 
   // Rulezet's answer (and any error text) is shown as text, never parsed as
   // HTML: a rule's error message can quote the rule, which is user content.

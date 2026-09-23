@@ -162,6 +162,13 @@ When tracking an actor you often want to list the infrastructure you have observ
 
 ![docs/x-threatactorprofile3.png](docs/x-threatactorprofile3.png)
 
+#### Detection engineering request
+
+When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineering team to write one. The request sets out the hypothesis, the technique it covers, the log sources it needs, what a hit should look like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
+
+A request is reviewed and approved like any other product. After that it moves along an engineering board (similar to intelligence
+requirements): Pending, In Dev, In Test, Active, Retired. It cannot leave Pending before it has been approved, and it never goes back there. Marking a request **Active** needs a draft rule that passes Rulezet's validator, so nothing is announced as live until the rule has been checked. 
+
 ### Indicator feed
 
 The indicator feed is another product. You build a detailed query against MISP and get back the matching list of indicators.
@@ -232,6 +239,16 @@ Each feature chooses its own **provider, model, temperature and prompt** in the 
 Alongside relevance checking, briefing stories, report summaries and advisory drafts, three options work on the products themselves. A **threat actor profile** can be drafted from the selected actors and the MISP galaxy context. A **threat landscape report** can be drafted from the collection events queued for it. A **flash intel alert or vulnerability advisory** can be audited against its source events before publishing.
 
 Two things to watch with a local model. Reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets are sized for a straight answer; zsazsa asks the server to skip the thinking step, which Ollama honours, but a server that ignores the request can spend the whole budget and return nothing.
+
+### Detection rules from Rulezet
+
+[Rulezet](https://rulezet.org) is a community repository of public detection rules, written in Sigma, YARA, Suricata, Elastic and a dozen other formats.
+
+Five products can use it: the daily threat briefing, flash intel alert, vulnerability advisory, threat actor profile and detection engineering request. **Search Rulezet** takes the CVE IDs or MITRE ATT&CK techniques on the product and looks for rules that match them. The results come back as a filterable table, and you can read any rule, syntax highlighted, before deciding to use it.
+
+What gets saved is the rule's name and a link to it, not a copy. That keeps the product small and leaves the rule where it is maintained. Each of those links has a view button beside it that fetches the rule and opens it in the same viewer, so you can check what a detection does without leaving zsazsa.
+
+Rulezet is *optional*. Leave `RULEZET_URL` empty and the search buttons are disabled.
 
 ### Background jobs
 
