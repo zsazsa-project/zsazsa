@@ -611,6 +611,11 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       });
     });
 
+    // Hiding a row changes what counts as selected, so refresh the count and
+    // the bulk-action toolbar on every pass.
+    updateCreateProductBtn();
+    updateSelectionToolbar();
+
     var totalEl = document.getElementById('table-count');
     var pluralEl = document.getElementById('table-count-plural');
     var vcEl = document.getElementById('visible-count');
@@ -1121,6 +1126,19 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
   syncFilterToggleBtns();
   updateOrgPillVisibility(); sortRows(); applyAll(); updateTagCountLabel(); updateOrgCountLabel();
 
+  /* Every row stays in the DOM and the filters hide what they exclude, so a
+     tick can outlive the row it is on: left alone it would be counted, and acted
+     on, for an event the analyst can no longer see. Selected means ticked and
+     visible. Rows past the display cap count as hidden too, and a tick on one
+     comes back when the cap is raised rather than being thrown away. */
+  function selectedRowCbs() {
+    return Array.from(document.querySelectorAll('.event-row-cb:checked'))
+      .filter(function(cb) {
+        var row = cb.closest('tr');
+        return row && row.style.display !== 'none';
+      });
+  }
+
   /* ── Select all ── */
   var selectAllCb = document.getElementById('select-all-cb');
   if (selectAllCb) {
@@ -1135,7 +1153,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
   /* ── Create product ── */
   function getSelectedEvents() {
     var sel = [];
-    document.querySelectorAll('.event-row-cb:checked').forEach(function(cb) { sel.push({uuid:cb.value, sourceId:cb.dataset.sourceId}); });
+    selectedRowCbs().forEach(function(cb) { sel.push({uuid:cb.value, sourceId:cb.dataset.sourceId}); });
     return sel;
   }
 
@@ -1249,7 +1267,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
   var selectedCountBadge = document.getElementById('selected-count-badge');
   var selectedCountEl = document.getElementById('selected-count');
   function updateCreateProductBtn() {
-    var count = document.querySelectorAll('.event-row-cb:checked').length;
+    var count = selectedRowCbs().length;
     if (createProductBtn) {
       createProductBtn.disabled = !count; createProductBtn.classList.toggle('disabled', !count);
     }
@@ -1622,7 +1640,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
   var selectionActionsGear = document.getElementById('selection-actions-gear');
 
   function updateSelectionToolbar() {
-    var anySelected = !!document.querySelector('.event-row-cb:checked');
+    var anySelected = selectedRowCbs().length > 0;
     if (selectionToolbar) selectionToolbar.style.display = anySelected ? 'inline-flex' : 'none';
     if (selectionActionsGear) selectionActionsGear.style.display = anySelected ? 'none' : 'inline';
   }

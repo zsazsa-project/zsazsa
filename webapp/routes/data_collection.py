@@ -26,7 +26,7 @@ from webapp import (analyser_pipeline, audit, collection_cache, job_store, match
                     misp_session, misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.rate_limit import rate_limited
-from webapp.utils import json_body as _json_object
+from webapp.utils import json_body as _json_object, scraper_enabled
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -58,14 +58,16 @@ def _split_tags(s: str) -> list[str]:
 
 
 def _sources() -> list[dict]:
-    out = [{
-        "id": _SCRAPER_SOURCE_ID,
-        "label": "MISP scraper",
-        "kind": "scraper",
-        "url": config.MISP_URL,
-        # IMAP mailbox sources feed into the scraper, so list them under it.
-        "imap_sources": misp_store.imap_source_labels(),
-    }]
+    out = []
+    if scraper_enabled():
+        out.append({
+            "id": _SCRAPER_SOURCE_ID,
+            "label": "MISP scraper",
+            "kind": "scraper",
+            "url": config.MISP_URL,
+            # IMAP mailbox sources feed into the scraper, so list them under it.
+            "imap_sources": misp_store.imap_source_labels(),
+        })
     for s in getattr(config, "MISP_SERVERS", []) or []:
         if not s.get("enabled", True):
             continue
@@ -319,7 +321,7 @@ _PULL_TIMEOUT = 10  # seconds
 def _resolve_pull_source(source_id: str):
     """Build source info from config only - no MISP network calls."""
     if source_id == _SCRAPER_SOURCE_ID:
-        return {"id": source_id, "kind": "scraper"}
+        return {"id": source_id, "kind": "scraper"} if scraper_enabled() else None
     for s in getattr(config, "MISP_SERVERS", []) or []:
         if not s.get("enabled", True):
             continue
@@ -434,6 +436,8 @@ def detail(uuid):
             return "Source not available", 502
         misp_url_base = src["url"].rstrip("/")
     else:
+        if not scraper_enabled():
+            return "Source not configured", 502
         misp = misp_store._scraper_misp()
         misp_url_base = config.MISP_URL.rstrip("/")
 
@@ -657,6 +661,8 @@ def preview(uuid):
             return jsonify({"ok": False, "error": "Source not available"}), 502
         misp_url_base = src["url"].rstrip("/")
     else:
+        if not scraper_enabled():
+            return jsonify({"ok": False, "error": "Source not configured"}), 502
         misp = misp_store._scraper_misp()
         misp_url_base = config.MISP_URL.rstrip("/")
 
@@ -1025,6 +1031,11 @@ def _misp_for_source(source_id):
         except Exception as exc:
             logger.warning("_misp_for_source %s: %s", source_id, exc)
             return None, "Could not connect to source"
+    # Manual entries live on the webapp MISP, as _cache_manual_event() also has
+    # it; the only kind left after that is the scraper, which _find_source()
+    # above has already established is configured.
+    if src["kind"] == "manual":
+        return misp_store._misp(), None
     return misp_store._scraper_misp(), None
 
 
@@ -1667,7 +1678,9 @@ def flag_for_review(uuid):
 
     currently_flagged = collection_cache.is_flagged(uuid)
 
-    if src and src["kind"] == "misp":
+    if src and src["kind"] == "manual":
+        misp = misp_store._misp()
+    elif src and src["kind"] == "misp":
         if not src.get("api_key"):
             return jsonify({"ok": False, "error": "Source not configured"}), 502
         try:
@@ -1676,6 +1689,8 @@ def flag_for_review(uuid):
             logger.warning("flag_for_review: source connection failed: %s", exc)
             return jsonify({"ok": False, "error": "Source not available"}), 502
     else:
+        if not scraper_enabled():
+            return jsonify({"ok": False, "error": "Source not configured"}), 502
         misp = misp_store._scraper_misp()
 
     try:

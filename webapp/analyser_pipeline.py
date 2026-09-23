@@ -17,6 +17,7 @@ from core.vuln_lookup import fetch_cve_info
 from pymisp import MISPEventReport
 from webapp import collection_cache, matching as req_matching, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX
+from webapp.utils import scraper_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -151,11 +152,17 @@ def _emit(progress, step: str, state: str, message: str = "") -> None:
 
 
 def _refresh_scraper_cache() -> None:
+    if not scraper_enabled():
+        return
     # Run a blocking refresh so the action always works from current scraper state.
     collection_cache.refresh_source({"id": "scraper", "kind": "scraper"})
 
 
 def _today_incomplete_scraper_events():
+    # These candidates come from the scraper only. Without one the pipeline runs
+    # and reports no candidates, rather than failing the whole action.
+    if not scraper_enabled():
+        return None, []
     misp = misp_store._scraper_misp()
     today = datetime.now(timezone.utc).date().isoformat()
     events = misp.search(

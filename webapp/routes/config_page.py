@@ -273,6 +273,7 @@ def _read() -> dict:
         "RECOMMENDED_ACTIONS_IMMEDIATE": getattr(_config, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
         "RECOMMENDED_ACTIONS_NEAR_TERM": getattr(_config, "RECOMMENDED_ACTIONS_NEAR_TERM", []),
         "POLL_WINDOW_HOURS": _config.POLL_WINDOW_HOURS,
+        "MISP_SCRAPER_ENABLED": getattr(_config, "MISP_SCRAPER_ENABLED", True),
         "SCRAPER_MARKER_TAG": _config.SCRAPER_MARKER_TAG,
         "MISP_SCRAPER_LIMIT": getattr(_config, "MISP_SCRAPER_LIMIT", 500),
         "MISP_SCRAPER_SINCE_DAYS": getattr(_config, "MISP_SCRAPER_SINCE_DAYS", 30),
@@ -471,7 +472,9 @@ def _write(values):
         flowintel_instances_repr = "[]"
     content = f"""SECRET_KEY = {_config.SECRET_KEY!r}
 
-# MISP - scraper / analyser pipeline
+# MISP - scraper / analyser pipeline. Optional: set MISP_SCRAPER_ENABLED to
+# False, or leave the URL and key empty, to run without one.
+MISP_SCRAPER_ENABLED = {bool(values['MISP_SCRAPER_ENABLED'])}
 MISP_URL = {values['MISP_URL']!r}
 MISP_KEY = {values['MISP_KEY']!r}
 MISP_VERIFYCERT = {bool(values['MISP_VERIFYCERT'])}
@@ -539,7 +542,9 @@ IMAP_SOURCES = {imap_sources_repr}
 # Derived automatically from the MISP scraper and configured MISP servers.
 # Do not set manually; edit the sources above instead.
 def _build_collection_sources():
-    items = ['misp-scraper']
+    items = []
+    if MISP_SCRAPER_ENABLED and MISP_URL and MISP_KEY:
+        items.append('misp-scraper')
     for s in MISP_SERVERS:
         label = (s.get('label') or '').strip()
         if label and label not in items:
@@ -708,6 +713,7 @@ def index():
                 session_cookie_name = derived
                 cookie_autodetected = True
         values = {
+            "MISP_SCRAPER_ENABLED": bool(getattr(_config, "MISP_SCRAPER_ENABLED", True)),
             "MISP_URL": getattr(_config, "MISP_URL", ""),
             "MISP_KEY": getattr(_config, "MISP_KEY", ""),
             "MISP_VERIFYCERT": getattr(_config, "MISP_VERIFYCERT", True),
@@ -868,6 +874,7 @@ def run_migration():
 def save_scraper_config():
     """Save only the MISP scraper connection settings."""
     current = _read()
+    current["MISP_SCRAPER_ENABLED"] = request.form.get("MISP_SCRAPER_ENABLED") == "true"
     current["MISP_URL"] = request.form.get("MISP_URL", "").strip()
     current["MISP_KEY"] = request.form.get("MISP_KEY", "").strip()
     current["MISP_VERIFYCERT"] = request.form.get("MISP_VERIFYCERT") == "true"

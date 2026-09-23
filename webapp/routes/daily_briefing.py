@@ -193,14 +193,21 @@ def _seed_stories(selected_events):
         flash(f"Only the first {_MAX_SEEDED_STORIES} selected events were loaded. "
               "Add the rest once these are saved.", "warning")
     stories = []
+    unreadable = 0
     for ev_uuid in selected_uuids[:_MAX_SEEDED_STORIES]:
         try:
             story = _seed_story_from_event(ev_uuid, source_hints.get(ev_uuid, ""))
         except Exception as exc:
             logger.warning("Could not fetch event %s for briefing: %s", ev_uuid, exc)
-            continue
+            story = None
         if story:
             stories.append(story)
+        else:
+            unreadable += 1
+    if unreadable:
+        # The caller says what that meant for the briefing; this says why.
+        flash(f"Could not read {unreadable} of the selected events from their MISP "
+              "server. Check that server's connection settings.", "warning")
     return stories
 
 

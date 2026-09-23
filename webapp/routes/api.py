@@ -18,7 +18,7 @@ from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
 from webapp.rate_limit import rate_limited
-from webapp.utils import json_body as _json_object, parse_bool as _parse_bool
+from webapp.utils import json_body as _json_object, parse_bool as _parse_bool, scraper_enabled
 
 _TECH_RE = re.compile(r'\bT\d{4}(?:\.\d{3})?\b')
 
@@ -497,6 +497,9 @@ def event_preview():
     if not uuid:
         return jsonify({"error": "UUID required"})
 
+    if not scraper_enabled():
+        return jsonify({"error": "No MISP scraper is configured."}), 502
+
     misp = misp_store._scraper_misp()
     try:
         event = misp.get_event(uuid, pythonify=True)
@@ -543,6 +546,9 @@ def correlate():
 
     if not query or len(query) < 3:
         return jsonify({"matches": [], "error": "Query must be at least 3 characters."})
+
+    if not scraper_enabled():
+        return jsonify({"matches": [], "error": None})
 
     try:
         misp = misp_store._scraper_misp()
@@ -943,7 +949,7 @@ def lookup_org():
     if misp_url and misp_key:
         servers.append((misp_url, misp_key, False))
     servers.append((config.MISP_WEBAPP_URL, config.MISP_WEBAPP_KEY, config.MISP_WEBAPP_VERIFYCERT))
-    if config.MISP_URL != config.MISP_WEBAPP_URL:
+    if scraper_enabled() and config.MISP_URL != config.MISP_WEBAPP_URL:
         servers.append((config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT))
 
     for url, key, verify in servers:

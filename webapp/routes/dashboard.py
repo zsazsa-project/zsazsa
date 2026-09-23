@@ -12,7 +12,7 @@ from analyser.reader import load_last_action, load_last_run, save_last_action
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import analyser_pipeline, audit, collection_cache
 from webapp import job_store, misp_session, misp_store
-from webapp.utils import json_body as _json_object
+from webapp.utils import json_body as _json_object, scraper_enabled
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("dashboard", __name__)
@@ -154,6 +154,10 @@ def _pipeline_status():
     # so search by the scraper marker and AND-filter the workflow tag locally.
     # pythonify=False keeps this to plain dicts instead of building up to 500
     # MISPEvent objects, which is the bulk of the cost for this count.
+    # Without a scraper there is nothing to count, and "pending" stays None,
+    # which the dashboard renders as "-".
+    if not scraper_enabled():
+        return status
     try:
         misp = misp_store._scraper_misp()
         pending = misp.search(

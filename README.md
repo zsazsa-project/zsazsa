@@ -97,7 +97,7 @@ The RFI detail view lets you add notes and file attachments, and, as with the ot
 
 ### Data collection
 
-The data collection view provides a cached feed with filters for source, tags and context. It is the **central location for the daily work**, where you navigate between everything from the sources you have set up: the MISP scraper, MISP instances you are connected to, and the manual and newsletter sources you add manually.
+The data collection view provides a cached feed with filters for source, tags and context. It is the **central location for the daily work**, where you navigate between everything from the sources you have set up: the MISP scraper, MISP instances you are connected to, and the manual and newsletter sources you add manually. The scraper is optional: leave its connection empty and collection runs on the other sources alone.
 
 ![docs/6-datacollection.png](docs/6-datacollection.png)
 

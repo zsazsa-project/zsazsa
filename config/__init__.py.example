@@ -1,6 +1,8 @@
 SECRET_KEY = 'change-me-to-a-long-random-string'
 
-# MISP - scraper / analyser pipeline
+# MISP - scraper / analyser pipeline. Optional: set MISP_SCRAPER_ENABLED to
+# False, or leave the URL and key empty, to run without one.
+MISP_SCRAPER_ENABLED = True
 MISP_URL = 'https://your-misp-instance.example.com'
 MISP_KEY = 'your-misp-api-key-here'
 MISP_VERIFYCERT = False
@@ -77,7 +79,9 @@ IMAP_SOURCES = []
 # Derived automatically from the MISP scraper and configured MISP servers.
 # Do not set manually; edit the sources above instead.
 def _build_collection_sources():
-    items = ['misp-scraper']
+    items = []
+    if MISP_SCRAPER_ENABLED and MISP_URL and MISP_KEY:
+        items.append('misp-scraper')
     for s in MISP_SERVERS:
         label = (s.get('label') or '').strip()
         if label and label not in items:

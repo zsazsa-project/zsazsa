@@ -6,6 +6,7 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import config as _config
 from webapp import audit, collection_cache, misp_store, newsletter_parsers
+from webapp.utils import scraper_enabled
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("collection_sources", __name__, url_prefix="/config/sources")
@@ -25,6 +26,7 @@ def index():
     sources = misp_store.list_collection_sources()
     misp_servers = getattr(_config, "MISP_SERVERS", []) or []
     cfg = {
+        "MISP_SCRAPER_ENABLED": bool(getattr(_config, "MISP_SCRAPER_ENABLED", True)),
         "MISP_URL": getattr(_config, "MISP_URL", ""),
         "MISP_KEY": getattr(_config, "MISP_KEY", ""),
         "MISP_VERIFYCERT": getattr(_config, "MISP_VERIFYCERT", True),
@@ -40,6 +42,7 @@ def index():
     }
     return render_template("collection_sources/list.html",
                            sources=sources, misp_servers=misp_servers, cfg=cfg,
+                           scraper_enabled=scraper_enabled(),
                            newsletter_sources=newsletter_parsers.available_sources(),
                            admiralty_options=ADMIRALTY_OPTIONS)
 

@@ -2,7 +2,6 @@
 
 import logging
 
-import config as _cfg
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from webapp import audit, collection_cache, misp_session, misp_store
@@ -16,19 +15,7 @@ _TLR_QUEUE_TAG = 'zsazsa:product="threat-landscape-report"'
 
 def _queued_events():
     """Return collection events tagged for the threat landscape queue."""
-    source_ids = ["scraper"]
-    for s in getattr(_cfg, "MISP_SERVERS", []) or []:
-        sid = s.get("id") or s.get("label") or ""
-        if sid and s.get("enabled", True):
-            source_ids.append(sid)
-    try:
-        for src in misp_store.list_collection_sources():
-            if src.enabled:
-                slug = misp_store.source_slug(src.name)
-                source_ids.append(f"manual-{slug}")
-    except Exception:
-        pass
-    return collection_cache.get_events(source_ids, [_TLR_QUEUE_TAG], 500)
+    return collection_cache.get_events(collection_cache.source_ids(), [_TLR_QUEUE_TAG], 500)
 
 
 def _form_data(form, tlr_id=""):

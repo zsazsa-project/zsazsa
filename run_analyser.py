@@ -11,6 +11,7 @@ from analyser.reader import get_new_scraper_events, save_last_run
 from core.db import init_db, log_event, log_pipeline_run_start, log_pipeline_run_end
 from core.misp_client import get_misp, get_misp_webapp
 from webapp import feed_cache, job_store
+from webapp.utils import scraper_enabled
 
 
 def load_focus_points() -> dict:
@@ -33,10 +34,18 @@ def main() -> None:
     run_id = log_pipeline_run_start("analyser", triggered_by="cli")
 
     try:
-        misp = get_misp()
-        misp_webapp = get_misp_webapp()
         focus_points = load_focus_points()
-        events = get_new_scraper_events(misp)
+        # Only the event analysis needs the scraper. An installation that
+        # collects from other MISP servers has none, and the run goes ahead with
+        # no events so the feed caches below still get their scheduled refresh.
+        misp = misp_webapp = None
+        events = []
+        if scraper_enabled():
+            misp = get_misp()
+            misp_webapp = get_misp_webapp()
+            events = get_new_scraper_events(misp)
+        else:
+            logger.info("No MISP scraper configured; refreshing feed caches only")
     except Exception as e:
         logger.error("Startup failed: %s", e)
         log_pipeline_run_end(run_id, "failed")
@@ -82,9 +91,12 @@ def main() -> None:
                     detail=f"{type(e).__name__}: {e}",
                 )
 
-        # Advance the timestamp unconditionally so events are not reprocessed on
-        # the next run, even if some failed. Errored events are visible in the DB log.
-        save_last_run(run_start)
+        # Advance the timestamp so events are not reprocessed on the next run,
+        # even if some failed. Errored events are visible in the DB log. Never
+        # after a run that read no scraper: the watermark is a queue pointer, so
+        # moving it over a window nothing was read from skips it for good.
+        if misp is not None:
+            save_last_run(run_start)
 
         # Cached indicator feeds are re-run here rather than on a timer of their
         # own: this run is already the scheduled MISP work of the application.

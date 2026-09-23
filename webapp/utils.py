@@ -123,6 +123,20 @@ def parse_bool(value, default: bool) -> bool:
     raise ValueError("Boolean values must be true/false.")
 
 
+def scraper_enabled() -> bool:
+    """True when zsazsa has a misp-scraper to collect from.
+
+    The scraper is optional, like the other MISP servers: switch it off with
+    MISP_SCRAPER_ENABLED, or leave MISP_URL and MISP_KEY empty, and everything
+    that would have read it leaves it out instead. Switching off keeps the
+    credentials, which is the difference that makes it worth having both.
+    """
+    if not getattr(config, "MISP_SCRAPER_ENABLED", True):
+        return False
+    return bool((getattr(config, "MISP_URL", "") or "").strip()
+                and (getattr(config, "MISP_KEY", "") or "").strip())
+
+
 def normalize_notification_channels(
     raw_channels,
     *,

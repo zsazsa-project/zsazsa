@@ -14,7 +14,13 @@
         <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" style="height:15px;width:auto;vertical-align:middle;margin-right:6px;opacity:.8;">MISP scraper (collection pipeline)
       </span>
       <div class="d-flex align-items-center gap-2">
-        <span class="badge source-enabled" style="font-size:.7rem;"><i class="fas fa-circle-check me-1"></i>Always active</span>
+        {% if scraper_enabled %}
+        <span id="scraper-enabled-badge" class="badge source-enabled" style="font-size:.7rem;"><i class="fas fa-circle-check me-1"></i>Enabled</span>
+        {% elif not cfg.MISP_SCRAPER_ENABLED %}
+        <span id="scraper-enabled-badge" class="badge source-disabled" style="font-size:.7rem;"><i class="fas fa-circle-pause me-1"></i>Disabled</span>
+        {% else %}
+        <span id="scraper-enabled-badge" class="badge source-disabled" style="font-size:.7rem;"><i class="fas fa-circle-pause me-1"></i>Not configured</span>
+        {% endif %}
         <button type="submit" class="btn btn-sm btn-primary" data-dirty-save>
           <i class="fas fa-floppy-disk me-1"></i>Save
         </button>
@@ -22,8 +28,11 @@
     </div>
     <div class="card-body">
       <div class="form-text mb-3">
-        The misp-scraper instance the analyser pulls from. Always available as a source on the
-        <a href="{{ url_for('data_collection.index') }}">Data collection</a> page.
+        The misp-scraper instance the analyser pulls from. It is optional: switch it off, or leave
+        the URL and API key empty, to only use the other MISP servers and the manual sources for
+        zsazsa. This removes the scraper from the
+        <a href="{{ url_for('data_collection.index') }}">Data collection</a> page along with any
+        mailboxes that feed it.
         The scraper marker tag <code>{{ cfg.SCRAPER_MARKER_TAG }}</code> is configurable in the
         <a href="{{ url_for('config_page.index') }}">Configuration</a> page under Context elements.
       </div>
@@ -70,6 +79,13 @@
             <span class="small" id="scraper-estimate-result"></span>
           </div>
         </div>
+        <div class="col-12 mt-2 d-flex align-items-center gap-3 flex-wrap">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" name="MISP_SCRAPER_ENABLED"
+                   value="true" id="scraper-enabled-switch" {{ 'checked' if cfg.MISP_SCRAPER_ENABLED }}>
+            <label class="form-check-label small" for="scraper-enabled-switch">Enabled</label>
+          </div>
+        </div>
         <div class="col-12 mt-2">
           <button type="button" class="btn btn-xs btn-link text-muted p-0" id="scraper-query-toggle" style="font-size:.78rem;">
             <i class="fas fa-code me-1"></i>Show query
@@ -87,9 +103,14 @@
   <div class="card content-card mb-4">
     <div class="card-header d-flex align-items-center justify-content-between">
       <span><i class="fas fa-envelope-open-text me-2"></i>Manual sources pushing to scraper</span>
-      <button type="submit" class="btn btn-sm btn-primary" data-dirty-save>
-        <i class="fas fa-floppy-disk me-1"></i>Save
-      </button>
+      <div class="d-flex align-items-center gap-2">
+        {% if not scraper_enabled %}
+        <span class="badge source-disabled" style="font-size:.7rem;"><i class="fas fa-circle-pause me-1"></i>Disabled</span>
+        {% endif %}
+        <button type="submit" class="btn btn-sm btn-primary" data-dirty-save>
+          <i class="fas fa-floppy-disk me-1"></i>Save
+        </button>
+      </div>
     </div>
     <div class="card-body">
       <div class="form-text mb-3">
@@ -97,6 +118,10 @@
         publish the selected article URLs to the misp-scraper's Redis channel. The scraper then fetches each
         article and creates the MISP event, so they behave like normal scraper events. The scraper's
         <code>subscribe</code> service must be running against this Redis.
+        {% if not scraper_enabled %}
+        <span class="text-warning">These settings are unused while the scraper above is off: there is
+        nothing on the other end of the channel to fetch the articles.</span>
+        {% endif %}
       </div>
       <div class="row g-3">
         <div class="col-md-5">
@@ -1009,6 +1034,21 @@
   }
 
   // Test connection for scraper
+  /* Scraper enabled switch: same live badge update as the MISP server rows. */
+  const scraperEnabledSwitch = document.getElementById('scraper-enabled-switch');
+  const scraperEnabledBadge = document.getElementById('scraper-enabled-badge');
+  if (scraperEnabledSwitch && scraperEnabledBadge) {
+    scraperEnabledSwitch.addEventListener('change', () => {
+      if (scraperEnabledSwitch.checked) {
+        scraperEnabledBadge.innerHTML = '<i class="fas fa-circle-check me-1"></i>Enabled';
+        scraperEnabledBadge.classList.remove('source-disabled'); scraperEnabledBadge.classList.add('source-enabled');
+      } else {
+        scraperEnabledBadge.innerHTML = '<i class="fas fa-circle-pause me-1"></i>Disabled';
+        scraperEnabledBadge.classList.remove('source-enabled'); scraperEnabledBadge.classList.add('source-disabled');
+      }
+    });
+  }
+
   const scraperTestBtn = document.getElementById('scraper-test-btn');
   const scraperTestResult = document.getElementById('scraper-test-result');
   if (scraperTestBtn) {

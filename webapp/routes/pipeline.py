@@ -9,7 +9,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 import config
 from core.db import get_recent_pipeline_runs, get_latest_pipeline_run
 from webapp import collection_cache, misp_store
-from webapp.utils import age_text
+from webapp.utils import age_text, scraper_enabled
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("pipeline", __name__)
@@ -130,7 +130,7 @@ def _activity_page(args, offset, limit):
     # Orphaned entries, whose source event no longer exists in the scraper MISP,
     # are hidden unless asked for, as the card did before it was paged.
     hidden_orphaned = 0
-    if rows and args.get("include_orphaned") != "1":
+    if rows and scraper_enabled() and args.get("include_orphaned") != "1":
         try:
             existing = misp_store.scraper_existing_uuids(
                 [r["event_uuid"] for r in rows if r["event_uuid"]]
@@ -438,6 +438,12 @@ def activity():
 
 @bp.route("/pipeline/purge-orphaned", methods=["POST"])
 def purge_orphaned():
+    # Orphans are the rows whose event is gone from the scraper. Without one to
+    # ask, every row would read as orphaned and the whole log would go.
+    if not scraper_enabled():
+        flash("Orphaned entries are found by checking the scraper MISP, and none "
+              "is configured.", "info")
+        return redirect(url_for("pipeline.index"))
     try:
         deleted, scanned = _purge_orphaned_rows()
         if scanned == 0:

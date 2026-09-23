@@ -8,9 +8,9 @@ zsazsa sits on top of MISP and requires:
 
 - **A MISP server to store CTI program data.** This is where zsazsa saves its objects: stakeholders, PIRs, GIRs, flash intel alerts, advisories, briefings, and so on. This is the server you point `MISP_WEBAPP_URL` at.
 
-- **A MISP server running misp-scraper.** The scraper feeds threat events into a MISP instance that zsazsa polls for the data collection and the analyser pipeline. This is the server you point `MISP_URL` at. It can be the same server as above.
+- **A MISP server running misp-scraper (optional).** The scraper feeds threat events into a MISP instance that zsazsa polls for the data collection and the analyser pipeline. This is the server you point `MISP_URL` at. It can be the same server as above. Leave `MISP_URL` and `MISP_KEY` empty to run without one, in which case collection comes from the other MISP servers and the manual sources, and the analyser pipeline has nothing to process.
 
-- **One or more additional MISP servers (optional but recommended).** zsazsa can pull threat events from other MISP servers configured under Collection sources. 
+- **One or more additional MISP servers (optional, and the only collection source if you run without the scraper).** zsazsa can pull threat events from other MISP servers configured under Collection sources.
 
 zsazsa does not install MISP or misp-scraper. Follow the installation guides for those projects first.
 
@@ -76,7 +76,7 @@ It writes `certs/zsazsa.crt` and `certs/zsazsa.key`, the paths `SSL_CERT` and `S
 
 ### First configuration
 
-`config/__init__.py.example` contains every setting the application requires in the same layout the Settings page produces when it saves. Set at least `MISP_URL`, `MISP_KEY`, `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`; everything else can be done via the web interface.
+`config/__init__.py.example` contains every setting the application requires in the same layout the Settings page produces when it saves. Set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, plus `MISP_URL` and `MISP_KEY` if you run a misp-scraper; everything else can be done via the web interface.
 
 If you want to run zsazsa as a systemd service, use `docs/zsazsa.service.template`.
 
@@ -432,15 +432,18 @@ The `/config/sources/` page is where every source the analyser and the data coll
 
 ### MISP scraper connection
 
-The "MISP scraper (collection pipeline)" card holds the connection to the misp-scraper instance: its URL, API key, whether to verify TLS, the maximum number of events to pull per run (`MISP_SCRAPER_LIMIT`), and how many days back to pull (`MISP_SCRAPER_SINCE_DAYS`). This source is always active and always appears on the Data collection page. The "Test connection" button checks the URL and API key against the MISP server, and "Pull estimate" reports how many events currently match the scraper marker tag, which is itself configured on the Context elements tab of `/config`. The "Show query" link displays the underlying `misp.search()` call for reference.
+The "MISP scraper (collection pipeline)" card holds the connection to the misp-scraper instance: its URL, API key, whether to verify TLS, the maximum number of events to pull per run (`MISP_SCRAPER_LIMIT`), and how many days back to pull (`MISP_SCRAPER_SINCE_DAYS`). This source is optional, the same as the other MISP servers. Turn **Enabled** off to switch it off while keeping its URL and API key, or leave those empty; either way zsazsa runs without a scraper, and the card reads "Disabled" or "Not configured" accordingly. The "Test connection" button checks the URL and API key against the MISP server, and "Pull estimate" reports how many events currently match the scraper marker tag, which is itself configured on the Context elements tab of `/config`. The "Show query" link displays the underlying `misp.search()` call for reference.
 
 | Field | Description |
 |---|---|
-| URL | Address of the misp-scraper MISP instance (`MISP_URL`) |
-| API key | API key for the scraper MISP instance (`MISP_KEY`) |
+| Enabled | Switch for collecting from the scraper at all, as each other MISP server has (`MISP_SCRAPER_ENABLED`) |
+| URL | Address of the misp-scraper MISP instance (`MISP_URL`); empty means no scraper |
+| API key | API key for the scraper MISP instance (`MISP_KEY`); empty means no scraper |
 | Verify TLS | Whether to verify the scraper MISP server's TLS certificate (`MISP_VERIFYCERT`) |
 | Max events | Maximum number of events pulled per run (`MISP_SCRAPER_LIMIT`) |
 | Events from last (days) | Only pull scraper events from the last N days (`MISP_SCRAPER_SINCE_DAYS`); 0 disables the date window |
+
+**Running without a scraper.** Turn Enabled off, or clear the URL and the API key, and save. The scraper disappears from the Data collection page, taking the IMAP mailbox labels shown under it with it, and its cached events are dropped on the next refresh. It also stops being offered as a collection source on PIRs and GIRs, stops being counted on the dashboard and reads "Not configured" on the pipeline page. Everything that does not come from the scraper carries on: the other MISP servers, the manual sources, newsletters (which are archived on the webapp MISP; only the pushing of their article URLs needs a scraper), and all the CTI products. The analyser has no events to process without a scraper, but a run still refreshes the indicator feed caches and exits cleanly, so keep its cron entry if you publish indicator feeds. Without it a cached feed is simply rebuilt on demand the next time someone fetches it.
 
 **Why both "Max events" and "Events from last (days)" matter.** The cache worker fetches up to `MISP_SCRAPER_LIMIT` marker-tagged events in a single page, so the data collection view never holds more than that many scraper events. Without a date window, once the scraper accumulates more tagged events than the limit, the surplus is dropped from the cache and may include the most recent events, so newly scraped items stop appearing on the Data collection page even though the refresh log reports a successful run (for example `scraper done - 800 events` every cycle, exactly at the limit). The tell-tale sign is a refresh count that sits permanently at the configured limit. `MISP_SCRAPER_SINCE_DAYS` avoids this by restricting the pull to a recent window, so growth past the limit drops the oldest events rather than hiding the newest; keep the window small enough that the tagged events within it stay under `MISP_SCRAPER_LIMIT`. Compare "Pull estimate" (or filter the scraper MISP by `SCRAPER_MARKER_TAG`) against the limit to size both settings. Setting the window to 0 restores the old pull-by-limit behaviour.
 

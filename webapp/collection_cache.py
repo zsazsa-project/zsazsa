@@ -26,6 +26,7 @@ from pymisp import PyMISP
 
 import config
 from webapp import job_store
+from webapp.utils import scraper_enabled
 
 logger = logging.getLogger(__name__)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -315,8 +316,17 @@ def manual_source_id(name: str) -> str:
     return f"manual-{source_slug(name)}"
 
 
-def _build_sources() -> list:
-    srcs = [{"id": "scraper", "kind": "scraper", "label": "MISP scraper", "url": config.MISP_URL}]
+def _build_sources(with_manual: bool = True) -> list:
+    """Every configured collection source.
+
+    with_manual=False leaves out the manual ones, which are registry entries in
+    MISP and cost a search to name. Callers that only need the ids of the
+    sources config knows about can skip that round trip.
+    """
+    srcs = []
+    if scraper_enabled():
+        srcs.append({"id": "scraper", "kind": "scraper", "label": "MISP scraper",
+                     "url": config.MISP_URL})
     for s in getattr(config, "MISP_SERVERS", []) or []:
         if not s.get("enabled", True):
             continue
@@ -335,6 +345,8 @@ def _build_sources() -> list:
             "org_filter": _split_tags(s.get("org_filter", "")),
             "since_days": int(s.get("since_days") or 7),
         })
+    if not with_manual:
+        return srcs
     try:
         from webapp import misp_store
         for src in misp_store.list_collection_sources():
@@ -353,6 +365,39 @@ def _build_sources() -> list:
     except Exception as exc:
         logger.warning("collection cache: could not load manual sources: %s", exc)
     return srcs
+
+
+def source_ids() -> list:
+    """Ids of every configured collection source, in display order.
+
+    Naming the manual sources means one MISP search, as cached_event_counts()
+    notes, so this belongs on a page render rather than in anything polled.
+    cached_source_ids() answers the same question off the cache for free.
+    """
+    return [s["id"] for s in _build_sources()]
+
+
+def cached_source_ids() -> list:
+    """Source ids to search the cache with, without a MISP round trip.
+
+    The scraper and the configured servers come from config, so one that has
+    been removed or switched off drops out at once. The manual sources would
+    cost a search to name, so they are read off the rows the cache already
+    holds; one that has since been disabled lingers until its rows go.
+    """
+    ids = [s["id"] for s in _build_sources(with_manual=False)]
+    try:
+        with _db() as conn:
+            # The events table, not source_status: a manual entry added through
+            # the web app is cached the moment it is created, before any sweep
+            # has given its source a status row.
+            rows = conn.execute(
+                "SELECT DISTINCT source_id FROM events WHERE source_id LIKE 'manual-%'"
+            ).fetchall()
+        ids.extend(r["source_id"] for r in rows)
+    except Exception as exc:
+        logger.warning("cached_source_ids: could not read manual sources: %s", exc)
+    return ids
 
 
 def refresh_source(src: dict) -> dict:
@@ -542,6 +587,13 @@ def _sweep():
     except Exception as exc:
         report(status="failed", message=f"Could not read the source list: {exc}")
         raise
+
+    # Nothing refreshes a scraper that has been switched off, so its rows would
+    # sit here until it came back. Only the scraper is swept this way: manual
+    # sources are read from MISP and dropped from the list when that read fails,
+    # so pruning every id missing from it could empty the cache over one bad call.
+    if not scraper_enabled():
+        forget_source("scraper")
 
     report(status="running", message=f"Refreshing {len(sources)} source(s)...")
     events = new = failures = 0
@@ -733,6 +785,23 @@ def flag_event(uuid: str) -> None:
             )
     except Exception as exc:
         logger.warning("flag_event failed for %s: %s", uuid, exc)
+
+
+def forget_source(source_id: str) -> None:
+    """Drop a source's cached events and its refresh status.
+
+    The status row goes with them, so a source that is no longer configured
+    stops reporting the error and the timestamp of its last refresh.
+    """
+    try:
+        with _db() as conn:
+            cur = conn.execute("DELETE FROM events WHERE source_id = ?", (source_id,))
+            conn.execute("DELETE FROM source_status WHERE source_id = ?", (source_id,))
+            if cur.rowcount:
+                logger.info("collection cache: dropped %d row(s) for removed source %s",
+                            cur.rowcount, source_id)
+    except Exception as exc:
+        logger.warning("forget_source failed for %s: %s", source_id, exc)
 
 
 def unflag_event(uuid: str) -> None:

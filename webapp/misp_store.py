@@ -35,7 +35,7 @@ from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
 from webapp.models import STAKEHOLDER_ROLES
-from webapp.utils import human_size
+from webapp.utils import human_size, scraper_enabled
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -582,6 +582,9 @@ def _test_connection(url, key, verify):
 
 
 def test_scraper_misp():
+    if not scraper_enabled():
+        return {"ok": False, "configured": False, "url": "",
+                "error": "No MISP scraper is configured."}
     return _test_connection(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT)
 
 
@@ -639,7 +642,7 @@ def _add_event(misp, event, local_tags=None, label="create event"):
 
 
 def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
-                                          misp_client=None) -> None:
+                                          misp_client=None, source_id: str = "") -> None:
     """Tag a source event as having been used to create a product.
 
     Advances workflow state from 'incomplete' to 'ongoing' and adds a
@@ -648,10 +651,24 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
     is not regressed when reused as a source.
 
     misp_client defaults to the scraper MISP. Pass a different client when the
-    event lives on another MISP instance (configured server or manual source).
+    event lives on another MISP instance (configured server or manual source);
+    that is an instruction to tag it there, and source_id is then ignored.
+
+    Without a client, source_id decides which MISP the event is on. A manual
+    entry, and anything resolve_source_event() found on the webapp store itself,
+    is ours to write to; any other server is not, so its events are left alone.
+    An empty source_id means the scraper, which is where a product stored before
+    the hint was recorded got its events.
     """
     if not src_uuid:
         return
+    if misp_client is None:
+        if source_id == "webapp" or source_id.startswith("manual-"):
+            misp_client = _misp()
+        elif source_id and source_id != "scraper":
+            return
+        elif not scraper_enabled():
+            return
     try:
         client = misp_client or _scraper_misp()
         event = client.get_event(src_uuid, pythonify=True)
@@ -3448,9 +3465,21 @@ def _normalise_source_uuids_and_hints(source_uuids_raw, source_event_uuid_raw, s
 
 
 def _all_source_clients():
-    """Build an ordered (source_id, misp_client, label) list: scraper, MISP_SERVERS, webapp."""
+    """Build an ordered (source_id, misp_client, label) list: scraper, MISP_SERVERS, webapp.
+
+    Every entry is optional. A source that is not configured, or whose server
+    cannot be reached, is left out with a warning: PyMISP contacts the instance
+    while constructing the client, so an unreachable server would otherwise
+    take down the lookup for all the others.
+    """
     from pymisp import PyMISP as _PyMISP
-    clients = [("scraper", _scraper_misp(), "MISP scraper")]
+    clients = []
+    if scraper_enabled():
+        try:
+            clients.append(("scraper", _scraper_misp(), "MISP scraper"))
+        except Exception as exc:
+            logger.warning("skipping MISP scraper (%s): could not connect: %s",
+                           config.MISP_URL, exc)
     for s in getattr(config, "MISP_SERVERS", []) or []:
         sid = s.get("id") or s.get("label") or ""
         url = s.get("url")
@@ -3875,11 +3904,11 @@ def imap_source_labels() -> list[str]:
 def get_all_collection_source_labels() -> list[str]:
     """Return a combined list of all collection source labels.
 
-    Includes the fixed scraper source, configured MISP servers (enabled only),
-    MISP-stored manual sources (enabled only), and each enabled IMAP mailbox
-    source listed as "<mailbox>/<source>".
+    Includes the scraper when one is configured, configured MISP servers
+    (enabled only), MISP-stored manual sources (enabled only), and each enabled
+    IMAP mailbox source listed as "<mailbox>/<source>".
     """
-    labels = ["misp-scraper"]
+    labels = ["misp-scraper"] if scraper_enabled() else []
     for s in getattr(config, "MISP_SERVERS", []) or []:
         if s.get("enabled", True):
             label = (s.get("label") or "").strip()
@@ -4165,8 +4194,11 @@ def data_collection_source_counts() -> list[dict]:
     Returns ``[{"source_feed": name, "n": count}, ...]`` sorted by count, read
     from MISP's tag statistics in a single call so it reflects the actual events
     carrying each ``scraper:data-collection-source`` tag rather than the
-    analyser's processing log. Returns ``[]`` if the instance is unreachable.
+    analyser's processing log. Returns ``[]`` if there is no scraper or the
+    instance is unreachable.
     """
+    if not scraper_enabled():
+        return []
     try:
         stats = _scraper_misp().tags_statistics()
     except Exception as exc:
@@ -4378,8 +4410,18 @@ def _fia_id_from_event_id(event_id):
 
 
 def _source_server_url_map():
-    """Map a source-event server id to its MISP web URL, from config (no network)."""
-    mapping = {"scraper": config.MISP_URL, "webapp": config.MISP_WEBAPP_URL}
+    """Map a source-event server id to its MISP web URL, from config (no network).
+
+    A server with no URL is left out rather than mapped to an empty string, so
+    the caller falls back to the webapp MISP and still builds a usable link.
+    That is where an old product's scraper source events end up once the
+    scraper is gone.
+    """
+    mapping = {}
+    if config.MISP_URL:
+        mapping["scraper"] = config.MISP_URL
+    if config.MISP_WEBAPP_URL:
+        mapping["webapp"] = config.MISP_WEBAPP_URL
     for server in getattr(config, "MISP_SERVERS", []) or []:
         sid = server.get("id") or server.get("label") or ""
         if sid and server.get("url"):
@@ -4682,10 +4724,8 @@ def create_fia(data):
     fia.fia_id = fia_id
     _write_fia_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
     for src_uuid in src_uuids:
-        source_id = src_hints.get(src_uuid, "")
-        if source_id and source_id != "scraper":
-            continue
-        _tag_scraper_event_as_product_source(src_uuid, "flash-intel")
+        _tag_scraper_event_as_product_source(
+            src_uuid, "flash-intel", source_id=src_hints.get(src_uuid, ""))
     return uuid, fia_id
 
 
@@ -5510,10 +5550,8 @@ def create_vea(data):
     vea.vea_id = vea_id
     _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
     for uid in src_uuids:
-        source_id = src_hints.get(uid, "")
-        if source_id and source_id != "scraper":
-            continue
-        _tag_scraper_event_as_product_source(uid, "vea")
+        _tag_scraper_event_as_product_source(
+            uid, "vea", source_id=src_hints.get(uid, ""))
     return uuid, vea_id
 
 
@@ -6488,7 +6526,8 @@ def create_briefing(data):
     for story in data.get("stories", []):
         src = story.get("source_event_uuid", "")
         if src:
-            _tag_scraper_event_as_product_source(src, "daily-briefing")
+            _tag_scraper_event_as_product_source(
+                src, "daily-briefing", source_id=story.get("source_id", ""))
     return uuid
 
 
@@ -6503,11 +6542,13 @@ def update_briefing(uuid, data):
         getattr(s, "source_event_uuid", "") for s in existing.stories
         if getattr(s, "source_event_uuid", "")
     }
-    new_sources = {
-        s.get("source_event_uuid", "") for s in data.get("stories", [])
-        if s.get("source_event_uuid", "")
-    }
-    added_sources = new_sources - existing_sources
+    # uuid -> source_id, so the marker tag goes to the MISP instance the story
+    # was actually collected from.
+    added_sources = {}
+    for story in data.get("stories", []):
+        src = story.get("source_event_uuid", "")
+        if src and src not in existing_sources:
+            added_sources[src] = story.get("source_id", "")
 
     old = _get_obj(event, "zsazsa-daily-briefing")
     if old:
@@ -6524,8 +6565,9 @@ def update_briefing(uuid, data):
     briefing = _briefing_ns(refreshed)
     _write_briefing_report(misp, uuid, briefing)
 
-    for src in added_sources:
-        _tag_scraper_event_as_product_source(src, "daily-briefing")
+    for src, source_id in added_sources.items():
+        _tag_scraper_event_as_product_source(
+            src, "daily-briefing", source_id=source_id)
 
     return uuid
 
@@ -6568,7 +6610,12 @@ def delete_briefing(uuid):
 
 
 def scraper_existing_uuids(uuids):
-    """Return subset of UUIDs that currently exist in scraper/analyser MISP."""
+    """Return subset of UUIDs that currently exist in scraper/analyser MISP.
+
+    Callers read a UUID missing from the result as an event that is gone, so
+    they check there is a scraper before calling: a blanket "none of these
+    exist" would have them hide or delete the lot.
+    """
     candidates = [u for u in set(uuids or []) if u]
     if not candidates:
         return set()
@@ -6609,11 +6656,16 @@ def _event_text(ev):
 
 
 def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hours=None):
-    """Return cached scraper events matching scope terms.
+    """Return cached collection events matching scope terms.
 
     Whole-word-aware match (case-insensitive) over cached event fields, so a
     term like "gas" does not match inside "gasten". When ``timeframe_hours`` is
     set, only events whose MISP event date falls within that window are kept.
+
+    Every configured collection source counts, not just the scraper: an
+    installation collecting from other MISP servers would otherwise get an empty
+    preview whatever its scope said. ``limit`` is how far back to look in each
+    of them.
     """
     from webapp import collection_cache
     from webapp import matching as _matching
@@ -6633,9 +6685,13 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
     if not terms:
         return []
 
-    # Pull from local cache, this keeps the preview snappy and avoids live MISP
-    # calls each time the user opens the preview page.
-    events = collection_cache.get_events(["scraper"], [], limit=limit)
+    # Cache only, no live MISP call: this runs on every PIR detail page. One
+    # query per source, because get_events() caps with a single SQL LIMIT, so
+    # asking for them together would let a busy server fill the window and hide
+    # the quiet ones entirely.
+    events = []
+    for source_id in collection_cache.cached_source_ids():
+        events.extend(collection_cache.get_events([source_id], [], limit=limit))
     if not events:
         return []
 
@@ -6678,9 +6734,10 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
 
 
 def pir_collection_gap(pir) -> dict:
-    """Return a coverage summary for a PIR against the recent scraper collection.
+    """Return a coverage summary for a PIR against the recent collection.
 
-    Uses the PIR's focus point values as search terms against the scraper MISP.
+    Uses the PIR's focus point values as search terms against the cached
+    collection, across every configured source.
     Returns a dict with total matching events, the most recent match date, and
     up to 5 sample rows so the detail page can show a quick gap indicator without
     a second page load.

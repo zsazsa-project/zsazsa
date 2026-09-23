@@ -4,16 +4,21 @@
 
 Newsletters from a mailbox were read as if they had been pasted out of a mail
 client. The ETDA parser takes an edition in any of the shapes it arrives in now,
-and a mail it finds nothing in says so.
+and a mail it finds nothing in says so. The misp-scraper has also become
+optional: an installation that collects from other MISP servers can run without
+one.
 
 New intelligence product: **detection engineering request**. / via @ecrou-exact
 
-Rulezet, the community detection-rule repository, is now part the daily threat briefing, flash intel alert, vulnerability advisory, threat actor profile and  detection engineering request. Rules are
-found by CVE or by MITRE ATT&CK technique. / via @ecrou-exact
+Rulezet, the community detection-rule repository, is now part of the daily
+threat briefing, the flash intel alert, the vulnerability advisory, the threat
+actor profile and the detection engineering request. Rules are found by CVE or
+by MITRE ATT&CK technique. / via @ecrou-exact
 
 ### Upgrading
 
-Pull and restart. Nothing to migrate and no setting to change.
+Pull and restart. Nothing to migrate and no setting to change. An installation
+with a scraper keeps working exactly as it did.
 
 Newsletters waiting for review are read again from the mail kept with them, so
 they list their articles on the next visit. Ones already sent to the scraper
@@ -34,9 +39,44 @@ template is at version 3. Nothing needs doing: the template is read from
 zsazsa's own copy rather than from MISP, and an alert saved before this reads
 back with no rules and gains them the next time it is edited.
 
+To run without a scraper, turn **Enabled** off on its card under Collection
+sources, or clear its URL and API key, and save. It leaves the Data collection
+page, the requirement source lists and the dashboard, and its cached events go
+on the next refresh. Nothing is removed from MISP, so switching it back on
+restores it. A PIR or GIR naming `misp-scraper`
+loses that reference the next time it is saved, as one naming a
+MISP server you disable already does.
+
+Daily briefing stories now record which MISP server they came from. Ones saved
+before this have none recorded and count as scraper events, which is what they
+were.
+
 ### Fixed
 
-- Fix notifying a threat actor profile with all details..
+- A threat actor profile went out to stakeholders without its
+  recommendations, so any Rulezet rule attached to one never reached them.
+
+- Events from a second MISP server could not be added to a daily briefing while
+  the misp-scraper was unset or unreachable: its connection was built first and
+  unguarded, so it took every other source down with it. The flash intel,
+  advisory and landscape wizards were affected the same way.
+  ([#29](https://github.com/zsazsa-project/zsazsa/issues/29))
+- A daily briefing marked every story's source event on the scraper whatever
+  server it came from, so events collected elsewhere were never marked.
+- The PIR and GIR scope preview matched scraper events only, so it came back
+  empty for an installation collecting from other MISP servers.
+- Queuing an event for a threat landscape report, or flagging one for follow-up,
+  used the scraper connection for manual entries, which live on the webapp MISP.
+- An event on the webapp store, a manual entry among them, was never marked when
+  used as a product source, so it could be drafted into a second product with
+  nothing to show it had been covered.
+- Events selected for a briefing that could not be read were dropped without a
+  word. The count and the reason are shown now.
+- The data collection page counted events that a filter had since hidden as
+  still selected, so the badge could read "2 selected" with one row ticked, and
+  a product built from the selection quietly included events that were not on
+  screen. Selected now means ticked and visible; a tick on a hidden row comes
+  back when the filter is cleared rather than being lost.
 - A forwarded newsletter without a plain text part gave no articles at all. The
   review page said "0 of 0" while the mail itself was fine.
 - Articles from the mailing list layout all landed in "Uncategorised", titled
@@ -61,13 +101,12 @@ back with no rules and gains them the next time it is edited.
 
 ### Added
 
-- The daily
-  threat briefing, flash intel alert, vulnerability advisory, threat actor
-  profile and detection engineering request show a view button beside each
-  Rulezet link, which opens
-  the rule in the viewer. Only its name and link   are stored.
+- The daily threat briefing, flash intel alert, vulnerability advisory,
+  threat actor profile and detection engineering request show a view button
+  beside each Rulezet link, which opens the rule in the viewer. Only its
+  name and link are stored.
 - The flash intel alert has a detection rules field, with the same Search
-  Rulezet button than the other products.
+  Rulezet button as the other products.
 - Detection engineering request, a product for asking the detection engineering
   team for a new detection on a technique, actor or campaign. It is reviewed
   and approved like the other products, and then follows its own engineering
@@ -80,6 +119,10 @@ back with no rules and gains them the next time it is edited.
   ones picked to the detection rules of the product.
 - A detection rules field on the daily briefing, shown on its page, in the
   e-mail and in the PDF.
+- The misp-scraper is optional, with the same **Enabled** switch the other MISP
+  servers have, so it can be turned off without losing its credentials. Without
+  one, zsazsa runs on the other MISP servers and the manual sources alone.
+  Newsletters still work, only pushing their article URLs needs a scraper.
 - The review queue marks a newsletter with no articles in it, and the review
   page says so instead of showing an empty form.
 - Newsletter e-mails as test fixtures, read both as they arrived and with their

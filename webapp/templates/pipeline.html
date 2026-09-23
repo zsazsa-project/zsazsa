@@ -320,12 +320,17 @@
       <div class="card-body p-0">
         <ul class="list-unstyled mb-0">
           {% for label, conn in [('Scraper / analyser', scraper_misp), ('Webapp store', webapp_misp)] %}
+          {% set configured = conn.get('configured', True) %}
           <li class="px-3 py-2 {% if not loop.last %}border-bottom{% endif %}">
             <div class="d-flex align-items-center justify-content-between mb-1">
               <span class="fw-semibold" style="font-size:.875rem;">{{ label }}</span>
               {% if conn.ok %}
               <span class="badge outcome-success" style="font-size:.7rem;">
                 <i class="fas fa-circle-check me-1"></i>Connected
+              </span>
+              {% elif not configured %}
+              <span class="badge source-disabled" style="font-size:.7rem;">
+                <i class="fas fa-circle-pause me-1"></i>Not configured
               </span>
               {% else %}
               <span class="badge outcome-error" style="font-size:.7rem;">
@@ -339,7 +344,7 @@
             {% if conn.ok %}
             <div class="text-muted small mt-1">v{{ conn.version }}</div>
             {% else %}
-            <div class="text-danger small mt-1">{{ conn.error }}</div>
+            <div class="{{ 'text-muted' if not configured else 'text-danger' }} small mt-1">{{ conn.error }}</div>
             {% endif %}
           </li>
           {% endfor %}
