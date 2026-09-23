@@ -1,0 +1,141 @@
+{
+  "name": "zsazsa-detection-eng-request",
+  "meta-category": "intelligence",
+  "description": "Detection Engineering Request (DER) managed by the zsazsa CTI program",
+  "uuid": "99ed0baa-8472-4446-9d01-1dbe42a3c4a6",
+  "version": 1,
+  "attributes": {
+    "der-id": {
+      "misp-attribute": "text",
+      "ui-priority": 0,
+      "description": "Unique DER identifier (e.g. DER-00042)",
+      "disable_correlation": true
+    },
+    "title": {
+      "misp-attribute": "text",
+      "ui-priority": 1,
+      "description": "Short descriptive title",
+      "disable_correlation": true
+    },
+    "technique": {
+      "misp-attribute": "text",
+      "ui-priority": 2,
+      "description": "JSON array of MITRE ATT&CK technique labels this request targets",
+      "disable_correlation": true
+    },
+    "log-sources": {
+      "misp-attribute": "text",
+      "ui-priority": 3,
+      "description": "Log sources needed for the detection (one per line)",
+      "disable_correlation": true
+    },
+    "hypothesis": {
+      "misp-attribute": "text",
+      "ui-priority": 4,
+      "description": "Trigger / detection hypothesis",
+      "disable_correlation": true
+    },
+    "expected-output": {
+      "misp-attribute": "text",
+      "ui-priority": 5,
+      "description": "What the resulting rule should alert on",
+      "disable_correlation": true
+    },
+    "existing-coverage": {
+      "misp-attribute": "text",
+      "ui-priority": 6,
+      "description": "Existing Rulezet rules found relevant to this technique (one per line)",
+      "disable_correlation": true
+    },
+    "test-cases": {
+      "misp-attribute": "text",
+      "ui-priority": 7,
+      "description": "Test cases to validate the rule (one per line)",
+      "disable_correlation": true
+    },
+    "format": {
+      "misp-attribute": "text",
+      "ui-priority": 8,
+      "description": "Requested rule format (yara, sigma, suricata, ...)",
+      "disable_correlation": true
+    },
+    "draft-rule": {
+      "misp-attribute": "text",
+      "ui-priority": 9,
+      "description": "Optional draft rule content, checked via Rulezet's dry-run validator",
+      "disable_correlation": true
+    },
+    "priority": {
+      "misp-attribute": "text",
+      "ui-priority": 10,
+      "description": "Low / Medium / High / Critical",
+      "disable_correlation": true
+    },
+    "status": {
+      "misp-attribute": "text",
+      "ui-priority": 11,
+      "description": "Engineering team's own progress tracker (Open / In progress / Blocked / Completed / Won't do)",
+      "disable_correlation": true
+    },
+    "tlp": {
+      "misp-attribute": "text",
+      "ui-priority": 12,
+      "description": "TLP classification (clear / green / amber / amber+strict / red)",
+      "disable_correlation": true
+    },
+    "author": {
+      "misp-attribute": "text",
+      "ui-priority": 13,
+      "description": "Analyst who authored the request",
+      "disable_correlation": true
+    },
+    "audience": {
+      "misp-attribute": "text",
+      "ui-priority": 14,
+      "description": "Primary audience (Detection Engineering, ...)",
+      "disable_correlation": true
+    },
+    "review-state": {
+      "misp-attribute": "text",
+      "ui-priority": 15,
+      "description": "Review state (draft / pending-review / approved / rejected)",
+      "disable_correlation": true
+    },
+    "rejection-reason": {
+      "misp-attribute": "text",
+      "ui-priority": 16,
+      "description": "If rejected, why",
+      "disable_correlation": true
+    },
+    "source-event-uuid": {
+      "misp-attribute": "text",
+      "ui-priority": 17,
+      "description": "JSON array of originating source event UUID(s)",
+      "disable_correlation": true
+    },
+    "source-event-hints": {
+      "misp-attribute": "text",
+      "ui-priority": 18,
+      "description": "JSON map of source event UUID to source server id",
+      "disable_correlation": true
+    },
+    "linked-pir-uuid": {
+      "misp-attribute": "text",
+      "ui-priority": 19,
+      "description": "UUID of the linked PIR event",
+      "disable_correlation": true
+    },
+    "creator": {
+      "misp-attribute": "text",
+      "ui-priority": 20,
+      "description": "User who created this request (set at creation, not editable)",
+      "disable_correlation": true
+    },
+    "approved-by": {
+      "misp-attribute": "text",
+      "ui-priority": 21,
+      "description": "User who approved/published this request",
+      "disable_correlation": true
+    }
+  }
+}

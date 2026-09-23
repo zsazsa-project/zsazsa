@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+{% from "_macros.html" import review_state_badge %}
+
+{% block title %}{{ der.der_id }} | Detection engineering request{% endblock %}
+{% block page_title %}{{ der.der_id }}{% if der.title %}: {{ der.title }}{% endif %}{% endblock %}
+
+{% block misp_object_url %}{{ der.misp_url }}{% endblock %}
+{% block topbar_actions %}
+<a href="{{ url_for('detection_eng.review') }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-arrow-left me-1"></i> Back to list
+</a>
+<a href="{{ url_for('detection_eng.pdf', id=der.uuid) }}" class="btn btn-sm btn-outline-secondary" title="Download PDF">
+  <i class="fas fa-file-pdf me-1"></i> PDF
+</a>
+{% endblock %}
+
+{% macro bullets(items) %}
+  {% if items %}<ul class="mb-0">{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>{% else %}<span class="text-muted small">none recorded</span>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-md-8">
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-circle-info me-2"></i>Summary</div>
+      <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+          <span class="tlp-badge tlp-{{ der.tlp | slug }}">TLP:{{ der.tlp | upper }}</span>
+          {{ review_state_badge(der.review_state) }}
+          {% if der.published %}<span class="badge bg-primary">published</span>{% endif %}
+          {% if der.priority %}<span class="badge bg-secondary">Priority: {{ der.priority }}</span>{% endif %}
+          <span class="badge bg-info text-dark">Status: {{ der.status or '-' }}</span>
+        </div>
+        {% if der.title %}<h6>{{ der.title }}</h6>{% endif %}
+        <p class="mb-0 text-muted small">
+          Audience: {{ der.audience or '(none)' }} · Author: {{ der.author or '(none)' }}
+        </p>
+        {% if der.technique %}
+        <div class="mt-2">
+          {% for t in der.technique %}<span class="badge bg-secondary me-1 mb-1">{{ t }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-magnifying-glass-chart me-2"></i>Detection hypothesis</div>
+      <div class="card-body">
+        <p class="mb-0">{{ (der.hypothesis or '(none)') | md_inline }}</p>
+      </div>
+    </div>
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-database me-2"></i>Log sources</div>
+      <div class="card-body">
+        {{ bullets(der.log_sources) }}
+      </div>
+    </div>
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Expected rule output</div>
+      <div class="card-body">
+        <p class="mb-0">{{ (der.expected_output or '(none)') | md_inline }}</p>
+      </div>
+    </div>
+
+    {% if der.existing_coverage %}
+    <div class="card content-card mb-3">
+      <div class="card-header">
+        <img src="{{ url_for('static', filename='rulezet-icon.png') }}" alt="" style="height:16px;vertical-align:text-bottom;" class="me-2">
+        Existing coverage (Rulezet)
+      </div>
+      <div class="card-body">
+        {{ bullets(der.existing_coverage) }}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-vial me-2"></i>Test cases</div>
+      <div class="card-body">
+        {{ bullets(der.test_cases) }}
+      </div>
+    </div>
+
+    {% if reference_items %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-book me-2"></i>References</div>
+      <div class="card-body">
+        <ul class="mb-0">
+          {% for ref in reference_items %}
+          <li><a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.url }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <div class="col-md-4">
+    <div class="card content-card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <strong>Metadata</strong>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                data-bs-toggle="modal" data-bs-target="#recipientsModal"
+                title="Preview recipients">
+          <i class="fas fa-users me-1"></i> Recipients
+        </button>
+      </div>
+      <div class="card-body">
+        <dl class="row small mb-0">
+          <dt class="col-5">DER</dt>
+          <dd class="col-7">{{ der.der_id }}</dd>
+          <dt class="col-5">Author</dt>
+          <dd class="col-7">{{ der.author or '-' }}</dd>
+          <dt class="col-5">Created</dt>
+          <dd class="col-7">{{ der.created_at.strftime('%d-%m-%Y') if der.created_at else '-' }}</dd>
+          <dt class="col-5">Created by</dt>
+          <dd class="col-7">{{ der.creator or '-' }}</dd>
+          {% if der.approved_by %}
+          <dt class="col-5">Approved by</dt>
+          <dd class="col-7">{{ der.approved_by }}</dd>
+          {% endif %}
+          {% if notify_status %}
+          <dt class="col-5">Last notification</dt>
+          <dd class="col-7">
+            <span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span>
+            <span class="text-muted">{{ notify_status.timestamp }}</span>
+            {% if notify_status.details %}<div class="text-muted" style="font-size:.78rem;">{{ notify_status.details }}</div>{% endif %}
+          </dd>
+          {% endif %}
+          {% if der.linked_pir_uuid %}
+          <dt class="col-5">Linked PIR</dt>
+          <dd class="col-7">
+            <a href="{{ url_for('requirements.pir_detail', id=der.linked_pir_uuid) }}">
+              {% if linked_pir %}{{ linked_pir.pir_id }}{% if linked_pir.question %}: {{ linked_pir.question }}{% endif %}{% else %}view{% endif %}
+            </a>
+          </dd>
+          {% endif %}
+        </dl>
+        {% if der.rejection_reason %}
+        <hr>
+        <p class="mb-0 small text-danger"><strong>Rejection reason:</strong><br>{{ der.rejection_reason }}</p>
+        {% endif %}
+        {% if der.history_url %}
+        <p class="mb-0 mt-2 small">
+          <a href="{{ der.history_url }}" target="_blank" rel="noopener" class="text-decoration-none">
+            <i class="fas fa-clock-rotate-left me-1"></i>MISP event history
+          </a>
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><strong>Engineering status</strong></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('detection_eng.set_status', id=der.uuid) }}" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <select name="status" class="form-select form-select-sm">
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if der.status == s }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Update</button>
+        </form>
+        <div class="form-text mt-1">
+          Independent of the publish workflow below — the team's own progress tracker, same board as the review list.
+          Also editable from the <a href="{{ url_for('detection_eng.review') }}">status board</a>. Leaving Pending requires this request to be approved first;
+          marking this <strong>Active</strong> requires the draft rule below to be filled in and passing Rulezet validation.
+        </div>
+      </div>
+    </div>
+
+    {# An Active request's rule is the one Rulezet passed at sign-off, so it is
+       shown read-only until the request is moved back (set_draft_rule refuses). #}
+    {% if der.review_state != 'rejected' and der.status != 'Active' %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-code me-2"></i>Draft rule</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('detection_eng.set_draft_rule', id=der.uuid) }}" id="der-draft-rule-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <label class="form-label small mb-1">Format</label>
+            <select name="format" id="der-format" class="form-select form-select-sm" style="max-width:180px;">
+              <option value="">-</option>
+              {% for f in formats %}
+              <option value="{{ f }}" {{ 'selected' if der.format == f }}>{{ f | upper }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <textarea name="draft_rule" id="der-draft-rule" class="form-control font-monospace" rows="8"
+                    style="font-size:.85rem;"
+                    placeholder="Paste the rule here once it's written.">{{ der.draft_rule or '' }}</textarea>
+          <div id="rulezet-validate-status" class="small fw-semibold mt-2" style="display:none;"></div>
+          <div class="d-flex gap-2 mt-2">
+            <span id="btn-rulezet-validate-wrap" title="Pick a format and paste a rule first.">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-validate">
+                <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                     alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+                Validate on Rulezet
+              </button>
+            </span>
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Save draft rule</button>
+          </div>
+        </form>
+        <div class="form-text mt-2">Optional while the request is being reviewed — this is where whoever builds the detection pastes their rule once it exists. Required, and must pass Rulezet validation, before the engineering status can be set to Active.</div>
+      </div>
+    </div>
+    {% elif der.draft_rule %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-code me-2"></i>Draft rule <span class="badge bg-secondary ms-1">{{ der.format | upper }}</span></div>
+      <div class="card-body">
+        <pre class="mb-0 font-monospace small" style="white-space:pre-wrap;">{{ der.draft_rule }}</pre>
+        {% if der.status == 'Active' %}
+        <div class="form-text mt-2">This request is Active. To change its rule, move it back to In Test first; marking it Active again validates the new rule.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if der.review_state in ('draft', 'pending-review') %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><strong>Review actions</strong></div>
+      <div class="card-body">
+        {% if not can_publish %}
+        <span class="d-block mb-2" style="cursor:not-allowed;"
+              title="Only users with MISP publish rights can approve and publish.">
+          <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+            <i class="fas fa-check me-1"></i> Approve & publish
+          </button>
+        </span>
+        {% else %}
+        <form method="post" action="{{ url_for('detection_eng.approve', id=der.uuid) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-success w-100">
+            <i class="fas fa-check me-1"></i> Approve & publish
+          </button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('detection_eng.reject', id=der.uuid) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="reason" class="form-control form-control-sm mb-2" rows="2"
+                    placeholder="Rejection reason"></textarea>
+          <button class="btn btn-outline-danger w-100">
+            <i class="fas fa-xmark me-1"></i> Reject
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback</div>
+      <div class="card-body">
+        {% if feedback %}
+        {% for f in feedback %}
+        <div class="border rounded p-2 mb-2 small">
+          <div class="text-muted mb-1 d-flex justify-content-between gap-2">
+            <span>{{ f.name }}</span>
+            {% if f.created_at %}<span class="small text-nowrap">{{ f.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>{% endif %}
+          </div>
+          <div class="report-md-body" data-md="{{ f.content | e }}"></div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted small mb-2"><em>No feedback recorded yet.</em></p>
+        {% endif %}
+        <hr>
+        <form method="post" action="{{ url_for('detection_eng.add_feedback', id=der.uuid) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <input type="text" name="author" class="form-control form-control-sm" placeholder="Your name (optional)">
+          </div>
+          <div class="mb-2">
+            <select name="rating" class="form-select form-select-sm">
+              <option value="">- rating -</option>
+              <option value="Very useful">Very useful</option>
+              <option value="Useful">Useful</option>
+              <option value="Somewhat useful">Somewhat useful</option>
+              <option value="Not useful">Not useful</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <textarea name="comment" class="form-control form-control-sm" rows="3"
+                      placeholder="Comments or suggestions…"></textarea>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary w-100">
+            <i class="fas fa-paper-plane me-1"></i> Submit feedback
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-2">
+      {% if der.review_state == 'approved' %}
+      <span title="Published requests cannot be edited" style="cursor:not-allowed;" class="flex-fill">
+        <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
+          <i class="fas fa-pen me-1"></i> Edit
+        </button>
+      </span>
+      {% else %}
+      <a href="{{ url_for('detection_eng.wizard_edit', id=der.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
+        <i class="fas fa-pen me-1"></i> Edit
+      </a>
+      {% endif %}
+      {% if der.review_state == 'approved' %}
+      <span title="Published requests cannot be deleted" style="cursor:not-allowed;" class="flex-fill">
+        <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
+          <i class="fas fa-trash me-1"></i> Delete
+        </button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('detection_eng.delete', id=der.uuid) }}"
+            onsubmit="return confirm('Delete {{ der.der_id }}?');" class="flex-fill">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-danger w-100">
+          <i class="fas fa-trash me-1"></i> Delete
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if der.review_state == 'approved' %}
+    <div class="mb-2">
+      <form method="post" action="{{ url_for('detection_eng.resend', id=der.uuid) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="detail">
+        <button class="btn btn-sm btn-outline-primary w-100" title="Resend to stakeholders">
+          <i class="fas fa-paper-plane me-1"></i> Resend
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Recipients modal -->
+<div class="modal fade" id="recipientsModal" tabindex="-1" aria-labelledby="recipientsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="recipientsModalLabel">
+          <i class="fas fa-users me-2"></i>Who gets this request?
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Showing delivery eligibility based on subscription, TLP clearance, and audience role.
+          TLP: <strong>{{ der.tlp | upper }}</strong> &middot; Audience: <strong>{{ der.audience or '(none)' }}</strong>
+        </p>
+        {% set green_recipients = recipients | selectattr("status", "eq", "green") | list %}
+        {% set yellow_recipients = recipients | selectattr("status", "eq", "yellow") | list %}
+        {% set grey_recipients = recipients | selectattr("status", "eq", "grey") | list %}
+
+        {% if green_recipients %}
+        <h6 class="mb-2"><i class="fas fa-circle-check text-success me-1"></i>Will receive <span class="badge bg-success rounded-pill">{{ green_recipients | length }}</span></h6>
+        <div class="d-flex flex-wrap gap-2 mb-4">
+          {% for r in green_recipients %}
+          <span class="badge rounded-pill delivery-ok px-3 py-2"
+                style="font-size:.82rem;cursor:default;"
+                data-bs-toggle="tooltip" data-bs-placement="top" title="{{ r.reason }}">
+            {{ r.name }}{% if r.role %} <span style="opacity:.65;font-size:.75em;">({{ r.role }})</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if yellow_recipients %}
+        <h6 class="mb-2"><i class="fas fa-circle-exclamation text-warning me-1"></i>Subscribed but blocked <span class="badge bg-warning text-dark rounded-pill">{{ yellow_recipients | length }}</span></h6>
+        <ul class="list-unstyled mb-4">
+          {% for r in yellow_recipients %}
+          <li class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge rounded-pill delivery-blocked px-3 py-2 flex-shrink-0" style="font-size:.82rem;">
+              {{ r.name }}{% if r.role %} <span style="opacity:.65;font-size:.75em;">({{ r.role }})</span>{% endif %}
+            </span>
+            <span class="text-muted small">{{ r.reason }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if grey_recipients %}
+        <h6 class="mb-2"><i class="fas fa-circle text-secondary me-1"></i>Not subscribed <span class="badge bg-secondary rounded-pill">{{ grey_recipients | length }}</span></h6>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          {% for r in grey_recipients %}
+          <span class="badge rounded-pill delivery-none px-3 py-2"
+                style="font-size:.82rem;cursor:default;"
+                data-bs-toggle="tooltip" data-bs-placement="top" title="{{ r.reason }}">
+            {{ r.name }}{% if r.role %} <span style="opacity:.65;font-size:.75em;">({{ r.role }})</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not recipients %}
+        <p class="text-muted">No stakeholders configured.</p>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+(function() {
+  marked.setOptions({ breaks: true, gfm: true });
+  document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
+    var raw = el.getAttribute('data-md') || '';
+    el.innerHTML = raw.trim() ? DOMPurify.sanitize(marked.parse(raw)) : '';
+    el.removeAttribute('data-md');
+  });
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+    new bootstrap.Tooltip(el);
+  });
+})();
+
+/* ── Draft rule syntax check (informational — the server re-validates before Active) ── */
+(function() {
+  var btn = document.getElementById('btn-rulezet-validate');
+  if (!btn) return;
+
+  var btnWrap = document.getElementById('btn-rulezet-validate-wrap');
+  var status = document.getElementById('rulezet-validate-status');
+  var formatEl = document.getElementById('der-format');
+  var contentEl = document.getElementById('der-draft-rule');
+  var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
+  function refreshValidateButton() {
+    var ready = !!formatEl.value && !!contentEl.value.trim();
+    btn.disabled = !ready;
+    btnWrap.title = !formatEl.value
+      ? 'Pick a format above first.'
+      : (!contentEl.value.trim() ? 'Paste a draft rule to validate first.' : 'Dry-run this rule\'s syntax against Rulezet.');
+  }
+  formatEl.addEventListener('change', refreshValidateButton);
+  contentEl.addEventListener('input', refreshValidateButton);
+  refreshValidateButton();
+
+  // Rulezet's answer (and any error text) is shown as text, never parsed as
+  // HTML: a rule's error message can quote the rule, which is user content.
+  function showStatus(tone, icon, text) {
+    status.className = 'small fw-semibold mt-2 text-' + tone;
+    status.textContent = '';
+    var i = document.createElement('i');
+    i.className = 'fas ' + icon + ' me-1';
+    status.appendChild(i);
+    status.appendChild(document.createTextNode(text));
+    status.style.display = '';
+  }
+
+  btn.addEventListener('click', function() {
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Validating…';
+    status.style.display = 'none';
+
+    fetch(SCRIPT_ROOT + '/api/rulezet-validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+      body: JSON.stringify({format: formatEl.value, content: contentEl.value}),
+    })
+    .then(zsazsaReadJson)
+    .then(function(data) {
+      if (!data.ok) {
+        showStatus('danger', 'fa-triangle-exclamation', data.error || 'Validation failed.');
+        return;
+      }
+      if (data.valid) {
+        showStatus('success', 'fa-circle-check', 'Valid ' + formatEl.value.toUpperCase() + ' syntax.'
+          + ((data.warnings || []).length ? ' Warnings: ' + data.warnings.join('; ') : '')
+          + ' Save the draft rule — required before marking Active.');
+      } else {
+        showStatus('danger', 'fa-circle-xmark', 'Invalid: ' + ((data.errors || []).join('; ') || 'no details returned.'));
+      }
+    })
+    .catch(function(err) {
+      showStatus('danger', 'fa-triangle-exclamation', 'Validation did not complete: ' + zsazsaErrorText(err));
+    })
+    .finally(function() {
+      btn.innerHTML = origHTML;
+      refreshValidateButton();
+    });
+  });
+})();
+</script>
+{% endblock %}

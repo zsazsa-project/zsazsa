@@ -187,6 +187,15 @@ def send_vea_notification(vea, markdown: str, channel_ids: list[str] | None = No
     return send_email(_recipients(channel_ids), subject, markdown, f"VEA {vea_id}", html_body=html)
 
 
+def send_detection_eng_request_notification(der, markdown: str, channel_ids: list[str] | None = None) -> bool:
+    der_id = getattr(der, "der_id", "")
+    title = getattr(der, "title", "")
+    tlp = getattr(der, "tlp", "")
+    subject = _subject(tlp, f"{der_id}: {title}" if title else der_id)
+    html = product_email.markdown_html(markdown, "Detection Engineering Request", tlp)
+    return send_email(_recipients(channel_ids), subject, markdown, f"DER {der_id}", html_body=html)
+
+
 def send_threat_actor_profile_notification(tap, markdown: str, channel_ids: list[str] | None = None,
                                            diamond_png: bytes | None = None) -> bool:
     tap_id = getattr(tap, "tap_id", "")

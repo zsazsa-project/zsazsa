@@ -95,6 +95,46 @@ class HostingInstance(unittest.TestCase):
         self.assertEqual((url, key), ("https://misp.test", "webapp-key"))
 
 
+class PublishPermission(unittest.TestCase):
+    """The publish gate reads MISP's perm_publish off the session user. With
+    single sign-on configured, a request without a user is somebody who dropped
+    the cookie or hit a Redis that is down, not the one trusted identity of an
+    install without SSO, so it has to be refused rather than waved through."""
+
+    def can_publish(self, user, redirect=False, cookie_name=""):
+        app = Flask(__name__)
+        with app.test_request_context("/"), \
+             mock.patch.object(misp_session.config, "MISP_SESSION_REDIRECT_TO_LOGIN", redirect), \
+             mock.patch.object(misp_session.config, "MISP_SESSION_COOKIE_NAME", cookie_name):
+            g.misp_user = user
+            return misp_session.current_user_can_publish()
+
+    def test_a_standalone_script_may_publish(self):
+        with mock.patch.object(misp_session.config, "MISP_SESSION_REDIRECT_TO_LOGIN", True):
+            self.assertTrue(misp_session.current_user_can_publish())
+
+    def test_no_user_without_single_sign_on_is_the_trusted_identity(self):
+        self.assertTrue(self.can_publish(None))
+
+    def test_no_user_with_single_sign_on_is_refused(self):
+        self.assertFalse(self.can_publish(None, redirect=True))
+        self.assertFalse(self.can_publish(None, cookie_name="MISP-abc"))
+
+    def test_a_role_without_perm_publish_is_refused(self):
+        self.assertFalse(self.can_publish({"email": "a@misp.test"}, redirect=True))
+        self.assertFalse(self.can_publish({"email": "a@misp.test", "Role": {}}, redirect=True))
+
+    def test_perm_publish_as_misp_stores_it_is_allowed(self):
+        for value in (True, 1, "1"):
+            with self.subTest(value=value):
+                self.assertTrue(self.can_publish({"Role": {"perm_publish": value}}, redirect=True))
+
+    def test_a_false_perm_publish_is_refused_even_when_truthy(self):
+        for value in (False, 0, "0", "false", "", None):
+            with self.subTest(value=value):
+                self.assertFalse(self.can_publish({"Role": {"perm_publish": value}}, redirect=True))
+
+
 @contextlib.contextmanager
 def _reachable_redis():
     yield mock.Mock()

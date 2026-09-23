@@ -5621,6 +5621,386 @@ def delete_vea(uuid):
     _check(misp.delete_event(uuid), "delete VEA")
 
 
+# ── Detection Engineering Request ────────────────────────────────────────────
+# A request from CTI to the detection engineering team: "build a detection for
+# this technique/actor/campaign". review_state is the publish workflow (has
+# this request been sent to the team yet); status is the team's own progress
+# tracker on the actual engineering work, updated independently afterwards.
+
+DER_REVIEW_DRAFT = "draft"
+DER_REVIEW_PENDING = "pending-review"
+DER_REVIEW_APPROVED = "approved"
+DER_REVIEW_REJECTED = "rejected"
+DER_REVIEW_STATES = [DER_REVIEW_DRAFT, DER_REVIEW_PENDING, DER_REVIEW_APPROVED, DER_REVIEW_REJECTED]
+
+DER_PRIORITIES = ["Low", "Medium", "High", "Critical"]
+# The engineering status is stored as its display label, so these literals are
+# what existing requests already carry in MISP; they cannot be renamed without
+# migrating them. "Pending" here is the team's untriaged column and has nothing
+# to do with DER_REVIEW_PENDING ("pending-review"), which is the publish
+# workflow waiting on a reviewer. A request can sit in both at once.
+DER_STATUS_PENDING = "Pending"
+DER_STATUS_IN_DEV = "In Dev"
+DER_STATUS_IN_TEST = "In Test"
+DER_STATUS_ACTIVE = "Active"
+DER_STATUS_RETIRED = "Retired"
+DER_STATUSES = [DER_STATUS_PENDING, DER_STATUS_IN_DEV, DER_STATUS_IN_TEST,
+                DER_STATUS_ACTIVE, DER_STATUS_RETIRED]
+
+# Formats Rulezet's public /validate endpoint knows how to check.
+DER_FORMATS = ["yara", "sigma", "suricata", "zeek", "wazuh", "nse", "crs",
+               "nova", "splunk", "elastic", "sagan", "kql", "atr", "kunai"]
+
+
+def _der_obj(data):
+    obj = _build_obj("zsazsa-detection-eng-request")
+    _oa(obj, "der-id", data.get("der_id"))
+    _oa(obj, "title", data.get("title"))
+    _oa_json(obj, "technique", data.get("technique", []))
+    _oa(obj, "log-sources", _join_lines(data.get("log_sources")))
+    _oa(obj, "hypothesis", data.get("hypothesis"))
+    _oa(obj, "expected-output", data.get("expected_output"))
+    _oa(obj, "existing-coverage", _join_lines(data.get("existing_coverage")))
+    _oa(obj, "test-cases", _join_lines(data.get("test_cases")))
+    _oa(obj, "format", data.get("format"))
+    _oa(obj, "draft-rule", data.get("draft_rule"))
+    _oa(obj, "priority", data.get("priority"))
+    _oa(obj, "status", data.get("status", DER_STATUS_PENDING))
+    _oa(obj, "tlp", data.get("tlp", "amber"))
+    _oa(obj, "author", data.get("author"))
+    _oa(obj, "audience", data.get("audience"))
+    _oa(obj, "review-state", data.get("review_state", DER_REVIEW_DRAFT))
+    _oa(obj, "rejection-reason", data.get("rejection_reason"))
+    src_uuids, src_hints = _normalise_source_uuids_and_hints(
+        data.get("source_event_uuids"),
+        data.get("source_event_uuid"),
+        data.get("source_event_hints"),
+    )
+    _oa_json(obj, "source-event-uuid", src_uuids)
+    _oa_json(obj, "source-event-hints", src_hints)
+    _oa(obj, "linked-pir-uuid", data.get("linked_pir_uuid"))
+    _oa(obj, "creator", data.get("creator"))
+    _oa(obj, "approved-by", data.get("approved_by"))
+    return obj
+
+
+def _der_ns(event):
+    uuid = event.uuid
+    obj = _get_obj(event, "zsazsa-detection-eng-request")
+
+    def g(rel):
+        return _obj_attr(obj, rel) or ""
+
+    source_event_uuids = _parse_source_uuid_blob(g("source-event-uuid"))
+    try:
+        _src_hints_parsed = json.loads(g("source-event-hints") or "{}")
+    except Exception:
+        _src_hints_parsed = {}
+    source_event_hints = _clean_source_hints(_src_hints_parsed, source_event_uuids)
+
+    return SimpleNamespace(
+        id=uuid,
+        uuid=uuid,
+        misp_url=f"{config.MISP_WEBAPP_URL}/events/view/{uuid}",
+        history_url=f"{config.MISP_WEBAPP_URL}/audit_logs/eventIndex/{uuid}",
+        der_id=g("der-id"),
+        title=g("title"),
+        technique=_json_list(g("technique")),
+        log_sources=g("log-sources").splitlines(),
+        hypothesis=g("hypothesis"),
+        expected_output=g("expected-output"),
+        existing_coverage=g("existing-coverage").splitlines(),
+        format=g("format"),
+        draft_rule=g("draft-rule"),
+        test_cases=g("test-cases").splitlines(),
+        priority=g("priority"),
+        status=g("status") or DER_STATUS_PENDING,
+        tlp=g("tlp") or "amber",
+        author=g("author"),
+        audience=g("audience"),
+        review_state=g("review-state") or DER_REVIEW_DRAFT,
+        rejection_reason=g("rejection-reason"),
+        source_event_uuids=source_event_uuids,
+        source_event_hints=source_event_hints,
+        source_event_uuid=source_event_uuids[0] if source_event_uuids else "",
+        linked_pir_uuid=g("linked-pir-uuid"),
+        creator=g("creator"),
+        approved_by=g("approved-by"),
+        published=bool(getattr(event, "published", False)),
+        published_at=_published_at(event),
+        created_at=_parse_dt(event.date.isoformat() if event.date else None),
+    )
+
+
+# Every field of a request, named as _der_obj() takes them and as _der_ns()
+# reads them back. The object is deleted and written again on every change, so
+# anything that rewrites it for one field (review state, engineering status,
+# the draft rule) has to carry all the others across. _der_data() builds that
+# dict from this list instead of each caller spelling the fields out again,
+# which is how one of them ends up silently dropping a field.
+_DER_FIELDS = (
+    "der_id", "title", "technique", "log_sources", "hypothesis",
+    "expected_output", "existing_coverage", "test_cases", "format",
+    "draft_rule", "priority", "status", "tlp", "author", "audience",
+    "review_state", "rejection_reason", "source_event_uuids",
+    "source_event_hints", "linked_pir_uuid", "creator", "approved_by",
+)
+
+
+def _der_data(der, **overrides):
+    """The write dict for update_der(), taken from a stored request.
+
+    `overrides` replaces the fields the caller is actually changing. Lists and
+    dicts are copied so the caller's namespace is not changed under it.
+    """
+    data = {}
+    for field in _DER_FIELDS:
+        value = getattr(der, field, None)
+        if isinstance(value, list):
+            value = list(value)
+        elif isinstance(value, dict):
+            value = dict(value)
+        data[field] = value if value is not None else ""
+    data.update(overrides)
+    return data
+
+
+def _der_id_from_event_id(event_id):
+    return f"DER-{int(event_id):05d}"
+
+
+def render_der_markdown(der, der_id=None, preview_url: str = ""):
+    did = der_id or der.der_id or "DER-#####"
+    date_str = (der.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
+
+    def bullets(items):
+        return "\n".join(f"- {ln}" for ln in items) if items else "- (none recorded)"
+
+    lines = [
+        f"# Detection engineering request: {der.title or did}",
+        "",
+        f"**ID:** {did}",
+        f"**Classification:** tlp:{der.tlp}",
+        f"**Date:** {date_str}",
+        f"**Author:** {der.author or 'unknown'}",
+        f"**Audience:** {der.audience or 'detection engineering'}",
+        f"**Priority:** {der.priority or '-'}",
+        f"**Status:** {der.status or DER_STATUS_PENDING}",
+        f"**Format:** {der.format or '-'}",
+        "",
+        "---",
+        "",
+        "## Trigger / hypothesis",
+        "",
+        der.hypothesis or "_To be defined._",
+        "",
+        "---",
+        "",
+        "## MITRE ATT&CK technique(s)",
+        "",
+        bullets(der.technique),
+        "",
+        "---",
+        "",
+        "## Log sources",
+        "",
+        bullets(der.log_sources),
+        "",
+        "---",
+        "",
+        "## Expected rule output",
+        "",
+        der.expected_output or "_To be defined._",
+        "",
+        "---",
+        "",
+        "## Existing coverage (Rulezet)",
+        "",
+        bullets(der.existing_coverage),
+        "",
+        "---",
+        "",
+        "## Test cases",
+        "",
+        bullets(der.test_cases),
+    ]
+    if der.draft_rule:
+        lines += [
+            "",
+            "---",
+            "",
+            f"## Draft rule ({der.format or 'unspecified format'})",
+            "",
+            "```" + (der.format or ""),
+            der.draft_rule,
+            "```",
+        ]
+    if preview_url:
+        lines += ["", "---", "", f"[Open request]({preview_url})"]
+    return "\n".join(lines)
+
+
+def _delete_der_reports(misp, event):
+    for r in getattr(event, "event_reports", []) or []:
+        if getattr(r, "deleted", False):
+            continue
+        if (getattr(r, "name", "") or "").startswith("DER-"):
+            try:
+                misp.delete_event_report(r.id, hard=True)
+            except Exception as exc:
+                logger.warning("delete DER report %s failed: %s", r.id, exc)
+
+
+def _write_der_report(misp, event_uuid, der_id, content):
+    from pymisp import MISPEventReport
+    er = MISPEventReport()
+    er.name = der_id
+    er.content = content
+    er.distribution = 0
+    _check(misp.add_event_report(event_uuid, er), "add DER report")
+
+
+def list_ders(review_state=None):
+    misp = _misp()
+    events = _search_all(misp, tags=[config.TAG_DETECTION_ENG], pythonify=True)
+    if not events or isinstance(events, dict):
+        return []
+    result = [_der_ns(e) for e in events]
+    if review_state:
+        result = [d for d in result if d.review_state == review_state]
+    result.sort(key=lambda d: d.der_id, reverse=True)
+    return result
+
+
+def get_der(uuid):
+    misp = _misp()
+    event = misp.get_event(uuid, pythonify=True)
+    if isinstance(event, dict) or event is None:
+        return None
+    return _der_ns(event)
+
+
+def create_der(data):
+    misp = _misp()
+    title = (data.get("title") or "Untitled").strip()
+    info = f"[zsazsa:der] {title}"
+    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+
+    event = _make_event(info, extra_tags=extra)
+    src_uuids, src_hints = _normalise_source_uuids_and_hints(
+        data.get("source_event_uuids") or [],
+        data.get("source_event_uuid"),
+        data.get("source_event_hints"),
+    )
+    if src_uuids:
+        event.extends_uuid = src_uuids[0]
+
+    result = _add_event(misp, event, [config.TAG_DETECTION_ENG], "create detection engineering request")
+    uuid = _event_uuid(result)
+    if not uuid:
+        raise RuntimeError("create DER: missing UUID in MISP response")
+
+    der_id = _der_id_from_event_id(result.id)
+    data["der_id"] = der_id
+    data.setdefault("review_state", DER_REVIEW_DRAFT)
+    data.setdefault("status", DER_STATUS_PENDING)
+    data["creator"] = misp_session.current_user_email()
+    if data["review_state"] == DER_REVIEW_APPROVED:
+        data["approved_by"] = misp_session.current_user_email()
+    _check(misp.add_object(_event_ref(result), _der_obj(data)), "add DER object")
+
+    der = _der_ns(result)
+    der.der_id = der_id
+    _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+    for uid in src_uuids:
+        source_id = src_hints.get(uid, "")
+        if source_id and source_id != "scraper":
+            continue
+        _tag_scraper_event_as_product_source(uid, "detection-eng-request")
+    return uuid, der_id
+
+
+def update_der(uuid, data):
+    misp = _misp()
+    event = misp.get_event(uuid, pythonify=True)
+    if isinstance(event, dict) or event is None:
+        raise RuntimeError(f"DER event {uuid} not found")
+
+    old = _get_obj(event, "zsazsa-detection-eng-request")
+    der_id = (data.get("der_id") or (_obj_attr(old, "der-id") if old else None)
+              or _der_id_from_event_id(event.id))
+    data["der_id"] = der_id
+    old_review_state = _obj_attr(old, "review-state") if old else None
+    new_review_state = data.get("review_state", DER_REVIEW_DRAFT)
+    if new_review_state == DER_REVIEW_APPROVED and old_review_state != DER_REVIEW_APPROVED:
+        data["approved_by"] = misp_session.current_user_email()
+    else:
+        data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
+    data.setdefault("status", (_obj_attr(old, "status") if old else "") or DER_STATUS_PENDING)
+    if old:
+        data["creator"] = _obj_attr(old, "creator") or ""
+        misp.delete_object(old.id)
+    _check(misp.add_object(_event_ref(event), _der_obj(data)), "update DER object")
+
+    title = (data.get("title") or "Untitled").strip()
+    misp.update_event({"Event": {"id": event.id, "info": f"[zsazsa:der] {title}"}})
+
+    refreshed = misp.get_event(uuid, pythonify=True)
+    _delete_der_reports(misp, refreshed)
+    der = _der_ns(refreshed)
+    _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+    return uuid, der_id
+
+
+def set_der_review_state(uuid, state, reason=None):
+    if state not in DER_REVIEW_STATES:
+        raise ValueError(f"invalid DER review state: {state}")
+    misp = _misp()
+    event = misp.get_event(uuid, pythonify=True)
+    if isinstance(event, dict) or event is None:
+        raise RuntimeError(f"DER event {uuid} not found")
+    der = _der_ns(event)
+
+    update_der(uuid, _der_data(der, review_state=state,
+                               rejection_reason=reason or der.rejection_reason))
+
+    workflow_map = {
+        DER_REVIEW_DRAFT: "draft",
+        DER_REVIEW_PENDING: "ongoing",
+        DER_REVIEW_APPROVED: "complete",
+        DER_REVIEW_REJECTED: "rejected",
+    }
+    new_wf = f'workflow:state="{workflow_map[state]}"'
+    for tag in list(getattr(event, "tags", []) or []):
+        if tag.name.startswith("workflow:state="):
+            try:
+                misp.untag(event.uuid, tag.name)
+            except Exception as exc:
+                logger.warning("untag %s failed: %s", tag.name, exc)
+    try:
+        misp.tag(event.uuid, new_wf, local=True)
+    except Exception as exc:
+        logger.warning("tag %s with %s failed: %s", event.uuid, new_wf, exc)
+
+
+def publish_der(uuid):
+    set_der_review_state(uuid, DER_REVIEW_APPROVED)
+    misp = _misp()
+    try:
+        misp.publish(uuid)
+    except Exception as exc:
+        logger.warning("publish DER %s failed: %s", uuid, exc)
+
+
+def reject_der(uuid, reason=""):
+    set_der_review_state(uuid, DER_REVIEW_REJECTED, reason=reason)
+
+
+def delete_der(uuid):
+    misp = _misp()
+    _check(misp.delete_event(uuid), "delete DER")
+
+
 # ── Daily Threat Briefing ────────────────────────────────────────────────────
 
 
@@ -5659,6 +6039,7 @@ def _briefing_obj(data):
     _oa(obj, "story-count", str(count))
     _oa(obj, "escalations", data.get("escalations"))
     _oa(obj, "notes", data.get("notes"))
+    _oa(obj, "detection-rules", data.get("detection_rules"))
     _oa_json(obj, "geographic-scope", data.get("geographic_scope", []))
     _oa_json(obj, "sectors", data.get("sectors", []))
     _oa_json(obj, "threat-actors", data.get("threat_actors", []))
@@ -5685,7 +6066,7 @@ def _briefing_obj(data):
 # write dict from this rather than listing the fields again.
 _BRIEFING_FIELDS = (
     "date", "title", "author", "tlp", "review_state", "story_count",
-    "escalations", "notes", "summary", "summary_stale",
+    "escalations", "notes", "detection_rules", "summary", "summary_stale",
     "geographic_scope", "sectors", "threat_actors", "mitre_attack_techniques",
     "threat_types", "technology", "vendor", "incident", "campaign",
     "creator", "approved_by",
@@ -5725,6 +6106,7 @@ def _briefing_ns(event):
         story_count=int(g("story-count") or "0"),
         escalations=g("escalations"),
         notes=g("notes"),
+        detection_rules=g("detection-rules"),
         geographic_scope=_json_list(_obj_attr(obj, "geographic-scope")),
         sectors=_json_list(_obj_attr(obj, "sectors")),
         threat_actors=_json_list(_obj_attr(obj, "threat-actors")),
@@ -5973,6 +6355,14 @@ def render_briefing_markdown(briefing, preview_url: str = ""):
             "## Notes",
             "",
             briefing.notes,
+        ])
+    # getattr: a briefing saved before the field existed has no such attribute.
+    if getattr(briefing, "detection_rules", ""):
+        lines.extend([
+            "",
+            "## Detection rules",
+            "",
+            briefing.detection_rules,
         ])
     if preview_url:
         lines += ["", f"[Open briefing]({preview_url})"]

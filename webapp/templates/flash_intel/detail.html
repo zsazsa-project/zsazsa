@@ -190,12 +190,21 @@
           </button>
           <div class="qa-review-output mb-2"></div>
         </div>
+        {% if not can_publish %}
+        <span class="d-block mb-2" style="cursor:not-allowed;"
+              title="Only users with MISP publish rights can approve and publish.">
+          <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+            <i class="fas fa-check me-1"></i> Approve & publish
+          </button>
+        </span>
+        {% else %}
         <form method="post" action="{{ url_for('flash_intel.approve', id=fia.uuid) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-success w-100">
             <i class="fas fa-check me-1"></i> Approve & publish
           </button>
         </form>
+        {% endif %}
         <form method="post" action="{{ url_for('flash_intel.reject', id=fia.uuid) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <textarea name="reason" class="form-control form-control-sm mb-2" rows="2"

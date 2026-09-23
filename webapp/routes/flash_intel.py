@@ -108,6 +108,7 @@ def _wizard_context(fia=None, source_events=None):
         "action_presets_near_term": getattr(_cfg, "RECOMMENDED_ACTIONS_NEAR_TERM", []),
         "pirs": misp_store.list_selectable_pirs(_linked_pir(fia)),
         "source_event_tags": sorted({t for ev in (source_events or []) for t in ev.get("tags", [])}),
+        "can_publish": misp_session.current_user_can_publish(),
     }
 
 
@@ -258,6 +259,7 @@ def detail(id):
         recipients=recipients,
         notify_status=notify_status,
         reference_items=flattened_references(list(fia.external_references or []), source_refs),
+        can_publish=misp_session.current_user_can_publish(),
     )
 
 
@@ -281,6 +283,13 @@ def wizard_edit(id):
     fia = misp_store.get_fia(id)
     if fia is None:
         return "FIA not found", 404
+    # The detail page offers no Edit once an alert is published, but the form
+    # posts here all the same. Refused for everyone, publishers included: what
+    # went out is what the recipients got, and a resend would otherwise deliver
+    # a changed alert under the approval given to the original.
+    if fia.review_state == misp_store.FIA_REVIEW_APPROVED:
+        flash("Published alerts cannot be edited.", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
     if request.method == "POST":
         data = _form_data(request.form, fia_id=fia.fia_id)
         source_hints = data.get("source_event_hints") or {}
@@ -288,6 +297,9 @@ def wizard_edit(id):
             data.get("source_event_uuids") or [], source_hints, strict_source=bool(source_hints)
         )
         action = request.form.get("action", "save")
+        if action == "publish" and not misp_session.current_user_can_publish():
+            flash(misp_session.publish_denied_message("approve and publish"), "warning")
+            action = "save"
         if action == "submit":
             data["review_state"] = misp_store.FIA_REVIEW_PENDING
         elif action == "publish":
@@ -326,6 +338,9 @@ def approve(id):
         return "FIA not found", 404
     if not (fia.audience or "").strip():
         flash("A target audience is required before publishing. Edit the alert and select an audience first.", "warning")
+        return redirect(url_for("flash_intel.detail", id=id))
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("approve and publish"), "warning")
         return redirect(url_for("flash_intel.detail", id=id))
     try:
         misp_store.publish_fia(id)
@@ -377,6 +392,10 @@ def resend(id):
         redirect_target = url_for("flash_intel.review")
     if getattr(fia, "review_state", "") != misp_store.FIA_REVIEW_APPROVED:
         flash("Only published alerts can be resent.", "warning")
+        return redirect(redirect_target)
+    # A resend reaches the same recipients as publishing, so it takes the same right.
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("resend"), "warning")
         return redirect(redirect_target)
 
     _start_flash_intel_delivery(fia.fia_id, id, "resend")

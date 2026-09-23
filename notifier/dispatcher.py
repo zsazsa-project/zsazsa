@@ -214,6 +214,19 @@ def send_vea(vea, markdown: str, stakeholders: list) -> dict:
     return _dispatch(stakeholders, senders, "VEA", getattr(vea, "vea_id", ""))
 
 
+def send_detection_eng_request(der, markdown: str, stakeholders: list) -> dict:
+    """Deliver a detection engineering request to stakeholder channels across all channel types."""
+    senders = {
+        "mattermost": lambda channel_ids: bool(
+            mattermost.send_detection_eng_request_notification(der, markdown, channel_ids=channel_ids)
+        ),
+        "email": lambda channel_ids: bool(
+            email.send_detection_eng_request_notification(der, markdown, channel_ids=channel_ids)
+        ),
+    }
+    return _dispatch(stakeholders, senders, "detection engineering request", getattr(der, "der_id", ""))
+
+
 def send_threat_actor_profile(tap, markdown: str, stakeholders: list,
                               diamond_png: bytes | None = None, diamond_url: str | None = None) -> dict:
     """Deliver a threat actor profile to stakeholder channels across all channel types.

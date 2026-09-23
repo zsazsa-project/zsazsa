@@ -2,7 +2,7 @@ import config as _config
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
-from webapp import audit, misp_store, org_store
+from webapp import audit, misp_session, misp_store, org_store
 from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS
 from webapp.utils import normalize_notification_channels, product_detail_url
 
@@ -51,19 +51,33 @@ def _parse_contacts(form):
     return contacts
 
 
-def _parse_subscriptions(form):
+def _parse_subscriptions(form, previous_modes=None):
     """Return (products_list, product_modes_dict) from form fields.
 
     For each product type the form sends ``products=<name>`` (when checked)
     and ``mode__<name>`` set to one of SUBSCRIPTION_MODES.
+
+    Switching a product to "automated" takes the publish right: the analyser
+    then publishes and delivers that product to this stakeholder with nobody
+    reviewing it, which is publishing by another route. A mode that was already
+    automated is kept as it is, so editing a stakeholder's contacts does not
+    need a publisher.
     """
+    previous_modes = previous_modes or {}
     selected = form.getlist("products")
     modes = {}
+    refused = False
     for p in selected:
         m = form.get(f"mode__{p}", misp_store.DEFAULT_SUBSCRIPTION_MODE)
         if m not in misp_store.SUBSCRIPTION_MODES:
             m = misp_store.DEFAULT_SUBSCRIPTION_MODE
+        if (m == "automated" and previous_modes.get(p) != "automated"
+                and not misp_session.current_user_can_publish()):
+            m = misp_store.DEFAULT_SUBSCRIPTION_MODE
+            refused = True
         modes[p] = m
+    if refused:
+        flash(misp_session.publish_denied_message("set a product to automated delivery"), "warning")
     return selected, modes
 
 
@@ -270,7 +284,8 @@ def edit(id):
     if stakeholder is None:
         return "Stakeholder not found", 404
     if request.method == "POST":
-        products, product_modes = _parse_subscriptions(request.form)
+        products, product_modes = _parse_subscriptions(
+            request.form, getattr(stakeholder, "product_modes", None))
         data = {
             "name": request.form["name"],
             "role": request.form.get("role"),

@@ -231,7 +231,8 @@ def detail(id):
     linked_feeds = _linked_feeds(tap)
     return render_template("threat_actor_profile/detail.html",
                            tap=tap, recipients=recipients, pir=pir, feedback=feedback,
-                           linked_feeds=linked_feeds)
+                           linked_feeds=linked_feeds,
+                           can_publish=misp_session.current_user_can_publish())
 
 
 @bp.route("/<string:id>/edit", methods=["GET", "POST"])
@@ -268,6 +269,9 @@ def publish(id):
     tap = misp_store.get_threat_actor_profile(id)
     if tap is None:
         return "Threat actor profile not found", 404
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message(), "warning")
+        return redirect(url_for("threat_actor_profile.detail", id=id))
     try:
         misp_store.publish_threat_actor_profile(id)
         audit.record("update", "threat-actor-profile", entity_id=id, entity_label=tap.tap_id, details="published")
@@ -284,6 +288,10 @@ def notify(id):
         return "Threat actor profile not found", 404
     if tap.status != "Published":
         flash("Publish the profile before notifying recipients.", "warning")
+        return redirect(url_for("threat_actor_profile.detail", id=id))
+    # Notifying reaches the same recipients as publishing, so it takes the same right.
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("notify recipients"), "warning")
         return redirect(url_for("threat_actor_profile.detail", id=id))
     diamond_url = url_for("threat_actor_profile.diamond_png", id=id, _external=True)
 

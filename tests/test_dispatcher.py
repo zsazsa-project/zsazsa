@@ -9,6 +9,7 @@ dropping them silently.
 
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import config
 from notifier import dispatcher
@@ -156,6 +157,35 @@ class DeliveryOutcome(unittest.TestCase):
         ok, msg = dispatcher.delivery_outcome({"recipients": 3, "sent_types": [], "failed_types": []})
         self.assertFalse(ok)
         self.assertIn("no message channels", msg)
+
+
+
+class DetectionEngineeringRequest(unittest.TestCase):
+    """A request goes to the same channel types as every other product, with the
+    request itself handed to each sender so the subject and header can name it."""
+
+    setUp = Dispatch.setUp
+    tearDown = Dispatch.tearDown
+
+    def test_each_channel_type_gets_the_request_and_its_live_ids(self):
+        der = SimpleNamespace(der_id="DER-00042", title="Detect WMI", tlp="amber")
+        stakeholder = SimpleNamespace(name="Acme", notification_channels=["mm1", "em1"])
+        with mock.patch.object(dispatcher.mattermost, "send_detection_eng_request_notification",
+                               return_value=True) as to_mattermost, \
+             mock.patch.object(dispatcher.email, "send_detection_eng_request_notification",
+                               return_value=True) as to_email:
+            summary = dispatcher.send_detection_eng_request(der, "# DER", [stakeholder])
+        self.assertEqual(sorted(summary["sent_types"]), ["email", "mattermost"])
+        to_mattermost.assert_called_once_with(der, "# DER", channel_ids=["mm1"])
+        to_email.assert_called_once_with(der, "# DER", channel_ids=["em1"])
+
+    def test_a_failed_channel_is_reported_against_the_request(self):
+        der = SimpleNamespace(der_id="DER-00042", title="Detect WMI", tlp="amber")
+        stakeholder = SimpleNamespace(name="Acme", notification_channels=["mm1"])
+        with mock.patch.object(dispatcher.mattermost, "send_detection_eng_request_notification",
+                               return_value=False):
+            summary = dispatcher.send_detection_eng_request(der, "# DER", [stakeholder])
+        self.assertEqual(summary["failed_types"], ["mattermost"])
 
 
 if __name__ == "__main__":

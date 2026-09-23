@@ -195,6 +195,7 @@ _PRODUCT_TYPES = {
     "Threat landscape report": ("TAG_TLR", "threat-landscape-report", "threat_landscape.detail"),
     "Indicator feed": ("TAG_INDICATOR_FEED", "indicator-feed", "indicator_feed.detail"),
     "Threat actor profile": ("TAG_THREAT_ACTOR_PROFILE", "threat-actor-profile", "threat_actor_profile.detail"),
+    "Detection engineering request": ("TAG_DETECTION_ENG", "detection-eng-request", "detection_eng.detail"),
 }
 
 # Names used before the product was renamed, still stored on older events.

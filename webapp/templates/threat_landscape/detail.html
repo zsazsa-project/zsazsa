@@ -115,12 +115,21 @@
       <div class="card-header"><i class="fas fa-check-circle me-2"></i>Publish</div>
       <div class="card-body">
         <p class="text-muted small mb-3">Publishing marks this report as final and notifies MISP.</p>
+        {% if not can_publish %}
+        <span class="d-block" style="cursor:not-allowed;"
+              title="Only users with MISP publish rights can publish.">
+          <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+            <i class="fas fa-paper-plane me-1"></i> Publish report
+          </button>
+        </span>
+        {% else %}
         <form method="post" action="{{ url_for('threat_landscape.publish', id=tlr.uuid) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-success w-100">
             <i class="fas fa-paper-plane me-1"></i> Publish report
           </button>
         </form>
+        {% endif %}
       </div>
     </div>
     {% endif %}

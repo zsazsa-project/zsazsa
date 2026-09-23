@@ -4,6 +4,8 @@
 {% block title %}{{ browser_title }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ page_title_text }}{% endblock %}
 
+{% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
+
 {% block topbar_actions %}
 <a href="{{ url_for('daily_briefing.list_briefings') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
@@ -515,15 +517,38 @@
     <div class="collapse" id="briefing-notes-card">
     <div class="card-body">
       <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">Escalations</label>
-          <textarea name="escalations" class="form-control" rows="3"
+        <div class="col-md-4">
+          <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+            <label class="form-label mb-0">Escalations</label>
+          </div>
+          <textarea name="escalations" class="form-control mt-1" rows="3"
                     placeholder="Items escalated to flash alert, or 'None today.'">{{ briefing_escalations or '' }}</textarea>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Notes</label>
-          <textarea name="notes" class="form-control" rows="3"
+        <div class="col-md-4">
+          <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+            <label class="form-label mb-0">Notes</label>
+          </div>
+          <textarea name="notes" class="form-control mt-1" rows="3"
                     placeholder="Feedback, follow-up items, stand-up observations.">{{ briefing_notes or '' }}</textarea>
+        </div>
+        <div class="col-md-4">
+          <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+            <label class="form-label mb-0">Detection rules</label>
+            {# A disabled <button> is inert in every browser: it never fires the
+               hover events a native title tooltip needs. The title lives on this
+               wrapping span instead, which stays interactive either way. #}
+            <span id="btn-rulezet-briefing-lookup-wrap"
+                  {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-briefing-lookup" disabled>
+                <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                     alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+                Search Rulezet
+              </button>
+            </span>
+          </div>
+          <textarea name="detection_rules" id="briefing-detection-rules" class="form-control mt-1" rows="3"
+                    placeholder="Sigma/EDR rule reference">{{ briefing_detection_rules or '' }}</textarea>
+          <div id="rulezet-briefing-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
         </div>
       </div>
     </div>
@@ -1756,6 +1781,15 @@ syncShellMeta();
 positionStickyColumns();
 // Open on the first story, or on the details when the briefing has none yet.
 showPane(_getStoryCards().length ? 'story-1' : 'details');
+
+/* ── Detection rule lookup (Rulezet, by MITRE ATT&CK technique) ── */
+zsazsaBindRulezetAttackLookup({
+  buttonId: 'btn-rulezet-briefing-lookup',
+  statusId: 'rulezet-briefing-status',
+  targetId: 'briefing-detection-rules',
+  checkboxName: 'mitre_attack_techniques',
+  readyTitle: 'Search Rulezet for public rules matching the MITRE ATT&CK techniques selected above',
+});
 </script>
 
 <style>

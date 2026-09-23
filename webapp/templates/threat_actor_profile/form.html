@@ -18,6 +18,7 @@
 {% block page_title %}{{ 'Edit ' + tap.tap_id if is_edit else 'New threat actor profile' }}{% endblock %}
 
 {% block misp_object_url %}{% if is_edit %}{{ tap.misp_url }}{% endif %}{% endblock %}
+{% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
 {% block topbar_actions %}
 <a href="{{ url_for('threat_actor_profile.review') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
@@ -162,9 +163,23 @@
             placeholder="Controls or configuration to prevent initial access / limit impact.">{{ src.rec_prevention if src else '' }}</textarea>
         </div>
         <div class="mb-3">
-          <label class="form-label">Detection</label>
-          <textarea name="rec_detection" class="form-control" rows="2"
+          <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+            <label class="form-label mb-0">Detection</label>
+            {# A disabled <button> is inert in every browser: it never fires the
+               hover events a native title tooltip needs. The title lives on this
+               wrapping span instead, which stays interactive either way. #}
+            <span id="btn-rulezet-attack-lookup-wrap"
+                  {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-attack-lookup" disabled>
+                <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                     alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+                Search Rulezet
+              </button>
+            </span>
+          </div>
+          <textarea name="rec_detection" id="rec_detection" class="form-control mt-1" rows="2"
             placeholder="Detection rules, hunt hypotheses, log sources to prioritise.">{{ src.rec_detection if src else '' }}</textarea>
+          <div id="rulezet-attack-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
         </div>
         <div>
           <label class="form-label">Response</label>
@@ -668,6 +683,15 @@ document.querySelectorAll('.actor-type-pill').forEach(function(pill) {
     .finally(function() { btn.disabled = false; });
   });
 })();
+
+/* ── Detection rule lookup (Rulezet, by MITRE ATT&CK technique) ── */
+zsazsaBindRulezetAttackLookup({
+  buttonId: 'btn-rulezet-attack-lookup',
+  statusId: 'rulezet-attack-status',
+  targetId: 'rec_detection',
+  checkboxName: 'mitre_attack_techniques',
+  readyTitle: 'Search Rulezet for public rules matching the MITRE ATT&CK techniques selected above',
+});
 </script>
 <script>
 (function() {

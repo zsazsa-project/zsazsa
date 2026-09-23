@@ -12,6 +12,7 @@ import config
 from flask import Blueprint, jsonify, url_for
 
 from core.net_safety import is_safe_public_url
+from core.rulezet_lookup import search_rules_by_attack, search_rules_by_cve, validate_rule
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store
 from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
@@ -957,6 +958,28 @@ def lookup_org():
     return jsonify({"name": None, "error": "Not found."})
 
 
+# A whole technique ID, nothing around it: the same pattern the forms use to
+# pick IDs out of the checked techniques, anchored because here it is a
+# gatekeeper for what gets forwarded to Rulezet, not a search.
+_TECHNIQUE_ID_RE = re.compile(r"^T\d{4}(\.\d{3})?$")
+
+
+def _id_list(body: dict, key: str) -> tuple[list[str], str]:
+    """The list of IDs posted under key, stripped and upper-cased.
+
+    Returns (ids, "") or ([], error). The forms always post a list of strings,
+    but anything can reach this endpoint: a bare string would otherwise be
+    iterated one character at a time, and a number in the list would reach
+    .strip() and turn a bad request into a 500.
+    """
+    raw = body.get(key)
+    if raw is None:
+        return [], ""
+    if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
+        return [], f"{key} must be a list of strings."
+    return [v.strip().upper() for v in raw if v.strip()], ""
+
+
 @bp.route("/cve-lookup", methods=["POST"])
 @rate_limited("api_cve_lookup", limit=20, window_s=60)
 def cve_lookup():
@@ -968,7 +991,9 @@ def cve_lookup():
     body, err = _json_object()
     if err:
         return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
-    raw_ids = [c.strip().upper() for c in (body.get("cve_ids") or []) if c.strip()]
+    raw_ids, bad = _id_list(body, "cve_ids")
+    if bad:
+        return jsonify({"ok": False, "error": bad}), 400
     cve_ids = [c for c in raw_ids if c.startswith("CVE-")][:10]
     if not cve_ids:
         return jsonify({"ok": False, "error": "No valid CVE IDs provided"})
@@ -982,6 +1007,88 @@ def cve_lookup():
             results.append({"cve_id": cve_id, "ok": False, "error": "Lookup failed"})
 
     return jsonify({"ok": True, "results": results})
+
+
+@bp.route("/rulezet-lookup", methods=["POST"])
+@rate_limited("api_rulezet_lookup", limit=20, window_s=60)
+def rulezet_lookup():
+    """Proxy detection-rule matches from a Rulezet instance (config.RULEZET_URL).
+
+    POST JSON: {"cve_ids": ["CVE-2024-1234", ...]}
+    Returns: {"ok": true, "rules": [{...}, ...]}
+    """
+    if not getattr(config, "RULEZET_URL", ""):
+        return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
+
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    raw_ids, bad = _id_list(body, "cve_ids")
+    if bad:
+        return jsonify({"ok": False, "error": bad}), 400
+    cve_ids = [c for c in raw_ids if c.startswith("CVE-")][:10]
+    if not cve_ids:
+        return jsonify({"ok": False, "error": "No valid CVE IDs provided"})
+
+    rules = search_rules_by_cve(cve_ids)
+    return jsonify({"ok": True, "rules": rules})
+
+
+@bp.route("/rulezet-attack-lookup", methods=["POST"])
+@rate_limited("api_rulezet_attack_lookup", limit=20, window_s=60)
+def rulezet_attack_lookup():
+    """Proxy detection-rule matches from Rulezet by MITRE ATT&CK technique ID.
+
+    POST JSON: {"technique_ids": ["T1071", "T1566.001", ...]}
+    Returns: {"ok": true, "rules": [{...}, ...]}
+    """
+    if not getattr(config, "RULEZET_URL", ""):
+        return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
+
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    raw_ids, bad = _id_list(body, "technique_ids")
+    if bad:
+        return jsonify({"ok": False, "error": bad}), 400
+    technique_ids = [t for t in raw_ids if _TECHNIQUE_ID_RE.match(t)][:20]
+    if not technique_ids:
+        return jsonify({"ok": False, "error": "No valid technique IDs provided"})
+
+    rules = search_rules_by_attack(technique_ids)
+    return jsonify({"ok": True, "rules": rules})
+
+
+@bp.route("/rulezet-validate", methods=["POST"])
+@rate_limited("api_rulezet_validate", limit=20, window_s=60)
+def rulezet_validate():
+    """Proxy a dry-run rule-syntax check to Rulezet — nothing is ever saved.
+
+    POST JSON: {"format": "sigma", "content": "..."}
+    Returns: {"ok": true, "valid": bool, "errors": [...], "warnings": [...]}
+    """
+    if not getattr(config, "RULEZET_URL", ""):
+        return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
+
+    body, err = _json_object()
+    if err:
+        return jsonify({"ok": False, "error": "Invalid JSON payload."}), 400
+    rule_format = body.get("format") or ""
+    content = body.get("content") or ""
+    if not isinstance(rule_format, str) or not isinstance(content, str):
+        return jsonify({"ok": False, "error": "format and content must be strings."}), 400
+    rule_format, content = rule_format.strip(), content.strip()
+    if not rule_format:
+        return jsonify({"ok": False, "error": "No format provided."})
+    if not content:
+        return jsonify({"ok": False, "error": "No content to validate."})
+
+    result = validate_rule(rule_format, content)
+    if result is None:
+        return jsonify({"ok": False, "error": "Rulezet is unreachable."})
+    if "error" in result:
+        return jsonify({"ok": False, "error": result["error"]})
+    return jsonify({"ok": True, **result})
 
 
 @bp.route("/collection/<string:uuid>/used-in", methods=["GET"])

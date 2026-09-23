@@ -14,7 +14,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from notifier import product_email
-from webapp import branding
+from webapp import branding, misp_store
 
 
 FIA_MARKDOWN = """# Flash intel alert: LockBit hits logistics
@@ -174,6 +174,39 @@ class BriefingHtml(unittest.TestCase):
                 for value in values:
                     self.assertIn(value, text)
                     self.assertIn(value, rich)
+
+
+class DetectionEngineeringRequestHtml(unittest.TestCase):
+    """The request mail is built from the same markdown the MISP report and the
+    Mattermost post carry, so what the renderer writes has to survive the split."""
+
+    def _html(self):
+        der = SimpleNamespace(
+            der_id="DER-00042", title="Detect WMI lateral movement", tlp="amber",
+            created_at=datetime(2026, 9, 1), author="koen", audience="SOC",
+            priority="High", status="In Dev", format="sigma",
+            hypothesis="Actors pivot with wmic.", technique=["T1047"],
+            log_sources=["Sysmon"], expected_output="One alert per host.",
+            existing_coverage=[], test_cases=["Run wmic /node"],
+            draft_rule="title: <script>x</script>",
+        )
+        return product_email.markdown_html(misp_store.render_der_markdown(der),
+                                           "Detection Engineering Request", der.tlp)
+
+    def test_header_title_and_classification(self):
+        html = self._html()
+        self.assertIn("Detection Engineering Request", html)
+        self.assertIn("Detect WMI lateral movement", html)
+        self.assertIn("TLP:AMBER", html)
+
+    def test_the_request_sections_are_kept(self):
+        html = self._html()
+        for heading in ("Trigger / hypothesis", "Log sources", "Test cases", "Draft rule (sigma)"):
+            self.assertIn(html_module.escape(heading), html)
+        self.assertIn("Actors pivot with wmic.", html)
+
+    def test_the_draft_rule_is_shown_as_text_not_markup(self):
+        self.assertNotIn("<script>x</script>", self._html())
 
 
 if __name__ == "__main__":

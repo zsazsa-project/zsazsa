@@ -36,6 +36,11 @@
   {# Versioned so a released style change reaches browsers that still hold the
      previous stylesheet in cache. #}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ app_version }}">
+  {# Page-specific head assets, e.g. the Rulezet search modal
+     (_rulezet_assets.html), so pages that do not use them do not load them.
+     The Detection engineering request wizard also opens that modal; until it
+     includes the assets itself it gets them here. #}
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
 
@@ -107,6 +112,7 @@
           <li><a href="{{ url_for('vea.review') }}" class="dropdown-item {{ 'active' if request.blueprint == 'vea' }}"><i class="fas fa-bug fa-fw"></i> Vuln advisories</a></li>
           <li><a href="{{ url_for('threat_actor_profile.review') }}" class="dropdown-item {{ 'active' if request.blueprint == 'threat_actor_profile' }}"><i class="fas fa-user-secret fa-fw"></i> Threat actor profile</a></li>
           <li><a href="{{ url_for('indicator_feed.index') }}" class="dropdown-item {{ 'active' if request.blueprint == 'indicator_feed' }}"><i class="fas fa-satellite-dish fa-fw"></i> Indicator feed</a></li>
+          <li><a href="{{ url_for('detection_eng.review') }}" class="dropdown-item {{ 'active' if request.blueprint == 'detection_eng' }}"><i class="fas fa-crosshairs fa-fw"></i> Detection eng. requests</a></li>
           <li><hr class="dropdown-divider"></li>
           <li><a href="{{ url_for('products.index') }}" class="dropdown-item {{ 'active' if request.blueprint == 'products' }}"><i class="fas fa-cubes fa-fw"></i> All products</a></li>
         </ul>
@@ -262,6 +268,11 @@
       <li>
         <a href="{{ url_for('indicator_feed.index') }}" class="{{ 'active' if request.blueprint == 'indicator_feed' }}">
           <i class="fas fa-satellite-dish fa-fw"></i> Indicator feed
+        </a>
+      </li>
+      <li>
+        <a href="{{ url_for('detection_eng.review') }}" class="{{ 'active' if request.blueprint == 'detection_eng' }}">
+          <i class="fas fa-crosshairs fa-fw"></i> Detection eng. requests
         </a>
       </li>
       <li>

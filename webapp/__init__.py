@@ -101,6 +101,10 @@ def create_app():
             "brand_company": getattr(config, "BRAND_COMPANY", ""),
             "ui_theme": getattr(config, "THEME", "overmind"),
             "current_user_email": misp_session.current_user_email(),
+            # Read per request, not at startup: the configuration page can set
+            # or clear RULEZET_URL without a restart. The "Search Rulezet"
+            # buttons stay disabled while it is empty.
+            "rulezet_enabled": bool(getattr(config, "RULEZET_URL", "")),
         }
 
     @app.template_filter("md_inline")
@@ -171,6 +175,7 @@ def create_app():
     from webapp.routes.flash_intel import bp as flash_intel_bp
     from webapp.routes.community import bp as community_bp
     from webapp.routes.vea import bp as vea_bp
+    from webapp.routes.detection_eng import bp as detection_eng_bp
     from webapp.routes.daily_briefing import bp as daily_briefing_bp
     from webapp.routes.threat_landscape import bp as threat_landscape_bp
     from webapp.routes.api import bp as api_bp
@@ -191,6 +196,7 @@ def create_app():
     app.register_blueprint(threat_actor_profile_bp)
     app.register_blueprint(flash_intel_bp)
     app.register_blueprint(vea_bp)
+    app.register_blueprint(detection_eng_bp)
     app.register_blueprint(daily_briefing_bp)
     app.register_blueprint(threat_landscape_bp)
     app.register_blueprint(api_bp)

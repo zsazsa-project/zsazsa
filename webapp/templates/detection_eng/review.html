@@ -1,0 +1,481 @@
+{% extends "base.html" %}
+{% from "_sort_header.html" import sort_th %}
+
+{% block title %}Detection engineering requests | zsazsa CTI{% endblock %}
+{% block page_title %}Detection engineering requests{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('detection_eng.wizard_new') }}" class="btn btn-sm btn-primary">
+  <i class="fas fa-plus me-1"></i> New request
+</a>
+{% endblock %}
+
+{% macro bullets(items) %}
+  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i | md_inline }}</li>{% endfor %}</ul>
+  {% else %}<span class="text-muted" style="font-size:.82rem;">none recorded</span>{% endif %}
+{% endmacro %}
+
+{% macro status_badge_class(status) %}{%- if status == 'Active' -%}bg-success-subtle text-success-emphasis
+  {%- elif status == 'In Dev' -%}bg-primary-subtle text-primary-emphasis
+  {%- elif status == 'In Test' -%}bg-warning-subtle text-warning-emphasis
+  {%- elif status == 'Retired' -%}bg-light text-muted border
+  {%- else -%}bg-secondary-subtle text-secondary-emphasis{%- endif -%}{% endmacro %}
+
+{% block content %}
+<div class="card content-card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1">Review state</label>
+        <select name="state" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All states</option>
+          {% for s in review_states %}
+          <option value="{{ s }}" {{ 'selected' if state_filter == s }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if state_filter %}
+      <div class="col-auto">
+        <a href="{{ url_for('detection_eng.review') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+      </div>
+      {% endif %}
+      <div class="col-auto ms-auto text-muted small">{{ ders | length }} request{{ 's' if ders|length != 1 else '' }}</div>
+    </form>
+  </div>
+</div>
+
+<!-- Kanban board -->
+{% set kanban_statuses = ['Pending', 'In Dev', 'In Test', 'Active', 'Retired'] %}
+<div class="card content-card mb-3">
+  <div class="card-header"><i class="fas fa-columns me-2"></i>Status board (drag to update status)</div>
+  <div class="card-body p-2">
+    <div id="kanban-msg" class="alert alert-danger py-2 px-3 mb-2" style="display:none;font-size:.85rem;"></div>
+    <div class="kanban-board d-flex gap-2 overflow-auto pb-1">
+      {% for col_status in kanban_statuses %}
+      <div class="kanban-col flex-shrink-0" data-status="{{ col_status }}" style="min-width:160px;width:160px;">
+        <div class="kanban-col-header text-center fw-semibold small p-1 mb-1 rounded
+          {% if col_status == 'Active' %}bg-success-subtle text-success-emphasis
+          {% elif col_status == 'Pending' %}bg-secondary-subtle text-secondary-emphasis
+          {% elif col_status == 'In Dev' %}bg-primary-subtle text-primary-emphasis
+          {% elif col_status == 'In Test' %}bg-warning-subtle text-warning-emphasis
+          {% else %}bg-light text-muted{% endif %}">
+          {{ col_status }}
+          <span class="badge bg-white text-dark ms-1" style="font-size:.65rem">
+            {%- if col_status == 'Pending' -%}
+              {{ ders | selectattr('status', 'equalto', col_status) | rejectattr('review_state', 'equalto', 'rejected') | list | length }}
+            {%- else -%}
+              {{ ders | selectattr('status', 'equalto', col_status) | list | length }}
+            {%- endif -%}
+          </span>
+        </div>
+        <div class="kanban-cards" style="min-height:60px;">
+          {% for d in ders %}
+          {% if d.status == col_status and (col_status != 'Pending' or d.review_state != 'rejected') %}
+          {% set can_drag = d.review_state == 'approved' %}
+          <div class="kanban-card card mb-1 p-1 shadow-sm"
+               draggable="{{ 'true' if can_drag else 'false' }}"
+               data-id="{{ d.uuid }}"
+               data-update-url="{{ url_for('detection_eng.status_update', id=d.uuid) }}"
+               style="{{ 'cursor:grab' if can_drag else 'cursor:default' }};font-size:.75rem;">
+            <div class="fw-semibold d-flex justify-content-between align-items-center">
+              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">{{ d.der_id }}</a>
+              <span class="kanban-card-spin" style="display:none;"><i class="fas fa-spinner fa-spin fa-xs"></i></span>
+              <span class="kanban-card-icon">
+                {% if d.review_state == 'draft' %}<i class="fas fa-pencil fa-xs" style="color:var(--neutral-600);" title="Review: draft"></i>
+                {% elif d.review_state == 'pending-review' %}<i class="fas fa-inbox fa-xs" style="color:var(--accent-orange);" title="Review: pending review"></i>
+                {% elif d.review_state == 'approved' %}<i class="fas fa-check-circle fa-xs" style="color:var(--status-active-fg);" title="Review: approved"></i>
+                {% endif %}
+              </span>
+            </div>
+            <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ d.title }}">{{ d.title | truncate(30) }}</div>
+            {% if col_status == 'Pending' and d.review_state != 'approved' %}
+            <div class="mt-1">
+              <span class="badge" style="font-size:.6rem;background:var(--accent-orange);color:var(--text-on-accent);" title="Approve this request before tracking engineering status">
+                <i class="fas fa-gavel me-1"></i>Approve first
+              </span>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Rejected column -->
+      <div class="kanban-col flex-shrink-0" style="min-width:160px;width:160px;">
+        <div class="kanban-col-header text-center fw-semibold small p-1 mb-1 rounded bg-danger-subtle text-danger-emphasis">
+          Rejected
+          <span class="badge bg-white text-dark ms-1" style="font-size:.65rem">{{ ders | selectattr('review_state', 'equalto', 'rejected') | list | length }}</span>
+        </div>
+        <div class="kanban-cards" style="min-height:60px;">
+          {% for d in ders %}
+          {% if d.review_state == 'rejected' %}
+          <div class="kanban-card card mb-1 p-1 shadow-sm" draggable="false"
+               data-id="{{ d.uuid }}" style="cursor:default;font-size:.75rem;opacity:.75;">
+            <div class="fw-semibold d-flex justify-content-between align-items-center">
+              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">{{ d.der_id }}</a>
+              <i class="fas fa-ban fa-xs" style="color:var(--status-rejected-fg);" title="Review: rejected"></i>
+            </div>
+            <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ d.title }}">{{ d.title | truncate(30) }}</div>
+            <div class="mt-1">
+              <span class="badge" style="font-size:.6rem;background:var(--danger-red);color:var(--text-on-accent);">rejected</span>
+            </div>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card">
+  <div class="card-body p-0">
+    {% if ders %}
+    <table class="table table-hover zsazsa-table mb-0">
+      <thead>
+        <tr>
+          {{ sort_th('DER', 'id', sort, dir, 'detection_eng.review', state_filter, '120px') }}
+          {{ sort_th('Title', 'title', sort, dir, 'detection_eng.review', state_filter) }}
+          <th>Technique(s)</th>
+          <th>Priority</th>
+          <th>Status</th>
+          {{ sort_th('State', 'state', sort, dir, 'detection_eng.review', state_filter) }}
+          {{ sort_th('Published', 'date', sort, dir, 'detection_eng.review', state_filter) }}
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in ders %}
+        {# ── Main row ── #}
+        <tr id="der-row-{{ d.uuid }}">
+          <td>
+            <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">
+              <span class="req-id-badge">{{ d.der_id }}</span>
+            </a>
+          </td>
+          <td>
+            {{ d.title or '(untitled)' }}
+            {% if d.audience %}
+            <div class="mt-1">
+              {% for a in d.audience.split(', ') %}{% if a.strip() %}
+              <span class="badge chip-source" style="font-size:.63rem;">{{ a.strip() }}</span>
+              {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+          </td>
+          <td>
+            {% for t in d.technique[:3] %}<span class="badge bg-secondary me-1" style="font-size:.68rem;">{{ t }}</span>{% endfor %}
+            {% if d.technique | length > 3 %}<span class="text-muted small">+{{ d.technique | length - 3 }}</span>{% endif %}
+            {% if not d.technique %}<span class="text-muted small">-</span>{% endif %}
+          </td>
+          <td><span class="text-muted small">{{ d.priority or '-' }}</span></td>
+          <td>
+            {% if d.status %}
+            <span class="badge der-status-cell {{ status_badge_class(d.status) }}" data-id="{{ d.uuid }}">{{ d.status }}</span>
+            {% else %}
+            <span class="text-muted small der-status-cell" data-id="{{ d.uuid }}">-</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if d.review_state == 'approved' %}<span class="badge bg-success">approved</span>
+            {% elif d.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
+            {% elif d.review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
+            {% else %}<span class="badge bg-secondary">{{ d.review_state }}</span>{% endif %}
+          </td>
+          <td style="white-space:nowrap;">{{ d.published_at.strftime('%Y-%m-%d') if d.published_at else '-' }}</td>
+          <td class="text-end">
+            <div class="d-inline-flex flex-nowrap align-items-center justify-content-end gap-2">
+              <span class="d-inline-flex flex-nowrap gap-1">
+                <button type="button" class="btn btn-xs btn-outline-secondary preview-toggle-btn"
+                        data-target="der-preview-{{ d.uuid }}" title="Preview">
+                  <i class="fas fa-eye"></i>
+                </button>
+                <button type="button" class="btn btn-xs btn-outline-secondary feedback-btn"
+                        data-uuid="{{ d.uuid }}" data-der-id="{{ d.der_id }}"
+                        data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
+                  <i class="fas fa-comment-dots"></i>
+                </button>
+                <a href="{{ url_for('detection_eng.pdf', id=d.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">
+                  <i class="fas fa-file-pdf"></i>
+                </a>
+                {% if d.review_state == 'approved' %}
+                <form method="post" action="{{ url_for('detection_eng.resend', id=d.uuid) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-xs btn-outline-primary" title="Resend to stakeholders">
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                </form>
+                {% else %}
+                <span class="btn btn-xs btn-outline-primary btn-ghost" aria-hidden="true"><i class="fas fa-paper-plane"></i></span>
+                {% endif %}
+              </span>
+              <span class="vr"></span>
+              <span class="d-inline-flex flex-nowrap gap-1">
+                <a href="{{ url_for('detection_eng.wizard_edit', id=d.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
+                  <i class="fas fa-pen"></i>
+                </a>
+                <form method="post" action="{{ url_for('detection_eng.delete', id=d.uuid) }}"
+                      class="d-inline"
+                      onsubmit="return confirm('Delete {{ d.der_id }}?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete request">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </form>
+              </span>
+            </div>
+          </td>
+        </tr>
+
+        {# ── Expandable preview row ── #}
+        <tr id="der-preview-{{ d.uuid }}" style="display:none;">
+          <td colspan="8" class="p-0">
+            <div style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
+
+              <div class="d-flex align-items-center gap-3 mb-3">
+                <span class="req-id-badge">{{ d.der_id }}</span>
+                <span class="tlp-badge tlp-{{ d.tlp | slug }}">TLP:{{ d.tlp | upper }}</span>
+                {% if d.audience %}<span class="text-muted small">{{ d.audience }}</span>{% endif %}
+                <button type="button" class="btn btn-xs btn-outline-secondary ms-auto"
+                        data-recipients-url="{{ url_for('detection_eng.recipients_fragment', id=d.uuid) }}"
+                        title="Preview recipients">
+                  <i class="fas fa-users me-1"></i>Recipients
+                </button>
+              </div>
+
+              <div class="row g-3">
+                <div class="col-lg-8">
+                  <div class="mb-3">
+                    <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Hypothesis</div>
+                    <div style="font-size:.88rem;">{{ (d.hypothesis or 'Not specified.') | md_inline }}</div>
+                  </div>
+                  <div class="mb-3">
+                    <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Log sources</div>
+                    {{ bullets(d.log_sources) }}
+                  </div>
+                  <div class="mb-3">
+                    <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Expected rule output</div>
+                    <div style="font-size:.88rem;">{{ (d.expected_output or 'Not specified.') | md_inline }}</div>
+                  </div>
+                </div>
+                <div class="col-lg-4">
+                  <div class="border rounded p-2 mb-2" style="font-size:.8rem;background:var(--card-bg);">
+                    <div class="fw-semibold small mb-2">Technique(s)</div>
+                    {% for t in d.technique %}<span class="badge bg-secondary me-1 mb-1" style="font-size:.68rem;">{{ t }}</span>{% else %}<span class="text-muted">-</span>{% endfor %}
+                  </div>
+                  {% if d.existing_coverage %}
+                  <div class="border rounded p-2" style="font-size:.8rem;background:var(--card-bg);">
+                    <div class="fw-semibold small mb-2">Existing coverage (Rulezet)</div>
+                    {{ bullets(d.existing_coverage) }}
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-4 text-muted">No detection engineering requests yet. <a href="{{ url_for('detection_eng.wizard_new') }}">Create one</a>.</div>
+    {% endif %}
+  </div>
+</div>
+{% include "_published_delete_note.html" %}
+{% include "_recipients_modal.html" %}
+
+{# ── Inline feedback modal ── #}
+<div class="modal fade" id="feedback-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">
+          <i class="fas fa-comment-dots me-2"></i>Feedback - <span id="feedback-product-id"></span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="feedback-form" method="post" action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small">Your name <span class="text-muted">(optional)</span></label>
+            <input type="text" name="author" class="form-control form-control-sm" placeholder="Name">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">Rating</label>
+            <select name="rating" class="form-select form-select-sm">
+              <option value="">- select rating -</option>
+              <option value="Very useful">Very useful</option>
+              <option value="Useful">Useful</option>
+              <option value="Somewhat useful">Somewhat useful</option>
+              <option value="Not useful">Not useful</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Comments or suggestions</label>
+            <textarea name="comment" class="form-control form-control-sm" rows="4"
+                      placeholder="Questions, scoping feedback…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-paper-plane me-1"></i>Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var targetId = btn.getAttribute('data-target');
+      var row = document.getElementById(targetId);
+      if (!row) return;
+      var open = row.style.display !== 'none';
+      row.style.display = open ? 'none' : '';
+      var icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = open ? 'fas fa-eye' : 'fas fa-eye-slash';
+      }
+    });
+  });
+
+  // Feedback modal wiring
+  var feedbackModal = document.getElementById('feedback-modal');
+  if (feedbackModal) {
+    feedbackModal.addEventListener('show.bs.modal', function(e) {
+      var trigger = e.relatedTarget;
+      if (!trigger) return;
+      var uuid = trigger.getAttribute('data-uuid');
+      document.getElementById('feedback-product-id').textContent = trigger.getAttribute('data-der-id') || '';
+      document.getElementById('feedback-form').action = '/products/detection-eng/' + uuid + '/feedback';
+    });
+    feedbackModal.addEventListener('hidden.bs.modal', function() {
+      feedbackModal.querySelector('form').reset();
+    });
+  }
+})();
+
+/* ── Kanban board drag-and-drop (optimistic move, rollback on error) ── */
+(function() {
+  var dragging = null;
+  var msgEl = document.getElementById('kanban-msg');
+
+  function showError(text) {
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.display = '';
+  }
+  function clearError() {
+    if (!msgEl) return;
+    msgEl.style.display = 'none';
+  }
+  function bumpCount(col, delta) {
+    var badge = col.querySelector('.kanban-col-header .badge');
+    if (!badge) return;
+    badge.textContent = String(Math.max(0, (parseInt(badge.textContent, 10) || 0) + delta));
+  }
+  function setBusy(card, busy) {
+    var spin = card.querySelector('.kanban-card-spin');
+    var icon = card.querySelector('.kanban-card-icon');
+    if (spin) spin.style.display = busy ? '' : 'none';
+    if (icon) icon.style.display = busy ? 'none' : '';
+    card.style.opacity = busy ? '0.6' : '';
+    card.style.pointerEvents = busy ? 'none' : '';
+  }
+
+  document.querySelectorAll('.kanban-card').forEach(function(card) {
+    if (card.getAttribute('draggable') !== 'true') return;
+    card.addEventListener('dragstart', function(e) {
+      dragging = card;
+      card.style.opacity = '0.5';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', function() {
+      if (dragging) dragging.style.opacity = '';
+      dragging = null;
+    });
+  });
+
+  document.querySelectorAll('.kanban-col[data-status]').forEach(function(col) {
+    col.addEventListener('dragover', function(e) {
+      if (!dragging) return;
+      e.preventDefault();
+      col.querySelector('.kanban-cards').classList.add('kanban-dragover');
+    });
+    col.addEventListener('dragleave', function() {
+      col.querySelector('.kanban-cards').classList.remove('kanban-dragover');
+    });
+    col.addEventListener('drop', function(e) {
+      e.preventDefault();
+      col.querySelector('.kanban-cards').classList.remove('kanban-dragover');
+      if (!dragging) return;
+      clearError();
+
+      var card = dragging;
+      var newStatus = col.dataset.status;
+      var url = card.dataset.updateUrl;
+      var sourceCol = card.closest('.kanban-col');
+      var sourceCards = sourceCol ? sourceCol.querySelector('.kanban-cards') : null;
+      if (!url || !sourceCol || sourceCol === col) return;
+
+      // Optimistic move: place the card in its new column right away.
+      card.style.opacity = '';
+      col.querySelector('.kanban-cards').appendChild(card);
+      bumpCount(sourceCol, -1);
+      bumpCount(col, 1);
+      setBusy(card, true);
+
+      var fd = new FormData();
+      fd.append('status', newStatus);
+      var csrf = document.querySelector('meta[name="csrf-token"]');
+      var headers = {};
+      if (csrf) headers['X-CSRF-Token'] = csrf.content;
+
+      fetch(url, {method: 'POST', body: fd, headers: headers})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok) {
+            var cell = document.querySelector('.der-status-cell[data-id="' + card.dataset.id + '"]');
+            if (cell) {
+              var badgeClasses = {
+                'Active': 'bg-success-subtle text-success-emphasis',
+                'In Dev': 'bg-primary-subtle text-primary-emphasis',
+                'In Test': 'bg-warning-subtle text-warning-emphasis',
+                'Retired': 'bg-light text-muted border',
+                'Pending': 'bg-secondary-subtle text-secondary-emphasis',
+              };
+              cell.className = 'badge der-status-cell ' + (badgeClasses[data.status] || 'bg-secondary-subtle text-secondary-emphasis');
+              cell.textContent = data.status;
+            }
+          } else {
+            // Roll back to the original column.
+            if (sourceCards) sourceCards.appendChild(card);
+            bumpCount(col, -1);
+            bumpCount(sourceCol, 1);
+            showError((data.error || 'Could not update status.'));
+          }
+        })
+        .catch(function() {
+          if (sourceCards) sourceCards.appendChild(card);
+          bumpCount(col, -1);
+          bumpCount(sourceCol, 1);
+          showError('Status update did not complete — check your connection and try again.');
+        })
+        .finally(function() {
+          setBusy(card, false);
+        });
+    });
+  });
+})();
+</script>
+{% endblock %}

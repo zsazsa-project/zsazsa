@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-tlp="{{ der.tlp | slug }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ der.der_id }}{% if der.title %} - {{ der.title }}{% endif %}</title>
+  <link rel="stylesheet" href="{{ css_url }}">
+  <style>
+    :root {
+      --c1: {{ brand.color1 }};
+      --c2: {{ brand.color2 }};
+      --c3: {{ brand.color3 }};
+    }
+  </style>
+</head>
+<body>
+{% import "_pdf_header.html" as header %}
+
+{{ header.doc_header(brand, doc_label='Detection Engineering Request',
+                     title='Detection engineering request',
+                     tlp=der.tlp, doc_id=der.der_id, subtitle=der.title or '') }}
+
+<div class="meta-block">
+  <div class="meta-grid">
+    {{ header.meta_item('ID', der.der_id) }}
+    {{ header.meta_item('Date', der.created_at.strftime('%Y-%m-%d') if der.created_at else '-') }}
+    {{ header.meta_item('Author', der.author or '-') }}
+    {{ header.tlp_meta_item(der.tlp) }}
+    {% if der.priority %}{{ header.meta_item('Priority', der.priority) }}{% endif %}
+    {{ header.meta_item('Status', der.status or '-') }}
+  </div>
+  {{ header.wide_meta_item('Audience', der.audience or '-') }}
+  {% if der.technique %}{{ header.wide_meta_item('Technique(s)', der.technique | join(', ')) }}{% endif %}
+</div>
+
+{% macro bullets(items) %}
+  {% if items %}<ul>{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>
+  {% else %}<p class="no-content">None recorded.</p>{% endif %}
+{% endmacro %}
+
+<div class="section-heading">Trigger / hypothesis</div>
+<div class="section-box">
+  {% if hypothesis_html %}{{ hypothesis_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
+</div>
+
+<div class="section-heading">Log sources</div>
+<div class="section-box">
+  {{ bullets(der.log_sources) }}
+</div>
+
+<div class="section-heading">Expected rule output</div>
+<div class="section-box">
+  {% if expected_output_html %}{{ expected_output_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
+</div>
+
+{% if der.existing_coverage %}
+<div class="section-heading">Existing coverage (Rulezet)</div>
+<div class="section-box">
+  {{ bullets(der.existing_coverage) }}
+</div>
+{% endif %}
+
+<div class="section-heading">Test cases</div>
+<div class="section-box">
+  {{ bullets(der.test_cases) }}
+</div>
+
+</body>
+</html>

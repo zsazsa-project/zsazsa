@@ -224,6 +224,19 @@ def send_vea_notification(vea, markdown: str, channel_ids: list[str] | None = No
     return _chunk_and_send(targets, body, f"VEA {getattr(vea, 'vea_id', '')}")
 
 
+def send_detection_eng_request_notification(der, markdown: str, channel_ids: list[str] | None = None) -> bool:
+    """Send a detection engineering request notification to the given Mattermost channels."""
+    headline = f"### :crosshairs: {getattr(der, 'der_id', '')}: Detection engineering request"
+    subtitle = f"**{getattr(der, 'title', '')}**".strip()
+    body = f"{headline}\n"
+    if subtitle and subtitle != "****":
+        body += f"{subtitle}\n\n"
+    body += markdown
+
+    targets = _active_webhooks(channel_ids)
+    return _chunk_and_send(targets, body, f"detection engineering request {getattr(der, 'der_id', '')}")
+
+
 def send_threat_actor_profile_notification(tap, markdown: str,
                                            channel_ids: list[str] | None = None,
                                            diamond_url: str | None = None) -> bool:

@@ -5,7 +5,7 @@ import logging
 import config as _cfg
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from webapp import audit, collection_cache, misp_store
+from webapp import audit, collection_cache, misp_session, misp_store
 from webapp.rate_limit import rate_limited
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,8 @@ def detail(id):
     if tlr is None:
         return "TLR not found", 404
     feedback = misp_store.list_product_feedback(tlr.uuid)
-    return render_template("threat_landscape/detail.html", tlr=tlr, feedback=feedback)
+    return render_template("threat_landscape/detail.html", tlr=tlr, feedback=feedback,
+                           can_publish=misp_session.current_user_can_publish())
 
 
 @bp.route("/<string:id>/feedback", methods=["POST"])
@@ -162,6 +163,9 @@ def publish(id):
     tlr = misp_store.get_tlr(id)
     if tlr is None:
         return "TLR not found", 404
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message(), "warning")
+        return redirect(url_for("threat_landscape.detail", id=id))
     try:
         misp_store.publish_tlr(id)
         audit.record("publish", "tlr", entity_id=id, entity_label=tlr.tlr_id)

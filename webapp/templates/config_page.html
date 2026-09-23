@@ -128,6 +128,24 @@
         </div>
       </div>
 
+      <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Rulezet</div>
+        <div class="card-body">
+          <div class="form-text mb-3">
+            Queried for public detection rules by CVE ID or MITRE ATT&amp;CK technique,
+            from the "Search Rulezet" buttons on the Vulnerability advisory, Threat actor
+            profile and Daily briefing forms. Also validates the draft rule of a Detection
+            engineering request, which cannot be marked Active without it. Leave empty to
+            disable the integration.
+          </div>
+          <div>
+            <label class="form-label">Instance URL</label>
+            <input type="url" name="RULEZET_URL" class="form-control font-monospace"
+                   placeholder="https://rulezet.org" value="{{ cfg.RULEZET_URL }}">
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ── Products tab ───────────────────────────────────────────────── -->
@@ -842,6 +860,13 @@
               <div class="input-group input-group-sm">
                 <input type="text" name="TAG_INDICATOR_FEED" class="form-control form-control-sm font-monospace" value="{{ cfg.TAG_INDICATOR_FEED }}">
                 {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_INDICATOR_FEED | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-1">Detection engineering request</label>
+              <div class="input-group input-group-sm">
+                <input type="text" name="TAG_DETECTION_ENG" class="form-control form-control-sm font-monospace" value="{{ cfg.TAG_DETECTION_ENG }}">
+                {% if misp_browse_base %}<a href="{{ misp_browse_base }}/events/index/searchtag:{{ cfg.TAG_DETECTION_ENG | replace('"', '%22') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Browse MISP events"><i class="fas fa-arrow-up-right-from-square fa-xs"></i></a>{% endif %}
               </div>
             </div>
           </div>

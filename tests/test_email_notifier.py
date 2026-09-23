@@ -223,5 +223,29 @@ class ProductSenders(unittest.TestCase):
         self.assertNotIn("TLP:", send.call_args.kwargs["html_body"])
 
 
+
+class DetectionEngineeringRequestMail(unittest.TestCase):
+    def _sent(self, der):
+        with mock.patch.object(email, "send_email", return_value=True) as send:
+            email.send_detection_eng_request_notification(
+                der, "# Detection engineering request: Detect WMI\n\nbody", channel_ids=["em1"])
+        return send
+
+    def test_subject_carries_the_id_title_and_classification(self):
+        send = self._sent(SimpleNamespace(der_id="DER-00042", title="Detect WMI", tlp="amber"))
+        self.assertEqual(send.call_args.args[1], "[CTI] TLP:AMBER - DER-00042: Detect WMI")
+        self.assertEqual(send.call_args.args[3], "DER DER-00042")
+
+    def test_an_untitled_request_is_named_by_its_id_alone(self):
+        send = self._sent(SimpleNamespace(der_id="DER-00042", title="", tlp="amber"))
+        self.assertTrue(send.call_args.args[1].endswith("DER-00042"))
+
+    def test_the_html_body_is_labelled_and_classified(self):
+        send = self._sent(SimpleNamespace(der_id="DER-00042", title="Detect WMI", tlp="red"))
+        html = send.call_args.kwargs["html_body"]
+        self.assertIn("Detection Engineering Request", html)
+        self.assertIn("TLP:RED", html)
+
+
 if __name__ == "__main__":
     unittest.main()

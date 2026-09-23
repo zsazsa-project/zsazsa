@@ -1,0 +1,10 @@
+{# The Rulezet search/code modal, for a page with a "Search Rulezet" button.
+   Included from that page's head_extra block rather than from base.html, so
+   the other pages do not load a stylesheet and two scripts they never use.
+   The scripts are not deferred: the page's own inline script calls
+   zsazsaBindRulezetAttackLookup() as it is parsed. highlight.js itself is
+   only fetched the first time a rule's code is shown. #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rulezet.css') }}?v={{ app_version }}">
+<script src="{{ url_for('static', filename='js/rulezet-code-modal.js') }}?v={{ app_version }}"></script>
+<script src="{{ url_for('static', filename='js/rulezet-search-modal.js') }}?v={{ app_version }}"></script>

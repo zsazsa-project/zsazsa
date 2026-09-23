@@ -516,7 +516,7 @@
           <div id="fia-audience-warn" class="text-danger small mt-1" style="display:none;">
             <i class="fas fa-triangle-exclamation me-1"></i>Select at least one audience.
           </div>
-          <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select all that apply.</div>
+          <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience — required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">TLP</label>
@@ -600,10 +600,19 @@
       <button type="submit" name="action" value="save" class="btn btn-outline-secondary" id="btn-fia-save">
         <i class="fas fa-floppy-disk me-1"></i> Save draft
       </button>
-      {% if is_edit %}
+      {% if is_edit and can_publish %}
       <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-fia-publish">
         <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
       </button>
+      {% elif is_edit %}
+      {# The title sits on a wrapper because a disabled button fires no hover
+         events. The wrapper is a grid of its own so the button inside is laid
+         out exactly like the enabled one, without the inline gap under it. #}
+      <span class="d-grid" style="cursor:not-allowed;" title="Only users with MISP publish rights can approve and publish.">
+        <button type="button" class="btn btn-success" disabled style="pointer-events:none;">
+          <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
+        </button>
+      </span>
       {% endif %}
       <a href="{{ url_for('flash_intel.review') }}" class="btn btn-outline-secondary">Cancel</a>
     </div>

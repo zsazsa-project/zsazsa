@@ -353,9 +353,18 @@
       <div class="card-header"><i class="fas fa-bolt me-2"></i>Actions</div>
       <div class="card-body">
         {% if tap.status != 'Published' %}
-        <form method="post" action="{{ url_for('threat_actor_profile.publish', id=tap.uuid) }}" class="mb-2">
-          <button class="btn btn-success w-100"><i class="fas fa-paper-plane me-1"></i> Publish</button>
-        </form>
+          {% if not can_publish %}
+          <span class="d-block mb-2" style="cursor:not-allowed;"
+                title="Only users with MISP publish rights can publish.">
+            <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+              <i class="fas fa-paper-plane me-1"></i> Publish
+            </button>
+          </span>
+          {% else %}
+          <form method="post" action="{{ url_for('threat_actor_profile.publish', id=tap.uuid) }}" class="mb-2">
+            <button class="btn btn-success w-100"><i class="fas fa-paper-plane me-1"></i> Publish</button>
+          </form>
+          {% endif %}
         {% else %}
         <form method="post" action="{{ url_for('threat_actor_profile.notify', id=tap.uuid) }}"
               class="mb-2" onsubmit="return confirm('Resend {{ tap.tap_id }} to subscribed stakeholders?');">

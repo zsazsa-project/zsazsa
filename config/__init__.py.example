@@ -58,6 +58,15 @@ SMTP_FROM = ''
 # Flowintel case management instances
 FLOWINTEL_INSTANCES = []
 
+# Rulezet instance (https://github.com/ngsoti/rulezet-core) queried for public
+# detection rules by CVE ID or MITRE ATT&CK technique, from the "Search Rulezet"
+# buttons on the Vulnerability advisory, Threat actor profile and Daily briefing
+# forms. It also validates the draft rule of a Detection engineering request:
+# without Rulezet a request cannot be marked Active.
+# Leave empty to disable the integration. Point at a local dev instance
+# (e.g. 'http://127.0.0.1:7009') or the public 'https://rulezet.org'.
+RULEZET_URL = ''
+
 # Additional MISP servers queried by the data-collection page.
 MISP_SERVERS = []
 
@@ -122,6 +131,7 @@ TAG_VEA         = 'zsazsa:ctiproduct="vea"'
 TAG_BRIEFING    = 'zsazsa:ctiproduct="daily-briefing"'
 TAG_TLR         = 'zsazsa:ctiproduct="threat-landscape-report"'
 TAG_INDICATOR_FEED = 'zsazsa:ctiproduct="indicator-feed"'
+TAG_DETECTION_ENG = 'zsazsa:ctiproduct="detection-eng-request"'
 TAG_THREAT_ACTOR_PROFILE = 'zsazsa:ctiproduct="threat-actor-profile"'
 TAG_COLLECTION_FOLLOWUP = 'zsazsa:collection="follow-up"'
 TAG_COLLECTION_DISMISSED = 'zsazsa:event="dismiss"'

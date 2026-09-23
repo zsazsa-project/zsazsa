@@ -92,5 +92,13 @@
 </div>
 {% endif %}
 
+{# ── Detection rules ──────────────────────────────────────────── #}
+{% if briefing.detection_rules %}
+<div class="section-heading">Detection rules</div>
+<div class="section-box">
+  <p style="white-space:pre-wrap;">{{ briefing.detection_rules }}</p>
+</div>
+{% endif %}
+
 </body>
 </html>

@@ -14,6 +14,16 @@ Newsletters waiting for review are read again from the mail kept with them, so
 they list their articles on the next visit. Ones already sent to the scraper
 keep the names and tags they got. Deleting their event in MISP changes nothing.
 
+Approving, publishing, resending and switching a stakeholder to automated
+delivery now need the MISP publish permission (`perm_publish`) on the analyst's
+role. With single sign-on configured, a request zsazsa cannot tie to a MISP user
+is refused rather than let through. Check that the analysts who sign off on
+products have a role with publish rights before upgrading.
+
+`RULEZET_URL` is new and optional. Left empty, the Rulezet buttons are disabled
+and a detection engineering request cannot be marked Active, since its rule
+cannot be validated.
+
 ### Fixed
 
 - A forwarded newsletter without a plain text part gave no articles at all. The
@@ -40,10 +50,28 @@ keep the names and tags they got. Deleting their event in MISP changes nothing.
 
 ### Added
 
+- Detection engineering request, a product for asking the detection engineering
+  team for a new detection on a technique, actor or campaign. It is reviewed
+  and approved like the other products, and then follows its own engineering
+  status (Pending, In Dev, In Test, Active, Retired) on a board of its own. A
+  request is only Active with a draft rule that passes Rulezet's validator, and
+  the stakeholders hear about it the first time it gets there.
+- Rulezet lookup. The vulnerability advisory, threat actor profile and daily
+  briefing forms search a Rulezet instance for public detection rules by CVE ID
+  or MITRE ATT&CK technique, show them with syntax highlighting, and add the
+  ones picked to the detection rules of the product.
+- A detection rules field on the daily briefing, shown on its page, in the
+  e-mail and in the PDF.
 - The review queue marks a newsletter with no articles in it, and the review
   page says so instead of showing an empty form.
 - Newsletter e-mails as test fixtures, read both as they arrived and with their
   plain text part taken out.
+
+### Changed
+
+- A published flash intel alert or vulnerability advisory can no longer be
+  edited by posting to its edit page. Only the button was hidden, and a resend
+  then delivered the changed product under the original approval.
 
 ### Internal
 
@@ -52,6 +80,9 @@ keep the names and tags they got. Deleting their event in MISP changes nothing.
 - Tests that every setting in `config/__init__.py.example` is explained in
   INSTALL.md, and that a CTI product with its own page is registered everywhere
   it has to be.
+- Tests for the Rulezet lookup and its API routes, the detection engineering
+  request object, status workflow and notifications, and the publish permission
+  on every route that approves or sends a product.
 
 ## 1.0.4
 

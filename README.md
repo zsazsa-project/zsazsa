@@ -21,7 +21,7 @@ zsazsa follows the daily CTI workflow, from collection through triage and analys
 - **Requirements (PIR and GIR)** hold the intelligence questions that drive collection, with their scope, ownership and distribution.
 - **RFIs** handle one-off requests from intake to closure, with an SLA, an owner, a linked PIR or GIR, response confidence, attachments, notes and feedback.
 - **Data collection** is the cached view of the scraper MISP, other MISP servers, and manual or newsletter sources. You browse and triage events, enrich them with scope items from the MISP galaxies, generate an AI summary, and start a product straight from a source event.
-- **Products** are a repository of what you publish, with preview and feedback. zsazsa produces Flash Intel Alerts, Vulnerability advisories, Daily threat briefings, Threat landscape reports, Indicator feeds and Threat actor profiles.
+- **Products** are a repository of what you publish, with preview and feedback. zsazsa produces Flash Intel Alerts, Vulnerability advisories, Daily threat briefings, Threat landscape reports, Indicator feeds, Threat actor profiles and Detection engineering requests.
 - **Statistics** cover pipeline and program metrics, RFI and feedback data, and a scope coverage showing where collection and analysis are concentrated. A CTI-CMM maturity panel maps against levels CTI0 to CTI3.
 - **Background jobs** analyser runs, AI summaries and the scheduled collection runs.
 
@@ -332,6 +332,7 @@ The platform stores each entity as one MISP event, with its data inside a custom
 | Threat landscape report | zsazsa-threat-landscape-report |
 | Indicator feed | zsazsa-indicator-feed |
 | Threat actor profile | zsazsa-threat-actor-profile |
+| Detection engineering request | zsazsa-detection-eng-request |
 | Collection source | zsazsa-collection-source |
 
 Every entity event also carries a type tag. All tags in the `zsazsa:` namespace are applied as local tags, so they never sync to connected MISP instances. The default tag values are:
@@ -346,6 +347,7 @@ TAG_VEA          = zsazsa:ctiproduct="vea"
 TAG_BRIEFING     = zsazsa:ctiproduct="daily-briefing"
 TAG_INDICATOR_FEED        = zsazsa:ctiproduct="indicator-feed"
 TAG_THREAT_ACTOR_PROFILE  = zsazsa:ctiproduct="threat-actor-profile"
+TAG_DETECTION_ENG         = zsazsa:ctiproduct="detection-eng-request"
 ```
 
 Product events carry `curation:ctiproduct` tags, so they can be searched and grouped consistently across the product catalogue.

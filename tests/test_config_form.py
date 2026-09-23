@@ -141,6 +141,17 @@ class ConfigSave(unittest.TestCase):
         self.assertFalse(after["SMTP_USE_TLS"])
         self.assertEqual(after["PRODUCT_TYPES"], ["Flash intel alert", "Daily threat briefing"])
 
+    def test_the_rulezet_url_is_saved_and_can_be_cleared(self):
+        """Empty is meaningful here: it switches the Rulezet integration off."""
+        form = self.full_form()
+        form["RULEZET_URL"] = "https://rulezet.example"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["RULEZET_URL"], "https://rulezet.example")
+
+        form["RULEZET_URL"] = ""
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["RULEZET_URL"], "")
+
     def test_every_key_survives_a_save(self):
         before = self.saved()
         self.client.post("/config", data=self.full_form())

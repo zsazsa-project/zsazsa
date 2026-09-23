@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Daily Threat Briefing metadata managed by the zsazsa CTI program",
   "uuid": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-  "version": 4,
+  "version": 5,
   "attributes": {
     "date": {
       "misp-attribute": "text",
@@ -129,6 +129,12 @@
       "misp-attribute": "text",
       "ui-priority": 20,
       "description": "Set to true when the stories changed after the summary was written",
+      "disable_correlation": true
+    },
+    "detection-rules": {
+      "misp-attribute": "text",
+      "ui-priority": 21,
+      "description": "Detection rules or signatures (one per line)",
       "disable_correlation": true
     }
   }

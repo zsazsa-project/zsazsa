@@ -241,6 +241,7 @@ def _read() -> dict:
         "SMTP_FROM": getattr(_config, "SMTP_FROM", ""),
         "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
         "FLOWINTEL_CASE_TEMPLATE_PRODUCTS": FLOWINTEL_CASE_TEMPLATE_PRODUCTS,
+        "RULEZET_URL": getattr(_config, "RULEZET_URL", ""),
         "MISP_SERVERS": getattr(_config, "MISP_SERVERS", []),
         "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []),
         "PRODUCT_TYPES": _config.PRODUCT_TYPES,
@@ -265,6 +266,8 @@ def _read() -> dict:
                                             'zsazsa:ctiproduct="threat-actor-profile"'),
         "TAG_INDICATOR_FEED": getattr(_config, "TAG_INDICATOR_FEED",
                                       'zsazsa:ctiproduct="indicator-feed"'),
+        "TAG_DETECTION_ENG": getattr(_config, "TAG_DETECTION_ENG",
+                                     'zsazsa:ctiproduct="detection-eng-request"'),
         "TAG_COLLECTION_FOLLOWUP": getattr(_config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
         "TAG_COLLECTION_DISMISSED": getattr(_config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"'),
         "RECOMMENDED_ACTIONS_IMMEDIATE": getattr(_config, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
@@ -517,6 +520,15 @@ SMTP_FROM = {values.get('SMTP_FROM', '')!r}
 # Flowintel case management instances
 FLOWINTEL_INSTANCES = {flowintel_instances_repr}
 
+# Rulezet instance (https://github.com/ngsoti/rulezet-core) queried for public
+# detection rules by CVE ID or MITRE ATT&CK technique, from the "Search Rulezet"
+# buttons on the Vulnerability advisory, Threat actor profile and Daily briefing
+# forms. It also validates the draft rule of a Detection engineering request:
+# without Rulezet a request cannot be marked Active.
+# Leave empty to disable the integration. Point at a local dev instance
+# (e.g. 'http://127.0.0.1:7009') or the public 'https://rulezet.org'.
+RULEZET_URL = {values.get('RULEZET_URL', '')!r}
+
 # Additional MISP servers queried by the data-collection page.
 MISP_SERVERS = {servers_repr}
 
@@ -565,6 +577,7 @@ TAG_VEA         = {values['TAG_VEA']!r}
 TAG_BRIEFING    = {values['TAG_BRIEFING']!r}
 TAG_TLR         = {values['TAG_TLR']!r}
 TAG_INDICATOR_FEED = {values['TAG_INDICATOR_FEED']!r}
+TAG_DETECTION_ENG = {values['TAG_DETECTION_ENG']!r}
 TAG_THREAT_ACTOR_PROFILE = {values['TAG_THREAT_ACTOR_PROFILE']!r}
 TAG_COLLECTION_FOLLOWUP = {values['TAG_COLLECTION_FOLLOWUP']!r}
 TAG_COLLECTION_DISMISSED = {values['TAG_COLLECTION_DISMISSED']!r}
@@ -736,6 +749,7 @@ def index():
             "SMTP_PASSWORD": _form_str("SMTP_PASSWORD"),
             "SMTP_FROM": _form_str("SMTP_FROM"),
             "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
+            "RULEZET_URL": _form_str("RULEZET_URL"),
             "PRODUCT_TYPES": products,
             "DAILY_BRIEFING_TITLE_EXCLUSIONS": exclusions,
             "FOCUS_POINTS_GEOGRAPHIES": fp_geographies,
@@ -756,6 +770,7 @@ def index():
             "TAG_TLR": _form_tag("TAG_TLR"),
             "TAG_THREAT_ACTOR_PROFILE": _form_tag("TAG_THREAT_ACTOR_PROFILE"),
             "TAG_INDICATOR_FEED": _form_tag("TAG_INDICATOR_FEED"),
+            "TAG_DETECTION_ENG": _form_tag("TAG_DETECTION_ENG"),
             "TAG_COLLECTION_FOLLOWUP": _form_tag("TAG_COLLECTION_FOLLOWUP"),
             "TAG_COLLECTION_DISMISSED": _form_tag("TAG_COLLECTION_DISMISSED"),
             "RECOMMENDED_ACTIONS_IMMEDIATE": lines("RECOMMENDED_ACTIONS_IMMEDIATE"),

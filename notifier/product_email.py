@@ -398,6 +398,9 @@ def briefing_html(briefing, preview_url: str = "") -> str:
     body += _section("Escalations", _body_html(briefing.escalations or "None today.", brand), brand)
     if briefing.notes:
         body += _section("Notes", _body_html(briefing.notes, brand), brand)
+    # getattr: a briefing saved before the field existed has no such attribute.
+    if getattr(briefing, "detection_rules", ""):
+        body += _section("Detection rules", _body_html(briefing.detection_rules, brand), brand)
     if preview_url:
         body += (
             f'<div style="margin:0 24px 16px;font-size:14px;">'

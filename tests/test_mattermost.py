@@ -90,5 +90,24 @@ class WebhookSecrets(unittest.TestCase):
         self.assertIn("mm.example.com", logged)
 
 
+
+class DetectionEngineeringRequestHeader(unittest.TestCase):
+    def _posted(self, der):
+        with mock.patch.object(mattermost, "_active_webhooks", return_value=[{"url": "https://mm.test/hooks/x"}]), \
+             mock.patch.object(mattermost, "_chunk_and_send", return_value=True) as send:
+            mattermost.send_detection_eng_request_notification(der, "# body", channel_ids=["mm1"])
+        return send.call_args[0][1]
+
+    def test_the_header_names_the_request_and_its_title(self):
+        body = self._posted(mock.Mock(der_id="DER-00042", title="Detect WMI"))
+        self.assertTrue(body.startswith("### :crosshairs: DER-00042: Detection engineering request\n"))
+        self.assertIn("**Detect WMI**", body)
+        self.assertTrue(body.endswith("# body"))
+
+    def test_an_untitled_request_gets_no_empty_bold_line(self):
+        body = self._posted(mock.Mock(der_id="DER-00042", title=""))
+        self.assertNotIn("****", body)
+
+
 if __name__ == "__main__":
     unittest.main()

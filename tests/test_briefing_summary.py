@@ -16,6 +16,7 @@ from unittest import mock
 from flask import Flask
 
 from analyser import llm
+from notifier import product_email
 from webapp import misp_store
 from webapp.routes import api
 
@@ -147,6 +148,18 @@ class BriefingMarkdown(unittest.TestCase):
     def test_no_heading_without_a_summary(self):
         self.assertNotIn("## Briefing summary", misp_store.render_briefing_markdown(_briefing()))
 
+    def test_the_detection_rules_are_carried_across(self):
+        briefing = _briefing()
+        briefing.detection_rules = "Suspicious LNK — https://rulezet.test/rule/detail_rule/7"
+        markdown = misp_store.render_briefing_markdown(briefing)
+        self.assertIn("## Detection rules", markdown)
+        self.assertIn("rulezet.test/rule/detail_rule/7", markdown)
+
+    def test_no_detection_rules_heading_on_an_older_briefing(self):
+        # _briefing() has no detection_rules at all, like one saved before the
+        # field existed.
+        self.assertNotIn("## Detection rules", misp_store.render_briefing_markdown(_briefing()))
+
 
 class StalenessFlag(unittest.TestCase):
     """The written object carries the stale marker only where it means something,
@@ -242,6 +255,23 @@ class StoryOrigin(unittest.TestCase):
         self.assertEqual(self._written({"content": "text"})["drafted_by"], "")
 
 
+class BriefingEmailDetectionRules(unittest.TestCase):
+    """The detection rules picked from Rulezet are saved with the briefing; the
+    stakeholders reading the email are the ones who would deploy them."""
+
+    def test_the_rules_have_their_own_section(self):
+        briefing = _briefing()
+        briefing.detection_rules = "Suspicious LNK — https://rulezet.test/rule/detail_rule/7"
+        html = product_email.briefing_html(briefing)
+        self.assertIn("Detection rules", html)
+        self.assertIn("https://rulezet.test/rule/detail_rule/7", html)
+
+    def test_no_section_for_a_briefing_without_rules(self):
+        # _briefing() has no detection_rules at all, like one saved before the
+        # field existed.
+        self.assertNotIn("Detection rules", product_email.briefing_html(_briefing()))
+
+
 def _stored_briefing():
     """A briefing as it comes back from MISP, with every stored field filled in.
 
@@ -251,7 +281,7 @@ def _stored_briefing():
     return SimpleNamespace(
         date="2026-08-08", title="Daily briefing", author="koen", tlp="green",
         review_state="draft", story_count=3,
-        escalations="One escalation.", notes="A note.",
+        escalations="One escalation.", notes="A note.", detection_rules="rule-1",
         summary="Four of six stories concern EU logistics.", summary_stale=True,
         geographic_scope=["Belgium"], sectors=["Transport"], threat_actors=["Luna Moth"],
         mitre_attack_techniques=["T1566"], threat_types=["Ransomware"],

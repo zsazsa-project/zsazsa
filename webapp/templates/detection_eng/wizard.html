@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% from "_macros.html" import product_identity, galaxy_multiselect %}
+
+{% set title_text = ('Edit ' + der.der_id) if is_edit else 'New detection engineering request' %}
+{% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
+{% block page_title %}{{ title_text }}{% endblock %}
+{% block topbar_actions %}
+<a href="{{ url_for('detection_eng.review') }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-arrow-left me-1"></i> Back to list
+</a>
+{% endblock %}
+
+{% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
+
+{% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
+
+{% block content %}
+{{ product_identity('fa-crosshairs', 'Detection engineering request',
+                    der.der_id if is_edit and der else '',
+                    source_events | length if source_events else 0,
+                    der.review_state if is_edit and der else 'draft',
+                    der.tlp if der and der.tlp else 'amber') }}
+
+<form method="post" class="row g-4" id="der-form" data-unsaved-warning>
+
+  <div class="col-lg-8">
+
+    {% if source_events %}
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</div>
+      <div class="card-body">
+        {% for ev in source_events %}
+        <div class="small mb-2">
+          <span class="font-monospace text-muted me-2" style="font-size:.72rem;">{{ ev.uuid[:8] }}…</span>
+          {{ ev.info or '(untitled)' }}
+          {% if ev.date %}<span class="mini-chip ms-2 fw-normal">{{ ev.date }}</span>{% endif %}
+          {% if ev.orgc %}<span class="mini-chip ms-1 fw-normal">{{ ev.orgc }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-clipboard-list me-2"></i>Request</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label required-label">Title</label>
+            <input name="title" class="form-control" required
+                   placeholder="Detect lateral movement via WMI (T1047)"
+                   value="{{ der.title if der else '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Format</label>
+            {# On edit the format belongs to the draft rule, which is changed on the
+               request page; wizard_edit ignores whatever is posted here. #}
+            <select name="format" id="der-format" class="form-select"
+                    {% if is_edit %}disabled title="Change the format with the draft rule on the request page."{% endif %}>
+              <option value="">-</option>
+              {% for f in formats %}
+              <option value="{{ f }}" {{ 'selected' if der and der.format == f }}>{{ f | upper }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Priority</label>
+            <select name="priority" class="form-select">
+              <option value="">-</option>
+              {% for p in priorities %}
+              <option value="{{ p }}" {{ 'selected' if der and der.priority == p }}>{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Status</label>
+            <input type="text" class="form-control" value="{{ der.status if der else statuses[0] }}" disabled>
+            <div class="form-text">Engineering team's own progress tracker — change it from the status board.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-bullseye me-2"></i>MITRE ATT&amp;CK technique(s)</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+          <label class="form-label mb-0">Technique(s) this request targets</label>
+          <span id="btn-rulezet-der-lookup-wrap"
+                {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-der-lookup" disabled>
+              <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                   alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+              Search Rulezet
+            </button>
+          </span>
+        </div>
+        <div class="mt-1">
+          {{ galaxy_multiselect("technique", values=(der.technique if der else []), items=galaxy_mitre_attack, dom_id="der-technique") }}
+        </div>
+        <div class="form-text mt-2">Search Rulezet first: if a rule is a close match, worth adapting, or should be used as a base, add it below.</div>
+        <div class="mt-2">
+          <label class="form-label small mb-1">Existing coverage (Rulezet)</label>
+          <textarea name="existing_coverage" id="der-existing-coverage" class="form-control" rows="3"
+                    placeholder="Rules already found on Rulezet for this technique">{{ lines(der.existing_coverage) if der else '' }}</textarea>
+          <div id="rulezet-der-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-magnifying-glass-chart me-2"></i>Detection hypothesis</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Trigger / hypothesis</label>
+          <textarea name="hypothesis" class="form-control" rows="3"
+                    placeholder="What behaviour, in what conditions, should fire this detection?">{{ der.hypothesis if der else '' }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Log sources</label>
+          <textarea name="log_sources" class="form-control" rows="3"
+                    placeholder="One log source per line, e.g. Sysmon EID 1, EDR process telemetry">{{ lines(der.log_sources) if der else '' }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Expected rule output</label>
+          <textarea name="expected_output" class="form-control" rows="3"
+                    placeholder="What should the rule alert on, and with what fidelity?">{{ der.expected_output if der else '' }}</textarea>
+        </div>
+        <div>
+          <label class="form-label">Test cases</label>
+          <textarea name="test_cases" class="form-control" rows="3"
+                    placeholder="One test case per line: how to validate the rule fires (and does not over-fire)">{{ lines(der.test_cases) if der else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-link me-2"></i>Source MISP event</div>
+      <div class="card-body">
+        {% set existing_source_uuids = (der.source_event_uuids if der and der.source_event_uuids else ([der.source_event_uuid] if der and der.source_event_uuid else [])) %}
+        {% set first_uuid = existing_source_uuids[0] if existing_source_uuids else '' %}
+        {% set meta = (source_events | selectattr('uuid', 'equalto', first_uuid) | list | first) if first_uuid else None %}
+        {% set event_base = ((meta.source_url if meta and meta.source_url else misp_webapp_url) or '') %}
+        {% set event_url = (event_base.rstrip('/') ~ '/events/view/' ~ first_uuid) if first_uuid else '' %}
+        <label class="form-label">Triggering event (optional)</label>
+        <input type="text" name="source_event_url_item" class="form-control form-control-sm font-monospace"
+               placeholder="https://misp.example/events/view/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="{{ event_url }}">
+        <div class="form-text">The event/actor/campaign that motivated this request, if any.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="col-lg-4">
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-paper-plane me-2"></i>Delivery</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Audience
+            <span class="text-muted small" data-bs-toggle="tooltip"
+              title="Audience corresponds to the stakeholder role, e.g. Detection Engineering.">
+              <i class="fas fa-circle-info ms-1"></i>
+            </span>
+          </label>
+          {% set current_audiences = (der.audience or '').split(', ') if der else [] %}
+          <div class="d-flex flex-wrap gap-2 mt-1">
+            {% for a in audiences %}
+            <div class="form-check form-check-inline me-0">
+              <input class="form-check-input der-audience-cb" type="checkbox" name="audience" value="{{ a }}"
+                     id="der-aud-{{ loop.index }}"
+                     {{ 'checked' if a in current_audiences }}>
+              <label class="form-check-label small" for="der-aud-{{ loop.index }}">{{ a }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div id="der-audience-warn" class="text-danger small mt-1" style="display:none;">
+            <i class="fas fa-triangle-exclamation me-1"></i>Select at least one audience.
+          </div>
+          <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience — required before this can be approved and published.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">TLP</label>
+          <select name="tlp" class="form-select">
+            {% for t in tlp_levels %}
+            <option value="{{ t }}" {{ 'selected' if der and der.tlp == t else ('selected' if not der and t == 'amber') }}>TLP:{{ t | upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Linked PIR</label>
+          <select name="linked_pir_uuid" class="form-select">
+            <option value="">(none)</option>
+            {% for p in pirs %}
+            <option value="{{ p.uuid }}" {{ 'selected' if der and der.linked_pir_uuid == p.uuid }}>{{ p.pir_id }}: {{ p.question | truncate(50) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-user me-2"></i>Attribution</div>
+      <div class="card-body">
+        <label class="form-label">Author</label>
+        <input name="author" class="form-control" value="{{ der.author if der else '' }}">
+      </div>
+    </div>
+
+    <div class="zs-actions d-grid gap-2">
+      <button type="submit" name="action" value="submit" class="btn btn-primary" id="btn-der-submit">
+        <i class="fas fa-paper-plane me-1"></i> Submit for review
+      </button>
+      <button type="submit" name="action" value="save" class="btn btn-outline-secondary" id="btn-der-save">
+        <i class="fas fa-floppy-disk me-1"></i> Save draft
+      </button>
+      {% if is_edit and can_publish %}
+      <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-der-publish">
+        <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
+      </button>
+      {% elif is_edit %}
+      <span class="d-block" style="cursor:not-allowed;" title="Only users with MISP publish rights can approve and publish.">
+        <button type="button" class="btn btn-success w-100" disabled style="pointer-events:none;">
+          <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
+        </button>
+      </span>
+      {% endif %}
+      <a href="{{ url_for('detection_eng.review') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── Detection lookup (Rulezet, by MITRE ATT&CK technique) ── */
+zsazsaBindRulezetAttackLookup({
+  buttonId: 'btn-rulezet-der-lookup',
+  statusId: 'rulezet-der-status',
+  targetId: 'der-existing-coverage',
+  checkboxName: 'technique',
+  readyTitle: 'Search Rulezet for public rules matching the technique(s) selected above',
+});
+
+/* ── Audience validation ── */
+(function() {
+  function _updateDerAudienceBtns() {
+    var checked = document.querySelectorAll('.der-audience-cb:checked').length > 0;
+    ['btn-der-submit', 'btn-der-save', 'btn-der-publish'].forEach(function(id) {
+      var b = document.getElementById(id);
+      if (b) b.disabled = !checked;
+    });
+    var warn = document.getElementById('der-audience-warn');
+    if (warn) warn.style.display = checked ? 'none' : '';
+  }
+  document.querySelectorAll('.der-audience-cb').forEach(function(cb) {
+    cb.addEventListener('change', _updateDerAudienceBtns);
+  });
+  _updateDerAudienceBtns();
+})();
+
+</script>
+{% endblock %}

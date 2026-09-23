@@ -4,6 +4,7 @@
 {% set title_text = ('Edit ' + vea.vea_id) if is_edit else 'New vulnerability advisory' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ title_text }}{% endblock %}
+{% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
 {% block topbar_actions %}
 <a href="{{ url_for('vea.review') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
@@ -362,18 +363,34 @@
     </div>
 
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-radar me-2"></i>Detection guidance</div>
+      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection guidance</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
-            <label class="form-label">Exploitation indicators</label>
-            <textarea name="exploitation_indicators" id="exploitation_indicators" class="form-control" rows="4"
+            <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+              <label class="form-label mb-0">Exploitation indicators</label>
+            </div>
+            <textarea name="exploitation_indicators" id="exploitation_indicators" class="form-control mt-1" rows="4"
                       placeholder="[Log source]: what to look for">{{ lines(vea.exploitation_indicators) if vea else '' }}</textarea>
           </div>
           <div class="col-md-6">
-            <label class="form-label">Detection rules</label>
-            <textarea name="detection_rules" class="form-control" rows="4"
+            <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
+              <label class="form-label mb-0">Detection rules</label>
+              {# A disabled <button> is inert in every browser: it never fires the
+                 hover events a native title tooltip needs. The title lives on this
+                 wrapping span instead, which stays interactive either way. #}
+              <span id="btn-rulezet-lookup-wrap"
+                    {% if rulezet_enabled %}title="Enter a CVE ID above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-lookup" disabled>
+                  <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                       alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+                  Search Rulezet
+                </button>
+              </span>
+            </div>
+            <textarea name="detection_rules" id="detection_rules" class="form-control mt-1" rows="4"
                       placeholder="Sigma/EDR rule reference">{{ lines(vea.detection_rules) if vea else '' }}</textarea>
+            <div id="rulezet-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
           </div>
         </div>
       </div>
@@ -497,7 +514,7 @@
           <div id="vea-audience-warn" class="text-danger small mt-1" style="display:none;">
             <i class="fas fa-triangle-exclamation me-1"></i>Select at least one audience.
           </div>
-          <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select all that apply.</div>
+          <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience — required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">TLP</label>
@@ -577,10 +594,19 @@
       <button type="submit" name="action" value="save" class="btn btn-outline-secondary" id="btn-vea-save">
         <i class="fas fa-floppy-disk me-1"></i> Save draft
       </button>
-      {% if is_edit %}
+      {% if is_edit and can_publish %}
       <button type="submit" name="action" value="publish" class="btn btn-success" id="btn-vea-publish">
         <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
       </button>
+      {% elif is_edit %}
+      {# The title sits on a wrapper because a disabled button fires no hover
+         events. The wrapper is a grid of its own so the button inside is laid
+         out exactly like the enabled one, without the inline gap under it. #}
+      <span class="d-grid" style="cursor:not-allowed;" title="Only users with MISP publish rights can approve and publish.">
+        <button type="button" class="btn btn-success" disabled style="pointer-events:none;">
+          <i class="fas fa-check-circle me-1"></i> Publish &amp; notify
+        </button>
+      </span>
       {% endif %}
       <a href="{{ url_for('vea.review') }}" class="btn btn-outline-secondary">Cancel</a>
     </div>
@@ -934,6 +960,54 @@ function _renderCvssBadge(cvssVal) {
       btn.disabled = false;
       btn.innerHTML = origHTML;
     });
+  });
+})();
+
+/* ── Detection rule lookup (Rulezet, by CVE ID) ── */
+(function() {
+  var btn = document.getElementById('btn-rulezet-lookup');
+  var btnWrap = document.getElementById('btn-rulezet-lookup-wrap');
+  var status = document.getElementById('rulezet-status');
+  var rulesEl = document.getElementById('detection_rules');
+  var cveIdEl = document.getElementById('cve_id');
+  var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
+  // Rendered disabled, with a "not configured" tooltip, when RULEZET_URL is
+  // empty: leave it that way instead of enabling it once a CVE is typed.
+  if (!btn || btnWrap.hasAttribute('data-rulezet-unconfigured')) return;
+
+  function getCveIds() {
+    var raw = (cveIdEl.value || '').trim();
+    return raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
+  }
+
+  function refreshButtonState() {
+    var hasCve = getCveIds().length > 0;
+    btn.disabled = !hasCve;
+    btnWrap.title = hasCve
+      ? 'Search Rulezet for public rules matching the CVE ID(s) above'
+      : 'Enter a CVE ID above first.';
+  }
+
+  cveIdEl.addEventListener('input', refreshButtonState);
+  refreshButtonState();
+
+  btn.addEventListener('click', function() {
+    var cveIds = getCveIds();
+    status.style.display = 'none';
+    if (!cveIds.length) {
+      status.innerHTML = '<i class="fas fa-triangle-exclamation me-1"></i>Enter at least one CVE ID first.';
+      status.style.display = '';
+      return;
+    }
+
+    var resultPromise = fetch(SCRIPT_ROOT + '/api/rulezet-lookup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+      body: JSON.stringify({cve_ids: cveIds}),
+    }).then(zsazsaReadJson);
+
+    zsazsaRulezetSearch(resultPromise, rulesEl, cveIds.join(', '), 'cve');
   });
 })();
 

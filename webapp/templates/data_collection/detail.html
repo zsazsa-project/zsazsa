@@ -30,6 +30,11 @@
         <i class="fas fa-shield-halved me-2"></i>Vuln advisories
       </a>
     </li>
+    <li>
+      <a class="dropdown-item" href="{{ url_for('detection_eng.wizard_new', source=(event.uuid ~ '|' ~ source_id) if source_id else event.uuid) }}">
+        <i class="fas fa-crosshairs me-2"></i>Detection engineering request
+      </a>
+    </li>
   </ul>
 </div>
 {% endblock %}

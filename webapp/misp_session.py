@@ -341,6 +341,56 @@ def current_user_email():
     return user["email"] if user else DEFAULT_USER_EMAIL
 
 
+def sso_configured():
+    """Whether single sign-on is set up, so that requests are meant to carry a MISP user.
+
+    Either setting says so. The redirect is the switch on the settings page, and
+    saving with it on stores MISP_SESSION_COOKIE_NAME, which stays behind when the
+    redirect is turned off again. That is the mode where anyone without a session
+    falls back to admin@admin.test, and where the publish gate needs to know that
+    the fallback is not a real, trusted user.
+    """
+    return bool(getattr(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False)
+                or (getattr(config, "MISP_SESSION_COOKIE_NAME", "") or "").strip())
+
+
+def current_user_can_publish():
+    """Whether the current user may approve/publish a CTI product (the "senior
+    reviewer" gate on top of the draft -> pending-review -> approved workflow).
+
+    Reuses MISP's own ``perm_publish`` role permission rather than inventing a
+    zsazsa-specific role: zsazsa has no user/role management of its own, and
+    this is the closest existing analog to "trusted to make something public".
+
+    A request nobody could be identified for is refused as soon as single
+    sign-on is configured. Dropping the MISP cookie is enough to end up there,
+    and so is a session Redis that is down or misconfigured, and neither should
+    turn an analyst into a publisher. Only an install without single sign-on,
+    where the whole app runs under one trusted identity, and a standalone script
+    outside a Flask request are let through without a user.
+
+    The permission has to be MISP's true, as the session stores it (a PHP bool,
+    or 1 / "1" depending on how the role was written), not merely truthy: "0"
+    is a non-empty string.
+    """
+    try:
+        user = getattr(g, "misp_user", None)
+    except RuntimeError:
+        return True
+    if user is None:
+        return not sso_configured()
+    perm = (user.get("Role") or {}).get("perm_publish")
+    return perm is True or (type(perm) is int and perm == 1) or perm == "1"
+
+
+def publish_denied_message(action="publish"):
+    """The warning shown when the publish gate refuses, e.g. action="approve and publish".
+
+    One sentence for every product, so the gate reads the same wherever it bites.
+    """
+    return f"Only users with MISP publish rights can {action}."
+
+
 def diagnose(cookies) -> dict:
     """Check single sign-on against the cookies of a real request.
 

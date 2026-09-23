@@ -121,6 +121,15 @@
     </div>
     {% endif %}
 
+    {% if briefing.detection_rules %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection rules</div>
+      <div class="card-body">
+        <p style="white-space: pre-wrap;">{{ briefing.detection_rules }}</p>
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 
   <div class="col-md-4">
@@ -185,6 +194,15 @@
     <div class="card content-card mb-3">
       <div class="card-header"><strong>Publish</strong></div>
       <div class="card-body">
+        {% if not can_publish %}
+        <p class="small text-muted mb-2">Publishing will notify subscribed stakeholders.</p>
+        <span class="d-block" style="cursor:not-allowed;"
+              title="Only users with MISP publish rights can publish.">
+          <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+            <i class="fas fa-paper-plane me-1"></i> Publish briefing
+          </button>
+        </span>
+        {% else %}
         <form method="post" action="{{ url_for('daily_briefing.publish', id=briefing.uuid) }}"
               {% if briefing.summary_stale %}onsubmit="return confirm('The briefing summary is marked out of date. Send it to stakeholders anyway?');"{% endif %}>
           <p class="small text-muted mb-2">Publishing will notify subscribed stakeholders.</p>
@@ -199,6 +217,7 @@
             <i class="fas fa-paper-plane me-1"></i> Publish briefing
           </button>
         </form>
+        {% endif %}
       </div>
     </div>
     {% endif %}

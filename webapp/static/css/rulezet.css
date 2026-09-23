@@ -1,0 +1,191 @@
+/* Styles for the Rulezet integration (CVE and MITRE ATT&CK detection-rule
+   lookups): the format badge shared everywhere, the search-results modal
+   (webapp/static/js/rulezet-search-modal.js) and the single-rule code modal
+   (webapp/static/js/rulezet-code-modal.js). Kept out of app.css so this
+   integration's styling doesn't bloat the app's general stylesheet. */
+
+/* Shared format badge (VEA wizard, Threat actor profile, both modals). */
+.zs-rulezet-format-badge {
+  background: #000;
+  color: #fff;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Code modal (rulezet-code-modal.js) ── */
+
+/* Identification fields (id, uuid, source, license…), in their own card, so a
+   rule can be told apart from others in a large result set before it is
+   added. */
+.zs-rc-meta-card .card-body {
+  padding: 0.85rem 1rem;
+}
+.zs-rc-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem 1.25rem;
+}
+.zs-rc-meta-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.zs-rc-meta-icon {
+  color: var(--bs-primary, #0d6efd);
+  width: 1rem;
+  text-align: center;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+.zs-rc-meta-text {
+  min-width: 0;
+}
+.zs-rc-meta-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.zs-rc-meta-value {
+  font-size: 0.82rem;
+  font-family: var(--bs-font-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+/* A distinct, editor-like frame around the rule's own content, separate
+   from the modal chrome around it. */
+.zs-rc-frame {
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.zs-rc-pre {
+  margin: 0;
+  padding: 1rem;
+  font-size: 0.8rem;
+  max-height: 60vh;
+  overflow: auto;
+  background: transparent;
+}
+.zs-rc-pre code.hljs {
+  background: transparent;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Search-results modal (rulezet-search-modal.js): a searchable/filterable
+   table, for lookups that can return hundreds of rules (e.g. a common
+   ATT&CK technique). ── */
+
+/* Wider than modal-xl: a checkbox column plus Format/Title/Author/License/
+   Matches/Quality/Last modified/action needs the room. */
+@media (min-width: 1400px) {
+  .zs-rs-dialog {
+    max-width: 1320px;
+  }
+}
+.zs-rs-table-wrap {
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+/* Bootstrap's .sticky-top (the table header) sits at z-index 1020, above a
+   dropdown-menu's default 1000 — without this the "Matches" filter dropdown
+   renders behind the header whenever it overlaps it. */
+.zs-rs-toolbar .dropdown-menu {
+  z-index: 1030;
+}
+.zs-rs-table {
+  font-size: 0.82rem;
+}
+.zs-rs-table thead th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.zs-rs-row {
+  cursor: pointer;
+}
+.zs-rs-title {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zs-rs-match-badge {
+  background: var(--surface-tint);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  font-weight: 500;
+  font-size: 0.68rem;
+}
+.zs-rs-table mark {
+  padding: 0;
+}
+
+/* Pagination — ported 1:1 from Rulezet's own <pagination> component
+   (rulezet-core app/static/css/pagination/pagination.css: prefix pag-),
+   using this app's own theme variables instead of Rulezet's --brand/
+   --bg-surface/--bg-elevated tokens. */
+.zs-pag-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  flex-wrap: wrap;
+}
+.zs-pag-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 0.5rem;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-light);
+  background-color: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  line-height: 1;
+}
+.zs-pag-btn:hover:not(.zs-pag-btn--disabled):not(.zs-pag-btn--active) {
+  background-color: var(--surface-tint);
+  color: var(--text-primary);
+  border-color: var(--bs-primary, #0d6efd);
+}
+.zs-pag-btn--active {
+  background-color: var(--bs-primary, #0d6efd);
+  border-color: var(--bs-primary, #0d6efd);
+  color: #fff;
+  cursor: default;
+  font-weight: 600;
+}
+.zs-pag-btn--disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.zs-pag-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 34px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  user-select: none;
+  pointer-events: none;
+  letter-spacing: 0.05em;
+}
