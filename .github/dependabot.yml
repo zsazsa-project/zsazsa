@@ -20,12 +20,18 @@ updates:
     # range in place does not already allow the new version.
     versioning-strategy: increase-if-necessary
     ignore:
-      # zsazsa is on the 2.x SDK and requirements.txt caps it below 3 on
-      # purpose. openai 3 makes HTTPX2 the default client, and nothing in the
-      # test suite exercises the SDK, so the upgrade needs doing by hand rather
-      # than merging. Drop this entry once that work is done.
+      # requirements.txt caps openai below 3 on purpose and we stay there. The
+      # call surface in analyser/llm.py was checked against 3.19.2 and works, so
+      # this is not a known break, it is that no test exercises the SDK: a later
+      # 3.x could move something under us and CI would stay green. Moving up is
+      # a deliberate piece of work, starting with that test.
+      #
+      # A version range rather than update-types: the same rule written as
+      # update-types semver-major did not stop Dependabot proposing the ceiling
+      # change in PR 33. Note this also hides a security advisory whose only
+      # fix is in 3.x, so revisit if one appears.
       - dependency-name: openai
-        update-types: ["version-update:semver-major"]
+        versions: [">=3"]
     groups:
       python-dependencies:
         patterns:
