@@ -4502,13 +4502,15 @@ def fia_assessment_rows(fia):
     return rows
 
 
-def render_fia_markdown(fia, fia_id=None, include_source_links=False):
+def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_url: str = ""):
     """Render an FIA namespace into the markdown report content.
 
     By default this is deterministic and uses only fields already present on the
     FIA namespace. include_source_links adds the source events' link attributes
     to the references, at the cost of reading them from MISP, which is worth it
     on the notification paths but not when re-writing the stored report.
+    preview_url goes the same way: set on delivery so a recipient has a way back
+    into zsazsa, left empty for the copy stored on the event.
     """
     fid = fia_id or fia.fia_id or "FIA-#####"
     date_str = (fia.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M UTC")
@@ -4634,6 +4636,10 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False):
             "",
             f"Please report findings to the CTI team by {fia.feedback_deadline.isoformat()}.",
         ])
+    if preview_url:
+        # No rule before it, unlike the request: the Mattermost sender adds its
+        # own "Open in MISP" under a rule, and two in a row read as a mistake.
+        parts.extend(["", f"[Open alert]({preview_url})"])
     return "\n".join(parts)
 
 

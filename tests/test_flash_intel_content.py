@@ -16,6 +16,7 @@ that goes out is built from whatever survived.
 
 import json
 import unittest
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -324,6 +325,28 @@ def _filled_fia_data():
         "context_tags": ["tlp:clear"], "linked_pir_uuid": "p" * 36,
         "creator": "koen@example.org", "approved_by": "",
     }
+
+
+class TheAlertLinksBackToZsazsa(unittest.TestCase):
+    """Every other product ends its notification with a link to its own page.
+
+    The alert did not, so a recipient reading it in mail had the detection rules
+    and the references but no way back to the alert itself. The link belongs to
+    the delivery path only: the same markdown is written back to the MISP event,
+    where a link to the web app would be noise.
+    """
+
+    URL = "https://zsazsa.example.org/products/flash-intel/abc"
+
+    def test_delivery_ends_with_a_link_to_the_alert(self):
+        """With a deadline set, so the link has to clear the last section there is."""
+        markdown = misp_store.render_fia_markdown(
+            _fia(feedback_deadline=date(2026, 10, 1)), preview_url=self.URL)
+        self.assertIn("## Feedback requested", markdown)
+        self.assertTrue(markdown.rstrip().endswith(f"[Open alert]({self.URL})"))
+
+    def test_the_stored_report_has_no_link(self):
+        self.assertNotIn("[Open alert]", misp_store.render_fia_markdown(_fia()))
 
 
 class ChangingTheReviewStateKeepsTheContent(unittest.TestCase):

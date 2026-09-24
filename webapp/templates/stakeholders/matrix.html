@@ -54,7 +54,7 @@
             {% for s in stakeholders %}
             <a href="{{ url_for('stakeholders.detail', id=s.id) }}" class="matrix-dot quadrant-{{ s.quadrant_key }}"
                style="left: {{ s.interest_pct }}%; bottom: {{ s.influence_pct }}%;"
-               title="{{ s.name }} — Influence {{ s.influence }}/10, Interest {{ s.interest }}/10">
+               title="{{ s.name }}: Influence {{ s.influence }}/10, Interest {{ s.interest }}/10">
               {{ s.name | truncate(14, True, '…') }}
             </a>
             {% endfor %}
@@ -77,7 +77,7 @@
             {% for s in by_quadrant[key] %}
             <li class="mb-1">
               <a href="{{ url_for('stakeholders.detail', id=s.id) }}">{{ s.name }}</a>
-              <span class="text-muted">— {{ s.role or 'no role set' }}</span>
+              <span class="text-muted">({{ s.role or 'no role set' }})</span>
             </li>
             {% endfor %}
           </ul>

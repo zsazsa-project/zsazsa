@@ -526,7 +526,8 @@ def _deliver_flash_intel(uuid, preview_url, reason):
             return False, "the alert could not be loaded"
 
         stakeholders = _eligible_flash_recipients(fia)
-        content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True)
+        content = misp_store.render_fia_markdown(fia, fia.fia_id, include_source_links=True,
+                                                 preview_url=preview_url)
         log(f"{reason}: {len(stakeholders)} eligible recipient(s).")
 
         # Downloaded once for the whole delivery rather than per channel.

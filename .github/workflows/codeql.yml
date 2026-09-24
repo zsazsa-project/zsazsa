@@ -14,8 +14,11 @@ permissions:
   # Findings are written to the Security tab rather than only to the job log.
   security-events: write
 
+# On a schedule event github.ref is the default branch, the same value a push
+# to main gives, so the event name keeps the weekly run and a push to main in
+# separate groups instead of letting whichever starts second cancel the other.
 concurrency:
-  group: codeql-${{ github.ref }}
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

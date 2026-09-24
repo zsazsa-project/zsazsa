@@ -13,8 +13,11 @@ on:
 permissions:
   contents: read
 
+# On a schedule event github.ref is the default branch, the same value a push
+# to main gives, so the event name keeps the weekly run and a push to main in
+# separate groups instead of letting whichever starts second cancel the other.
 concurrency:
-  group: security-${{ github.ref }}
+  group: security-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

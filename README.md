@@ -246,7 +246,7 @@ Two things to watch with a local model. Reasoning models spend part of the token
 
 ### Detection rules from Rulezet
 
-[Rulezet](https://rulezet.org) is a community repository of public detection rules, written in Sigma, YARA, Suricata, Elastic and a dozen other formats.
+[Rulezet](https://rulezet.org) is a community repository of public detection rules, written in Sigma, YARA, Suricata, Elastic and other formats.
 
 Five products can use it: the daily threat briefing, flash intel alert, vulnerability advisory, threat actor profile and detection engineering request. **Search Rulezet** takes the CVE IDs or MITRE ATT&CK techniques on the product and looks for rules that match them. The results come back as a filterable table, and you can read any rule, syntax highlighted, before deciding to use it.
 

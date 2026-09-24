@@ -168,7 +168,7 @@
           <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Update</button>
         </form>
         <div class="form-text mt-1">
-          Independent of the publish workflow below — the team's own progress tracker, same board as the review list.
+          Independent of the publish workflow below: the team's own progress tracker, same board as the review list.
           Also editable from the <a href="{{ url_for('detection_eng.review') }}">status board</a>. Leaving Pending requires this request to be approved first;
           marking this <strong>Active</strong> requires the draft rule below to be filled in and passing Rulezet validation.
         </div>
@@ -212,7 +212,7 @@
             <button type="submit" class="btn btn-sm btn-outline-secondary">Save draft rule</button>
           </div>
         </form>
-        <div class="form-text mt-2">Optional while the request is being reviewed — this is where whoever builds the detection pastes their rule once it exists. Required, and must pass Rulezet validation, before the engineering status can be set to Active.</div>
+        <div class="form-text mt-2">Optional while the request is being reviewed. This is where whoever builds the detection pastes their rule once it exists. Required, and must pass Rulezet validation, before the engineering status can be set to Active.</div>
       </div>
     </div>
     {% elif der.draft_rule %}
@@ -495,7 +495,7 @@
       if (data.valid) {
         showStatus('success', 'fa-circle-check', 'Valid ' + formatEl.value.toUpperCase() + ' syntax.'
           + ((data.warnings || []).length ? ' Warnings: ' + data.warnings.join('; ') : '')
-          + ' Save the draft rule — required before marking Active.');
+          + ' Save the draft rule, which is required before marking Active.');
       } else {
         showStatus('danger', 'fa-circle-xmark', 'Invalid: ' + ((data.errors || []).join('; ') || 'no details returned.'));
       }

@@ -17,12 +17,9 @@ by MITRE ATT&CK technique. / via @ecrou-exact
 
 ### Upgrading
 
-Pull and restart. Nothing to migrate and no setting to change. An installation
-with a scraper keeps working exactly as it did.
-
-Newsletters waiting for review are read again from the mail kept with them, so
-they list their articles on the next visit. Ones already sent to the scraper
-keep the names and tags they got. Deleting their event in MISP changes nothing.
+Pull and restart. Nothing to migrate, and an installation with a scraper keeps
+collecting exactly as it did. Two things do need attention first, both below:
+the publish permission and the new product tag.
 
 Approving, publishing, resending and switching a stakeholder to automated
 delivery now need the MISP publish permission (`perm_publish`) on the analyst's
@@ -30,9 +27,20 @@ role. With single sign-on configured, a request zsazsa cannot tie to a MISP user
 is refused rather than let through. Check that the analysts who sign off on
 products have a **role with publish rights** before upgrading.
 
+`TAG_DETECTION_ENG` is new and has no fallback in the code, so the detection
+engineering request list fails until the key exists. Saving the configuration
+once from Settings is enough to write it. To do it by hand instead, add this to
+`config/__init__.py`:
+
+    TAG_DETECTION_ENG = 'zsazsa:ctiproduct="detection-eng-request"'
+
 `RULEZET_URL` is new and optional. Left empty, the Rulezet buttons are disabled
 and a detection engineering request cannot be marked Active, since its rule
 cannot be validated.
+
+Newsletters waiting for review are read again from the mail kept with them, so
+they list their articles on the next visit. Ones already sent to the scraper
+keep the names and tags they got. Deleting their event in MISP changes nothing.
 
 The flash intel alert object gained a `detection-rules` attribute, so its
 template is at version 3. Nothing needs doing: the template is read from
@@ -43,9 +51,8 @@ To run without a scraper, turn **Enabled** off on its card under Collection
 sources, or clear its URL and API key, and save. It leaves the Data collection
 page, the requirement source lists and the dashboard, and its cached events go
 on the next refresh. Nothing is removed from MISP, so switching it back on
-restores it. A PIR or GIR naming `misp-scraper`
-loses that reference the next time it is saved, as one naming a
-MISP server you disable already does.
+restores it. A PIR or GIR naming `misp-scraper` loses that reference the next
+time it is saved, as one naming a MISP server you disable already does.
 
 Daily briefing stories now record which MISP server they came from. Ones saved
 before this have none recorded and count as scraper events, which is what they
@@ -55,6 +62,11 @@ were.
 
 - A threat actor profile went out to stakeholders without its
   recommendations, so any Rulezet rule attached to one never reached them.
+
+- A flash intel alert was the only product whose notification carried no link
+  back to it. Mattermost readers had the MISP event to fall back on, readers on
+  mail had nothing, which matters now that an alert can carry detection rules.
+  The alert stored on the event is unchanged.
 
 - Events from a second MISP server could not be added to a daily briefing while
   the misp-scraper was unset or unreachable: its connection was built first and

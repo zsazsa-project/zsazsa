@@ -138,8 +138,8 @@ def get_rule(rule_id: str) -> dict | None:
 
     The public detail endpoint returns less than the search endpoints do, so
     uuid, last_modif, quality_score and matched_techniques come back empty and
-    the viewer leaves those fields out. "author" is the Rulezet account that
-    submitted the rule, which is the only attribution the endpoint carries.
+    the viewer leaves those fields out. "author" is the record's own attribution
+    where it has one, and the name on the submitting Rulezet account otherwise.
 
     Returns None when RULEZET_URL is unset, the id is not a plain number, or
     the instance could not be reached or answered with something else.

@@ -102,7 +102,7 @@ def _taps_markdown():
         "",
     ]
     for tap in taps:
-        lines += [f"## {tap.tap_id} — {tap.title or '(untitled)'}", ""]
+        lines += [f"## {tap.tap_id}: {tap.title or '(untitled)'}", ""]
         if tap.summary:
             lines += [tap.summary, ""]
         lines += [

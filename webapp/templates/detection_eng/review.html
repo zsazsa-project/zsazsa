@@ -470,7 +470,7 @@
           if (sourceCards) sourceCards.appendChild(card);
           bumpCount(col, -1);
           bumpCount(sourceCol, 1);
-          showError('Status update did not complete — check your connection and try again.');
+          showError('Status update did not complete. Check your connection and try again.');
         })
         .finally(function() {
           setBusy(card, false);

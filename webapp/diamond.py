@@ -82,7 +82,7 @@ def render_diamond_png(tap) -> bytes:
     d = ImageDraw.Draw(img)
     fval, flabel, ftitle = _font(True, 15), _font(False, 11), _font(True, 19)
 
-    heading = f"Diamond Model — {tap.title or tap.tap_id}"
+    heading = f"Diamond Model: {tap.title or tap.tap_id}"
     d.text((_W / 2 - ftitle.getlength(heading) / 2, 14), heading, font=ftitle, fill=_TEXT)
 
     cx, cy = 380, 295

@@ -8,11 +8,12 @@
  * /api/rulezet-rule and shows it in the shared Rulezet modal, the same view the
  * search results open (window.zsazsaShowRuleCode).
  *
- * The containers are marked with data-rulezet-rules because the four products
+ * The containers are marked with data-rulezet-rules because the five products
  * render that field three different ways: raw text in a <p> (daily briefing),
- * list items through the bullets() macro (vulnerability advisory, detection
- * engineering request) and client-side Markdown (threat actor profile). Working
- * on the rendered text covers all of them without touching any of the three.
+ * list items through the bullets() macro (flash intel alert, vulnerability
+ * advisory, detection engineering request) and client-side Markdown (threat
+ * actor profile). Working on the rendered text covers all of them without
+ * touching any of the three.
  */
 (function () {
   // Rulezet's own rule permalink, whichever instance produced it. The id is

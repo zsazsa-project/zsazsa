@@ -57,8 +57,8 @@
 /* A distinct, editor-like frame around the rule's own content, separate
    from the modal chrome around it. */
 .zs-rc-frame {
-  background: #f6f8fa;
-  border: 1px solid #d0d7de;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-light);
   border-radius: 6px;
   overflow: hidden;
 }

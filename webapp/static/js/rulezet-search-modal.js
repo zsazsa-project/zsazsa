@@ -118,7 +118,7 @@
             <div id="zs-rs-header" class="flex-grow-1 min-w-0" style="display:flex;align-items:center;gap:.5rem;">
               <h5 class="modal-title d-flex align-items-center gap-2 mb-0">
                 <img src="${SCRIPT_ROOT}/static/rulezet-icon.png" alt="" style="height:20px;">
-                Rulezet search — <span id="zs-rs-query" class="text-muted fw-normal"></span>
+                Rulezet search: <span id="zs-rs-query" class="text-muted fw-normal"></span>
               </h5>
             </div>
             <div id="zs-rc-header" class="flex-grow-1 min-w-0" style="display:none;align-items:center;gap:.5rem;">

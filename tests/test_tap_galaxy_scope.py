@@ -141,7 +141,7 @@ class ProfileExport(unittest.TestCase):
 
     def test_it_carries_the_profile_content(self):
         md = self._markdown([self._tap()])
-        self.assertIn("## TAP-001 — Sample actor", md)
+        self.assertIn("## TAP-001: Sample actor", md)
         self.assertIn("A summary.", md)
         self.assertIn("- Threat actors: APT28", md)
         self.assertIn("- Geographic scope: Belgium", md)
@@ -173,10 +173,10 @@ class ProfileExport(unittest.TestCase):
                                       "technology", "vendor", "external_references")})
         md = self._markdown([self._tap(**empty)])
         self.assertNotIn("###", md)
-        self.assertIn("## TAP-001 — Sample actor", md)
+        self.assertIn("## TAP-001: Sample actor", md)
 
     def test_an_untitled_profile_still_gets_a_heading(self):
-        self.assertIn("## TAP-001 — (untitled)", self._markdown([self._tap(title="")]))
+        self.assertIn("## TAP-001: (untitled)", self._markdown([self._tap(title="")]))
 
     def test_no_profiles_still_produces_a_document(self):
         md = self._markdown([])
