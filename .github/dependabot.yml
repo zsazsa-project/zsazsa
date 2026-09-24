@@ -1,0 +1,35 @@
+# Dependency update PRs. Two ecosystems: the Python requirements, and the
+# actions the workflows call, which are the supply chain of CI itself.
+version: 2
+
+updates:
+  # requirements.txt pins ranges with a hand-written "known-good version"
+  # comment per line, so a bump wants a glance at that comment rather than a
+  # blind merge. Grouped and weekly to keep that to one review, not fifteen.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+
+  # The workflows pin actions by commit SHA, which is what stops a moving tag
+  # from changing what CI runs. That only stays current if something updates
+  # the SHAs, which is this.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"

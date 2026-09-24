@@ -1,0 +1,41 @@
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # CodeQL's queries are updated independently of this code, so a weekly run
+    # finds things the queries learned about after the last commit.
+    - cron: "30 6 * * 1"
+
+permissions:
+  contents: read
+  # Findings are written to the Security tab rather than only to the job log.
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyse:
+    name: analyse python
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          languages: python
+          # security-and-quality is the wider set. Kept to security-extended so
+          # the Security tab stays a list of things worth acting on: the quality
+          # queries overlap ruff and the conventions in CLAUDE.md.
+          queries: security-extended
+
+      # Python needs no build. The analyser reads the tree as it stands, which
+      # is also why config/__init__.py is not needed here as it is for the tests.
+      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          category: "/language:python"

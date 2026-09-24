@@ -1,15 +1,29 @@
 name: tests
 
 on:
+  # Scoped to main: a branch with an open pull request would otherwise run the
+  # whole suite twice for every push, once here and once for the pull request.
   push:
+    branches: [main]
   pull_request:
+
+# Least privilege. Nothing here writes back to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unittest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Actions are pinned by commit SHA, not by tag: a tag can be moved to
+      # point at different code. Dependabot keeps the SHAs current.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
