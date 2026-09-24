@@ -12,6 +12,20 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # The default for a requirements.txt is "increase", which raises every
+    # lower bound to whatever is newest. In that file the lower bound is what
+    # zsazsa needs and the comment beside it is the version it was tested
+    # against, so "increase" rewrites the wrong half: the first batch it opened
+    # excluded the versions actually in use. This only moves a bound when the
+    # range in place does not already allow the new version.
+    versioning-strategy: increase-if-necessary
+    ignore:
+      # zsazsa is on the 2.x SDK and requirements.txt caps it below 3 on
+      # purpose. openai 3 makes HTTPX2 the default client, and nothing in the
+      # test suite exercises the SDK, so the upgrade needs doing by hand rather
+      # than merging. Drop this entry once that work is done.
+      - dependency-name: openai
+        update-types: ["version-update:semver-major"]
     groups:
       python-dependencies:
         patterns:

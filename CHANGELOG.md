@@ -42,6 +42,10 @@ Newsletters waiting for review are read again from the mail kept with them, so
 they list their articles on the next visit. Ones already sent to the scraper
 keep the names and tags they got. Deleting their event in MISP changes nothing.
 
+WeasyPrint must now be 70 or newer, which `pip install -r requirements.txt`
+takes care of. Versions below it carry CVE-2026-55073, a server-side request
+forgery in the renderer, and every product PDF goes through that renderer.
+
 The flash intel alert object gained a `detection-rules` attribute, so its
 template is at version 3. Nothing needs doing: the template is read from
 zsazsa's own copy rather than from MISP, and an alert saved before this reads

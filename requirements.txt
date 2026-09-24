@@ -1,5 +1,4 @@
-# Known-good versions for the 1.0.2 release, as tested on Python 3.12.
-# Lower bounds are what zsazsa needs; the pins are what it was released against.
+# Lower bounds are what is required for zsazsa to function correctly.
 pymisp>=2.5,<3          # 2.5.34.2 - stopped parsing the galaxy clusters MISP
                         # serves, worked around in core/pymisp_compat.py
 openai>=1.0,<3          # 2.38.0
@@ -11,6 +10,7 @@ urllib3>=2.0,<3         # 2.7.0
 curl_cffi>=0.7,<1       # 0.15.0
 markdownify>=0.12,<2    # 1.2.2
 markdown-it-py>=3.0,<5  # 4.2.0
-weasyprint>=62          # 68.1
+weasyprint>=70          # 70.0 - below 70 is CVE-2026-55073, an SSRF in the
+                        # renderer that reaches every product PDF
 pillow>=10.0,<14        # 12.2.0 - used directly by the Diamond Model renderer
 beautifulsoup4>=4.12,<5 # 4.14.3
