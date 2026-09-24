@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.5 - Under development
+## 1.0.5
 
 Newsletters from a mailbox were read as if they had been pasted out of a mail
 client. The ETDA parser takes an edition in any of the shapes it arrives in now,
