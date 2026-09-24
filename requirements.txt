@@ -1,16 +1,16 @@
 # Known-good versions for the 1.0.2 release, as tested on Python 3.12.
 # Lower bounds are what zsazsa needs; the pins are what it was released against.
-pymisp>=2.5,<3          # 2.5.34.2 - stopped parsing the galaxy clusters MISP
+pymisp>=2.5.34.4,<3          # 2.5.34.2 - stopped parsing the galaxy clusters MISP
                         # serves, worked around in core/pymisp_compat.py
-openai>=1.0,<3          # 2.38.0
-requests>=2.32,<3       # 2.33.1
-flask>=3.1,<4           # 3.1.3
-werkzeug>=3.1,<4        # 3.1.8 - routing and datastructures used directly
-markupsafe>=2.1,<4      # 3.0.3 - escaping used directly
-urllib3>=2.0,<3         # 2.7.0
-curl_cffi>=0.7,<1       # 0.15.0
-markdownify>=0.12,<2    # 1.2.2
-markdown-it-py>=3.0,<5  # 4.2.0
-weasyprint>=62          # 68.1
-pillow>=10.0,<14        # 12.2.0 - used directly by the Diamond Model renderer
-beautifulsoup4>=4.12,<5 # 4.14.3
+openai>=3.16.2,<4          # 2.38.0
+requests>=2.34.2,<3       # 2.33.1
+flask>=3.1.3,<4           # 3.1.3
+werkzeug>=3.1.8,<4        # 3.1.8 - routing and datastructures used directly
+markupsafe>=3.0.3,<4      # 3.0.3 - escaping used directly
+urllib3>=2.8.0,<3         # 2.7.0
+curl_cffi>=0.16.3,<1       # 0.15.0
+markdownify>=1.2.3,<2    # 1.2.2
+markdown-it-py>=4.2.0,<5  # 4.2.0
+weasyprint>=70.0          # 68.1
+pillow>=12.3.0,<14        # 12.2.0 - used directly by the Diamond Model renderer
+beautifulsoup4>=4.15.0,<5 # 4.14.3
