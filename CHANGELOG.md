@@ -37,15 +37,11 @@ by the stored date when editing one. Briefings saved earlier are not changed.
 - Markdown was shown unsanitised if DOMPurify failed to load.
 - Drafting a profile with AI ignored actors typed in while the MISP galaxy
   was unavailable.
-- Event titles and organisation names from MISP, and source and stakeholder
-  names saved in zsazsa, could run as script in another analyst's browser.
-  This affected the flash intel and vulnerability advisory wizards, Collection
-  sources and the stakeholder list. / reported by @elhoim
-- The same could happen after a click in several other places: the delete,
-  sync and remove confirmations for stakeholders, indicator feeds,
-  organisations and briefings, the scope of a story drafted with AI, the
-  overlap check, threat actor types on a new story, CTI evaluation tags after
-  an AI summary and tag colours in the event preview. / reported by @elhoim
+- Script in a MISP event title, an organisation name or a source or
+  stakeholder name could run in the browser. / reported by @elhoim
+- Script could also run from names and dates in confirmation dialogs, from
+  the daily briefing editor and from MISP tags on the collection page.
+  / reported by @elhoim
 
 ## 1.0.5
 
