@@ -37,19 +37,15 @@ by the stored date when editing one. Briefings saved earlier are not changed.
 - Markdown was shown unsanitised if DOMPurify failed to load.
 - Drafting a profile with AI ignored actors typed in while the MISP galaxy
   was unavailable.
-- Text from MISP or from another user could run as script in an analyst's
-  session: an event title or creator organisation in the flash intel and
-  vulnerability advisory wizards, an organisation filter or organisation name
-  under Collection sources, and the name of a collection source or stakeholder
-  in its delete confirmation. All of them are shown as text now. / reported by
-  @elhoim
-- More of the same, in places that needed a click or a particular step: the
-  name of a stakeholder, indicator feed or organisation and a briefing's date
-  in their delete, sync and remove confirmations, the scope of a story drafted
-  with AI, the overlap check's reasons, threat actor types on a new story, a
-  CTI evaluation tag after an AI summary, and a tag colour in the event
-  preview. No page puts template data into an inline event handler any more.
-  / reported by @elhoim
+- Event titles and organisation names from MISP, and source and stakeholder
+  names saved in zsazsa, could run as script in another analyst's browser.
+  This affected the flash intel and vulnerability advisory wizards, Collection
+  sources and the stakeholder list. / reported by @elhoim
+- The same could happen after a click in several other places: the delete,
+  sync and remove confirmations for stakeholders, indicator feeds,
+  organisations and briefings, the scope of a story drafted with AI, the
+  overlap check, threat actor types on a new story, CTI evaluation tags after
+  an AI summary and tag colours in the event preview. / reported by @elhoim
 
 ## 1.0.5
 
