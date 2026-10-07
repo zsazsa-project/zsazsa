@@ -93,10 +93,10 @@ class PendingQueue(unittest.TestCase):
         self.assertTrue(all(f.select_one('input[name="csrf_token"]') for f in forms))
 
     def test_the_subject_stays_out_of_the_confirmation(self):
-        """A mail subject carries quotes often enough to break out of the
-        onsubmit string, so the confirmation names no subject."""
+        """A mail subject carries quotes often enough to have broken out of the
+        old onsubmit string, so the confirmation names no subject."""
         form = self._page().select_one("tbody tr form")
-        self.assertNotIn("Zebra weekly", form["onsubmit"])
+        self.assertNotIn("Zebra weekly", form["data-submit-confirm"])
 
     def _ignore(self, uuid="u1", data=None, **over):
         with self.client.session_transaction() as session:

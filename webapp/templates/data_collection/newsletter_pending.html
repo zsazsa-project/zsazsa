@@ -52,7 +52,7 @@
                quotes often enough to break out of it. #}
             <form method="post" class="d-inline"
                   action="{{ url_for('data_collection.newsletter_ignore', uuid=n.uuid) }}"
-                  onsubmit="return confirm('Ignore this email source? It leaves the review queue and none of its articles are collected.');">
+                  data-submit-confirm="Ignore this email source? It leaves the review queue and none of its articles are collected.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-xs btn-outline-danger" aria-label="Ignore"
                       title="Ignore this email source. It leaves the review queue and none of its articles are collected. The mail stays archived in MISP.">

@@ -95,7 +95,7 @@
                   </a>
                   {{ feed_downloads(f, size='xs') }}
                   <form method="post" action="{{ url_for('indicator_feed.notify', id=f.id) }}" class="d-inline"
-                        onsubmit="return confirm('Send {{ f.feed_id }} to the eligible stakeholders?');">
+                        data-submit-confirm="Send {{ f.feed_id }} to the eligible stakeholders?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-xs btn-outline-primary" title="Notify stakeholders">
                       <i class="fas fa-paper-plane"></i>
@@ -108,7 +108,7 @@
                     <i class="fas fa-pen"></i>
                   </a>
                   <form method="post" action="{{ url_for('indicator_feed.delete', id=f.id) }}" class="d-inline"
-                        onsubmit="return confirm('Delete {{ f.feed_id }} ({{ f.name }})? This cannot be undone.');">
+                        data-submit-confirm="Delete {{ f.feed_id }} ({{ f.name }})? This cannot be undone.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete feed">
                       <i class="fas fa-trash"></i>

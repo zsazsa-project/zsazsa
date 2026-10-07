@@ -14,6 +14,10 @@ The organisation filter on an additional MISP server now takes organisation
 UUIDs only. A filter saved earlier keeps working as it is, but a server whose
 filter holds anything else cannot be saved again until that is corrected.
 
+A briefing date is now kept only as YYYY-MM-DD, the only form the date field
+sends. Anything else posted is replaced by today's date for a new briefing, or
+by the stored date when editing one. Briefings saved earlier are not changed.
+
 ### Added
 
 - An indicator feed downloads as a standalone PyMISP script, to run its search
@@ -38,6 +42,14 @@ filter holds anything else cannot be saved again until that is corrected.
   vulnerability advisory wizards, an organisation filter or organisation name
   under Collection sources, and the name of a collection source or stakeholder
   in its delete confirmation. All of them are shown as text now. / reported by
+  @elhoim
+- More of the same, in places that needed a click or a particular step: the
+  name of a stakeholder, indicator feed or organisation and a briefing's date
+  in their delete, sync and remove confirmations, the scope of a story drafted
+  with AI, the overlap check's reasons, threat actor types on a new story, a
+  CTI evaluation tag after an AI summary, and a tag colour in the event
+  preview. No page puts template data into an inline event handler any more,
+  and a confirmation is asked from a data attribute instead. / reported by
   @elhoim
 
 ## 1.0.5

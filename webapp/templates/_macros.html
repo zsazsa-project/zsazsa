@@ -21,8 +21,7 @@
     <input type="text" id="ti-text-{{ field }}" class="form-control form-control-sm"
            {% if datalist_id %}list="{{ datalist_id }}"{% endif %}
            placeholder="{{ placeholder }}" autocomplete="off">
-    <button type="button" class="btn btn-sm btn-outline-secondary"
-            onclick="tiAdd('{{ field }}')">
+    <button type="button" class="btn btn-sm btn-outline-secondary ti-add">
       <i class="fas fa-plus"></i>
     </button>
   </div>

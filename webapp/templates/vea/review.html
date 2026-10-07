@@ -131,7 +131,7 @@
                 </a>
                 <form method="post" action="{{ url_for('vea.delete', id=v.uuid) }}"
                       class="d-inline"
-                      onsubmit="return confirm('Delete {{ v.vea_id }}?');">
+                      data-submit-confirm="Delete {{ v.vea_id }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete advisory">
                     <i class="fas fa-trash"></i>

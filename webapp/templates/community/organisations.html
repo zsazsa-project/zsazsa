@@ -12,7 +12,7 @@
         <span><i class="fas fa-building me-2"></i>Registered organisations</span>
         {% if orgs %}
         <form method="post" action="{{ url_for('community.organisations_sync_all') }}"
-              onsubmit="return confirm('Sync all local organisation details from MISP?')">
+              data-submit-confirm="Sync all local organisation details from MISP?">
           <button class="btn btn-xs btn-outline-primary" title="Sync all from MISP">
             <i class="fas fa-rotate me-1"></i>Sync all
           </button>
@@ -41,7 +41,7 @@
               <td class="text-end">
                 <div class="d-inline-flex gap-2">
                   <form method="post" action="{{ url_for('community.organisations_sync', uuid=o.uuid) }}"
-                        onsubmit="return confirm('Sync local details for {{ o.name | e }} from MISP?')">
+                        data-submit-confirm="Sync local details for {{ o.name }} from MISP?">
                     <button class="btn btn-xs btn-outline-primary" title="Sync from MISP">
                       <i class="fas fa-rotate"></i>
                     </button>
@@ -52,7 +52,7 @@
                   </button>
                   {% else %}
                   <form method="post" action="{{ url_for('community.organisations_delete', uuid=o.uuid) }}"
-                        onsubmit="return confirm('Remove organisation {{ o.name | e }}?')">
+                        data-submit-confirm="Remove organisation {{ o.name }}?">
                     <button class="btn btn-xs btn-outline-danger" title="Remove">
                       <i class="fas fa-trash"></i>
                     </button>

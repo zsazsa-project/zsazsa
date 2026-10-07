@@ -206,7 +206,7 @@
         </span>
         {% else %}
         <form method="post" action="{{ url_for('daily_briefing.publish', id=briefing.uuid) }}"
-              {% if briefing.summary_stale %}onsubmit="return confirm('The briefing summary is marked out of date. Send it to stakeholders anyway?');"{% endif %}>
+              {% if briefing.summary_stale %}data-submit-confirm="The briefing summary is marked out of date. Send it to stakeholders anyway?"{% endif %}>
           <p class="small text-muted mb-2">Publishing will notify subscribed stakeholders.</p>
           {% if briefing.summary_stale %}
           {# The summary goes out at the top of the mail and the PDF, and neither
@@ -276,7 +276,7 @@
       </span>
       {% else %}
       <form method="post" action="{{ url_for('daily_briefing.delete', id=briefing.uuid) }}"
-            onsubmit="return confirm('Delete this briefing?');" class="flex-fill">
+            data-submit-confirm="Delete this briefing?" class="flex-fill">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-sm btn-outline-danger w-100">
           <i class="fas fa-trash me-1"></i> Delete

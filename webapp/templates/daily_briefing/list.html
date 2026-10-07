@@ -106,7 +106,7 @@
                 </a>
                 <form method="post" action="{{ url_for('daily_briefing.delete', id=b.uuid) }}"
                       class="d-inline"
-                      onsubmit="return confirm('Delete briefing{{ (' ' + b.date) if b.date else '' }}?');">
+                      data-submit-confirm="Delete briefing{{ (' ' + b.date) if b.date else '' }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete briefing">
                     <i class="fas fa-trash"></i>

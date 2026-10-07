@@ -411,6 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var f = w.dataset.tiField;
     tiRender(f);
     var t = document.getElementById('ti-text-' + f);
+    w.querySelector('.ti-add').addEventListener('click', function() { tiAdd(f); });
     if (t) t.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') { e.preventDefault(); tiAdd(f); }
     });

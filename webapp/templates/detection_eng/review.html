@@ -219,7 +219,7 @@
                 </a>
                 <form method="post" action="{{ url_for('detection_eng.delete', id=d.uuid) }}"
                       class="d-inline"
-                      onsubmit="return confirm('Delete {{ d.der_id }}?');">
+                      data-submit-confirm="Delete {{ d.der_id }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete request">
                     <i class="fas fa-trash"></i>
