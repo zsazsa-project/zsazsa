@@ -802,6 +802,16 @@
     }
   }, {capture: true, passive: false});
 
+  // A form carrying data-submit-confirm asks before it submits. The message sits
+  // in an autoescaped attribute, so a name inside it stays text. An inline
+  // onsubmit handler cannot promise that: the browser decodes &#39; back into a
+  // quote before the script runs. It listens while capturing so it answers before
+  // any listener on the form itself looks at whether the submit went ahead.
+  document.addEventListener('submit', (e) => {
+    const message = e.target.dataset?.submitConfirm;
+    if (message && !confirm(message)) e.preventDefault();
+  }, true);
+
   // Auto-dismiss flash messages after 4 seconds
   setTimeout(() => {
     try {

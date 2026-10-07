@@ -681,11 +681,25 @@
     }
     var sourceText = meta.source_label || 'Unknown MISP source';
     var titleText = meta.info || '(untitled event)';
-    box.innerHTML = ''
-      + '<div><strong>Source:</strong> ' + sourceText + '<br>'
-      + '<strong>Title:</strong> <span class="outcome-success" style="padding:.05rem .35rem;border-radius:.35rem;">' + titleText + '</span> '
-      + '<strong>Creator org:</strong> ' + (meta.orgc || '-') + ' '
-      + '<strong>Date:</strong> ' + (meta.date || '-') + '</div>';
+    // Every value here comes from a MISP event, possibly one a sync partner or the
+    // scraper created, so it is set as text and never parsed as HTML.
+    var line = document.createElement('div');
+    function addField(label, value) {
+      var strong = document.createElement('strong');
+      strong.textContent = label + ' ';
+      var span = document.createElement('span');
+      span.textContent = value;
+      line.append(strong, span, ' ');
+      return span;
+    }
+    addField('Source:', sourceText);
+    line.appendChild(document.createElement('br'));
+    var title = addField('Title:', titleText);
+    title.className = 'outcome-success';
+    title.style.cssText = 'padding:.05rem .35rem;border-radius:.35rem;';
+    addField('Creator org:', meta.orgc || '-');
+    addField('Date:', meta.date || '-');
+    box.replaceChildren(line);
     var serverInput = row.querySelector('.vea-source-server-input');
     if (serverInput && meta.source_id) {
       serverInput.value = meta.source_id;

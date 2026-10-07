@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,8 @@ _UPLOADS_DIR = _ROOT / "data" / "uploads"
 _CONFIG_FILE = _ROOT / "config" / "__init__.py"
 _BACKUP_FILE = _ROOT / "config" / "__init__.py.backup"
 _PROMPTS_DIR = _ROOT / "zsazsaprompts"
+
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 # CTI products that can be linked to a Flowintel case template per instance.
 FLOWINTEL_CASE_TEMPLATE_PRODUCTS = [
@@ -941,6 +944,11 @@ def save_server_config():
         enabled = _parse_bool(data.get("enabled", True), default=True)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+    # The filter is matched against organisation UUIDs and the page echoes it back,
+    # so anything else is a mistake at best and markup at worst.
+    org_filter = (data.get("org_filter") or "").strip()
+    if not all(_UUID_RE.fullmatch(u) for u in org_filter.replace(",", " ").split()):
+        return jsonify({"ok": False, "error": "The organisation filter takes organisation UUIDs only"}), 400
 
     entry = {
         "id": sid,
@@ -953,7 +961,7 @@ def save_server_config():
         "tags_and": (data.get("tags_and") or "").strip(),
         "tags_not": (data.get("tags_not") or "").strip(),
         "org_filter_type": (data.get("org_filter_type") or "").strip(),
-        "org_filter": (data.get("org_filter") or "").strip(),
+        "org_filter": org_filter,
         "since_days": since,
         "limit": limit,
     }

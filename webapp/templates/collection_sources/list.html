@@ -424,7 +424,7 @@
           </span>
           <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
           <form method="post" action="{{ url_for('collection_sources.delete', id=src.uuid) }}" class="d-inline ms-1"
-                onsubmit="event.stopPropagation(); return confirm('Delete source ' + {{ src.name | tojson }} + '?');">
+                data-submit-confirm="Delete source {{ src.name }}?">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
           </form>
@@ -750,12 +750,25 @@
     if (orgInput && orgLabels) {
       async function resolveOrgUuids() {
         const raw = orgInput.value.trim();
-        if (!raw) { orgLabels.innerHTML = ''; return; }
+        if (!raw) { orgLabels.replaceChildren(); return; }
         const uuids = raw.split(/[\s,]+/).filter(Boolean);
         const mispUrl = (row.querySelector('input[name="server_url"]')?.value || '').trim();
         const mispKey = (row.querySelector('input[name="server_api_key"]')?.value || '').trim();
-        orgLabels.innerHTML = uuids.map(u => `<span class="text-muted font-monospace">${u}:</span> <span class="fst-italic text-secondary">looking up…</span>`).join('<br>');
-        for (const uuid of uuids) {
+        // Both the typed value and the organisation name MISP returns are set as
+        // text, so neither can add markup to the page.
+        const lines = uuids.map((uuid) => {
+          const id = document.createElement('span');
+          id.className = 'text-muted font-monospace';
+          id.textContent = uuid + ':';
+          const status = document.createElement('span');
+          status.className = 'fst-italic text-secondary';
+          status.textContent = 'looking up…';
+          const line = document.createElement('div');
+          line.append(id, ' ', status);
+          return {uuid, line, status};
+        });
+        orgLabels.replaceChildren(...lines.map((l) => l.line));
+        for (const {uuid, status} of lines) {
           try {
             const resp = await fetch(SCRIPT_ROOT + '/api/lookup-org', {
               method: 'POST',
@@ -763,13 +776,8 @@
               body: JSON.stringify({uuid, misp_url: mispUrl, misp_key: mispKey}),
             });
             const data = await resp.json();
-            const label = data.name
-              ? `<span class="text-muted font-monospace">${uuid}:</span> <span class="text-success fw-semibold">${data.name}</span>`
-              : `<span class="text-muted font-monospace">${uuid}:</span> <span class="text-danger fst-italic">not found</span>`;
-            orgLabels.innerHTML = orgLabels.innerHTML.replace(
-              new RegExp(`<span class="text-muted font-monospace">${uuid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:<\\/span> <span[^>]*>looking up…<\\/span>`),
-              label
-            );
+            status.className = data.name ? 'text-success fw-semibold' : 'text-danger fst-italic';
+            status.textContent = data.name || 'not found';
           } catch (_) {}
         }
       }
