@@ -34,11 +34,11 @@ filter holds anything else cannot be saved again until that is corrected.
 - Drafting a profile with AI ignored actors typed in while the MISP galaxy
   was unavailable.
 - Text from MISP or from another user could run as script in an analyst's
-  session (GHSA-2hmh-2qrq-872r): an event title or creator organisation in the
-  flash intel and vulnerability advisory wizards, an organisation filter or
-  organisation name under Collection sources, and the name of a collection
-  source or stakeholder in its delete confirmation. All of them are shown as
-  text now. / reported by @elhoim
+  session: an event title or creator organisation in the flash intel and
+  vulnerability advisory wizards, an organisation filter or organisation name
+  under Collection sources, and the name of a collection source or stakeholder
+  in its delete confirmation. All of them are shown as text now. / reported by
+  @elhoim
 
 ## 1.0.5
 
