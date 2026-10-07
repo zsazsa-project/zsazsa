@@ -53,7 +53,7 @@ class Component {
   show() {} hide() {} toggle() {} close() {} dispose() {}
 }
 window.bootstrap = {Alert: Component, Collapse: Component, Dropdown: Component, Modal: Component,
-                    Offcanvas: Component, Popover: Component, Tab: Component, Tooltip: Component};
+                    Offcanvas: Component, Popover: Component, Tooltip: Component};
 """
 
 

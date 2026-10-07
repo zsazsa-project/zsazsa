@@ -48,9 +48,8 @@ by the stored date when editing one. Briefings saved earlier are not changed.
   in their delete, sync and remove confirmations, the scope of a story drafted
   with AI, the overlap check's reasons, threat actor types on a new story, a
   CTI evaluation tag after an AI summary, and a tag colour in the event
-  preview. No page puts template data into an inline event handler any more,
-  and a confirmation is asked from a data attribute instead. / reported by
-  @elhoim
+  preview. No page puts template data into an inline event handler any more.
+  / reported by @elhoim
 
 ## 1.0.5
 
