@@ -675,8 +675,7 @@
     }
     var sourceText = meta.source_label || 'Unknown MISP source';
     var titleText = meta.info || '(untitled event)';
-    // Every value here comes from a MISP event, possibly one a sync partner or the
-    // scraper created, so it is set as text and never parsed as HTML.
+    // These come from a MISP event a sync partner or the scraper may have created.
     var line = document.createElement('div');
     function addField(label, value) {
       var strong = document.createElement('strong');

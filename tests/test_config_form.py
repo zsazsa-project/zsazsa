@@ -5,6 +5,9 @@ form did not carry, a page left open across an upgrade, a tab whose inputs never
 rendered, would otherwise be written back as an empty string, an empty list or
 False. That silently drops MISP keys, SMTP passwords and TLS switches.
 
+An additional MISP server's organisation filter is also checked on save, because
+the collection sources page shows it back.
+
     python -m unittest tests.test_config_form
 """
 
@@ -156,6 +159,28 @@ class ConfigSave(unittest.TestCase):
         before = self.saved()
         self.client.post("/config", data=self.full_form())
         self.assertEqual(set(self.saved()), set(before))
+
+    def save_server(self, org_filter):
+        return self.client.post("/config/sources/save-server", json={
+            "label": "Partner", "url": "https://misp.partner.example",
+            "org_filter_type": "include", "org_filter": org_filter,
+        })
+
+    def test_a_server_org_filter_takes_organisation_uuids_only(self):
+        """The page shows the filter back, so markup in it ran as script
+        (GHSA-2hmh-2qrq-872r)."""
+        before = self.saved()
+        for org_filter in ("<img/src=x/onerror=alert(1)>",
+                           "55f6ea5e-2c60-40e5-964f-47a8950d210f, not-a-uuid"):
+            resp = self.save_server(org_filter)
+            self.assertEqual(resp.status_code, 400, org_filter)
+        self.assertEqual(self.saved(), before)
+
+    def test_a_server_org_filter_keeps_its_uuids(self):
+        org_filter = "55f6ea5e-2c60-40e5-964f-47a8950d210f, 55F6EA5E-2C60-40E5-964F-47A8950D2110"
+        self.assertTrue(self.save_server(org_filter).get_json()["ok"])
+        self.assertEqual(self.saved()["MISP_SERVERS"][-1]["org_filter"], org_filter)
+        self.assertTrue(self.save_server("").get_json()["ok"])
 
 
 if __name__ == "__main__":

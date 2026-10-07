@@ -754,8 +754,7 @@
         const uuids = raw.split(/[\s,]+/).filter(Boolean);
         const mispUrl = (row.querySelector('input[name="server_url"]')?.value || '').trim();
         const mispKey = (row.querySelector('input[name="server_api_key"]')?.value || '').trim();
-        // Both the typed value and the organisation name MISP returns are set as
-        // text, so neither can add markup to the page.
+        // The filter and the names MISP returns are set as text, never as markup.
         const lines = uuids.map((uuid) => {
           const id = document.createElement('span');
           id.className = 'text-muted font-monospace';
