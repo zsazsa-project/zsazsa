@@ -722,7 +722,8 @@ def index():
             "MISP_SCRAPER_SINCE_DAYS": getattr(_config, "MISP_SCRAPER_SINCE_DAYS", 30),
             "MISP_SERVERS": getattr(_config, "MISP_SERVERS", []) or [],
             "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []) or [],
-            "MISP_WEBAPP_URL": _form_str("MISP_WEBAPP_URL"),
+            # Every link into MISP appends a path starting with a slash.
+            "MISP_WEBAPP_URL": _form_str("MISP_WEBAPP_URL").rstrip("/"),
             "MISP_WEBAPP_KEY": _form_str("MISP_WEBAPP_KEY"),
             "MISP_WEBAPP_VERIFYCERT": _form_bool("MISP_WEBAPP_VERIFYCERT"),
             "MISP_EVENT_DISTRIBUTION": _form_int("MISP_EVENT_DISTRIBUTION", 0),

@@ -55,7 +55,7 @@
         </div>
         <div class="mt-3">
           <label class="form-label">Stakeholder type</label>
-          {% set current_type = stakeholder.stakeholder_type if is_edit else 'External' %}
+          {% set current_type = stakeholder.stakeholder_type if is_edit else 'Internal' %}
           <div class="d-flex gap-2 mt-1">
             <input type="radio" class="btn-check" name="stakeholder_type" id="stype_internal" value="Internal"
                    {{ 'checked' if current_type == 'Internal' }}>
@@ -122,11 +122,13 @@
               </button>
             </div>
           </template>
-          <div class="form-text">
-            Reference details only, for knowing who to reach and how. Nothing is
-            delivered here: products and notifications go to the channels picked
-            under Notification channels. Mark one contact as preferred to have it
-            shown first.
+          <div class="form-text d-flex gap-2">
+            <i class="fas fa-circle-exclamation text-warning mt-1"></i>
+            <span>
+              Reference details only, for knowing who to reach and how.
+              <strong>Nothing is delivered here:</strong> products and notifications
+              go to the channels picked under Notification channels.
+            </span>
           </div>
         </div>
 
@@ -165,7 +167,16 @@
         </div>
         <div class="mt-3">
           <label class="form-label">Engagement strategy</label>
-          <textarea name="engagement_strategy" class="form-control" rows="3"
+          <div class="d-flex flex-wrap gap-1 mb-2" id="engagement-presets">
+            {% for preset in ['Monthly call', 'Quarterly in-person threat briefing',
+                              'Invite to the yearly PIR review', 'Direct call on a critical threat',
+                              'Annual tabletop exercise'] %}
+            <button type="button" class="btn btn-xs btn-outline-secondary" data-preset="{{ preset }}">
+              <i class="fas fa-plus me-1"></i>{{ preset }}
+            </button>
+            {% endfor %}
+          </div>
+          <textarea name="engagement_strategy" id="engagement-strategy" class="form-control" rows="3"
                     placeholder="e.g. Monthly briefing call, prioritise flash alerts, invite to the quarterly review...">{{ stakeholder.engagement_strategy if is_edit else '' }}</textarea>
           <div class="form-text">Specific notes on how to keep this stakeholder engaged, on top of the general guidance for their quadrant.</div>
         </div>
@@ -223,12 +234,21 @@
 
         <label class="form-label">Products subscribed</label>
         <div class="product-checklist">
-          {% for p in products %}
+          {% set product_icons = {
+            'Daily threat briefing': 'newspaper',
+            'Threat landscape report': 'globe',
+            'Flash intel alert': 'bolt',
+            'Vulnerability advisory': 'bug',
+            'Threat actor profile': 'user-secret',
+            'Indicator feed': 'satellite-dish',
+            'Detection engineering request': 'crosshairs',
+          } %}
+          {% for p in products | sort(case_sensitive=False) %}
           {% set current_mode = (stakeholder.product_modes.get(p) if is_edit and stakeholder.product_modes else default_subscription_mode) %}
           <div class="form-check d-flex align-items-center gap-2 mb-2">
             <input class="form-check-input mt-0" type="checkbox" name="products" value="{{ p }}" id="prod_{{ loop.index }}"
               {{ 'checked' if is_edit and p in stakeholder.products }}>
-            <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}">{{ p }}</label>
+            <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}"><i class="fas fa-{{ product_icons.get(p, 'cube') }} fa-fw text-muted me-1"></i>{{ p }}</label>
             {# The mode picker is hidden for now, but the stored mode still has to
                survive a save, so it travels with the form. #}
             <input type="hidden" name="mode__{{ p }}" value="{{ current_mode }}">
@@ -255,6 +275,17 @@
 
 {% block scripts %}
 <script>
+(function() {
+  var strategy = document.getElementById('engagement-strategy');
+  document.querySelectorAll('#engagement-presets [data-preset]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var current = strategy.value.replace(/\s+$/, '');
+      strategy.value = (current ? current + '\n' : '') + btn.dataset.preset;
+      strategy.focus();
+    });
+  });
+})();
+
 (function() {
   var list = document.getElementById('contacts-list');
   var tpl = document.getElementById('contact-template');

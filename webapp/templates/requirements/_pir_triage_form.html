@@ -16,6 +16,20 @@
     </div>
     <div class="col-lg-6">
       <div class="small fw-semibold mb-2"><i class="fas fa-gavel me-1"></i>Decision</div>
+      {% if pir.intake_status == 'acknowledged' %}
+      <p class="small text-muted mb-2">
+        <i class="fas fa-eye me-1" style="color:var(--accent-blue);"></i>Acknowledged
+        {%- if pir.acknowledged_at %} on {{ pir.acknowledged_at }}{% endif %}
+        {%- if pir.acknowledged_by %} by {{ pir.acknowledged_by }}{% endif %}.
+        A final decision is still needed.
+      </p>
+      {% elif pir.intake_status == 'deferred' %}
+      <p class="small text-muted mb-2">
+        <i class="fas fa-pause-circle me-1"></i>Deferred
+        {%- if pir.decision_at %} on {{ pir.decision_at }}{% endif %}
+        {%- if pir.decision_by %} by {{ pir.decision_by }}{% endif %}.
+      </p>
+      {% endif %}
       {% set decisions = [
         ('acknowledged', 'Acknowledge', 'Record receipt. The PIR stays Pending until a final decision.'),
         ('approved', 'Approve', 'Accept into the program. Moves to Active.'),
@@ -27,6 +41,7 @@
       <div class="form-check">
         <input class="form-check-input triage-decision" type="radio" name="decision" value="{{ value }}"
                id="pir-dec-{{ pir.id }}-{{ value }}" required
+               {{ 'checked' if pir.intake_status == value }}
                {{ 'data-needs-reason=1' if value in ['rejected', 'deferred'] }}
                {{ 'data-needs-merge=1' if value == 'merged' }}>
         <label class="form-check-label small" for="pir-dec-{{ pir.id }}-{{ value }}">
@@ -46,7 +61,7 @@
       </div>
       <div class="mt-2 triage-reason-wrap" style="display:none;">
         <label class="form-label small mb-1">Reason</label>
-        <textarea name="reason" class="form-control form-control-sm" rows="2" placeholder="Explain the decision to the requester."></textarea>
+        <textarea name="reason" class="form-control form-control-sm" rows="2" placeholder="Explain the decision to the requester.">{{ pir.deferral_reason if pir.intake_status == 'deferred' else '' }}</textarea>
       </div>
       <div class="mt-3">
         <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-check me-1"></i>Confirm decision</button>

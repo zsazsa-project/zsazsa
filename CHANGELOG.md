@@ -1,47 +1,55 @@
 # Changelog
 
-## 1.0.6 - in development
+## 1.0.6
 
-Support for background jobs via AI in the daily briefing drafts. 
+AI drafting of the daily briefing now runs as a background job, and an
+indicator feed can be exported as a standalone PyMISP script. PIR and RFI
+triage is easier to follow and the stakeholder pages got some care. This
+release also fixes two cross-site scripting issues, so upgrading is recommended.
 
 ### Upgrading
 
-Pull and restart, nothing to migrate. A threat actor profile mail shows the
-Diamond Model inline, there is no longer a `diamond-model.png`
-attachment.
+Pull and restart, there is nothing to migrate. A few things behave differently:
 
-The organisation filter on an additional MISP server now takes organisation
-UUIDs only. A filter saved earlier keeps working as it is, but a server whose
-filter holds anything else cannot be saved again until that is corrected.
-
-A briefing date is now kept only as YYYY-MM-DD, the only form the date field
-sends. Anything else posted is replaced by today's date for a new briefing, or
-by the stored date when editing one. Briefings saved earlier are not changed.
+- Threat actor profile mails show the Diamond Model inline instead of attaching
+  `diamond-model.png`.
+- The organisation filter on an additional MISP server takes organisation UUIDs
+  only.
+- If your MISP URL ends in a slash, save the Settings page once to drop it.
 
 ### Added
 
-- An indicator feed downloads as a standalone PyMISP script, to run its search
-  on a MISP server without zsazsa. It reads the server and key from the
-  environment, and prints the feed's TLP on stderr when it runs.
+- An indicator feed can be downloaded as a standalone PyMISP script.
+- The stakeholder form has ready-made engagement strategies, products sorted
+  with their icons, and Internal as the default type. On the matrix, hovering a
+  name highlights that stakeholder.
+- Organisations link to their page in MISP.
+- Board cards for new PIRs and RFIs have a Triage button that opens the triage
+  pane. An acknowledged or deferred PIR shows that on its button and in the pane.
 
 ### Fixed
 
-- A briefing story the model returned as a numbered list rendered unlike the
-  others in the preview, the PDF and the mail, and lost its threat actor type.
-- A CVE ID went into the CIRCL lookup URL unchecked.
-- A threat actor profile sent by mail or Mattermost had only part of the
-  PDF. It now has the same metadata, actor details, scope and references.
-- A briefing published while the AI was drafting it sent no notifications.
-- The AI could leave a profile's assessment confidence blank while saying it
-  had filled it in.
-- Markdown was shown unsanitised if DOMPurify failed to load.
-- Drafting a profile with AI ignored actors typed in while the MISP galaxy
-  was unavailable.
-- Script in a MISP event title, an organisation name or a source or
-  stakeholder name could run in the browser. / reported by @elhoim
-- Script could also run from names and dates in confirmation dialogs, from
-  the daily briefing editor and from MISP tags on the collection page.
-  / reported by @elhoim
+- Briefing stories the model returned as a numbered list looked different from
+  the others and lost their threat actor type.
+- CVE IDs are checked before they go into the CIRCL lookup.
+- Threat actor profiles sent by mail or Mattermost now include the full PDF.
+- A briefing published while the AI was still drafting it now sends its
+  notifications.
+- The AI no longer leaves a profile's confidence blank while claiming to have
+  filled it in.
+- Markdown is no longer shown unsanitised when DOMPurify fails to load.
+- Drafting a profile with AI keeps actors typed in while the MISP galaxy was
+  unavailable.
+- Links into MISP no longer get a double slash when the URL ends in one.
+
+### Security
+
+- Stored and DOM-based XSS (GHSA-2hmh-2qrq-872r): script in a MISP event
+  title, an organisation name or a source or stakeholder name could run in the
+  browser. / reported by @elhoim
+- Stored and DOM-based XSS (GHSA-4rw2-wpj5-m23p): script in names and dates
+  shown in confirmation dialogs, in the daily briefing editor and in MISP tags
+  on the collection page could run in the browser. / reported by @elhoim
 
 ## 1.0.5
 

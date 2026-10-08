@@ -539,7 +539,11 @@ def pir_triage(id):
             mm.send_pir_intake_notification(pir, decision, reason or None)
         except Exception as exc:
             logger.warning("PIR intake notification failed for %s: %s", pir.pir_id, exc)
-        flash(f"{pir.pir_id} marked as {decision}.", "success")
+        if decision in ("acknowledged", "deferred"):
+            flash(f"{pir.pir_id} marked as {decision}. It stays Pending until it is "
+                  "approved, rejected or merged.", "success")
+        else:
+            flash(f"{pir.pir_id} marked as {decision}.", "success")
     except Exception as exc:
         flash(f"Could not update intake status: {exc}", "warning")
     return redirect(url_for("requirements.pir_list"))

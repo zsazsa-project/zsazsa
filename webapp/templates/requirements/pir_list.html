@@ -39,6 +39,12 @@
 <!-- Kanban board -->
 {% set kanban_statuses = ['Pending', 'Active', 'In Development', 'Under Evaluation', 'Implemented', 'Retired'] %}
 {% set rd_intakes = ['rejected'] %}
+{# The triage button names where an untriaged PIR stands: label, icon, style. #}
+{% set triage_buttons = {
+  'acknowledged': ('Acknowledged', 'fa-eye', 'btn-outline-primary'),
+  'deferred': ('Deferred', 'fa-pause-circle', 'btn-outline-secondary'),
+} %}
+{% set triage_default = ('Triage', 'fa-gavel', 'btn-outline-warning') %}
 <div class="card content-card mb-3">
   <div class="card-header"><i class="fas fa-columns me-2"></i>Status board (drag to update status)</div>
   <div class="card-body p-2">
@@ -83,16 +89,13 @@
               {% endif %}
             </div>
             <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ pir.question }}">{{ pir.question | truncate(30) }}</div>
-            {% if pir.intake_status == 'deferred' %}
-            <div class="mt-1">
-              <span class="badge" style="font-size:.6rem;background:var(--neutral-600);color:var(--text-on-accent);">deferred</span>
-            </div>
-            {% endif %}
             {% if not can_drag %}
+            {% set label, icon, style = triage_buttons.get(pir.intake_status, triage_default) %}
             <div class="mt-1">
-              <span class="badge" style="font-size:.6rem;background:var(--accent-orange);color:var(--text-on-accent);" title="Triage from the table below before moving">
-                <i class="fas fa-gavel me-1"></i>Triage in list
-              </span>
+              <button type="button" class="btn btn-xs {{ style }} triage-open"
+                      data-target="triage-row-{{ pir.id }}" title="Triage this PIR before moving it">
+                <i class="fas {{ icon }} me-1"></i>{{ label }}
+              </button>
             </div>
             {% endif %}
           </div>
@@ -191,9 +194,6 @@
             <span class="badge status-badge status-rejected">Rejected</span>
             {% else %}
             <span class="badge status-badge status-{{ pir.status | slug }}">{{ pir.status }}</span>
-            {% if pir.intake_status == 'deferred' %}
-            <span class="badge bg-secondary ms-1" style="font-size:.65rem;">deferred</span>
-            {% endif %}
             {% endif %}
             {% if pir.intake_status == 'submitted' %}
             <i class="fas fa-inbox fa-xs ms-1" style="color:var(--accent-orange);" title="Triage: submitted"></i>
@@ -211,10 +211,11 @@
             <i class="fas fa-code-branch fa-xs ms-1" style="color:var(--neutral-600);" title="Triage: merged"></i>
             {% endif %}
             {% if untriaged %}
+            {% set label, icon, style = triage_buttons.get(pir.intake_status, triage_default) %}
             <div class="mt-1">
-              <button type="button" class="btn btn-xs btn-outline-warning triage-toggle"
+              <button type="button" class="btn btn-xs {{ style }} text-nowrap triage-toggle"
                       data-target="triage-row-{{ pir.id }}" aria-expanded="false" title="Triage this PIR">
-                <i class="fas fa-gavel me-1"></i>Triage
+                <i class="fas {{ icon }} me-1"></i>{{ label }}
               </button>
             </div>
             {% endif %}

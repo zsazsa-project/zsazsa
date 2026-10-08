@@ -97,7 +97,7 @@ def create_app():
     @app.context_processor
     def _inject_globals():
         return {
-            "misp_webapp_url": config.MISP_WEBAPP_URL,
+            "misp_webapp_url": (config.MISP_WEBAPP_URL or "").rstrip("/"),
             "brand_company": getattr(config, "BRAND_COMPANY", ""),
             "ui_theme": getattr(config, "THEME", "overmind"),
             "current_user_email": misp_session.current_user_email(),

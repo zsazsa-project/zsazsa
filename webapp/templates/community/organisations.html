@@ -40,6 +40,11 @@
               <td><code class="small">{{ o.uuid }}</code></td>
               <td class="text-end">
                 <div class="d-inline-flex gap-2">
+                  <a class="btn btn-xs btn-outline-secondary" title="View in MISP"
+                     href="{{ misp_webapp_url }}/organisations/view/{{ o.uuid }}"
+                     target="_blank" rel="noopener">
+                    <i class="fas fa-eye"></i>
+                  </a>
                   <form method="post" action="{{ url_for('community.organisations_sync', uuid=o.uuid) }}"
                         data-submit-confirm="Sync local details for {{ o.name }} from MISP?">
                     <button class="btn btn-xs btn-outline-primary" title="Sync from MISP">

@@ -17,11 +17,19 @@
     });
   });
 
-  document.addEventListener('change', function(e) {
-    var radio = e.target.closest ? e.target.closest('.triage-decision') : null;
-    if (!radio) return;
-    var form = radio.closest('.triage-form');
-    if (!form) return;
+  // A Triage button outside the table, such as on a board card, opens the
+  // same row through its toggle and scrolls to it.
+  document.querySelectorAll('.triage-open').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var row = document.getElementById(btn.dataset.target);
+      if (!row) return;
+      var toggle = document.querySelector('.triage-toggle[data-target="' + btn.dataset.target + '"]');
+      if (toggle && row.classList.contains('d-none')) toggle.click();
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+
+  function showDecisionInputs(form) {
     var sel = form.querySelector('.triage-decision:checked');
     var needsReason = !!(sel && sel.dataset.needsReason === '1');
     var needsMerge = !!(sel && sel.dataset.needsMerge === '1');
@@ -37,6 +45,14 @@
       var msel = mergeWrap.querySelector('select');
       if (msel) msel.required = needsMerge;
     }
+  }
+
+  document.querySelectorAll('.triage-form').forEach(showDecisionInputs);
+
+  document.addEventListener('change', function(e) {
+    var radio = e.target.closest ? e.target.closest('.triage-decision') : null;
+    var form = radio ? radio.closest('.triage-form') : null;
+    if (form) showDecisionInputs(form);
   });
 })();
 </script>

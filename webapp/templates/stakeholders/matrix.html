@@ -53,6 +53,7 @@
             </div>
             {% for s in stakeholders %}
             <a href="{{ url_for('stakeholders.detail', id=s.id) }}" class="matrix-dot quadrant-{{ s.quadrant_key }}"
+               data-stakeholder="{{ s.id }}"
                style="left: {{ s.interest_pct }}%; bottom: {{ s.influence_pct }}%;"
                title="{{ s.name }}: Influence {{ s.influence }}/10, Interest {{ s.interest }}/10">
               {{ s.name | truncate(14, True, '…') }}
@@ -75,7 +76,12 @@
           {% if by_quadrant[key] %}
           <ul class="list-unstyled mb-0 small">
             {% for s in by_quadrant[key] %}
-            <li class="mb-1">
+            <li class="mb-1" data-stakeholder="{{ s.id }}">
+              {% if s.stakeholder_type == 'Internal' %}
+              <span class="badge text-bg-primary" style="font-size:.65rem;vertical-align:middle;" title="Internal"><i class="fas fa-building"></i></span>
+              {% else %}
+              <span class="badge text-bg-secondary" style="font-size:.65rem;vertical-align:middle;" title="External"><i class="fas fa-globe"></i></span>
+              {% endif %}
               <a href="{{ url_for('stakeholders.detail', id=s.id) }}">{{ s.name }}</a>
               <span class="text-muted">({{ s.role or 'no role set' }})</span>
             </li>
@@ -137,4 +143,18 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  // Hovering a name in the quadrant list points out its dot on the matrix.
+  document.querySelectorAll('li[data-stakeholder]').forEach(function(item) {
+    var dot = document.querySelector('.matrix-dot[data-stakeholder="' + item.dataset.stakeholder + '"]');
+    if (!dot) return;
+    item.addEventListener('mouseenter', function() { dot.classList.add('is-highlighted'); });
+    item.addEventListener('mouseleave', function() { dot.classList.remove('is-highlighted'); });
+  });
+})();
+</script>
 {% endblock %}

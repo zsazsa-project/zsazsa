@@ -155,6 +155,13 @@ class ConfigSave(unittest.TestCase):
         self.client.post("/config", data=form)
         self.assertEqual(self.saved()["RULEZET_URL"], "")
 
+    def test_the_misp_url_is_saved_without_a_trailing_slash(self):
+        """Links append "/events/view/..." to it and would show "//"."""
+        form = self.full_form()
+        form["MISP_WEBAPP_URL"] = "https://misp.example/"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["MISP_WEBAPP_URL"], "https://misp.example")
+
     def test_every_key_survives_a_save(self):
         before = self.saved()
         self.client.post("/config", data=self.full_form())

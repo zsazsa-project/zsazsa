@@ -77,9 +77,10 @@
             <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ rfi.question }}">{{ rfi.question | truncate(30) | md_inline }}</div>
             {% if not can_drag %}
             <div class="mt-1">
-              <span class="badge" style="font-size:.6rem;background:var(--accent-orange, #d97706);color:#fff;" title="Triage from the table below before moving">
-                <i class="fas fa-gavel me-1"></i>Triage in list
-              </span>
+              <button type="button" class="btn btn-xs btn-outline-warning triage-open"
+                      data-target="rfi-triage-row-{{ rfi.id }}" title="Triage this RFI before moving it">
+                <i class="fas fa-gavel me-1"></i>Triage
+              </button>
             </div>
             {% endif %}
           </div>
