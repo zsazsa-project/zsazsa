@@ -158,7 +158,7 @@
               <a href="{{ url_for('rfi.rfi_edit', id=rfi.id) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                 <i class="fas fa-pen"></i>
               </a>
-              <form method="post" action="{{ url_for('rfi.rfi_delete', id=rfi.id) }}" class="d-inline" onsubmit="return confirm('Delete {{ rfi.rfi_id }}?')">
+              <form method="post" action="{{ url_for('rfi.rfi_delete', id=rfi.id) }}" class="d-inline" data-submit-confirm="Delete {{ rfi.rfi_id }}?">
                 <button class="btn btn-xs btn-outline-danger" title="Delete">
                   <i class="fas fa-trash"></i>
                 </button>

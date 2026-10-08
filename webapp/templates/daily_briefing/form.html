@@ -644,15 +644,20 @@ var STORY_TO_BRIEFING_SCOPE = {
   techniques: 'mitre_attack_techniques'
 };
 
-function _actorTypePillsHtml(idx, selected) {
-  selected = selected || [];
+/* Any user can rename the types under Settings, so they go in as text. */
+function _actorTypePills(idx) {
   return threatActorTypes.map(function(t) {
-    var isSelected = selected.indexOf(t.name) !== -1;
-    return '<label class="actor-type-pill' + (isSelected ? ' selected' : '') + '" title="' + (t.description || '').replace(/"/g, '&quot;') + '">'
-      + '<input type="checkbox" name="story_' + idx + '_threat_actor_types" value="' + t.name + '"' + (isSelected ? ' checked' : '') + ' style="display:none;">'
-      + t.name
-      + '</label>';
-  }).join('');
+    var input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = 'story_' + idx + '_threat_actor_types';
+    input.value = t.name;
+    input.style.display = 'none';
+    var label = document.createElement('label');
+    label.className = 'actor-type-pill';
+    label.title = t.description || '';
+    label.append(input, t.name);
+    return label;
+  });
 }
 
 document.addEventListener('change', function(e) {
@@ -1204,20 +1209,22 @@ function _renderOverlapResult(data) {
   var summary = data.summary ? String(data.summary) : '';
   statusEl.textContent = 'Potential overlap found in ' + overlaps.length + ' pair' + (overlaps.length === 1 ? '' : 's') + '.' + (summary ? ' ' + summary : '');
 
-  var items = overlaps.map(function(item) {
-    var scorePct = Math.round((Number(item.score || 0)) * 100);
-    var reason = item.reason ? String(item.reason) : 'Similar event coverage detected.';
-    return '<li class="list-group-item d-flex justify-content-between align-items-start">'
-      + '<div>'
-      + '<div class="fw-semibold">Story ' + item.a + ' and Story ' + item.b + '</div>'
-      + '<div class="small text-muted">' + reason + '</div>'
-      + '</div>'
-      + '<span class="badge text-bg-warning">Overlap ' + scorePct + '%</span>'
-      + '</li>';
-  });
-
   resultEl.style.display = '';
-  resultEl.innerHTML = '<div class="card content-card"><div class="card-header"><i class="fas fa-copy me-2"></i>Potential duplicate coverage</div><ul class="list-group list-group-flush">' + items.join('') + '</ul></div>';
+  resultEl.innerHTML = '<div class="card content-card"><div class="card-header"><i class="fas fa-copy me-2"></i>Potential duplicate coverage</div><ul class="list-group list-group-flush"></ul></div>';
+  var list = resultEl.querySelector('ul');
+  // The model writes the pairs and the reason, from scraped article text, so
+  // they go in as text.
+  overlaps.forEach(function(item) {
+    var scorePct = Math.round((Number(item.score || 0)) * 100);
+    var li = document.createElement('li');
+    li.className = 'list-group-item d-flex justify-content-between align-items-start';
+    li.innerHTML = '<div><div class="fw-semibold"></div><div class="small text-muted"></div></div>'
+      + '<span class="badge text-bg-warning"></span>';
+    li.querySelector('.fw-semibold').textContent = 'Story ' + item.a + ' and Story ' + item.b;
+    li.querySelector('.small').textContent = item.reason ? String(item.reason) : 'Similar event coverage detected.';
+    li.querySelector('.badge').textContent = 'Overlap ' + scorePct + '%';
+    list.appendChild(li);
+  });
   _highlightOverlapStories(overlaps);
 }
 
@@ -1285,7 +1292,7 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
           ${threatActorTypes.length ? (
           '<div class="col-12">'
           + '<label class="form-label">Threat actor type</label>'
-          + '<div class="d-flex flex-wrap gap-2">' + _actorTypePillsHtml(idx, []) + '</div>'
+          + '<div class="d-flex flex-wrap gap-2 actor-type-pills"></div>'
           + '<div class="form-text">Select one or more. Hover for description.</div>'
           + '</div>') : ''}
         </div>
@@ -1294,6 +1301,8 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
       </div>
     </div>`;
   document.getElementById('stories-container').insertAdjacentHTML('beforeend', html);
+  var pills = document.querySelector('#pane-story-' + idx + ' .actor-type-pills');
+  if (pills) pills.append(..._actorTypePills(idx));
   refreshRail();
   showPane('story-' + idx);
 }
@@ -1301,19 +1310,25 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
 function _renderScopeChips(idx, scope) {
   var el = document.querySelector('.scope-chips-' + idx);
   if (!el || !scope) return;
+  // The scope is read from galaxy tags on the source event, so it goes in as text.
+  function chip(colour, title, text) {
+    var span = document.createElement('span');
+    span.className = 'badge bg-' + colour + ' bg-opacity-10 text-' + colour
+      + ' border border-' + colour + ' border-opacity-25 me-1';
+    span.title = title;
+    span.textContent = text;
+    return span;
+  }
   var chips = [];
-  (scope.sectors || []).forEach(function(s) {
-    chips.push('<span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 me-1" title="Sector">' + s + '</span>');
-  });
-  (scope.geo || []).forEach(function(s) {
-    chips.push('<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 me-1" title="Geography">' + s + '</span>');
-  });
-  (scope.techniques || []).forEach(function(s) {
-    chips.push('<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 me-1" title="MITRE">' + s + '</span>');
-  });
+  (scope.sectors || []).forEach(function(s) { chips.push(chip('primary', 'Sector', s)); });
+  (scope.geo || []).forEach(function(s) { chips.push(chip('success', 'Geography', s)); });
+  (scope.techniques || []).forEach(function(s) { chips.push(chip('secondary', 'MITRE', s)); });
   if (chips.length) {
+    var label = document.createElement('span');
+    label.className = 'text-muted small me-1';
+    label.textContent = 'Scope:';
     el.style.display = '';
-    el.innerHTML = '<span class="text-muted small me-1">Scope:</span>' + chips.join('');
+    el.replaceChildren(label, ...chips);
   }
 }
 
@@ -1799,6 +1814,7 @@ document.querySelectorAll('[data-ti-field]').forEach(function(w) {
   var f = w.dataset.tiField;
   tiRender(f);
   var t = document.getElementById('ti-text-' + f);
+  w.querySelector('.ti-add').addEventListener('click', function() { tiAdd(f); });
   if (t) t.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); tiAdd(f); }
   });

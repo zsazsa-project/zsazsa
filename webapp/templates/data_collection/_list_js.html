@@ -398,7 +398,8 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     badge.dataset.tag = tag;
     badge.style.cursor = 'pointer';
     badge.title = 'CTI evaluation · ' + fmt.predicateLabel + ': ' + fmt.valueLabel + ' · Click to filter';
-    badge.innerHTML = '<i class="fas fa-microscope fa-xs me-1"></i>' + fmt.predicateLabel + ': ' + fmt.valueLabel;
+    badge.innerHTML = '<i class="fas fa-microscope fa-xs me-1"></i>';
+    badge.append(fmt.predicateLabel + ': ' + fmt.valueLabel);
     _applyCtiBadgeClass(badge, tag);
     bindTagBadgeClick(badge);
     return badge;
@@ -1354,7 +1355,11 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     var ev = data.event; var html = '';
     if (ev.tags && ev.tags.length) {
       html += '<div class="mb-3 d-flex flex-wrap gap-1">';
-      ev.tags.forEach(function(t) { html += '<span class="badge" style="background:' + (t.colour||'var(--chip-tag-generic-fg)') + ';font-size:.72rem;">' + esc(t.name||t) + '</span>'; });
+      ev.tags.forEach(function(t) {
+        // Stock MISP checks tag colours, but a source MISP is not always stock.
+        var colour = /^#[0-9a-fA-F]{6}$/.test(t.colour || '') ? t.colour : 'var(--chip-tag-generic-fg)';
+        html += '<span class="badge" style="background:' + colour + ';font-size:.72rem;">' + esc(t.name||t) + '</span>';
+      });
       html += '</div>';
     }
     if (data.reports && data.reports.length) {

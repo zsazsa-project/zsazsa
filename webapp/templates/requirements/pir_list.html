@@ -242,7 +242,7 @@
                 <i class="fas fa-pen"></i>
               </a>
               {% endif %}
-              <form method="post" action="{{ url_for('requirements.pir_delete', id=pir.id) }}" class="d-inline" onsubmit="return confirm('Delete {{ pir.pir_id }}?')">
+              <form method="post" action="{{ url_for('requirements.pir_delete', id=pir.id) }}" class="d-inline" data-submit-confirm="Delete {{ pir.pir_id }}?">
                 <button class="btn btn-xs btn-outline-danger" title="Delete">
                   <i class="fas fa-trash"></i>
                 </button>

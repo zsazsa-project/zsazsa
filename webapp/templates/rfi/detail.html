@@ -242,7 +242,7 @@
         <i class="fas fa-pen me-1"></i> Edit
       </a>
       <form method="post" action="{{ url_for('rfi.rfi_delete', id=rfi.id) }}"
-            onsubmit="return confirm('Delete {{ rfi.rfi_id }}?')" class="flex-fill">
+            data-submit-confirm="Delete {{ rfi.rfi_id }}?" class="flex-fill">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-sm btn-outline-danger w-100">
           <i class="fas fa-trash me-1"></i> Delete RFI

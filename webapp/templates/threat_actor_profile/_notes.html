@@ -43,7 +43,7 @@
         {% endif %}
         {% if editable %}
         <form method="post" action="{{ url_for('threat_actor_profile.note_delete', id=tap.uuid, report_id=note.id) }}"
-              class="ms-auto d-inline" onsubmit="return confirm('Delete this note?');">
+              class="ms-auto d-inline" data-submit-confirm="Delete this note?">
           <button class="btn btn-xs btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
         </form>
         {% endif %}

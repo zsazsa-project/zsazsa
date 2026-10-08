@@ -142,7 +142,7 @@
               <a href="{{ url_for('requirements.gir_edit', id=gir.id) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                 <i class="fas fa-pen"></i>
               </a>
-              <form method="post" action="{{ url_for('requirements.gir_delete', id=gir.id) }}" class="d-inline" onsubmit="return confirm('Delete {{ gir.gir_id }}?')">
+              <form method="post" action="{{ url_for('requirements.gir_delete', id=gir.id) }}" class="d-inline" data-submit-confirm="Delete {{ gir.gir_id }}?">
                 <button class="btn btn-xs btn-outline-danger" title="Delete">
                   <i class="fas fa-trash"></i>
                 </button>

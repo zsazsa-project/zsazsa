@@ -368,7 +368,7 @@
           {% endif %}
         {% else %}
         <form method="post" action="{{ url_for('threat_actor_profile.notify', id=tap.uuid) }}"
-              class="mb-2" onsubmit="return confirm('Resend {{ tap.tap_id }} to subscribed stakeholders?');">
+              class="mb-2" data-submit-confirm="Resend {{ tap.tap_id }} to subscribed stakeholders?">
           <button class="btn btn-outline-secondary w-100"><i class="fas fa-paper-plane me-1"></i> Resend to recipients</button>
         </form>
         {% endif %}
@@ -392,7 +392,7 @@
           </span>
           {% else %}
           <form method="post" action="{{ url_for('threat_actor_profile.delete', id=tap.uuid) }}"
-                class="flex-fill" onsubmit="return confirm('Delete {{ tap.tap_id }}? This cannot be undone.');">
+                class="flex-fill" data-submit-confirm="Delete {{ tap.tap_id }}? This cannot be undone.">
             <button class="btn btn-sm btn-outline-danger w-100"><i class="fas fa-trash me-1"></i> Delete</button>
           </form>
           {% endif %}

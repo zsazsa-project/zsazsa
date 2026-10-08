@@ -257,6 +257,13 @@ def _parse_briefing_scope_from_form(form):
     }
 
 
+def _form_date(form, fallback):
+    """The briefing date as YYYY-MM-DD. The form's date input only sends that, and
+    the date ends up in page markup, so anything else falls back."""
+    parsed = misp_store._parse_date(form.get("date", "").strip())
+    return parsed.isoformat() if parsed else fallback
+
+
 # How a story's text came to be, as the compose form reports it. Anything else
 # posted under that name is read as hand-written.
 _STORY_ORIGINS = ("ai", "ai-edited")
@@ -363,7 +370,7 @@ def compose():
     if request.method == "POST":
         # Submitted from the triage page: create a blank briefing shell with
         # selected events pre-loaded as story stubs, then redirect to edit.
-        bdate = request.form.get("date", "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        bdate = _form_date(request.form, datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         btitle = request.form.get("title", "").strip()
         author = request.form.get("author", "").strip()
         tlp = request.form.get("tlp", "clear")
@@ -448,7 +455,7 @@ def save():
     """Save the composed briefing draft to MISP."""
     stories = _parse_stories_from_form(request.form)
     data = {
-        "date": request.form.get("date", "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "date": _form_date(request.form, datetime.now(timezone.utc).strftime("%Y-%m-%d")),
         "title": request.form.get("title", "").strip(),
         "author": request.form.get("author", "").strip(),
         "tlp": request.form.get("tlp", "clear"),
@@ -576,7 +583,7 @@ def edit(id):
     if request.method == "POST":
         stories = _parse_stories_from_form(request.form)
         data = {
-            "date": request.form.get("date", briefing.date).strip(),
+            "date": _form_date(request.form, briefing.date),
             "title": request.form.get("title", briefing.title).strip(),
             "author": request.form.get("author", briefing.author).strip(),
             "tlp": request.form.get("tlp", briefing.tlp),

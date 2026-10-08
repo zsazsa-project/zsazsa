@@ -50,7 +50,7 @@
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fas fa-satellite-dish me-2"></i>Pipeline throughput</span>
         <form method="post" action="{{ url_for('pipeline.purge_orphaned') }}" class="m-0"
-              onsubmit="return confirm('Drop analyser log entries whose source MISP event no longer exists?');">
+              data-submit-confirm="Drop analyser log entries whose source MISP event no longer exists?">
           <button type="submit" class="btn btn-xs btn-outline-secondary" title="Reconcile log with current MISP state">
             <i class="fas fa-broom me-1"></i> Purge orphaned
           </button>

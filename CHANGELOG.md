@@ -14,6 +14,10 @@ The organisation filter on an additional MISP server now takes organisation
 UUIDs only. A filter saved earlier keeps working as it is, but a server whose
 filter holds anything else cannot be saved again until that is corrected.
 
+A briefing date is now kept only as YYYY-MM-DD, the only form the date field
+sends. Anything else posted is replaced by today's date for a new briefing, or
+by the stored date when editing one. Briefings saved earlier are not changed.
+
 ### Added
 
 - An indicator feed downloads as a standalone PyMISP script, to run its search
@@ -35,6 +39,9 @@ filter holds anything else cannot be saved again until that is corrected.
   was unavailable.
 - Script in a MISP event title, an organisation name or a source or
   stakeholder name could run in the browser. / reported by @elhoim
+- Script could also run from names and dates in confirmation dialogs, from
+  the daily briefing editor and from MISP tags on the collection page.
+  / reported by @elhoim
 
 ## 1.0.5
 
