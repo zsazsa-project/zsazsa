@@ -16,6 +16,7 @@ from markupsafe import escape
 from core import flowintel_client
 from core.atomic_write import write_atomically
 from webapp import audit, misp_session, misp_store, newsletter_parsers
+from webapp.collection_cache import _split_tags
 from webapp.rate_limit import rate_limited
 from webapp.utils import (
     json_body as _json_object,
@@ -941,6 +942,10 @@ def save_server_config():
         enabled = _parse_bool(data.get("enabled", True), default=True)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+    # Only organisation UUIDs ever match, and the page shows the value back.
+    org_filter = (data.get("org_filter") or "").strip()
+    if not all(misp_store._UUID_RE.fullmatch(u) for u in _split_tags(org_filter)):
+        return jsonify({"ok": False, "error": "The organisation filter takes organisation UUIDs only"}), 400
 
     entry = {
         "id": sid,
@@ -953,7 +958,7 @@ def save_server_config():
         "tags_and": (data.get("tags_and") or "").strip(),
         "tags_not": (data.get("tags_not") or "").strip(),
         "org_filter_type": (data.get("org_filter_type") or "").strip(),
-        "org_filter": (data.get("org_filter") or "").strip(),
+        "org_filter": org_filter,
         "since_days": since,
         "limit": limit,
     }

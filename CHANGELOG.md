@@ -10,6 +10,10 @@ Pull and restart, nothing to migrate. A threat actor profile mail shows the
 Diamond Model inline, there is no longer a `diamond-model.png`
 attachment.
 
+The organisation filter on an additional MISP server now takes organisation
+UUIDs only. A filter saved earlier keeps working as it is, but a server whose
+filter holds anything else cannot be saved again until that is corrected.
+
 ### Added
 
 - An indicator feed downloads as a standalone PyMISP script, to run its search
@@ -29,6 +33,8 @@ attachment.
 - Markdown was shown unsanitised if DOMPurify failed to load.
 - Drafting a profile with AI ignored actors typed in while the MISP galaxy
   was unavailable.
+- Script in a MISP event title, an organisation name or a source or
+  stakeholder name could run in the browser. / reported by @elhoim
 
 ## 1.0.5
 
