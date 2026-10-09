@@ -76,19 +76,28 @@ def _ingest_message(source: dict, body: str) -> None:
 
     uuid = misp_store.create_newsletter_event(
         feed, body, report_title=report_title, tlp=tlp, reliability=reliability,
-        parser=parser, article_urls=[a["url"] for a in articles],
+        parser=parser, article_urls=newsletter_ingest.public_urls(articles),
         parsed_articles=found,
     )
     counts = newsletter_ingest.publish_articles(feed, articles)
     # Redis pub/sub is fire-and-forget: if no subscriber received the push, fall
     # back to the review queue so nothing is silently lost.
-    if counts["published"] == 0 or counts["no_subscriber"] == counts["published"]:
+    if counts["published"] == 0 and counts["refused"] and not counts["failed"]:
+        misp_store.mark_newsletter_pending(uuid)
+        logger.warning("%s: no public links among %d, left newsletter %s for review",
+                       feed, counts["refused"], uuid)
+    elif counts["published"] == 0:
+        misp_store.mark_newsletter_pending(uuid)
+        logger.warning("%s: no links sent (%d failed, %d refused), left newsletter %s for review",
+                       feed, counts["failed"], counts["refused"], uuid)
+    elif counts["no_subscriber"] == counts["published"]:
         misp_store.mark_newsletter_pending(uuid)
         logger.warning("%s: scraper not listening, left newsletter %s for review",
                        feed, uuid)
     else:
-        logger.info("%s: pushed %d/%d article(s) to scraper",
-                    feed, counts["published"], len(articles))
+        logger.info("%s: sent %d/%d article(s) to scraper (%d failed, %d refused)",
+                    feed, counts["published"], len(articles),
+                    counts["failed"], counts["refused"])
 
 
 def _match_source(msg, sources: list) -> dict | None:

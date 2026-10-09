@@ -53,6 +53,12 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 - A published daily briefing or threat landscape report could still be edited,
   also by users without MISP publish rights, and a resend then delivered the
   edited version (GHSA-rqcp-gv9j-jgv6). / reported by @elhoim
+- A newsletter could make the scraper fetch internal addresses, and a failed
+  MISP connection test showed the response of whatever host it reached
+  (GHSA-24wh-h52p-fcgg). Newsletter links now have to be public web
+  addresses, connection tests answer with a fixed message, and organisation
+  lookups use the server's TLS setting, defaulting to verification when it is
+  not configured. / reported by @elhoim
 
 ## 1.0.6
 

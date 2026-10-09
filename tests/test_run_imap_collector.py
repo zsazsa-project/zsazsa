@@ -57,6 +57,47 @@ class MatchSource(unittest.TestCase):
         self.assertEqual(s["name"], "All")
 
 
+class AutoMode(unittest.TestCase):
+    """A newsletter on auto mode goes straight to the scraper. Links that are
+    not public addresses are refused on the way (GHSA-24wh-h52p-fcgg), and a
+    newsletter left with none to send waits for review instead."""
+
+    source = {"name": "ETDA", "parser": "ETDA CTI Robot", "mode": "auto"}
+
+    def ingest(self, counts, public=True):
+        with mock.patch.object(run_imap_collector.newsletter_ingest, "is_safe_public_url",
+                               return_value=public), \
+             mock.patch.object(run_imap_collector.misp_store, "create_newsletter_event",
+                               return_value="event-uuid") as archive, \
+             mock.patch.object(run_imap_collector.misp_store, "mark_newsletter_pending") as pending, \
+             mock.patch.object(run_imap_collector.newsletter_ingest, "publish_articles",
+                               return_value=counts) as publish:
+            run_imap_collector._ingest_message(self.source, NEWSLETTER)
+        self.archived_urls = archive.call_args.kwargs["article_urls"]
+        return publish, pending
+
+    def test_a_newsletter_whose_links_were_all_refused_waits_for_review(self):
+        publish, pending = self.ingest({"published": 0, "failed": 0, "no_subscriber": 0, "refused": 1})
+        publish.assert_called_once()
+        pending.assert_called_once_with("event-uuid")
+
+    def test_a_newsletter_with_links_sent_does_not(self):
+        _publish, pending = self.ingest({"published": 1, "failed": 0, "no_subscriber": 0, "refused": 0})
+        pending.assert_not_called()
+        self.assertEqual(self.archived_urls, ["https://example.org/loader"])
+
+    def test_a_refused_link_is_not_recorded_as_pushed(self):
+        self.ingest({"published": 0, "failed": 0, "no_subscriber": 0, "refused": 1}, public=False)
+        self.assertEqual(self.archived_urls, [])
+
+    def test_a_redis_failure_and_refusal_are_both_logged(self):
+        with self.assertLogs(run_imap_collector.logger, level="WARNING") as captured:
+            _publish, pending = self.ingest(
+                {"published": 0, "failed": 1, "no_subscriber": 0, "refused": 1})
+        pending.assert_called_once_with("event-uuid")
+        self.assertIn("1 failed, 1 refused", captured.output[0])
+
+
 class PollMailbox(unittest.TestCase):
     """What the poll does with each message: archive it, then mark it. A message
     is only marked once it is in MISP, so a failure anywhere means it is offered
