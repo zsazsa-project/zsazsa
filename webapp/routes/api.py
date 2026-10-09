@@ -16,9 +16,9 @@ from core.rulezet_lookup import (get_rule, search_rules_by_attack, search_rules_
                                  validate_rule)
 from core.vuln_lookup import fetch_cve_info
 from webapp import audit, job_store, misp_session, misp_store
-from webapp.collection_cache import AI_SUMMARY_PREFIX, filter_events_by_org
+from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.rate_limit import rate_limited
-from webapp.utils import json_body as _json_object, parse_bool as _parse_bool, scraper_enabled
+from webapp.utils import json_body as _json_object, scraper_enabled
 
 _TECH_RE = re.compile(r'\bT\d{4}(?:\.\d{3})?\b')
 
@@ -989,112 +989,6 @@ def build_fia():
     fields['threat_actors'] = actor_values
     audit.record("generate", "ai_fia_draft", details=f"sources: {', '.join(source_uuids[:5])}")
     return jsonify({"fields": fields, "error": None})
-
-
-@bp.route("/pull-estimate", methods=["POST"])
-@rate_limited("api_pull_estimate", limit=20, window_s=60)
-def pull_estimate():
-    """Estimate how many events a MISP server would return with the current filter settings.
-
-    POST JSON: {misp_url, misp_key, verify_tls, tags, tags_and, tags_not,
-                since_days, org_filter_type, org_filter}
-    Returns {"count": N, "error": null}.
-    """
-    import datetime as _dt
-    from pymisp import PyMISP
-    from webapp.collection_cache import _split_tags
-
-    body, err = _json_object()
-    if err:
-        return jsonify({"count": None, "error": "Invalid JSON payload."}), 400
-    misp_url = (body.get("misp_url") or "").strip()
-    misp_key = (body.get("misp_key") or "").strip()
-    if not misp_url or not misp_key:
-        return jsonify({"count": None, "error": "URL and API key required."})
-
-    try:
-        verify_tls = _parse_bool(body.get("verify_tls", False), default=False)
-    except ValueError as exc:
-        return jsonify({"count": None, "error": str(exc)}), 400
-    tags_or = _split_tags(body.get("tags") or "")
-    tags_and = _split_tags(body.get("tags_and") or "")
-    tags_not = _split_tags(body.get("tags_not") or "")
-    since_days = int(body.get("since_days") or 0)
-    org_filter_type = (body.get("org_filter_type") or "").strip()
-    org_filter = {u.lower() for u in _split_tags(body.get("org_filter") or "")}
-    try:
-        limit = max(1, int(body.get("limit") or 500))
-    except (ValueError, TypeError):
-        limit = 500
-
-    try:
-        m = PyMISP(misp_url, misp_key, verify_tls)
-        use_published = body.get("published", True)
-        kwargs = dict(limit=limit, page=1, metadata=True, pythonify=True)
-        if use_published:
-            kwargs["published"] = True
-        if tags_and or tags_not:
-            kwargs["tags"] = m.build_complex_query(
-                or_parameters=tags_or or None,
-                and_parameters=tags_and or None,
-                not_parameters=tags_not or None,
-            )
-        elif tags_or:
-            kwargs["tags"] = tags_or
-        if since_days:
-            cutoff = (_dt.date.today() - _dt.timedelta(days=since_days)).isoformat()
-            kwargs["date_from"] = cutoff
-        events = m.search(**kwargs)
-        if not events or isinstance(events, dict):
-            return jsonify({"count": 0, "error": None})
-
-        events = filter_events_by_org(events, org_filter_type, org_filter)
-
-        return jsonify({"count": len(events), "error": None})
-    except Exception as exc:
-        logger.warning("pull_estimate failed: %s", exc)
-        return jsonify({"count": None, "error": "Pull estimate failed."}), 502
-
-
-@bp.route("/lookup-org", methods=["POST"])
-@rate_limited("api_lookup_org", limit=60, window_s=60)
-def lookup_org():
-    """Look up a MISP organisation name by UUID.
-
-    POST JSON: {"uuid": "...", "misp_url": "...", "misp_key": "..."}
-    The misp_url / misp_key fields are optional; if omitted the configured
-    webapp and scraper MISP instances are tried instead.
-    Returns {"name": "Org Name", "error": null} or {"name": null, "error": "..."}.
-    """
-    from pymisp import PyMISP
-    body, err = _json_object()
-    if err:
-        return jsonify({"name": None, "error": "Invalid JSON payload."}), 400
-    uuid = (body.get("uuid") or "").strip()
-    if not uuid:
-        return jsonify({"name": None, "error": "UUID required."})
-
-    misp_url = (body.get("misp_url") or "").strip()
-    misp_key = (body.get("misp_key") or "").strip()
-
-    servers = []
-    if misp_url and misp_key:
-        servers.append((misp_url, misp_key, False))
-    servers.append((config.MISP_WEBAPP_URL, config.MISP_WEBAPP_KEY, config.MISP_WEBAPP_VERIFYCERT))
-    if scraper_enabled() and config.MISP_URL != config.MISP_WEBAPP_URL:
-        servers.append((config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT))
-
-    for url, key, verify in servers:
-        try:
-            m = PyMISP(url, key, verify)
-            result = m.get_organisation(uuid, pythonify=True)
-            if result and not isinstance(result, dict):
-                return jsonify({"name": result.name, "error": None})
-        except Exception as exc:
-            logger.debug("lookup_org failed against %s: %s", url, exc)
-            continue
-
-    return jsonify({"name": None, "error": "Not found."})
 
 
 # A whole technique ID, nothing around it: the same pattern the forms use to

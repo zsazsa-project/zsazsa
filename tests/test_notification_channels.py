@@ -32,6 +32,7 @@ class ChannelIds(unittest.TestCase):
             mock.patch.object(config_page, "_write", self.store.update),
             mock.patch.object(config_page, "importlib"),
             mock.patch.object(config_page.audit, "record"),
+            mock.patch.object(config_page.misp_session, "refuse_unless_site_admin", return_value=None),
         ]
         for patcher in patches:
             patcher.start()

@@ -101,6 +101,7 @@ def create_app():
             "brand_company": getattr(config, "BRAND_COMPANY", ""),
             "ui_theme": getattr(config, "THEME", "overmind"),
             "current_user_email": misp_session.current_user_email(),
+            "is_site_admin": misp_session.current_user_is_admin(),
             # Read per request, not at startup: the configuration page can set
             # or clear RULEZET_URL without a restart. The "Search Rulezet"
             # buttons stay disabled while it is empty.

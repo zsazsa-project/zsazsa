@@ -66,6 +66,12 @@ def record_sighting(user):
         """, (email, misp_user_id, organisation, organisation_uuid, role, now, now))
 
 
+def any_recorded():
+    """Whether any MISP user has been recognised through a session."""
+    with _conn() as db:
+        return db.execute("SELECT 1 FROM sso_users LIMIT 1").fetchone() is not None
+
+
 def list_sso_users():
     """List recorded SSO users, grouped by MISP user id.
 

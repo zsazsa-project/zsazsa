@@ -30,6 +30,7 @@
   </div>
   <div class="col-md-6">
     <label class="form-label small mb-1">Password</label>
-    <input type="password" class="form-control form-control-sm font-monospace im-password" value="{{ m.get('password', '') }}" autocomplete="new-password">
+    <input type="password" class="form-control form-control-sm font-monospace im-password"
+           placeholder="{{ 'Configured, leave blank to keep' if m.get('password') }}" autocomplete="new-password">
   </div>
 </div>

@@ -29,7 +29,8 @@ than here, and the same goes for PyMISP and the other dependencies.
 
 Two things are current design rather than defects, so they are out of scope
 unless you have found a way around them. zsazsa has no role-based authorisation
-of its own: anyone who can reach it with a valid MISP session can use it, and
-only approving and publishing are gated, on MISP's own `perm_publish`. It is
-also meant to be served behind the same host as MISP, on an internal network,
-and not exposed to the internet.
+of its own: anyone who can reach it with a valid MISP session can use it. Only
+two things are gated, both on MISP's own role permissions: approving and
+publishing take `perm_publish`, and the settings pages take `perm_site_admin`.
+It is also meant to be served behind the same host as MISP, on an internal
+network, and not exposed to the internet.

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import remove_secret %}
 
 {% block title %}Collection sources | zsazsa CTI{% endblock %}
 {% block page_title %}Collection sources{% endblock %}
@@ -44,7 +45,8 @@
         <div class="col-md-4">
           <label class="form-label">API key</label>
           <div class="input-group">
-            <input type="password" name="MISP_KEY" class="form-control font-monospace api-key-input" value="{{ cfg.MISP_KEY }}">
+            <input type="password" name="MISP_KEY" class="form-control font-monospace api-key-input"
+                   placeholder="{{ 'Configured, leave blank to keep' if cfg.MISP_KEY }}" autocomplete="new-password">
             <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
           </div>
         </div>
@@ -138,9 +140,10 @@
           <label class="form-label">Password</label>
           <div class="input-group">
             <input type="password" name="SCRAPER_REDIS_PASSWORD" class="form-control font-monospace api-key-input"
-                   value="{{ cfg.SCRAPER_REDIS_PASSWORD }}">
+                   placeholder="{{ 'Configured, leave blank to keep' if cfg.SCRAPER_REDIS_PASSWORD }}" autocomplete="new-password">
             <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
           </div>
+          {% if cfg.SCRAPER_REDIS_PASSWORD %}{{ remove_secret('SCRAPER_REDIS_PASSWORD', 'Remove the stored password') }}{% endif %}
         </div>
         <div class="col-md-2">
           <label class="form-label">Channel</label>
@@ -212,7 +215,8 @@
                 <div class="col-md-12">
                   <label class="form-label small mb-1">API key</label>
                   <div class="input-group input-group-sm">
-                    <input type="password" name="server_api_key" class="form-control form-control-sm font-monospace api-key-input" value="{{ s.api_key }}">
+                    <input type="password" name="server_api_key" class="form-control form-control-sm font-monospace api-key-input"
+                           placeholder="{{ 'Configured, leave blank to keep' if s.api_key }}" autocomplete="new-password">
                     <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
                   </div>
                 </div>
@@ -769,7 +773,7 @@
         orgLabels.replaceChildren(...lines.map((l) => l.line));
         for (const {uuid, status} of lines) {
           try {
-            const resp = await fetch(SCRIPT_ROOT + '/api/lookup-org', {
+            const resp = await fetch(SCRIPT_ROOT + '/config/sources/lookup-org', {
               method: 'POST',
               headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
               body: JSON.stringify({uuid, misp_url: mispUrl, misp_key: mispKey}),
@@ -792,8 +796,8 @@
         const keyVal = (row.querySelector('input[name="server_api_key"]')?.value || '').trim();
         const verifyVal = row.querySelector('select[name="server_verify_tls"]')?.value === 'true';
         const resultEl = row.querySelector('.test-connection-result');
-        if (!urlVal || !keyVal) {
-          if (resultEl) { resultEl.textContent = 'Enter URL and API key first.'; resultEl.className = 'test-connection-result small ms-2 text-warning'; }
+        if (!urlVal) {
+          if (resultEl) { resultEl.textContent = 'Enter the URL first.'; resultEl.className = 'test-connection-result small ms-2 text-warning'; }
           return;
         }
         testBtn.disabled = true;
@@ -888,14 +892,14 @@
         const urlVal = (row.querySelector('input[name="server_url"]')?.value || '').trim();
         const keyVal = (row.querySelector('input[name="server_api_key"]')?.value || '').trim();
         const verifyVal = row.querySelector('select[name="server_verify_tls"]')?.value === 'true';
-        if (!urlVal || !keyVal) {
-          if (estimateResult) { estimateResult.textContent = 'Enter URL and API key first.'; estimateResult.className = 'pull-estimate-result small ms-2 text-warning'; }
+        if (!urlVal) {
+          if (estimateResult) { estimateResult.textContent = 'Enter the URL first.'; estimateResult.className = 'pull-estimate-result small ms-2 text-warning'; }
           return;
         }
         estimateBtn.disabled = true;
         estimateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Estimating…';
         if (estimateResult) { estimateResult.textContent = ''; }
-        fetch(SCRIPT_ROOT + '/api/pull-estimate', {
+        fetch(SCRIPT_ROOT + '/config/sources/pull-estimate', {
           method: 'POST',
           headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
           body: JSON.stringify({
@@ -972,14 +976,14 @@
       const urlVal = (document.querySelector('input[name="MISP_URL"]')?.value || '').trim();
       const keyVal = (document.querySelector('input[name="MISP_KEY"]')?.value || '').trim();
       const verifyVal = document.querySelector('select[name="MISP_VERIFYCERT"]')?.value === 'true';
-      if (!urlVal || !keyVal) {
-        if (scraperEstimateResult) { scraperEstimateResult.textContent = 'Enter URL and API key first.'; scraperEstimateResult.className = 'small ms-2 text-warning'; }
+      if (!urlVal) {
+        if (scraperEstimateResult) { scraperEstimateResult.textContent = 'Enter the URL first.'; scraperEstimateResult.className = 'small ms-2 text-warning'; }
         return;
       }
       scraperEstimateBtn.disabled = true;
       scraperEstimateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Estimating…';
       if (scraperEstimateResult) scraperEstimateResult.textContent = '';
-      fetch(SCRIPT_ROOT + '/api/pull-estimate', {
+      fetch(SCRIPT_ROOT + '/config/sources/pull-estimate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
         body: JSON.stringify({
@@ -1063,8 +1067,8 @@
       const urlVal = (document.querySelector('input[name="MISP_URL"]')?.value || '').trim();
       const keyVal = (document.querySelector('input[name="MISP_KEY"]')?.value || '').trim();
       const verifyVal = document.querySelector('select[name="MISP_VERIFYCERT"]')?.value === 'true';
-      if (!urlVal || !keyVal) {
-        if (scraperTestResult) { scraperTestResult.textContent = 'Enter URL and API key first.'; scraperTestResult.className = 'small ms-2 text-warning'; }
+      if (!urlVal) {
+        if (scraperTestResult) { scraperTestResult.textContent = 'Enter the URL first.'; scraperTestResult.className = 'small ms-2 text-warning'; }
         return;
       }
       scraperTestBtn.disabled = true;

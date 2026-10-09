@@ -18,9 +18,10 @@ import socket
 import time
 from contextlib import contextmanager
 
-from flask import g, request
+from flask import g, jsonify, request
 
 import config
+from webapp import sso_users
 from webapp.redis_client import RedisError, read_reply as _read_reply, send_command as _send_command
 
 logger = logging.getLogger(__name__)
@@ -349,9 +350,15 @@ def sso_configured():
     redirect is turned off again. That is the mode where anyone without a session
     falls back to admin@admin.test, and where the publish gate needs to know that
     the fallback is not a real, trusted user.
+
+    So does any user ever recognised through a session, settings or not. zsazsa
+    derives the cookie name by itself when it is not set, and leaving the cookie
+    out would otherwise be enough to pass for the trusted identity of an install
+    without single sign-on.
     """
     return bool(getattr(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False)
-                or (getattr(config, "MISP_SESSION_COOKIE_NAME", "") or "").strip())
+                or (getattr(config, "MISP_SESSION_COOKIE_NAME", "") or "").strip()
+                or sso_users.any_recorded())
 
 
 def current_user_can_publish():
@@ -368,19 +375,35 @@ def current_user_can_publish():
     turn an analyst into a publisher. Only an install without single sign-on,
     where the whole app runs under one trusted identity, and a standalone script
     outside a Flask request are let through without a user.
-
-    The permission has to be MISP's true, as the session stores it (a PHP bool,
-    or 1 / "1" depending on how the role was written), not merely truthy: "0"
-    is a non-empty string.
     """
+    return _current_user_has("perm_publish")
+
+
+def current_user_is_admin():
+    """Whether the session says the current user is a MISP site admin.
+
+    Good enough for showing the Settings menu, which is on every page. The
+    settings pages themselves ask MISP; see refuse_unless_site_admin.
+    """
+    return _current_user_has("perm_site_admin")
+
+
+def _current_user_has(perm):
+    """Whether the current user's MISP role, as the session has it, grants ``perm``."""
     try:
         user = getattr(g, "misp_user", None)
     except RuntimeError:
         return True
     if user is None:
         return not sso_configured()
-    perm = (user.get("Role") or {}).get("perm_publish")
-    return perm is True or (type(perm) is int and perm == 1) or perm == "1"
+    return _role_grants(user.get("Role"), perm)
+
+
+def _role_grants(role, perm):
+    """The permission has to be MISP's true (a PHP bool, or 1 / "1" depending on
+    how the role was written), not merely truthy: "0" is a non-empty string."""
+    value = (role or {}).get(perm)
+    return value is True or (type(value) is int and value == 1) or value == "1"
 
 
 def publish_denied_message(action="publish"):
@@ -389,6 +412,34 @@ def publish_denied_message(action="publish"):
     One sentence for every product, so the gate reads the same wherever it bites.
     """
     return f"Only users with MISP publish rights can {action}."
+
+
+def refuse_unless_site_admin():
+    """A 403 for the settings pages unless the user is a MISP site admin now.
+
+    The session keeps the role a user had when they logged in to MISP, so the
+    role is asked of MISP on every request instead: a user made site admin gets
+    in straight away, and one who lost it is out straight away. Nobody gets in
+    when MISP cannot be asked. Returns None when the request may go ahead.
+    """
+    message = "Only MISP site admins can open the zsazsa settings."
+    user = getattr(g, "misp_user", None)
+    if user is None:
+        if not sso_configured():
+            return None
+    else:
+        from webapp import misp_store  # misp_store imports this module
+        try:
+            if _role_grants(misp_store.user_role(user.get("id")), "perm_site_admin"):
+                return None
+        except Exception as exc:
+            logger.warning("could not ask MISP for the role of %s, so the settings stay closed: %s. "
+                           "MISP_WEBAPP_KEY has to be allowed to look up users.",
+                           user.get("email"), exc)
+            message = "Could not check your role in MISP, so the settings stay closed. See the zsazsa log."
+    if request.is_json:
+        return jsonify({"ok": False, "error": message}), 403
+    return message, 403
 
 
 def diagnose(cookies) -> dict:

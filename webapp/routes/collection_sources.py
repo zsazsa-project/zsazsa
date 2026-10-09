@@ -5,7 +5,7 @@ import logging
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import config as _config
-from webapp import audit, collection_cache, misp_store, newsletter_parsers
+from webapp import audit, collection_cache, misp_session, misp_store, newsletter_parsers
 from webapp.utils import scraper_enabled
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,17 @@ ADMIRALTY_OPTIONS = [
     ("E", "E: Unreliable"),
     ("F", "F: Reliability cannot be judged"),
 ]
+
+
+@bp.before_request
+def _site_admins_only():
+    return misp_session.refuse_unless_site_admin()
+
+
+@bp.after_request
+def _no_store(response):
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.route("/")

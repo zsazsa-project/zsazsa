@@ -16,12 +16,13 @@ from markupsafe import escape
 from core import flowintel_client
 from core.atomic_write import write_atomically
 from webapp import audit, misp_session, misp_store, newsletter_parsers
-from webapp.collection_cache import _split_tags
+from webapp.collection_cache import _split_tags, filter_events_by_org
 from webapp.rate_limit import rate_limited
 from webapp.utils import (
     json_body as _json_object,
     normalize_notification_channels as _normalize_notification_channels,
     parse_bool as _parse_bool,
+    scraper_enabled,
 )
 
 bp = Blueprint("config_page", __name__)
@@ -381,6 +382,56 @@ def _form_int(name: str, default: int) -> int:
         return default
 
 
+# Secrets are write-only: the settings pages never send a stored one back to
+# the browser. A secret field posted empty therefore means "keep what is
+# stored", and the stored secret stays with the address it was entered for, so
+# pointing a setting somewhere else never hands it to the new host.
+
+def _same_address(a, b) -> bool:
+    return (a or "").strip().rstrip("/") == (b or "").strip().rstrip("/")
+
+
+def _kept_secret(posted, stored, address, stored_address):
+    """The secret to store: the one posted, else the stored one.
+
+    Emptying the address drops its secret along with it. None when nothing was
+    posted but the address changed to another one: the stored secret belongs to
+    the old address and has to be entered again for the new one.
+    """
+    if posted or not stored:
+        return posted
+    if _same_address(address, stored_address):
+        return stored
+    return None if (address or "").strip() else ""
+
+
+def _stored_secret_for(address, pairs) -> str:
+    """The stored secret entered for ``address``, from (address, secret) pairs.
+
+    Lets a connection test run with the key that is already stored, but only
+    against the address that key was stored for.
+    """
+    if not (address or "").strip():
+        return ""
+    return next((secret for addr, secret in pairs if secret and _same_address(addr, address)), "")
+
+
+def _form_secret(name, address_name):
+    """A secret field of the main form; see _kept_secret. "" when removed."""
+    if request.form.get(f"remove_{name}") == "true":
+        return ""
+    return _kept_secret(
+        (request.form.get(name) or "").strip(),
+        str(getattr(_config, name, "") or ""),
+        _form_str(address_name),
+        str(getattr(_config, address_name, "") or ""),
+    )
+
+
+def _reenter_message(what) -> str:
+    return f"Enter the {what} again: its address changed, and the stored one is only used for the old address."
+
+
 def _write(values):
     shutil.copy2(str(_CONFIG_FILE), str(_BACKUP_FILE))
     products = values["PRODUCT_TYPES"]
@@ -671,6 +722,20 @@ _CONFIG_TABS = (
 )
 
 
+@bp.before_request
+def _site_admins_only():
+    # The brand logo is the one thing here that is not a setting.
+    if request.endpoint == "config_page.serve_logo":
+        return None
+    return misp_session.refuse_unless_site_admin()
+
+
+@bp.after_request
+def _no_store(response):
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.route("/config", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
@@ -724,7 +789,7 @@ def index():
             "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []) or [],
             # Every link into MISP appends a path starting with a slash.
             "MISP_WEBAPP_URL": _form_str("MISP_WEBAPP_URL").rstrip("/"),
-            "MISP_WEBAPP_KEY": _form_str("MISP_WEBAPP_KEY"),
+            "MISP_WEBAPP_KEY": _form_secret("MISP_WEBAPP_KEY", "MISP_WEBAPP_URL"),
             "MISP_WEBAPP_VERIFYCERT": _form_bool("MISP_WEBAPP_VERIFYCERT"),
             "MISP_EVENT_DISTRIBUTION": _form_int("MISP_EVENT_DISTRIBUTION", 0),
             # LLM provider settings live on the AI tab and are saved over AJAX.
@@ -754,7 +819,7 @@ def index():
             "SMTP_PORT": _form_int("SMTP_PORT", 587),
             "SMTP_USE_TLS": _form_bool("SMTP_USE_TLS"),
             "SMTP_USERNAME": _form_str("SMTP_USERNAME"),
-            "SMTP_PASSWORD": _form_str("SMTP_PASSWORD"),
+            "SMTP_PASSWORD": _form_secret("SMTP_PASSWORD", "SMTP_HOST"),
             "SMTP_FROM": _form_str("SMTP_FROM"),
             "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
             "RULEZET_URL": _form_str("RULEZET_URL"),
@@ -794,11 +859,12 @@ def index():
             "SSL_CERT": _form_str("SSL_CERT") or "certs/zsazsa.crt",
             "SSL_KEY": _form_str("SSL_KEY") or "certs/zsazsa.key",
             "MISP_SESSION_COOKIE_NAME": session_cookie_name,
-            "MISP_SESSION_REDIS_HOST": _form_str("MISP_SESSION_REDIS_HOST") or "127.0.0.1",
-            "MISP_SESSION_REDIS_PORT": _form_int("MISP_SESSION_REDIS_PORT", 6379),
-            "MISP_SESSION_REDIS_DB": _form_int("MISP_SESSION_REDIS_DB", 0),
-            "MISP_SESSION_REDIS_USERNAME": _form_str("MISP_SESSION_REDIS_USERNAME"),
-            "MISP_SESSION_REDIS_PASSWORD": _form_str("MISP_SESSION_REDIS_PASSWORD"),
+            # Where identities are read from is set in the config file only.
+            "MISP_SESSION_REDIS_HOST": getattr(_config, "MISP_SESSION_REDIS_HOST", "127.0.0.1"),
+            "MISP_SESSION_REDIS_PORT": getattr(_config, "MISP_SESSION_REDIS_PORT", 6379),
+            "MISP_SESSION_REDIS_DB": getattr(_config, "MISP_SESSION_REDIS_DB", 0),
+            "MISP_SESSION_REDIS_USERNAME": getattr(_config, "MISP_SESSION_REDIS_USERNAME", ""),
+            "MISP_SESSION_REDIS_PASSWORD": getattr(_config, "MISP_SESSION_REDIS_PASSWORD", ""),
             "MISP_SESSION_REDIRECT_TO_LOGIN": _form_bool("MISP_SESSION_REDIRECT_TO_LOGIN"),
             "BRAND_COMPANY": _form_str("BRAND_COMPANY"),
             "BRAND_DEPARTMENT": _form_str("BRAND_DEPARTMENT"),
@@ -813,6 +879,10 @@ def index():
         active_tab = request.form.get("active_tab", "tab-connections")
         if active_tab not in _CONFIG_TABS:
             active_tab = "tab-connections"
+        for key, what in (("MISP_WEBAPP_KEY", "MISP API key"), ("SMTP_PASSWORD", "SMTP password")):
+            if values[key] is None:
+                flash(_reenter_message(what), "warning")
+                return redirect(url_for("config_page.index", tab=active_tab))
         try:
             _write(values)
             importlib.reload(_config)
@@ -876,9 +946,14 @@ def run_migration():
 def save_scraper_config():
     """Save only the MISP scraper connection settings."""
     current = _read()
+    url = request.form.get("MISP_URL", "").strip()
+    key = _kept_secret(request.form.get("MISP_KEY", "").strip(), current["MISP_KEY"], url, current["MISP_URL"])
+    if key is None:
+        flash(_reenter_message("scraper API key"), "warning")
+        return redirect(url_for("collection_sources.index"))
     current["MISP_SCRAPER_ENABLED"] = request.form.get("MISP_SCRAPER_ENABLED") == "true"
-    current["MISP_URL"] = request.form.get("MISP_URL", "").strip()
-    current["MISP_KEY"] = request.form.get("MISP_KEY", "").strip()
+    current["MISP_URL"] = url
+    current["MISP_KEY"] = key
     current["MISP_VERIFYCERT"] = request.form.get("MISP_VERIFYCERT") == "true"
     current["MISP_SCRAPER_LIMIT"] = max(1, _form_int("MISP_SCRAPER_LIMIT", 500))
     current["MISP_SCRAPER_SINCE_DAYS"] = max(0, _form_int("MISP_SCRAPER_SINCE_DAYS", 0))
@@ -897,12 +972,21 @@ def save_scraper_config():
 def save_scraper_redis_config():
     """Save the misp-scraper Redis queue settings used by newsletter imports."""
     current = _read()
-    current["SCRAPER_REDIS_HOST"] = request.form.get("SCRAPER_REDIS_HOST", "").strip()
+    host = request.form.get("SCRAPER_REDIS_HOST", "").strip()
+    if request.form.get("remove_SCRAPER_REDIS_PASSWORD") == "true":
+        password = ""
+    else:
+        password = _kept_secret(request.form.get("SCRAPER_REDIS_PASSWORD", ""),
+                                current["SCRAPER_REDIS_PASSWORD"], host, current["SCRAPER_REDIS_HOST"])
+    if password is None:
+        flash(_reenter_message("scraper queue password"), "warning")
+        return redirect(url_for("collection_sources.index"))
+    current["SCRAPER_REDIS_HOST"] = host
     try:
         current["SCRAPER_REDIS_PORT"] = _form_int("SCRAPER_REDIS_PORT", 6379)
     except (ValueError, TypeError):
         current["SCRAPER_REDIS_PORT"] = 6379
-    current["SCRAPER_REDIS_PASSWORD"] = request.form.get("SCRAPER_REDIS_PASSWORD", "")
+    current["SCRAPER_REDIS_PASSWORD"] = password
     current["SCRAPER_REDIS_CHANNEL"] = request.form.get("SCRAPER_REDIS_CHANNEL", "").strip() or "urls"
     try:
         _write(current)
@@ -948,11 +1032,17 @@ def save_server_config():
     if not all(misp_store._UUID_RE.fullmatch(u) for u in _split_tags(org_filter)):
         return jsonify({"ok": False, "error": "The organisation filter takes organisation UUIDs only"}), 400
 
+    current = _read()
+    servers = list(current.get("MISP_SERVERS") or [])
+    old = next((s for s in servers if original_id and s.get("id") == original_id), {})
+    api_key = _kept_secret((data.get("api_key") or "").strip(), old.get("api_key"), url, old.get("url"))
+    if api_key is None:
+        return jsonify({"ok": False, "error": _reenter_message("API key")}), 400
     entry = {
         "id": sid,
         "label": label,
         "url": url,
-        "api_key": (data.get("api_key") or "").strip(),
+        "api_key": api_key,
         "verify_tls": verify_tls,
         "enabled": enabled,
         "tags": (data.get("tags") or "").strip(),
@@ -963,8 +1053,6 @@ def save_server_config():
         "since_days": since,
         "limit": limit,
     }
-    current = _read()
-    servers = list(current.get("MISP_SERVERS") or [])
     action = "create"
     if original_id:
         for i, s in enumerate(servers):
@@ -1092,6 +1180,15 @@ def save_imap_mailbox():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
     sid = (data.get("id") or "").strip() or _slug_id(name, "mailbox")
+    original_id = (data.get("original_id") or "").strip()
+    current = _read()
+    mailboxes = list(current.get("IMAP_SOURCES") or [])
+    old = next((m for m in mailboxes if original_id and m.get("id") == original_id), {})
+    username = (data.get("username") or "").strip()
+    password = _kept_secret(data.get("password") or "", old.get("password"),
+                            f"{username}@{host}", f"{old.get('username')}@{old.get('host')}")
+    if password is None:
+        return jsonify({"ok": False, "error": _reenter_message("password")}), 400
     entry = {
         "id": sid,
         "name": name,
@@ -1099,14 +1196,11 @@ def save_imap_mailbox():
         "host": host,
         "port": port,
         "ssl": ssl_on,
-        "username": (data.get("username") or "").strip(),
-        "password": data.get("password") or "",
+        "username": username,
+        "password": password,
         "folder": (data.get("folder") or "INBOX").strip() or "INBOX",
         "sources": sources,
     }
-    original_id = (data.get("original_id") or "").strip()
-    current = _read()
-    mailboxes = list(current.get("IMAP_SOURCES") or [])
     action = "create"
     if original_id:
         for i, m in enumerate(mailboxes):
@@ -1170,13 +1264,131 @@ def test_imap_mailbox():
         port = int(data.get("port") or (993 if ssl_on else 143))
     except (ValueError, TypeError):
         return jsonify({"ok": False, "error": "Port must be a number"}), 400
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or _stored_secret_for(
+        f"{username}@{host}",
+        [(f"{m.get('username')}@{m.get('host')}", m.get("password"))
+         for m in getattr(_config, "IMAP_SOURCES", []) or []],
+    )
     result = imap_collector.test_connection(
-        host, port, ssl_on,
-        (data.get("username") or "").strip(),
-        data.get("password") or "",
+        host, port, ssl_on, username, password,
         (data.get("folder") or "INBOX").strip() or "INBOX",
     )
     return jsonify(result)
+
+
+def _stored_misp_keys():
+    """(URL, key) of every MISP server zsazsa holds a key for."""
+    pairs = [(getattr(_config, "MISP_WEBAPP_URL", ""), getattr(_config, "MISP_WEBAPP_KEY", "")),
+             (getattr(_config, "MISP_URL", ""), getattr(_config, "MISP_KEY", ""))]
+    pairs += [(s.get("url"), s.get("api_key")) for s in getattr(_config, "MISP_SERVERS", []) or []]
+    return pairs
+
+
+@bp.route("/config/sources/pull-estimate", methods=["POST"])
+@rate_limited("config_pull_estimate", limit=20, window_s=60)
+def pull_estimate():
+    """Estimate how many events a MISP server would return with the current filter settings.
+
+    POST JSON: {misp_url, misp_key, verify_tls, tags, tags_and, tags_not,
+                since_days, org_filter_type, org_filter}
+    Returns {"count": N, "error": null}.
+    """
+    import datetime as _dt
+    from pymisp import PyMISP
+
+    body, err = _json_object()
+    if err:
+        return jsonify({"count": None, "error": "Invalid JSON payload."}), 400
+    misp_url = (body.get("misp_url") or "").strip()
+    misp_key = (body.get("misp_key") or "").strip() or _stored_secret_for(misp_url, _stored_misp_keys())
+    if not misp_url or not misp_key:
+        return jsonify({"count": None, "error": "URL and API key required."})
+
+    try:
+        verify_tls = _parse_bool(body.get("verify_tls", False), default=False)
+    except ValueError as exc:
+        return jsonify({"count": None, "error": str(exc)}), 400
+    tags_or = _split_tags(body.get("tags") or "")
+    tags_and = _split_tags(body.get("tags_and") or "")
+    tags_not = _split_tags(body.get("tags_not") or "")
+    since_days = int(body.get("since_days") or 0)
+    org_filter_type = (body.get("org_filter_type") or "").strip()
+    org_filter = {u.lower() for u in _split_tags(body.get("org_filter") or "")}
+    try:
+        limit = max(1, int(body.get("limit") or 500))
+    except (ValueError, TypeError):
+        limit = 500
+
+    try:
+        m = PyMISP(misp_url, misp_key, verify_tls)
+        use_published = body.get("published", True)
+        kwargs = dict(limit=limit, page=1, metadata=True, pythonify=True)
+        if use_published:
+            kwargs["published"] = True
+        if tags_and or tags_not:
+            kwargs["tags"] = m.build_complex_query(
+                or_parameters=tags_or or None,
+                and_parameters=tags_and or None,
+                not_parameters=tags_not or None,
+            )
+        elif tags_or:
+            kwargs["tags"] = tags_or
+        if since_days:
+            cutoff = (_dt.date.today() - _dt.timedelta(days=since_days)).isoformat()
+            kwargs["date_from"] = cutoff
+        events = m.search(**kwargs)
+        if not events or isinstance(events, dict):
+            return jsonify({"count": 0, "error": None})
+
+        events = filter_events_by_org(events, org_filter_type, org_filter)
+
+        return jsonify({"count": len(events), "error": None})
+    except Exception as exc:
+        logger.warning("pull_estimate failed: %s", exc)
+        return jsonify({"count": None, "error": "Pull estimate failed."}), 502
+
+
+@bp.route("/config/sources/lookup-org", methods=["POST"])
+@rate_limited("config_lookup_org", limit=60, window_s=60)
+def lookup_org():
+    """Look up a MISP organisation name by UUID.
+
+    POST JSON: {"uuid": "...", "misp_url": "...", "misp_key": "..."}
+    The misp_url / misp_key fields are optional. Without a key, the one stored
+    for misp_url is used, and the configured webapp and scraper MISP instances
+    are tried after it.
+    Returns {"name": "Org Name", "error": null} or {"name": null, "error": "..."}.
+    """
+    from pymisp import PyMISP
+    body, err = _json_object()
+    if err:
+        return jsonify({"name": None, "error": "Invalid JSON payload."}), 400
+    uuid = (body.get("uuid") or "").strip()
+    if not uuid:
+        return jsonify({"name": None, "error": "UUID required."})
+
+    misp_url = (body.get("misp_url") or "").strip()
+    misp_key = (body.get("misp_key") or "").strip() or _stored_secret_for(misp_url, _stored_misp_keys())
+
+    servers = []
+    if misp_url and misp_key:
+        servers.append((misp_url, misp_key, False))
+    servers.append((_config.MISP_WEBAPP_URL, _config.MISP_WEBAPP_KEY, _config.MISP_WEBAPP_VERIFYCERT))
+    if scraper_enabled() and _config.MISP_URL != _config.MISP_WEBAPP_URL:
+        servers.append((_config.MISP_URL, _config.MISP_KEY, _config.MISP_VERIFYCERT))
+
+    for url, key, verify in servers:
+        try:
+            m = PyMISP(url, key, verify)
+            result = m.get_organisation(uuid, pythonify=True)
+            if result and not isinstance(result, dict):
+                return jsonify({"name": result.name, "error": None})
+        except Exception as exc:
+            logger.debug("lookup_org failed against %s: %s", url, exc)
+            continue
+
+    return jsonify({"name": None, "error": "Not found."})
 
 
 @bp.route("/config/test_misp_connection", methods=["POST"])
@@ -1186,7 +1398,7 @@ def test_misp_connection():
     if err:
         return err
     url = (data.get("url") or "").strip()
-    api_key = (data.get("api_key") or "").strip()
+    api_key = (data.get("api_key") or "").strip() or _stored_secret_for(url, _stored_misp_keys())
     try:
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
     except ValueError as exc:
@@ -1252,6 +1464,8 @@ def save_notification_channel():
     current = _read()
     channels = list(current.get("NOTIFICATION_CHANNELS") or [])
     index = next((i for i, ch in enumerate(channels) if ch.get("id") == original_id), None) if original_id else None
+    if not url and index is not None:
+        url = channels[index].get("url") or ""
     if index is None:
         # Stakeholders subscribe by id, so two channels named alike must not share
         # one: a collision would deliver to both.
@@ -1362,11 +1576,16 @@ def save_flowintel_instance():
     original_id = (data.get("original_id") or "").strip()
     name = (data.get("name") or "").strip()
     url = (data.get("url") or "").strip()
-    api_key = (data.get("api_key") or "").strip()
     if not name:
         return jsonify({"ok": False, "error": "Name required"}), 400
     if not url:
         return jsonify({"ok": False, "error": "URL required"}), 400
+    current = _read()
+    instances = list(current.get("FLOWINTEL_INSTANCES") or [])
+    old = next((i for i in instances if original_id and i.get("id") == original_id), {})
+    api_key = _kept_secret((data.get("api_key") or "").strip(), old.get("api_key"), url, old.get("url"))
+    if api_key is None:
+        return jsonify({"ok": False, "error": _reenter_message("API key")}), 400
     cid = (data.get("id") or "").strip()
     if not cid:
         cid = "".join(c.lower() if c.isalnum() else "-" for c in name).strip("-") or "flowintel"
@@ -1397,8 +1616,6 @@ def save_flowintel_instance():
         "verify_tls": verify_tls,
         "case_templates": case_templates,
     }
-    current = _read()
-    instances = list(current.get("FLOWINTEL_INSTANCES") or [])
     action = "create"
     if original_id:
         for i, inst in enumerate(instances):
@@ -1445,6 +1662,10 @@ def delete_flowintel_instance():
         return jsonify({"ok": False, "error": "Could not delete Flowintel instance."}), 500
 
 
+def _stored_flowintel_keys():
+    return [(i.get("url"), i.get("api_key")) for i in getattr(_config, "FLOWINTEL_INSTANCES", []) or []]
+
+
 @bp.route("/config/test-flowintel-connection", methods=["POST"])
 @rate_limited("config_test_flowintel_connection", limit=20, window_s=60)
 def test_flowintel_connection():
@@ -1453,7 +1674,7 @@ def test_flowintel_connection():
     if err:
         return err
     url = (data.get("url") or "").strip().rstrip("/")
-    api_key = (data.get("api_key") or "").strip()
+    api_key = (data.get("api_key") or "").strip() or _stored_secret_for(url, _stored_flowintel_keys())
     try:
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
     except ValueError as exc:
@@ -1480,11 +1701,9 @@ def test_smtp_connection():
         use_tls = _parse_bool(data.get("use_tls", True), default=True)
     except ValueError:
         return jsonify({"ok": False, "error": "Port must be a number"}), 400
-    result = email.test_connection(
-        host, port, use_tls,
-        (data.get("username") or "").strip(),
-        data.get("password") or "",
-    )
+    password = data.get("password") or _stored_secret_for(
+        host, [(getattr(_config, "SMTP_HOST", ""), getattr(_config, "SMTP_PASSWORD", ""))])
+    result = email.test_connection(host, port, use_tls, (data.get("username") or "").strip(), password)
     return jsonify(result)
 
 
@@ -1496,7 +1715,7 @@ def flowintel_case_templates():
     if err:
         return err
     url = (data.get("url") or "").strip().rstrip("/")
-    api_key = (data.get("api_key") or "").strip()
+    api_key = (data.get("api_key") or "").strip() or _stored_secret_for(url, _stored_flowintel_keys())
     try:
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
     except ValueError as exc:
@@ -1514,7 +1733,7 @@ def flowintel_case_template_tasks():
     if err:
         return err
     url = (data.get("url") or "").strip().rstrip("/")
-    api_key = (data.get("api_key") or "").strip()
+    api_key = (data.get("api_key") or "").strip() or _stored_secret_for(url, _stored_flowintel_keys())
     template_id = (data.get("template_id") or "").strip()
     try:
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
@@ -1616,7 +1835,6 @@ def save_ai_features():
                 "temperature": vals.get("temperature"),
                 "prompt": prompt,
             }
-        _ai_save(clean)
 
         # Persist provider settings and the default model to config/__init__.py.
         providers = data.get("providers")
@@ -1628,11 +1846,20 @@ def save_ai_features():
             if isinstance(providers, dict):
                 openai_p = providers.get("openai") or {}
                 local_p = providers.get("local") or {}
+                local_url = (local_p.get("url") or "").strip()
+                # OpenAI has one fixed address, so its key stays unless replaced or removed.
+                openai_key = "" if openai_p.get("remove_api_key") else (
+                    (openai_p.get("api_key") or "").strip() or current["OPENAI_API_KEY"])
+                local_key = "" if local_p.get("remove_api_key") else _kept_secret(
+                    (local_p.get("api_key") or "").strip(), current["LOCAL_LLM_API_KEY"],
+                    local_url, current["LOCAL_LLM_URL"])
+                if local_key is None:
+                    return jsonify({"ok": False, "error": _reenter_message("local LLM API key")}), 400
                 current["OPENAI_ENABLED"] = bool(openai_p.get("enabled"))
-                current["OPENAI_API_KEY"] = (openai_p.get("api_key") or "").strip()
+                current["OPENAI_API_KEY"] = openai_key
                 current["LOCAL_LLM_ENABLED"] = bool(local_p.get("enabled"))
-                current["LOCAL_LLM_URL"] = (local_p.get("url") or "").strip()
-                current["LOCAL_LLM_API_KEY"] = (local_p.get("api_key") or "").strip()
+                current["LOCAL_LLM_URL"] = local_url
+                current["LOCAL_LLM_API_KEY"] = local_key
                 current["LOCAL_LLM_MODEL"] = (local_p.get("model") or "").strip()
                 default_provider = (providers.get("default") or "").strip()
                 if default_provider in PROVIDERS:
@@ -1640,6 +1867,7 @@ def save_ai_features():
             _write(current)
             importlib.reload(_config)
 
+        _ai_save(clean)
         audit.record("update", "ai_features", details=f"{len(clean)} feature(s) saved")
         return jsonify({"ok": True})
     except Exception:

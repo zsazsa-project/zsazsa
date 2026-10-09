@@ -101,11 +101,12 @@ class PublishPermission(unittest.TestCase):
     the cookie or hit a Redis that is down, not the one trusted identity of an
     install without SSO, so it has to be refused rather than waved through."""
 
-    def can_publish(self, user, redirect=False, cookie_name=""):
+    def can_publish(self, user, redirect=False, cookie_name="", recognised_before=False):
         app = Flask(__name__)
         with app.test_request_context("/"), \
              mock.patch.object(misp_session.config, "MISP_SESSION_REDIRECT_TO_LOGIN", redirect), \
-             mock.patch.object(misp_session.config, "MISP_SESSION_COOKIE_NAME", cookie_name):
+             mock.patch.object(misp_session.config, "MISP_SESSION_COOKIE_NAME", cookie_name), \
+             mock.patch.object(misp_session.sso_users, "any_recorded", return_value=recognised_before):
             g.misp_user = user
             return misp_session.current_user_can_publish()
 
@@ -119,6 +120,12 @@ class PublishPermission(unittest.TestCase):
     def test_no_user_with_single_sign_on_is_refused(self):
         self.assertFalse(self.can_publish(None, redirect=True))
         self.assertFalse(self.can_publish(None, cookie_name="MISP-abc"))
+
+    def test_no_user_is_refused_once_users_were_recognised_through_a_session(self):
+        """With both settings empty zsazsa still derives the cookie name, so an
+        analyst could otherwise leave the cookie out to pass for the trusted
+        identity."""
+        self.assertFalse(self.can_publish(None, recognised_before=True))
 
     def test_a_role_without_perm_publish_is_refused(self):
         self.assertFalse(self.can_publish({"email": "a@misp.test"}, redirect=True))

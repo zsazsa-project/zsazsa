@@ -110,8 +110,9 @@ def _offline_patches():
         delete_stakeholder=mock.Mock(),
         delete_collection_source=mock.Mock(),
     )
-    from webapp import audit, collection_cache, misp_store, org_store, sso_users
+    from webapp import audit, collection_cache, misp_session, misp_store, org_store, sso_users
     return [
+        mock.patch.object(misp_session, "refuse_unless_site_admin", return_value=None),
         mock.patch("requests.adapters.HTTPAdapter.send", no_network),
         mock.patch("pymisp.PyMISP", return_value=misp),
         mock.patch.object(_config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),

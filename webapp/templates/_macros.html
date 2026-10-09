@@ -143,3 +143,12 @@
    title="Download the search as a PyMISP script, reading MISP_URL and MISP_KEY from the environment">
   <i class="fab fa-python me-1"></i>PyMISP</a>
 {% endmacro %}
+
+{% macro remove_secret(name, label) %}
+{# Secret fields are shown empty and an empty one keeps what is stored, so
+   taking a secret away needs a box of its own. #}
+<div class="form-check mt-1">
+  <input class="form-check-input" type="checkbox" name="remove_{{ name }}" value="true" id="remove-{{ name }}">
+  <label class="form-check-label small text-muted" for="remove-{{ name }}">{{ label }}</label>
+</div>
+{% endmacro %}
