@@ -126,6 +126,10 @@ def wizard_edit(id):
     tlr = misp_store.get_tlr(id)
     if tlr is None:
         return "TLR not found", 404
+    # As for briefings and alerts: what was published stays as it was published.
+    if tlr.review_state == misp_store.TLR_REVIEW_PUBLISHED:
+        flash("Published reports cannot be edited.", "warning")
+        return redirect(url_for("threat_landscape.detail", id=id))
     if request.method == "POST":
         data = _form_data(request.form, tlr_id=tlr.tlr_id)
         data["review_state"] = tlr.review_state or misp_store.TLR_REVIEW_DRAFT

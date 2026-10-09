@@ -9,9 +9,11 @@
 <a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-outline-secondary">
   <i class="fas fa-arrow-left me-1"></i> Back
 </a>
+{% if tlr.review_state != 'published' %}
 <a href="{{ url_for('threat_landscape.wizard_edit', id=tlr.uuid) }}" class="btn btn-sm btn-outline-primary">
   <i class="fas fa-pen me-1"></i> Edit
 </a>
+{% endif %}
 {% endblock %}
 
 {% block content %}

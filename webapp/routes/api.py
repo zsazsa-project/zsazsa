@@ -334,6 +334,12 @@ def _run_briefing_draft_job(job_id: str, briefing_uuid: str, with_summary: bool,
             gone = "The briefing could not be loaded."
             job_store.update_job(job_id, status="failed", error=gone, message=gone)
             return
+        # Published between the save that started this job and now: what was
+        # approved stays as it is.
+        if briefing.review_state != misp_store.BRIEFING_REVIEW_DRAFT:
+            published = "The briefing was published before drafting began, so nothing was drafted."
+            job_store.update_job(job_id, status="failed", error=published, message=published)
+            return
 
         stories = [dict(vars(s)) for s in briefing.stories]
         total = len(stories)

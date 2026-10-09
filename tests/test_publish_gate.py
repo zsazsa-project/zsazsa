@@ -181,8 +181,11 @@ class _DailyBriefingFixture(_Gate):
     def setUp(self):
         super().setUp()
         self.client = _client(daily_briefing.bp)
-        self.briefing = SimpleNamespace(uuid=UUID, date="2026-09-23", review_state="draft")
+        self.briefing = SimpleNamespace(uuid=UUID, date="2026-09-23", review_state="draft",
+                                        title="", author="", tlp="amber")
         self.stub(daily_briefing.misp_store, "get_briefing", return_value=self.briefing)
+        self.update = self.stub(daily_briefing.misp_store, "update_briefing")
+        self.stub(daily_briefing.job_store, "in_flight_for", return_value=None)
         self.publish = self.stub(daily_briefing.misp_store, "publish_briefing")
         self.deliver = self.stub(daily_briefing, "_start_briefing_delivery")
         self.stub(daily_briefing.audit, "record")
@@ -199,9 +202,24 @@ class DailyBriefing(_DailyBriefingFixture):
         self.assertRefused(self.client.post(f"/briefing/{UUID}/resend"))
         self.deliver.assert_not_called()
 
+    def test_a_published_briefing_cannot_be_edited(self):
+        self.briefing.review_state = daily_briefing.misp_store.BRIEFING_REVIEW_PUBLISHED
+        self.assertRefused(self.client.post(f"/briefing/{UUID}/edit", data={"tlp": "clear"}))
+        self.update.assert_not_called()
+
+    def test_a_draft_can_still_be_edited(self):
+        self.client.post(f"/briefing/{UUID}/edit", data={"tlp": "clear"})
+        self.update.assert_called_once()
+
 
 class DailyBriefingPublisher(_DailyBriefingFixture):
     can_publish = True
+
+    def test_a_published_briefing_cannot_be_edited_by_a_publisher_either(self):
+        """A resend delivers what is stored, under the approval the original got."""
+        self.briefing.review_state = daily_briefing.misp_store.BRIEFING_REVIEW_PUBLISHED
+        self.assertRefused(self.client.post(f"/briefing/{UUID}/edit", data={"tlp": "clear"}))
+        self.update.assert_not_called()
 
     def test_publish_publishes(self):
         self.client.post(f"/briefing/{UUID}/publish")
@@ -218,8 +236,10 @@ class _ThreatLandscapeFixture(_Gate):
     def setUp(self):
         super().setUp()
         self.client = _client(threat_landscape.bp)
-        self.stub(threat_landscape.misp_store, "get_tlr",
-                  return_value=SimpleNamespace(uuid=UUID, tlr_id="TLR-00042"))
+        self.tlr = SimpleNamespace(uuid=UUID, tlr_id="TLR-00042", review_state="draft")
+        self.stub(threat_landscape.misp_store, "get_tlr", return_value=self.tlr)
+        self.update = self.stub(threat_landscape.misp_store, "update_tlr")
+        self.stub(threat_landscape, "_form_data", return_value={})
         self.publish = self.stub(threat_landscape.misp_store, "publish_tlr")
         self.stub(threat_landscape.audit, "record")
 
@@ -229,9 +249,23 @@ class ThreatLandscape(_ThreatLandscapeFixture):
         self.assertRefused(self.client.post(f"/products/threat-landscape/{UUID}/publish"))
         self.publish.assert_not_called()
 
+    def test_a_published_report_cannot_be_edited(self):
+        self.tlr.review_state = threat_landscape.misp_store.TLR_REVIEW_PUBLISHED
+        self.assertRefused(self.client.post(f"/products/threat-landscape/{UUID}/edit"))
+        self.update.assert_not_called()
+
+    def test_a_draft_report_can_still_be_edited(self):
+        self.client.post(f"/products/threat-landscape/{UUID}/edit")
+        self.update.assert_called_once()
+
 
 class ThreatLandscapePublisher(_ThreatLandscapeFixture):
     can_publish = True
+
+    def test_a_published_report_cannot_be_edited_by_a_publisher_either(self):
+        self.tlr.review_state = threat_landscape.misp_store.TLR_REVIEW_PUBLISHED
+        self.assertRefused(self.client.post(f"/products/threat-landscape/{UUID}/edit"))
+        self.update.assert_not_called()
 
     def test_publish_publishes(self):
         self.client.post(f"/products/threat-landscape/{UUID}/publish")

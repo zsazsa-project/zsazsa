@@ -86,7 +86,9 @@
           </td>
           <td class="text-end">
             <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="btn btn-sm btn-outline-primary">Open</a>
+            {% if t.review_state != 'published' %}
             <a href="{{ url_for('threat_landscape.wizard_edit', id=t.uuid) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
