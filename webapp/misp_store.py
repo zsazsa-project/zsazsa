@@ -840,6 +840,13 @@ def _check(result, label="MISP"):
     return result
 
 
+def user_role(user_id):
+    """The role a MISP user has right now, as MISP returns it, with its permissions."""
+    if not user_id:
+        raise ValueError("no MISP user id in the session")
+    return _check(_misp().get_user(user_id), "get user").get("Role") or {}
+
+
 def _is_not_found(result) -> bool:
     """True when a MISP call failed only because the target no longer exists.
 

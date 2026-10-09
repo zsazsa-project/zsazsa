@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.0.7 - development
+
+The settings pages are now for MISP site admins only, and they no longer show
+stored keys and passwords. Upgrading is recommended.
+
+### Upgrading
+
+Pull and restart, there is nothing to migrate. A few things behave differently:
+
+- Configuration and Collection sources need `perm_site_admin` on the MISP role.
+  Other users no longer see the Settings menu. Installs without single sign-on
+  are unchanged.
+- zsazsa asks MISP for that role on every visit to these pages, so
+  `MISP_WEBAPP_KEY` has to be allowed to look up users, which a site admin key
+  is. Otherwise the settings stay closed for everyone, and the log says so.
+- The session Redis for single sign-on (`MISP_SESSION_REDIS_*`) is set in
+  `config/__init__.py` only. Existing values are kept.
+- Once zsazsa has recognised a user through a MISP session, it treats single
+  sign-on as in use, even with the redirect off and no cookie name set. A
+  request without a session can then no longer publish or open the settings.
+- Saved keys and passwords show as "Configured". Leave a field empty to keep
+  it, use "Remove" to clear it, and enter it again when you change its address.
+- Every MISP user could read these secrets before, so rotate them: the MISP API
+  keys, the SMTP, IMAP and Redis passwords, and the LLM and Flowintel keys.
+
+### Security
+
+- Missing authorisation on the settings pages (GHSA-v6rj-fh3w-rx8x): any MISP
+  user could read every stored credential and rewrite the configuration,
+  including where single sign-on reads identities from, and so act as any user.
+  / reported by @elhoim
+
 ## 1.0.6
 
 AI drafting of the daily briefing now runs as a background job, and an

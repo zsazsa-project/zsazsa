@@ -13,7 +13,8 @@
 #   bash docs/install.sh
 #
 # After running:
-#   1. Edit config/__init__.py and fill in your MISP_URL, MISP_KEY, etc.
+#   1. Edit config/__init__.py and fill in your MISP_URL, MISP_KEY, etc., and
+#      MISP_SESSION_REDIS_* when you use single sign-on
 #   2. Start the application: source venv/bin/activate && python run_webapp.py
 #   3. (Optional) install as a service: see docs/zsazsa.service.template
 
@@ -128,7 +129,9 @@ PY
     echo ""
     echo "  >>> ACTION REQUIRED: edit config/__init__.py and fill in MISP_URL, MISP_KEY,"
     echo "      MISP_WEBAPP_URL and MISP_WEBAPP_KEY before starting the application."
-    echo "      Everything else, including the LLM key, can be set from the web interface."
+    echo "      For single sign-on, set MISP_SESSION_REDIS_* there too: the web interface"
+    echo "      does not change them. Everything else, including the LLM key, can be set"
+    echo "      from the web interface by a MISP site admin."
     echo ""
 fi
 

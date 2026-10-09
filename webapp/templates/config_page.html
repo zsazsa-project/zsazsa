@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import remove_secret %}
 
 {% block title %}Configuration · zsazsa CTI{% endblock %}
 {% block page_title %}Configuration{% endblock %}
@@ -114,7 +115,8 @@
           <div class="mb-3">
             <label class="form-label">API key</label>
             <div class="input-group">
-              <input type="password" name="MISP_WEBAPP_KEY" class="form-control font-monospace api-key-input" value="{{ cfg.MISP_WEBAPP_KEY }}">
+              <input type="password" name="MISP_WEBAPP_KEY" class="form-control font-monospace api-key-input"
+                     placeholder="{{ 'Configured, leave blank to keep' if cfg.MISP_WEBAPP_KEY }}" autocomplete="new-password">
               <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
             </div>
           </div>
@@ -402,40 +404,17 @@
             zsazsa reads the logged-in user from MISP's PHP session, which it expects to find in
             Redis. That only works when PHP is configured to put it there, with
             <code>session.save_handler = redis</code> and a <code>session.save_path</code> pointing at
-            the instance below. Leave username and password empty if Redis requires no authentication.
+            the instance below. Since this decides who every visitor is, it is set in
+            <code>config/__init__.py</code> only, not here. Restart zsazsa after changing it.
           </div>
-          <div class="row g-3 mb-3">
-            <div class="col-md-6">
-              <label class="form-label">Redis host</label>
-              <input type="text" name="MISP_SESSION_REDIS_HOST" class="form-control font-monospace"
-                     value="{{ cfg.MISP_SESSION_REDIS_HOST }}" placeholder="127.0.0.1">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Port</label>
-              <input type="number" name="MISP_SESSION_REDIS_PORT" class="form-control"
-                     value="{{ cfg.MISP_SESSION_REDIS_PORT }}" min="1" max="65535">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Database index</label>
-              <input type="number" name="MISP_SESSION_REDIS_DB" class="form-control"
-                     value="{{ cfg.MISP_SESSION_REDIS_DB }}" min="0">
-            </div>
-          </div>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">Username <span class="text-muted">(optional)</span></label>
-              <input type="text" name="MISP_SESSION_REDIS_USERNAME" class="form-control font-monospace"
-                     value="{{ cfg.MISP_SESSION_REDIS_USERNAME }}" placeholder="leave empty if not used">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Password <span class="text-muted">(optional)</span></label>
-              <div class="input-group">
-                <input type="password" name="MISP_SESSION_REDIS_PASSWORD" class="form-control font-monospace api-key-input"
-                       value="{{ cfg.MISP_SESSION_REDIS_PASSWORD }}" placeholder="leave empty if not used">
-                <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
-              </div>
-            </div>
-          </div>
+          <dl class="row small mb-0">
+            <dt class="col-sm-3">Redis</dt>
+            <dd class="col-sm-9 font-monospace">{{ cfg.MISP_SESSION_REDIS_HOST }}:{{ cfg.MISP_SESSION_REDIS_PORT }}, database {{ cfg.MISP_SESSION_REDIS_DB }}</dd>
+            <dt class="col-sm-3">Username</dt>
+            <dd class="col-sm-9 font-monospace">{{ cfg.MISP_SESSION_REDIS_USERNAME or '-' }}</dd>
+            <dt class="col-sm-3">Password</dt>
+            <dd class="col-sm-9">{{ 'Configured' if cfg.MISP_SESSION_REDIS_PASSWORD else 'Not set' }}</dd>
+          </dl>
         </div>
       </div>
 
@@ -599,9 +578,11 @@
                   <div class="mb-3">
                     <label class="form-label">API key</label>
                     <div class="input-group">
-                      <input type="password" id="llm-openai-key" class="form-control font-monospace api-key-input" value="{{ cfg.OPENAI_API_KEY }}">
+                      <input type="password" id="llm-openai-key" class="form-control font-monospace api-key-input"
+                             placeholder="{{ 'Configured, leave blank to keep' if cfg.OPENAI_API_KEY }}" autocomplete="new-password">
                       <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
                     </div>
+                    {% if cfg.OPENAI_API_KEY %}{{ remove_secret('OPENAI_API_KEY', 'Remove the stored key') }}{% endif %}
                   </div>
                   {{ token_usage(cfg.llm_usage) }}
                   <div class="border-top pt-3">
@@ -654,9 +635,11 @@
                   <div class="mb-3">
                     <label class="form-label">API key</label>
                     <div class="input-group">
-                      <input type="password" id="llm-local-key" class="form-control font-monospace api-key-input" value="{{ cfg.LOCAL_LLM_API_KEY }}">
+                      <input type="password" id="llm-local-key" class="form-control font-monospace api-key-input"
+                             placeholder="{{ 'Configured, leave blank to keep' if cfg.LOCAL_LLM_API_KEY }}" autocomplete="new-password">
                       <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
                     </div>
+                    {% if cfg.LOCAL_LLM_API_KEY %}{{ remove_secret('LOCAL_LLM_API_KEY', 'Remove the stored key') }}{% endif %}
                     <div class="form-text">Leave empty if the endpoint does not require authentication.</div>
                   </div>
                   {{ token_usage(cfg.llm_usage_local) }}
@@ -1052,8 +1035,8 @@
               <div class="col-sm-7">
                 <label class="form-label">Webhook URL</label>
                 <div class="input-group">
-                  <input type="password" class="form-control font-monospace api-key-input ch-url" value="{{ ch.url }}"
-                         placeholder="https://mattermost.example.com/hooks/…">
+                  <input type="password" class="form-control font-monospace api-key-input ch-url" autocomplete="new-password"
+                         placeholder="{{ 'Configured, leave blank to keep' if ch.url else 'https://mattermost.example.com/hooks/…' }}">
                   <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide">
                     <i class="fas fa-eye"></i>
                   </button>
@@ -1150,9 +1133,11 @@
             <div class="col-sm-6">
               <label class="form-label">Password</label>
               <div class="input-group">
-                <input type="password" name="SMTP_PASSWORD" class="form-control font-monospace api-key-input" value="{{ cfg.SMTP_PASSWORD }}">
+                <input type="password" name="SMTP_PASSWORD" class="form-control font-monospace api-key-input"
+                       placeholder="{{ 'Configured, leave blank to keep' if cfg.SMTP_PASSWORD }}" autocomplete="new-password">
                 <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button>
               </div>
+              {% if cfg.SMTP_PASSWORD %}{{ remove_secret('SMTP_PASSWORD', 'Remove the stored password') }}{% endif %}
             </div>
             <div class="col-sm-8">
               <label class="form-label">From address</label>
@@ -1289,7 +1274,8 @@
               <div class="col-sm-7">
                 <label class="form-label">API key</label>
                 <div class="input-group">
-                  <input type="password" class="form-control font-monospace api-key-input fi-api-key" value="{{ fi.api_key }}">
+                  <input type="password" class="form-control font-monospace api-key-input fi-api-key"
+                         placeholder="{{ 'Configured, leave blank to keep' if fi.api_key }}" autocomplete="new-password">
                   <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide">
                     <i class="fas fa-eye"></i>
                   </button>
@@ -1704,11 +1690,13 @@
         openai: {
           enabled: providers.openai.enabled.checked,
           api_key: providers.openai.apiKey.value,
+          remove_api_key: !!document.getElementById('remove-OPENAI_API_KEY')?.checked,
         },
         local: {
           enabled: providers.local.enabled.checked,
           url: providers.local.url.value,
           api_key: providers.local.apiKey.value,
+          remove_api_key: !!document.getElementById('remove-LOCAL_LLM_API_KEY')?.checked,
           model: providers.local.model.value,
         },
       };
@@ -1919,7 +1907,7 @@
             <div class="row g-3">
               <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control ch-name" value="${name}"></div>
               <div class="col-sm-7"><label class="form-label">Webhook URL</label>
-                <div class="input-group"><input type="password" class="form-control font-monospace api-key-input ch-url" value="${url}">
+                <div class="input-group"><input type="password" class="form-control font-monospace api-key-input ch-url" placeholder="${url ? 'Configured, leave blank to keep' : ''}" autocomplete="new-password">
                 <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button></div>
               </div>
               <div class="col-sm-5"><div class="form-check form-switch mt-2"><input class="form-check-input ch-enabled" type="checkbox" ${enabled ? 'checked' : ''}><label class="form-check-label">Enabled</label></div></div>
@@ -2243,7 +2231,7 @@
   }
 
   async function loadCaseTemplatesForRow(tableEl, urlVal, apiKeyVal, verifyTls) {
-    if (!tableEl || !urlVal || !apiKeyVal) return;
+    if (!tableEl || !urlVal) return;
     const rows = tableEl.querySelectorAll('tbody tr[data-product]');
     rows.forEach((tr) => {
       tr.querySelector('.fi-ct-template').innerHTML = '<option value="">Loading templates...</option>';
@@ -2309,7 +2297,7 @@
     table.querySelectorAll('tbody tr[data-product]').forEach((tr) => {
       tr.querySelector('.fi-ct-template').addEventListener('change', () => {
         const {url, apiKey, verifyTls} = getConnDetails();
-        if (!url || !apiKey) return;
+        if (!url) return;
         tr.dataset.templateId = tr.querySelector('.fi-ct-template').value;
         loadInitialTaskOptionsForRow(tr, url, apiKey, verifyTls, true);
       });
@@ -2347,8 +2335,8 @@
   }
 
   async function testConnection(urlVal, apiKeyVal, verifyTls, resultEl, btn, onSuccess) {
-    if (!urlVal || !apiKeyVal) {
-      resultEl.textContent = 'URL and API key required';
+    if (!urlVal) {
+      resultEl.textContent = 'URL required';
       resultEl.className = 'small text-warning';
       return;
     }
@@ -2536,7 +2524,7 @@
               <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control fi-name" value="${name}"></div>
               <div class="col-sm-7"><label class="form-label">URL</label><input type="text" class="form-control fi-url" value="${url}"></div>
               <div class="col-sm-7"><label class="form-label">API key</label>
-                <div class="input-group"><input type="password" class="form-control font-monospace api-key-input fi-api-key" value="${apiKey}">
+                <div class="input-group"><input type="password" class="form-control font-monospace api-key-input fi-api-key" placeholder="${apiKey ? 'Configured, leave blank to keep' : ''}" autocomplete="new-password">
                 <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button></div>
               </div>
               <div class="col-sm-5"><div class="form-check form-switch mt-2"><input class="form-check-input fi-enabled" type="checkbox" ${enabled ? 'checked' : ''}><label class="form-check-label">Enabled</label></div></div>

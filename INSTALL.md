@@ -20,7 +20,7 @@ zsazsa uses Redis.
 
 | Use | Settings | Needed for |
 |---|---|---|
-| MISP's own session store | `MISP_SESSION_REDIS_*` (Settings page) | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
+| MISP's own session store | `MISP_SESSION_REDIS_*` (`config/__init__.py` only) | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
 | Background jobs | `JOB_REDIS_*` (`config/__init__.py` only) | Running-job states |
 | misp-scraper queue | `SCRAPER_REDIS_*` (Settings page) | Sending newsletter article URLs to the scraper |
 
@@ -76,7 +76,7 @@ It writes `certs/zsazsa.crt` and `certs/zsazsa.key`, the paths `SSL_CERT` and `S
 
 ### First configuration
 
-`config/__init__.py.example` contains every setting the application requires in the same layout the Settings page produces when it saves. Set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, plus `MISP_URL` and `MISP_KEY` if you run a misp-scraper; everything else can be done via the web interface.
+`config/__init__.py.example` contains every setting the application requires in the same layout the Settings page produces when it saves. Set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, plus `MISP_URL` and `MISP_KEY` if you run a misp-scraper. If you use single sign-on, set `MISP_SESSION_REDIS_*` here as well, since the web interface does not change them. Everything else can be done via the web interface, by a MISP site admin.
 
 If you want to run zsazsa as a systemd service, use `docs/zsazsa.service.template`.
 
@@ -212,6 +212,10 @@ keeps its scope, so it was either invisible on the detail page or matched nothin
 
 Almost all runtime settings are in `config/__init__.py`, and most of them can be changed from the web interface Saving regenerates the whole file from a fixed template rather than editing lines in place. Anything you added by hand that the template does not know about is dropped.
 
+The Configuration and Collection sources pages are for MISP site admins only (`perm_site_admin` on the user's role), and the Settings menu is hidden from everyone else. Without single sign-on everyone works as the same identity and the pages stay open to all. See the single sign-on section under System for when zsazsa treats single sign-on as in use.
+
+Keys and passwords are never shown again once saved. A field holding one reads "Configured, leave blank to keep": type a new value to replace it, or leave it empty to keep it. Where a secret can be left unset, such as the SMTP password or an LLM key, a "Remove" box under the field clears it. A stored secret stays with the address it was entered for: changing a URL or host means entering its key or password again, and the connection tests only use a stored secret against its own address.
+
 ### Connections
 
 This tab covers the MISP server zsazsa uses as its own **data store**, configured through `MISP_WEBAPP_URL`, `MISP_WEBAPP_KEY` and `MISP_WEBAPP_VERIFYCERT`.
@@ -219,7 +223,7 @@ This tab covers the MISP server zsazsa uses as its own **data store**, configure
 | Setting | Description |
 |---|---|
 | `MISP_WEBAPP_URL` | URL of the MISP server zsazsa uses to store its own program data |
-| `MISP_WEBAPP_KEY` | API key for the webapp MISP server |
+| `MISP_WEBAPP_KEY` | API key for the webapp MISP server. It also looks up a user's role for the settings pages, so it has to be allowed to view users |
 | `MISP_WEBAPP_VERIFYCERT` | Whether to verify the webapp MISP server's TLS certificate |
 | `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance. Product forms search it for public detection rules by CVE ID or MITRE ATT&CK technique, and a product page reads a saved rule back from it. A detection engineering request also validates its draft rule against it. Leave empty to disable the lookup |
 
@@ -271,7 +275,7 @@ zsazsa has no user accounts of its own. It identifies the analyst from MISP's ow
 
 SSO against MISP requires three things:
 
-- **PHP must keep MISP's sessions in Redis**, since that is where zsazsa reads them. Set `session.save_handler = redis` and `session.save_path = "tcp://localhost:6379"` in your PHP configuration, and point `MISP_SESSION_REDIS_*` at the same instance. With sessions in files instead, zsazsa finds nothing and treats every visitor as unauthenticated.
+- **PHP must keep MISP's sessions in Redis**, since that is where zsazsa reads them. Set `session.save_handler = redis` and `session.save_path = "tcp://localhost:6379"` in your PHP configuration, and point `MISP_SESSION_REDIS_*` in `config/__init__.py` at the same instance. With sessions in files instead, zsazsa finds nothing and treats every visitor as unauthenticated.
 - **The database has to match.** PHP writes its sessions to the database named in `session.save_path`, which is `0` when it names none. That is not the `redis_database` in MISP's settings, which is `13` by default and is for MISP's own caching. Setting `MISP_SESSION_REDIS_DB` to `13` points zsazsa at a database with no sessions in it.
 - **The cookie name has to match.** `MISP-<instance uuid>` is what current MISP uses, but the name comes from MISP's own configuration, and installs that leave it at the CakePHP default send `CAKEPHP`. Set `MISP_SESSION_COOKIE_NAME` by hand when it differs.
 
@@ -279,7 +283,13 @@ All three failures look the same from the outside: nobody is ever identified, an
 
 With `MISP_SESSION_REDIRECT_TO_LOGIN` on, a visitor without a valid MISP session is redirected to MISP's login page. With it off, such requests fall back to the `admin@admin.test`. Users seen through a session are recorded and listed on the community page. The public indicator feed URL and the Diamond Model image endpoint stay reachable without a session, since they are capability URLs meant to be handed out.
 
-Approving, publishing and (re)sending a product, and setting a stakeholder's product to automated delivery, take MISP's own **publish** permission (`perm_publish` on the user's role). Once single sign-on is configured, meaning `MISP_SESSION_REDIRECT_TO_LOGIN` is on or `MISP_SESSION_COOKIE_NAME` is set, a request nobody could be identified for may not publish: that covers the `admin@admin.test` fallback as well as a session Redis that is down, since otherwise dropping the cookie would be enough to publish. Only an install without single sign-on, where everyone works as the same trusted identity, publishes without a MISP user. Clear `MISP_SESSION_COOKIE_NAME` together with the redirect to return to that mode. Leaving both empty while zsazsa still recognises users through the detected cookie name keeps the fallback able to publish.
+Approving, publishing and (re)sending a product, and setting a stakeholder's product to automated delivery, take MISP's own **publish** permission (`perm_publish` on the user's role). The Configuration and Collection sources pages take **site admin** (`perm_site_admin`).
+
+MISP keeps the role a user had when they logged in, so the publish check and the Settings menu only follow a role change after the user logs in to MISP again. The settings pages themselves ask MISP for the current role on every visit, so making someone site admin, or taking it away, counts straight away. For that, `MISP_WEBAPP_KEY` has to be allowed to look up users: use a site admin key, or an org admin key when everyone using zsazsa is in that organisation. When MISP cannot be asked, the settings stay closed and the zsazsa log says why.
+
+Both checks need to know who you are. zsazsa treats single sign-on as in use when `MISP_SESSION_REDIRECT_TO_LOGIN` is on, when `MISP_SESSION_COOKIE_NAME` is set, or once it has recognised anyone through a MISP session (they are listed on the community page). From then on, a request without a user may not publish or open the settings. That covers the `admin@admin.test` fallback and a session Redis that is down, so leaving the cookie out never gets anyone past the checks.
+
+Without single sign-on, everyone works as the same trusted identity and can do everything. To go back to that mode after using it, clear `MISP_SESSION_COOKIE_NAME`, turn the redirect off, empty the list of recognised users with `sqlite3 data/analyser.db 'DELETE FROM sso_users'` (or the `DB_FILE` you set), and restart zsazsa.
 
 | Setting | Description |
 |---|---|
@@ -290,6 +300,8 @@ Approving, publishing and (re)sending a product, and setting a stakeholder's pro
 | `MISP_SESSION_REDIS_DB` | Database PHP writes the sessions to, from `session.save_path` and `0` when it names none. Not MISP's own `redis_database`. |
 | `MISP_SESSION_REDIS_USERNAME` | Username, when the instance uses ACLs |
 | `MISP_SESSION_REDIS_PASSWORD` | Password, if the instance requires one |
+
+The `MISP_SESSION_REDIS_*` settings decide who every visitor is, so they are set in `config/__init__.py` only. The System tab shows them read-only, a save from the interface keeps them as they are, and zsazsa needs a restart to pick up a change.
 
 ### Prompts
 
@@ -400,7 +412,7 @@ The same tab also chooses the **UI theme**. Three themes ship with zsazsa: **Ove
 
 ### Settings not exposed in the interface
 
-A small number of settings are only set by editing `config/__init__.py` directly. `SECRET_KEY` is the Flask session secret and should be unique per installation; it can also be supplied through the environment, which takes precedence over the config file. `STATE_FILE`, `DB_FILE` and `LOG_FILE` are filesystem paths for the analyser state, the SQLite database and the log file respectively. All four are carried over unchanged when the configuration is saved from the interface. `COLLECTION_SOURCES` is rebuilt automatically from the scraper and the additional MISP servers every time the configuration is loaded, so it should not be edited by hand.
+A small number of settings are only set by editing `config/__init__.py` directly. `SECRET_KEY` is the Flask session secret and should be unique per installation; it can also be supplied through the environment, which takes precedence over the config file. `STATE_FILE`, `DB_FILE` and `LOG_FILE` are filesystem paths for the analyser state, the SQLite database and the log file respectively. All four are carried over unchanged when the configuration is saved from the interface, and so are the `MISP_SESSION_REDIS_*` settings described under single sign-on. `COLLECTION_SOURCES` is rebuilt automatically from the scraper and the additional MISP servers every time the configuration is loaded, so it should not be edited by hand.
 
 `COLLECTION_CACHE_INTERVAL` sets how many minutes the data collection cache worker waits between refresh cycles, defaulting to 15, and it is not part of the file the Settings page writes, so a save from the interface removes it and the default applies again.
 

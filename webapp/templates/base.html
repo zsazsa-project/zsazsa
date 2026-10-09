@@ -132,6 +132,7 @@
         </ul>
       </li>
 
+      {% if is_site_admin %}
       <li class="nav-item dropdown">
         <a href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false"
            class="topnav-link dropdown-toggle {{ 'active' if settings_section_active }}">
@@ -142,6 +143,7 @@
           <li><a href="{{ url_for('collection_sources.index') }}" class="dropdown-item {{ 'active' if request.blueprint == 'collection_sources' }}"><i class="fas fa-satellite-dish fa-fw"></i> Collection sources</a></li>
         </ul>
       </li>
+      {% endif %}
     </ul>
   </div>
 
@@ -311,6 +313,7 @@
       </li>
     </ul>
 
+    {% if is_site_admin %}
     <div class="sidebar-section-label">Settings</div>
     <ul class="sidebar-nav">
       <li>
@@ -324,6 +327,7 @@
         </a>
       </li>
     </ul>
+    {% endif %}
 
     <div class="sidebar-footer">
       <span class="text-muted small"><i class="fas fa-circle-info fa-fw"></i> zsazsa v{{ app_version }}</span>

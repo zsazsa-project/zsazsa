@@ -251,6 +251,7 @@ class ScraperCard(unittest.TestCase):
         patches = [
             mock.patch.object(misp_store.config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
+            mock.patch.object(config_page.misp_session, "refuse_unless_site_admin", return_value=None),
         ]
         for patcher in patches:
             patcher.start()
@@ -430,6 +431,7 @@ class GeneratedConfig(unittest.TestCase):
             mock.patch.object(config_page, "_BACKUP_FILE", self.dir / "backup.py"),
             mock.patch.object(config_page, "importlib"),
             mock.patch.object(config_page.audit, "record"),
+            mock.patch.object(config_page.misp_session, "refuse_unless_site_admin", return_value=None),
         ]
         for patcher in patches:
             patcher.start()
