@@ -238,7 +238,8 @@ def _blank_feed():
     return SimpleNamespace(
         id=None, uuid="", feed_id="", name="", description="", query={}, tlp="clear",
         audience="", author="", linked_pir_uuid="", feedback_by=None, created_at=None,
-        creator="", token="", cache_interval="", cache_anchor="")
+        creator="", token="", public_url_enabled=misp_session.current_user_can_publish(),
+        cache_interval="", cache_anchor="")
 
 
 def _page(feed, filters, run, rows, error=""):
@@ -278,6 +279,7 @@ def _page(feed, filters, run, rows, error=""):
         cache_age=_cache_age(feed) if saved else "",
         cache_error=feed_cache.failure(feed) if saved else None,
         used_by=misp_store.profiles_using_indicator_feed(feed.uuid) if saved else [],
+        can_publish=misp_session.current_user_can_publish(),
         **_metadata(),
     )
 
@@ -311,7 +313,8 @@ def index():
         # Anything else is not a state, so the list stays whole and says so.
         state = ""
     return render_template("indicator_feed/list.html", feeds=_with_schedule(feeds),
-                           states=FEED_STATES, state_filter=state)
+                           states=FEED_STATES, state_filter=state,
+                           can_publish=misp_session.current_user_can_publish())
 
 
 @bp.route("/<string:id>")
@@ -366,6 +369,20 @@ def recipients_fragment(id):
         tlp_label=feed.tlp, audience_label=feed.audience)
 
 
+def _public_url_choice(current):
+    """Whether the feed's public URL answers, from the form.
+
+    The URL hands the feed to anyone who has it, so only a publisher switches
+    it on or off. The page sends a hidden "disabled", plus "enabled" while the
+    switch is on. For anyone else, and for a form without the switch, it stays
+    as it is.
+    """
+    posted = request.form.getlist("public_url")
+    if not posted or not misp_session.current_user_can_publish():
+        return current
+    return "enabled" in posted
+
+
 @bp.route("/save", methods=["POST"])
 def save():
     filters = _filters_from(request.form)
@@ -382,6 +399,8 @@ def save():
         "feedback_by": (request.form.get("feedback_by") or "").strip(),
         "linked_pir_uuid": (request.form.get("linked_pir_uuid") or "").strip(),
         "query": filters,
+        # A new feed's public URL starts on only when a publisher creates it.
+        "public_url_enabled": _public_url_choice(misp_session.current_user_can_publish()),
         **_cache_fields(request.form),
     }
     try:
@@ -413,6 +432,7 @@ def edit(id):
         "feedback_by": (request.form.get("feedback_by") or "").strip(),
         "linked_pir_uuid": (request.form.get("linked_pir_uuid") or "").strip(),
         "query": _filters_from(request.form),
+        "public_url_enabled": _public_url_choice(feed.public_url_enabled),
         **_cache_fields(request.form),
     }
     try:
@@ -541,6 +561,10 @@ def notify(id):
     feed = misp_store.get_indicator_feed(id)
     if feed is None:
         return "Indicator feed not found", 404
+    # Delivering reaches the same recipients as publishing a product, so it takes the same right.
+    if not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("deliver an indicator feed"), "warning")
+        return redirect(url_for("indicator_feed.detail", id=id))
     rows, error = _search(_merge_filters(feed.query))
     if error:
         # Better no delivery than one telling stakeholders the feed is empty.

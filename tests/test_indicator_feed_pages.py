@@ -44,7 +44,7 @@ _ROWS = [_row("1.2.3.4")]
 def _feed(interval="daily", saved="2026-09-04T14:16:00", **over):
     data = dict(uuid=_UUID, id=_UUID, feed_id="FEED-001", name="demo", description="",
                 query={"types": ["ip-dst"], "limit": 100}, tlp="clear", audience="",
-                author="", linked_pir_uuid="", creator="", token="t" * 22,
+                author="", linked_pir_uuid="", creator="", token="t" * 22, public_url_enabled=True,
                 cache_interval=interval, cache_anchor=saved, feedback_by=None, created_at=None)
     data.update(over)
     return SimpleNamespace(**data)
@@ -478,6 +478,44 @@ class RenderedPages(unittest.TestCase):
              mock.patch.object(misp_store, "profiles_using_indicator_feed", return_value=[]):
             html = self.client.get(f"/products/indicator-feed/{_UUID}").data
         self.assertIn("No threat actor profile", html.decode())
+
+    def _feed_page(self, can_publish, **feed):
+        with mock.patch.object(misp_store, "get_indicator_feed", return_value=_feed(**feed)), \
+             mock.patch.object(misp_store, "get_pir", return_value=None), \
+             mock.patch("webapp.misp_session.current_user_can_publish", return_value=can_publish):
+            html = self.client.get(f"/products/indicator-feed/{_UUID}").data
+        return BeautifulSoup(html, "html.parser")
+
+    def test_only_a_publisher_gets_the_public_url_switch(self):
+        switch = self._feed_page(True).select_one("input[type=checkbox][name=public_url]")
+        self.assertIsNotNone(switch)
+        self.assertTrue(switch.has_attr("checked"))
+        page = self._feed_page(False)
+        self.assertIsNone(page.select_one("[name=public_url]"))
+        self.assertIn("Only users with MISP publish rights can switch it on or off", page.get_text())
+
+    def test_a_switched_off_public_url_is_not_shown(self):
+        page = self._feed_page(True, public_url_enabled=False)
+        self.assertFalse(page.select_one("input[type=checkbox][name=public_url]").has_attr("checked"))
+        self.assertIsNone(page.select_one("input.public-url"))
+        self.assertIn("Off. The link answers", page.get_text())
+        self.assertIsNotNone(self._feed_page(True).select_one("input.public-url"))
+
+    def test_a_new_feed_by_anyone_but_a_publisher_says_its_url_starts_off(self):
+        with mock.patch("webapp.misp_session.current_user_can_publish", return_value=False):
+            html = self.client.get("/products/indicator-feed/new").data.decode()
+        self.assertIn("Off when you save the feed.", html)
+
+    def test_the_list_offers_delivery_only_to_a_publisher(self):
+        notify = f"/products/indicator-feed/{_UUID}/notify"
+        for can_publish in (True, False):
+            with self.subTest(can_publish=can_publish), \
+                 mock.patch.object(misp_store, "list_indicator_feeds", return_value=[_feed()]), \
+                 mock.patch("webapp.misp_session.current_user_can_publish", return_value=can_publish):
+                html = self.client.get("/products/indicator-feed/").data
+            row = BeautifulSoup(html, "html.parser").select_one("tbody tr")
+            self.assertEqual(bool(row.select(f'form[action="{notify}"]')), can_publish)
+            self.assertEqual(bool(row.select("button[disabled] .fa-paper-plane")), not can_publish)
 
     def test_the_list_says_when_a_feed_could_not_be_refreshed(self):
         note = {"at": datetime(2026, 9, 5, 10, 30), "reason": "MISP unreachable"}

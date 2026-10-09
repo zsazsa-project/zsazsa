@@ -26,6 +26,14 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   keys, the SMTP, IMAP and Redis passwords, and the LLM and Flowintel keys.
 - Mattermost notifications sent before the upgrade lose their Diamond Model
   image, and so do all of them when `SECRET_KEY` changes.
+- An indicator feed tracks if it has a public URL. Existing feeds
+  keep their public URL,  until someone with MISP publish rights switches it off. A new
+  feed starts with it on only when a publisher creates it.
+
+### Added
+
+- A feed's public URL can be switched on or off on the feed's page, by users
+  with MISP publish rights only.
 
 ### Security
 
@@ -35,6 +43,8 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   / reported by @elhoim
 - Diamond Model images of any threat actor profile, drafts included, were
   readable without a login (GHSA-x326-2rwv-jc78). / reported by @elhoim
+- Delivering an indicator feed to stakeholders did not need the MISP publish
+  right (GHSA-gp95-wrp9-v67f). / reported by @elhoim
 
 ## 1.0.6
 

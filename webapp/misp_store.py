@@ -2081,11 +2081,17 @@ def _indicator_feed_obj(data):
     _oa(obj, "author", data.get("author"))
     _oa(obj, "feedback-by", data.get("feedback_by"))
     _oa(obj, "token", data.get("token"))
+    _oa(obj, "public-url", "enabled" if data.get("public_url_enabled", True) else "disabled")
     _oa(obj, "creator", data.get("creator"))
     _oa(obj, "linked-pir-uuid", data.get("linked_pir_uuid"))
     _oa(obj, "cache-interval", data.get("cache_interval"))
     _oa(obj, "cache-anchor", data.get("cache_anchor"))
     return obj
+
+
+def _public_url_enabled(obj):
+    # Feeds saved before the setting existed keep the URL they had.
+    return (_obj_attr(obj, "public-url") or "enabled") == "enabled"
 
 
 def _indicator_feed_ns(event):
@@ -2106,6 +2112,7 @@ def _indicator_feed_ns(event):
         author=_obj_attr(obj, "author") or "",
         feedback_by=_parse_date(_obj_attr(obj, "feedback-by")),
         token=_obj_attr(obj, "token") or "",
+        public_url_enabled=_public_url_enabled(obj),
         creator=_obj_attr(obj, "creator") or "",
         linked_pir_uuid=_obj_attr(obj, "linked-pir-uuid") or "",
         cache_interval=_obj_attr(obj, "cache-interval") or "",
@@ -2164,6 +2171,7 @@ def update_indicator_feed(uuid, data):
         data.setdefault("creator", _obj_attr(old, "creator") or "")
         # Keep the capability token stable across edits so saved URLs keep working.
         data.setdefault("token", _obj_attr(old, "token") or secrets.token_urlsafe(16))
+        data.setdefault("public_url_enabled", _public_url_enabled(old))
     _sync_object_attributes(misp, event, "zsazsa-indicator-feed", _indicator_feed_obj(data), "indicator feed")
     info = f"[zsazsa:indicator-feed] {data.get('feed_id', '')}: {(data.get('name') or '')[:80]}"
     misp.update_event({"Event": {"id": event.id, "info": info}})
@@ -2182,11 +2190,12 @@ def delete_indicator_feed(uuid):
 
 
 def get_indicator_feed_by_token(token):
-    """Look up a feed by its public capability token, or None."""
+    """The feed whose public URL carries this token, or None. A feed with its
+    public URL switched off is not found."""
     token = (token or "").strip()
     if not token:
         return None
-    return next((f for f in list_indicator_feeds() if f.token == token), None)
+    return next((f for f in list_indicator_feeds() if f.token == token and f.public_url_enabled), None)
 
 
 # ── Threat actor profiles (saved MISP-backed actor write-ups) ────────────────

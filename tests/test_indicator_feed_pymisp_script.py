@@ -29,7 +29,7 @@ _HOSTILE = 'x\'"\n"""\'\'\'\\\nimport os; os.system("id") #}}{{\r\x00'
 def _feed(**over):
     data = dict(uuid=_UUID, id=_UUID, feed_id="FEED-001", name="Ports & Terminals",
                 description="", query={"types": ["ip-dst"]}, tlp="amber", audience="",
-                author="", linked_pir_uuid="", creator="", token="secret-feed-token",
+                author="", linked_pir_uuid="", creator="", token="secret-feed-token", public_url_enabled=True,
                 cache_interval="", cache_anchor="", feedback_by=None, created_at=None)
     data.update(over)
     return SimpleNamespace(**data)

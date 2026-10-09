@@ -20,8 +20,8 @@ from unittest import mock
 from flask import Flask
 from werkzeug.datastructures import MultiDict
 
-from webapp.routes import (daily_briefing, flash_intel, stakeholders, threat_actor_profile,
-                           threat_landscape, vea)
+from webapp.routes import (daily_briefing, flash_intel, indicator_feed, stakeholders,
+                           threat_actor_profile, threat_landscape, vea)
 
 UUID = "u" * 36
 
@@ -270,6 +270,33 @@ class ThreatActorProfilePublisher(_ThreatActorProfileFixture):
     def test_notify_delivers(self):
         self.tap.status = "Published"
         self.client.post(f"/products/threat-actor-profile/{UUID}/notify")
+        self.deliver.assert_called_once()
+
+
+class _IndicatorFeedFixture(_Gate):
+    def setUp(self):
+        super().setUp()
+        self.client = _client(indicator_feed.bp)
+        feed = SimpleNamespace(uuid=UUID, feed_id="FEED-00042", name="Feed", description="",
+                               query={}, tlp="amber", audience="SOC")
+        self.stub(indicator_feed.misp_store, "get_indicator_feed", return_value=feed)
+        self.search = self.stub(indicator_feed, "_search", return_value=([], None))
+        self.stub(indicator_feed.misp_store, "indicator_export", return_value="")
+        self.deliver = self.stub(indicator_feed.notify_jobs, "start")
+
+
+class IndicatorFeed(_IndicatorFeedFixture):
+    def test_notify_is_refused_before_the_query_runs(self):
+        self.assertRefused(self.client.post(f"/products/indicator-feed/{UUID}/notify"))
+        self.search.assert_not_called()
+        self.deliver.assert_not_called()
+
+
+class IndicatorFeedPublisher(_IndicatorFeedFixture):
+    can_publish = True
+
+    def test_notify_delivers(self):
+        self.client.post(f"/products/indicator-feed/{UUID}/notify")
         self.deliver.assert_called_once()
 
 
