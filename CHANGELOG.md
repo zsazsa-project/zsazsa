@@ -26,13 +26,14 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   keys, the SMTP, IMAP and Redis passwords, and the LLM and Flowintel keys.
 - Mattermost notifications sent before the upgrade lose their Diamond Model
   image, and so do all of them when `SECRET_KEY` changes.
-- An indicator feed now stores whether its public URL answers. Existing feeds
-  keep theirs on until someone with MISP publish rights switches it off.
+- An indicator feed tracks if it has a public URL. Existing feeds
+  keep their public URL,  until someone with MISP publish rights switches it off. A new
+  feed starts with it on only when a publisher creates it.
 
 ### Added
 
-- A feed's public URL can be switched off on the feed's page, by users with
-  MISP publish rights only.
+- A feed's public URL can be switched on or off on the feed's page, by users
+  with MISP publish rights only.
 
 ### Security
 

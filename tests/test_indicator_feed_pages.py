@@ -501,6 +501,11 @@ class RenderedPages(unittest.TestCase):
         self.assertIn("Off. The link answers", page.get_text())
         self.assertIsNotNone(self._feed_page(True).select_one("input.public-url"))
 
+    def test_a_new_feed_by_anyone_but_a_publisher_says_its_url_starts_off(self):
+        with mock.patch("webapp.misp_session.current_user_can_publish", return_value=False):
+            html = self.client.get("/products/indicator-feed/new").data.decode()
+        self.assertIn("Off when you save the feed.", html)
+
     def test_the_list_offers_delivery_only_to_a_publisher(self):
         notify = f"/products/indicator-feed/{_UUID}/notify"
         for can_publish in (True, False):

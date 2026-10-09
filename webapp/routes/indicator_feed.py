@@ -238,7 +238,8 @@ def _blank_feed():
     return SimpleNamespace(
         id=None, uuid="", feed_id="", name="", description="", query={}, tlp="clear",
         audience="", author="", linked_pir_uuid="", feedback_by=None, created_at=None,
-        creator="", token="", public_url_enabled=True, cache_interval="", cache_anchor="")
+        creator="", token="", public_url_enabled=misp_session.current_user_can_publish(),
+        cache_interval="", cache_anchor="")
 
 
 def _page(feed, filters, run, rows, error=""):
@@ -398,7 +399,8 @@ def save():
         "feedback_by": (request.form.get("feedback_by") or "").strip(),
         "linked_pir_uuid": (request.form.get("linked_pir_uuid") or "").strip(),
         "query": filters,
-        "public_url_enabled": _public_url_choice(True),
+        # A new feed's public URL starts on only when a publisher creates it.
+        "public_url_enabled": _public_url_choice(misp_session.current_user_can_publish()),
         **_cache_fields(request.form),
     }
     try:

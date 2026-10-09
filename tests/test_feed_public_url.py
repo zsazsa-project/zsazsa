@@ -1,10 +1,11 @@
 """A feed's public URL is a setting only a publisher changes.
 
 The public URL hands a feed's indicators to anyone holding the link, without a
-login. Each feed now carries a public-url setting on its MISP object. It is on
-for new feeds and for feeds saved before the setting existed, and only a user
-with MISP publish rights switches it off. While it is off, the link answers
-like an unknown one.
+login. Each feed now carries a public-url setting on its MISP object, and only
+a user with MISP publish rights switches it on or off. A feed a publisher
+creates starts with it on, one anyone else creates starts with it off, and
+feeds saved before the setting existed keep their URL on. While it is off, the
+link answers like an unknown one.
 
     python -m unittest tests.test_feed_public_url
 """
@@ -108,15 +109,17 @@ class ChangingIt(unittest.TestCase):
             self.client.post(f"/products/indicator-feed/{UUID}/edit", data={"name": "demo", **form})
         return misp_store.update_indicator_feed.call_args.args[1]["public_url_enabled"]
 
-    def test_a_new_feed_has_it_on(self):
-        self.assertTrue(self.saved(can_publish=False))
+    def test_a_feed_a_publisher_creates_starts_with_it_on(self):
         self.assertTrue(self.saved(can_publish=True))
+
+    def test_a_feed_anyone_else_creates_starts_with_it_off(self):
+        self.assertFalse(self.saved(can_publish=False))
 
     def test_a_publisher_can_create_a_feed_with_it_off(self):
         self.assertFalse(self.saved(can_publish=True, public_url="disabled"))
 
-    def test_anyone_else_cannot(self):
-        self.assertTrue(self.saved(can_publish=False, public_url="disabled"))
+    def test_anyone_else_cannot_switch_it_on_when_creating_a_feed(self):
+        self.assertFalse(self.saved(can_publish=False, public_url=["disabled", "enabled"]))
 
     def test_a_publisher_switches_it_on_and_off(self):
         # The page posts a hidden "disabled", then "enabled" when the switch is on.
