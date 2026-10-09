@@ -1277,12 +1277,31 @@ def test_imap_mailbox():
     return jsonify(result)
 
 
+def _stored_misp_servers():
+    """(URL, key, TLS verification) for each configured MISP server."""
+    servers = [
+        (getattr(_config, "MISP_WEBAPP_URL", ""), getattr(_config, "MISP_WEBAPP_KEY", ""),
+         getattr(_config, "MISP_WEBAPP_VERIFYCERT", True)),
+        (getattr(_config, "MISP_URL", ""), getattr(_config, "MISP_KEY", ""),
+         getattr(_config, "MISP_VERIFYCERT", True)),
+    ]
+    servers.extend(
+        (server.get("url"), server.get("api_key"), server.get("verify_tls", True))
+        for server in getattr(_config, "MISP_SERVERS", []) or []
+    )
+    return servers
+
+
 def _stored_misp_keys():
     """(URL, key) of every MISP server zsazsa holds a key for."""
-    pairs = [(getattr(_config, "MISP_WEBAPP_URL", ""), getattr(_config, "MISP_WEBAPP_KEY", "")),
-             (getattr(_config, "MISP_URL", ""), getattr(_config, "MISP_KEY", ""))]
-    pairs += [(s.get("url"), s.get("api_key")) for s in getattr(_config, "MISP_SERVERS", []) or []]
-    return pairs
+    return [(url, key) for url, key, _verify in _stored_misp_servers()]
+
+
+def _stored_verify_tls(url):
+    """Whether TLS is verified for a MISP server, as stored with its URL. On for
+    a URL zsazsa has no setting for."""
+    return next((bool(verify) for addr, _key, verify in _stored_misp_servers()
+                 if _same_address(addr, url)), True)
 
 
 @bp.route("/config/sources/pull-estimate", methods=["POST"])
@@ -1373,7 +1392,7 @@ def lookup_org():
 
     servers = []
     if misp_url and misp_key:
-        servers.append((misp_url, misp_key, False))
+        servers.append((misp_url, misp_key, _stored_verify_tls(misp_url)))
     servers.append((_config.MISP_WEBAPP_URL, _config.MISP_WEBAPP_KEY, _config.MISP_WEBAPP_VERIFYCERT))
     if scraper_enabled() and _config.MISP_URL != _config.MISP_WEBAPP_URL:
         servers.append((_config.MISP_URL, _config.MISP_KEY, _config.MISP_VERIFYCERT))

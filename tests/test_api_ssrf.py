@@ -30,7 +30,7 @@ class SafePublicUrl(unittest.TestCase):
             self.assertFalse(is_safe_public_url(url), url)
 
     def test_rejects_empty_or_garbage(self):
-        for url in ["", "not a url", "http://"]:
+        for url in ["", "not a url", "http://", "http://["]:
             self.assertFalse(is_safe_public_url(url), url)
 
     def test_rejects_a_malformed_port_instead_of_raising(self):

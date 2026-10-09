@@ -20,10 +20,13 @@ def is_safe_public_url(url: str) -> bool:
     private records is rejected.
 
     Note: this validates the host at check time. DNS rebinding between this
-    check and the actual fetch remains a residual risk; authentication and
-    authorization on the calling endpoint are the primary control.
+    check and the actual fetch, and redirects followed by the downstream
+    fetcher, remain residual risks.
     """
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
     if parts.scheme not in ("http", "https"):
         return False
     host = parts.hostname

@@ -533,6 +533,10 @@ Each newsletter source inside it:
 
 "Test connection" opens the mailbox with the entered settings without reading or changing any mail. Polling never deletes mail; a message is flagged with the `zsazsaProcessed` IMAP keyword only once it has been archived, so a failure retries on the next run instead of losing the newsletter.
 
+Subject and sender filters cannot prove a message is genuine. In automatic mode, the scraper fetches its links, so zsazsa only forwards links whose hosts resolve to public addresses. This also applies to links pasted in by hand. Private or internal links are skipped. Newsletters with no eligible links wait for review. Use `Manual review` for mailboxes external senders can reach.
+
+The check runs before the separate scraper fetches a link, so it cannot prevent redirects or DNS changes from reaching internal addresses. Restrict the scraper host's outbound access until its subscriber validates destinations too.
+
 ## Optional post-installation steps
 
 The MITRE ATT&CK technique list used in product forms and briefing stories is read from `data/mitre-attack-pattern.json`. When that file is missing the list is fetched from the MISP galaxy instead, which works but requires a query. Populate and refresh the local cache with:

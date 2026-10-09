@@ -31,6 +31,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import config
+import requests
 from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
@@ -579,7 +580,21 @@ def _test_connection(url, key, verify):
             return {"ok": True, "version": resp["version"], "url": url}
         return {"ok": False, "url": url, "error": "Unexpected response from server"}
     except Exception as exc:
-        return {"ok": False, "url": url, "error": str(exc)}
+        logger.warning("MISP connection test to %s failed (%s)", url, type(exc).__name__)
+        return {"ok": False, "url": url, "error": _connection_failure(exc)}
+
+
+def _connection_failure(exc):
+    """What a failed connection test tells the page, never the exception text:
+    PyMISP puts the server's response in it, and that server can be any host
+    a URL points at, including one redirected to from the URL given."""
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "The server's TLS certificate could not be verified."
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "The server did not answer in time."
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "Could not connect to the server."
+    return "The server did not return a valid MISP response for this API key."
 
 
 def test_scraper_misp():

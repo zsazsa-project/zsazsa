@@ -850,6 +850,11 @@ def newsletter_ignore(uuid):
     return redirect(url_for("data_collection.newsletter_pending"))
 
 
+def _refused_message(refused):
+    return (f"{refused} link(s) were not sent: the scraper is only given public web "
+            "addresses.")
+
+
 @bp.route("/newsletter/pending/<string:uuid>", methods=["GET", "POST"])
 def newsletter_review_pending(uuid):
     """Review one pending newsletter and push the selected articles."""
@@ -866,18 +871,29 @@ def newsletter_review_pending(uuid):
             return redirect(url_for("data_collection.newsletter_review_pending", uuid=uuid))
         counts = newsletter_ingest.publish_articles(feed, articles)
         try:
-            misp_store.finalize_newsletter(uuid, [a["url"] for a in articles])
+            misp_store.finalize_newsletter(uuid, newsletter_ingest.public_urls(articles))
         except Exception:
             logger.exception("could not finalize newsletter %s", uuid)
         audit.record(
             "push", "newsletter-import", entity_id=uuid, entity_label=feed,
             details=f"reviewed selected={len(articles)} published={counts['published']} "
-                    f"failed={counts['failed']} no_subscriber={counts['no_subscriber']}",
+                    f"failed={counts['failed']} no_subscriber={counts['no_subscriber']} "
+                    f"refused={counts['refused']}",
         )
-        if counts["published"] == 0:
-            flash("Could not reach the scraper queue. Check the Redis settings.", "warning")
+        if counts["published"] == 0 and counts["refused"] and not counts["failed"]:
+            flash(_refused_message(counts["refused"]), "warning")
+        elif counts["published"] == 0:
+            msg = "Could not reach the scraper queue. Check the Redis settings."
+            if counts["refused"]:
+                msg += " " + _refused_message(counts["refused"])
+            flash(msg, "warning")
         else:
-            flash(f"Sent {counts['published']} article(s) to the scraper queue.", "success")
+            msg = f"Sent {counts['published']} article(s) to the scraper queue."
+            if counts["failed"]:
+                msg += f" {counts['failed']} could not be sent."
+            if counts["refused"]:
+                msg += " " + _refused_message(counts["refused"])
+            flash(msg, "success")
         return redirect(url_for("data_collection.newsletter_pending"))
 
     try:
@@ -939,7 +955,7 @@ def _newsletter_push(source: str):
             report_title=request.form.get("report_title", ""),
             tlp=request.form.get("tlp", ""),
             parser=source,
-            article_urls=[a["url"] for a in articles],
+            article_urls=newsletter_ingest.public_urls(articles),
         )
         stored = True
     except Exception:
@@ -947,20 +963,26 @@ def _newsletter_push(source: str):
 
     counts = newsletter_ingest.publish_articles(source, articles)
     published, failed, no_subscriber = counts["published"], counts["failed"], counts["no_subscriber"]
+    refused = counts["refused"]
 
     audit.record(
         "push", "newsletter-import", entity_label=source,
         details=f"selected={len(articles)} published={published} failed={failed} "
-                f"no_subscriber={no_subscriber} archived={'yes' if stored else 'no'}",
+                f"no_subscriber={no_subscriber} refused={refused} archived={'yes' if stored else 'no'}",
     )
 
     archived = " The newsletter itself was archived in MISP." if stored else ""
-    if published == 0:
-        flash(
+    if published == 0 and refused and not failed:
+        flash(_refused_message(refused) + archived, "warning")
+    elif published == 0:
+        msg = (
             "Could not reach the scraper queue. Check the Redis settings under "
-            "Collection sources > Manual sources pushing to scraper." + archived,
-            "warning",
+            "Collection sources > Manual sources pushing to scraper."
         )
+        if refused:
+            msg += " " + _refused_message(refused)
+        flash(
+            msg + archived, "warning")
     elif no_subscriber == published:
         # Naming where we published is the difference between "the service is
         # down" and "the service is up, on another Redis", which look identical
@@ -978,6 +1000,8 @@ def _newsletter_push(source: str):
             msg += f" {failed} could not be sent."
         if no_subscriber:
             msg += f" {no_subscriber} had no subscriber listening."
+        if refused:
+            msg += " " + _refused_message(refused)
         flash(msg + archived, "success")
     return redirect(url_for("data_collection.index"))
 
