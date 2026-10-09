@@ -574,6 +574,12 @@ def edit(id):
     briefing = misp_store.get_briefing(id)
     if briefing is None:
         return "Briefing not found", 404
+    # As for alerts: refused for everyone, publishers included. A resend
+    # delivers what is stored, so an edit after publishing would reach the
+    # recipients under the approval given to the original.
+    if briefing.review_state == misp_store.BRIEFING_REVIEW_PUBLISHED:
+        flash("Published briefings cannot be edited.", "warning")
+        return redirect(url_for("daily_briefing.detail", id=id))
     if request.method == "POST" and job_store.in_flight_for(id, "briefing-draft"):
         # The form locks itself while the job runs, but another tab can still
         # post it, and the job would then write its older copy over this save.

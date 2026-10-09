@@ -174,6 +174,13 @@ class APublishWhileDraftingIsNotUndone(unittest.TestCase):
         saved, _ = TheJobWritesOnce.run_job(self, _briefing())
         self.assertEqual(saved[0][2], {"expected_state": "draft"})
 
+    def test_a_briefing_published_before_the_job_reads_it_is_left_alone(self):
+        """Otherwise the job would read "published" and save its drafts over the
+        published briefing with that very state as the one it expects."""
+        saved, job = TheJobWritesOnce.run_job(self, _briefing(review_state="published"))
+        self.assertEqual(saved, [])
+        self.assertEqual(job["status"], "failed")
+
     def test_a_briefing_published_meanwhile_fails_the_job_and_is_left_alone(self):
         def published_meanwhile(uuid, data, expected_state=None):
             raise api.misp_store.BriefingStateChanged("published")

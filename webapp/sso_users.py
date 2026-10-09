@@ -6,6 +6,7 @@ used zsazsa via SSO.
 """
 
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -69,7 +70,15 @@ def record_sighting(user):
 def any_recorded():
     """Whether any MISP user has been recognised through a session."""
     with _conn() as db:
-        return db.execute("SELECT 1 FROM sso_users LIMIT 1").fetchone() is not None
+        try:
+            return db.execute("SELECT 1 FROM sso_users LIMIT 1").fetchone() is not None
+        except sqlite3.OperationalError as exc:
+            # The table is created when the app first starts, and before that
+            # nobody has been recognised. Any other error, such as a locked
+            # database, is not an answer.
+            if "no such table" not in str(exc):
+                raise
+            return False
 
 
 def list_sso_users():

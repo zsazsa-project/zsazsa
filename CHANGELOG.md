@@ -50,6 +50,9 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 - Any MISP user could delete or change MISP events that zsazsa did not
   create, by putting their id in the URL of a zsazsa page
   (GHSA-f8wh-26f3-4478). / reported by @elhoim
+- A published daily briefing or threat landscape report could still be edited,
+  also by users without MISP publish rights, and a resend then delivered the
+  edited version (GHSA-rqcp-gv9j-jgv6). / reported by @elhoim
 
 ## 1.0.6
 
