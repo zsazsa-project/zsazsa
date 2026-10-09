@@ -53,7 +53,7 @@ def _client():
 def _feed(interval="daily", saved="2026-09-04T14:16:00", **over):
     data = dict(uuid=_UUID, id=_UUID, feed_id="FEED-001", name="demo", description="",
                 query={"types": ["ip-dst"], "limit": 100}, tlp="clear", audience="",
-                author="", linked_pir_uuid="", creator="", token="t" * 22,
+                author="", linked_pir_uuid="", creator="", token="t" * 22, public_url_enabled=True,
                 cache_interval=interval, cache_anchor=saved)
     data.update(over)
     return SimpleNamespace(**data)

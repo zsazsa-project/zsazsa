@@ -187,7 +187,7 @@ A useful detail is that the feed is kept as a PyMISP query. zsazsa shows you tha
 
 ![docs/x-indicatorfeed2png.png](docs/x-indicatorfeed2png.png)
 
-More often you will not need to copy anything, because zsazsa gives **each feed its own unique URL**. Point a tool at that URL and it pulls the indicators directly, without a login.
+More often you will not need to copy anything, because zsazsa gives **each feed its own unique URL**. Point a tool at that URL and it pulls the indicators directly, without a login. The URL is on by default. A user with MISP publish rights can switch it off on the feed's page, and the link then answers as if it did not exist.
 
 ![docs/x-indicatorfeed3.png](docs/x-indicatorfeed3.png)
 

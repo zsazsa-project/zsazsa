@@ -159,7 +159,21 @@
           <dd class="col-7"><span class="tlp-badge tlp-{{ feed.tlp | slug }}">TLP:{{ feed.tlp | upper }}</span></dd>
           <dt class="col-5">Public URL</dt>
           <dd class="col-7">
-            {% if is_edit and feed.token %}
+            {% if can_publish %}
+            {# An unticked switch sends nothing, so the hidden field says "off"
+               and a form without the switch leaves the setting alone. #}
+            <input type="hidden" name="public_url" value="disabled">
+            <div class="form-check form-switch mb-1">
+              <input class="form-check-input" type="checkbox" role="switch" name="public_url" value="enabled"
+                     id="public-url-enabled" {{ 'checked' if feed.public_url_enabled }}>
+              <label class="form-check-label" for="public-url-enabled">Enabled</label>
+            </div>
+            {% else %}
+            <div class="form-text mt-0 mb-1">Only users with MISP publish rights can switch it on or off.</div>
+            {% endif %}
+            {% if not feed.public_url_enabled %}
+            <span class="text-muted">Off. The link answers "Feed not found".</span>
+            {% elif is_edit and feed.token %}
             <div class="input-group input-group-sm">
               <input type="text" class="form-control public-url font-monospace" style="font-size:.68rem;" readonly
                      value="{{ url_for('indicator_feed.public_feed', token=feed.token, _external=True) }}">

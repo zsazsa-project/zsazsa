@@ -94,6 +94,7 @@
                     <i class="fas fa-eye"></i>
                   </a>
                   {{ feed_downloads(f, size='xs') }}
+                  {% if can_publish %}
                   <form method="post" action="{{ url_for('indicator_feed.notify', id=f.id) }}" class="d-inline"
                         data-submit-confirm="Send {{ f.feed_id }} to the eligible stakeholders?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -101,6 +102,14 @@
                       <i class="fas fa-paper-plane"></i>
                     </button>
                   </form>
+                  {% else %}
+                  <span class="d-inline-block" style="cursor:not-allowed;"
+                        title="Only users with MISP publish rights can deliver an indicator feed.">
+                    <button class="btn btn-xs btn-outline-primary" disabled style="pointer-events:none;">
+                      <i class="fas fa-paper-plane"></i>
+                    </button>
+                  </span>
+                  {% endif %}
                 </span>
                 <span class="vr"></span>
                 <span class="d-inline-flex flex-nowrap gap-1">

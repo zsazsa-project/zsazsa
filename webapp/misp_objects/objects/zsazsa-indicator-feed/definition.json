@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Saved MISP indicator search (indicator feed) managed by the zsazsa CTI program",
   "uuid": "3f2c1a8e-6b4d-4f9a-9c1e-2d7b8a4f6c91",
-  "version": 2,
+  "version": 3,
   "attributes": {
     "feed-id": {
       "misp-attribute": "text",
@@ -57,6 +57,12 @@
       "misp-attribute": "text",
       "ui-priority": 5,
       "description": "Capability token for the unguessable public export URL",
+      "disable_correlation": true
+    },
+    "public-url": {
+      "misp-attribute": "text",
+      "ui-priority": 5,
+      "description": "Whether the public export URL answers: enabled or disabled. A feed without it counts as enabled",
       "disable_correlation": true
     },
     "creator": {
