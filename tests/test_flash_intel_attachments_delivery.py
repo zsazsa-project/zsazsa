@@ -91,7 +91,8 @@ class PublishedAlertsAreFrozen(unittest.TestCase):
         self.uuid = "u" * 36
 
     def _post(self, path, review_state, **data):
-        fia = SimpleNamespace(uuid=self.uuid, fia_id="FIA-00042", review_state=review_state)
+        fia = SimpleNamespace(uuid=self.uuid, fia_id="FIA-00042", review_state=review_state,
+                              attachments=[SimpleNamespace(uuid="a" * 36, filename="report.pdf")])
         with mock.patch.object(flash_intel.misp_store, "get_fia", return_value=fia), \
              mock.patch.object(flash_intel.misp_store, "add_fia_attachment", return_value="a" * 36) as add, \
              mock.patch.object(flash_intel.misp_store, "delete_fia_attachment") as delete, \
@@ -114,6 +115,13 @@ class PublishedAlertsAreFrozen(unittest.TestCase):
     def test_a_draft_accepts_a_delete(self):
         _reply, _add, delete = self._post(f"/attachments/{'a' * 36}/delete", "draft")
         delete.assert_called_once_with("a" * 36)
+
+    def test_a_draft_refuses_to_delete_another_alerts_attachment(self):
+        """A draft's id with an attachment of a published alert used to get past
+        the published check and delete it."""
+        reply, _add, delete = self._post(f"/attachments/{'b' * 36}/delete", "draft")
+        self.assertEqual(reply.status_code, 404)
+        delete.assert_not_called()
 
     def test_a_published_alert_refuses_a_delete(self):
         _reply, _add, delete = self._post(f"/attachments/{'a' * 36}/delete", "approved")

@@ -16,7 +16,7 @@ from webapp import misp_store
 class PirTriageDecision(unittest.TestCase):
     def decide(self, decision, **kwargs):
         stored = {}
-        with mock.patch.object(misp_store, "_misp"), \
+        with mock.patch.object(misp_store, "_zsazsa_event"), \
              mock.patch.object(misp_store, "_pir_ns"), \
              mock.patch.object(misp_store, "_pir_data_from_ns",
                                return_value={"status": "Pending", "intake_status": "submitted"}), \

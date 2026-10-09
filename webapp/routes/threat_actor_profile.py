@@ -403,7 +403,9 @@ def note_add(id):
 @bp.route("/<string:id>/notes/<string:report_id>/delete", methods=["POST"])
 def note_delete(id, report_id):
     tap = misp_store.get_threat_actor_profile(id)
-    label = tap.tap_id if tap else id
+    if tap is None or not any(str(n.id) == report_id for n in tap.notes):
+        return "Note not found", 404
+    label = tap.tap_id
     try:
         misp_store.delete_rfi_note(report_id)
         audit.record("update", "threat-actor-profile", entity_id=id, entity_label=label)

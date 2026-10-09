@@ -98,6 +98,7 @@ class PublishKeepsTheStoredFields(unittest.TestCase):
         der = _stored_der(review_state=misp_store.DER_REVIEW_PENDING, status=misp_store.DER_STATUS_PENDING)
         misp = mock.MagicMock()
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=mock.MagicMock()), \
              mock.patch.object(misp_store, "_der_ns", return_value=der), \
              mock.patch.object(misp_store, "_get_obj", return_value=None), \
              mock.patch.object(misp_store.misp_session, "current_user_email",

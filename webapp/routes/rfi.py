@@ -469,7 +469,9 @@ def rfi_attachment_add(id):
 def rfi_attachment_delete(id, attr_uuid):
     ajax = _is_ajax()
     rfi = misp_store.get_rfi(id)
-    label = rfi.rfi_id if rfi else id
+    if rfi is None or not any(a.uuid == attr_uuid for a in rfi.attachments):
+        return "Attachment not found", 404
+    label = rfi.rfi_id
     try:
         misp_store.delete_rfi_attachment(attr_uuid)
         audit.record("update", "rfi", entity_id=id, entity_label=label)
@@ -485,6 +487,9 @@ def rfi_attachment_delete(id, attr_uuid):
 
 @bp.route("/<string:id>/attachments/<string:attr_uuid>/download")
 def rfi_attachment_download(id, attr_uuid):
+    rfi = misp_store.get_rfi(id)
+    if rfi is None or not any(a.uuid == attr_uuid for a in rfi.attachments):
+        return "Attachment not found", 404
     try:
         content, filename = misp_store.get_rfi_attachment_content(attr_uuid)
         return Response(
@@ -527,7 +532,9 @@ def rfi_note_add(id):
 def rfi_note_delete(id, report_id):
     ajax = _is_ajax()
     rfi = misp_store.get_rfi(id)
-    label = rfi.rfi_id if rfi else id
+    if rfi is None or not any(str(n.id) == report_id for n in rfi.notes):
+        return "Note not found", 404
+    label = rfi.rfi_id
     try:
         misp_store.delete_rfi_note(report_id)
         audit.record("update", "rfi", entity_id=id, entity_label=label)

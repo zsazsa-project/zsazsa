@@ -551,6 +551,8 @@ def pir_triage(id):
 
 @bp.route("/pirs/<string:id>/focus_points", methods=["POST"])
 def pir_add_focus_point(id):
+    if misp_store.get_pir(id) is None:
+        return "PIR not found", 404
     try:
         misp_store.add_focus_point_with_scope(
             id,
@@ -567,6 +569,8 @@ def pir_add_focus_point(id):
 
 @bp.route("/pirs/<string:id>/scope/sync", methods=["POST"])
 def pir_sync_scope(id):
+    if misp_store.get_pir(id) is None:
+        return "PIR not found", 404
     category = request.form.get("category", "").strip()
     if category not in misp_store.GALAXY_FP_CATEGORIES:
         flash("Sync is only supported for galaxy-backed categories.", "warning")
@@ -613,6 +617,8 @@ def pir_scope_preview(id):
 
 @bp.route("/pirs/<string:id>/focus_points/<string:fp_id>/delete", methods=["POST"])
 def pir_delete_focus_point(id, fp_id):
+    if misp_store.get_pir(id) is None:
+        return "PIR not found", 404
     try:
         misp_store.remove_focus_point_with_scope(id, fp_id)
         misp_store.sync_scope_tags_from_store(id)
@@ -804,6 +810,8 @@ def gir_delete(id):
 
 @bp.route("/girs/<string:id>/focus_points", methods=["POST"])
 def gir_add_focus_point(id):
+    if misp_store.get_gir(id) is None:
+        return "GIR not found", 404
     try:
         misp_store.add_focus_point_with_scope(
             id,
@@ -820,6 +828,8 @@ def gir_add_focus_point(id):
 
 @bp.route("/girs/<string:id>/scope/sync", methods=["POST"])
 def gir_sync_scope(id):
+    if misp_store.get_gir(id) is None:
+        return "GIR not found", 404
     category = request.form.get("category", "").strip()
     if category not in misp_store.GALAXY_FP_CATEGORIES:
         flash("Sync is only supported for galaxy-backed categories.", "warning")
@@ -866,6 +876,8 @@ def gir_scope_preview(id):
 
 @bp.route("/girs/<string:id>/focus_points/<string:fp_id>/delete", methods=["POST"])
 def gir_delete_focus_point(id, fp_id):
+    if misp_store.get_gir(id) is None:
+        return "GIR not found", 404
     try:
         misp_store.remove_focus_point_with_scope(id, fp_id)
         misp_store.sync_scope_tags_from_store(id)
