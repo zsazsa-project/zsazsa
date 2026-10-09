@@ -2,10 +2,12 @@
 the MISP threat-actor galaxy with the analyst's own investigation."""
 
 import base64
+import hmac
 import logging
 from datetime import datetime, timezone
+from hashlib import sha256
 
-from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 import config
 from webapp import audit, branding, misp_session, misp_store, notify_jobs
@@ -205,17 +207,32 @@ def pdf(id):
     )
 
 
+def _diamond_signature(uuid):
+    """The signature that lets a Diamond Model image URL work without a session:
+    an HMAC of the profile UUID under the app's secret key. Only a notification
+    carries one, and it cannot be turned into the URL of another profile."""
+    key = current_app.config["SECRET_KEY"].encode()
+    return hmac.new(key, f"diamond:{uuid}".encode(), sha256).hexdigest()
+
+
 @bp.route("/<string:id>/diamond.png")
 @rate_limited("tap_diamond_png", limit=30, window_s=60)
 def diamond_png(id):
-    """Serve the Diamond Model as a PNG. Unauthenticated so notification channels
-    (e.g. a Mattermost webhook) can fetch it by image URL; it only reveals the
-    same four-node summary already shown on the profile.
+    """Serve the Diamond Model of a published profile as a PNG, without a session.
+
+    Mattermost and the chat clients showing a notification fetch it by image
+    URL, so the URL carries a signature instead (see _diamond_signature). It is
+    checked before MISP is asked, and every refusal is the same 404, so the
+    route tells nothing about which events exist.
 
     Rate limited like the other route that reaches MISP without a session: each
-    call costs an event fetch and an image render."""
+    signed call costs an event fetch and an image render."""
+    signature = request.args.get("sig", "")
+    if not (misp_store._UUID_RE.fullmatch(id)
+            and hmac.compare_digest(signature.encode(), _diamond_signature(id).encode())):
+        return "Threat actor profile not found", 404
     tap = misp_store.get_threat_actor_profile(id)
-    if tap is None:
+    if tap is None or tap.status != "Published":
         return "Threat actor profile not found", 404
     return Response(render_diamond_png(tap), mimetype="image/png")
 
@@ -293,7 +310,10 @@ def notify(id):
     if not misp_session.current_user_can_publish():
         flash(misp_session.publish_denied_message("notify recipients"), "warning")
         return redirect(url_for("threat_actor_profile.detail", id=id))
-    diamond_url = url_for("threat_actor_profile.diamond_png", id=id, _external=True)
+    # By UUID rather than the id in this URL, which may be a numeric event id:
+    # the image route takes UUIDs only.
+    diamond_url = url_for("threat_actor_profile.diamond_png", id=tap.uuid,
+                          sig=_diamond_signature(tap.uuid), _external=True)
     # Resolved here rather than on the job thread: only the request knows the
     # app's external address.
     preview_url = url_for("threat_actor_profile.detail", id=id, _external=True)
