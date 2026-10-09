@@ -324,6 +324,7 @@ class PublishKeepsTheStoredFields(unittest.TestCase):
         briefing = _stored_briefing()
         misp = mock.MagicMock()
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=mock.MagicMock()), \
              mock.patch.object(misp_store, "_briefing_ns", return_value=briefing), \
              mock.patch.object(misp_store, "_get_obj", return_value=None), \
              mock.patch.object(misp_store.misp_session, "current_user_email",

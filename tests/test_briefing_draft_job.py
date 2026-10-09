@@ -197,8 +197,9 @@ class TheStoreRefusesAStaleCopy(unittest.TestCase):
     def test_update_with_an_expected_state_that_moved_on_writes_nothing(self):
         from webapp import misp_store
         misp = mock.MagicMock()
-        misp.get_event.return_value = SimpleNamespace(uuid="b" * 36, objects=[])
+        event = SimpleNamespace(uuid="b" * 36, objects=[])
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
              mock.patch.object(misp_store, "_briefing_ns",
                                return_value=SimpleNamespace(review_state="published", stories=[])):
             with self.assertRaises(misp_store.BriefingStateChanged):

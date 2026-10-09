@@ -39,7 +39,9 @@ class RequirementScopeItems(unittest.TestCase):
         self.misp.get_event.return_value = SimpleNamespace(id=7, uuid="u" * 36)
         patches = [
             mock.patch.object(misp_store, "_misp", return_value=self.misp),
-            mock.patch.object(misp_store, "_get_obj", return_value=None),
+            # The PIR or GIR object, holding no attributes of interest here.
+            mock.patch.object(misp_store, "_get_obj",
+                              return_value=mock.Mock(**{"get_attributes_by_relation.return_value": []})),
             mock.patch.object(misp_store, "_sync_object_attributes"),
             mock.patch.object(misp_store, "_apply_scope_tags"),
             mock.patch.object(misp_store, "_replace_focus_points"),

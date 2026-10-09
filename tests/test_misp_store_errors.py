@@ -21,9 +21,11 @@ _GONE = {"errors": (404, {"message": "Invalid attribute."})}
 class DeleteFailures(unittest.TestCase):
     def setUp(self):
         self.misp = mock.MagicMock()
-        patcher = mock.patch.object(misp_store, "_misp", return_value=self.misp)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # The event each delete is pointed at is a record of the right type.
+        for patcher in (mock.patch.object(misp_store, "_misp", return_value=self.misp),
+                        mock.patch.object(misp_store, "_zsazsa_event", return_value=mock.Mock())):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_a_refused_event_delete_raises(self):
         self.misp.delete_event.return_value = _ERROR
@@ -49,12 +51,11 @@ class DeleteFailures(unittest.TestCase):
     def test_a_refused_attribute_delete_raises(self):
         self.misp.delete_attribute.return_value = _ERROR
         with self.assertRaises(RuntimeError):
-            misp_store.delete_focus_point("a" * 36)
+            misp_store.delete_rfi_attachment("a" * 36)
 
     def test_an_attribute_that_is_already_gone_is_not_an_error(self):
         # Re-submitting a delete, or a concurrent one, should not fail the page.
         self.misp.delete_attribute.return_value = _GONE
-        misp_store.delete_focus_point("a" * 36)
         misp_store.delete_rfi_attachment("a" * 36)
         misp_store.delete_fia_attachment("a" * 36)
 

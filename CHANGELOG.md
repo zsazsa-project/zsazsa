@@ -29,6 +29,8 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 - An indicator feed tracks if it has a public URL. Existing feeds
   keep their public URL,  until someone with MISP publish rights switches it off. A new
   feed starts with it on only when a publisher creates it.
+- zsazsa now only reads, changes or deletes an event when it carries the
+  zsazsa object or tag of the record type the page is about.
 
 ### Added
 
@@ -45,6 +47,9 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   readable without a login (GHSA-x326-2rwv-jc78). / reported by @elhoim
 - Delivering an indicator feed to stakeholders did not need the MISP publish
   right (GHSA-gp95-wrp9-v67f). / reported by @elhoim
+- Any MISP user could delete or change MISP events that zsazsa did not
+  create, by putting their id in the URL of a zsazsa page
+  (GHSA-f8wh-26f3-4478). / reported by @elhoim
 
 ## 1.0.6
 

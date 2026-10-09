@@ -453,6 +453,8 @@ def attachment_delete(id, attr_uuid):
     if fia.review_state == misp_store.FIA_REVIEW_APPROVED:
         flash("Published alerts cannot be changed.", "warning")
         return redirect(url_for("flash_intel.detail", id=id))
+    if not any(a.uuid == attr_uuid for a in fia.attachments):
+        return "Attachment not found", 404
     label = fia.fia_id
     try:
         misp_store.delete_fia_attachment(attr_uuid)
@@ -467,6 +469,9 @@ def attachment_delete(id, attr_uuid):
 
 @bp.route("/<string:id>/attachments/<string:attr_uuid>/download")
 def attachment_download(id, attr_uuid):
+    fia = misp_store.get_fia(id)
+    if fia is None or not any(a.uuid == attr_uuid for a in fia.attachments):
+        return "Attachment not found", 404
     try:
         content, filename, content_type = misp_store.get_fia_attachment_content(attr_uuid)
         return Response(

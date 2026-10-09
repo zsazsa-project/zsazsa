@@ -938,6 +938,34 @@ def _stakeholder_event(uuid):
     return event
 
 
+def _is_record(event, object_name, tag):
+    """Whether an event is a zsazsa record of one type: it carries that type's
+    zsazsa object or its tag. Either is enough, since flash intel alerts from
+    older analyser runs carry no object, and a tag renamed in the settings
+    leaves older records with the one they were created with."""
+    return _get_obj(event, object_name) is not None or _event_has_tag(event, tag)
+
+
+def _zsazsa_event(uuid, object_name, tag):
+    """The MISP event of the zsazsa record ``uuid``, or None when it is not one.
+
+    Ids come straight from the URL, and MISP resolves numeric event ids as well,
+    so nothing may show, change or delete an event with zsazsa's service key
+    before it is known to be a record of the type asked for.
+    """
+    event = _misp().get_event(uuid, pythonify=True)
+    if isinstance(event, dict) or event is None or not _is_record(event, object_name, tag):
+        return None
+    return event
+
+
+def _delete_record(uuid, object_name, tag, label):
+    """Delete a record's event with zsazsa's service key, never any other event."""
+    if _zsazsa_event(uuid, object_name, tag) is None:
+        raise ValueError(f"{label} {uuid} not found")
+    _check(_misp().delete_event(uuid), f"delete {label}")
+
+
 def _replace_focus_points(req_uuid, focus_points):
     if not req_uuid:
         return
@@ -1422,11 +1450,8 @@ def list_pirs():
 
 
 def get_pir(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        return None
-    return _pir_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-pir", config.TAG_PIR)
+    return None if event is None else _pir_ns(event)
 
 
 def create_pir(data):
@@ -1458,6 +1483,8 @@ def update_pir(uuid, data):
     if isinstance(event, dict):
         logger.warning("PIR event %s not found; recreating with pir_id %s", uuid, data.get("pir_id"))
         return create_pir(data)
+    if not _is_record(event, "zsazsa-pir", config.TAG_PIR):
+        raise ValueError(f"Event {uuid} is not a PIR")
     old = _get_obj(event, "zsazsa-pir")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
@@ -1471,8 +1498,7 @@ def update_pir(uuid, data):
 
 
 def delete_pir(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete PIR")
+    _delete_record(uuid, "zsazsa-pir", config.TAG_PIR, "PIR")
 
 
 def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, checklist=None):
@@ -1480,9 +1506,8 @@ def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, ch
 
     Focus points are preserved explicitly because _pir_data_from_ns does not carry them.
     """
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-pir", config.TAG_PIR)
+    if event is None:
         raise RuntimeError(f"PIR event {uuid} not found")
     pir = _pir_ns(event)
     data = _pir_data_from_ns(pir)
@@ -1527,11 +1552,8 @@ def list_girs():
 
 
 def get_gir(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        return None
-    return _gir_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-gir", config.TAG_GIR)
+    return None if event is None else _gir_ns(event)
 
 
 def create_gir(data):
@@ -1564,6 +1586,8 @@ def update_gir(uuid, data):
     if isinstance(event, dict):
         logger.warning("GIR event %s not found; recreating with gir_id %s", uuid, data.get("gir_id"))
         return create_gir(data)
+    if not _is_record(event, "zsazsa-gir", config.TAG_GIR):
+        raise ValueError(f"Event {uuid} is not a GIR")
     old = _get_obj(event, "zsazsa-gir")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
@@ -1577,8 +1601,7 @@ def update_gir(uuid, data):
 
 
 def delete_gir(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete GIR")
+    _delete_record(uuid, "zsazsa-gir", config.TAG_GIR, "GIR")
 
 
 # ── Focus points ──────────────────────────────────────────────────────────────
@@ -1619,11 +1642,6 @@ def add_focus_point(req_uuid, category, value, notes=""):
     }
     result = _check(misp.add_attribute(req_uuid, attr, pythonify=True), "add focus point")
     return result.uuid
-
-
-def delete_focus_point(attr_uuid):
-    misp = _misp()
-    _delete_attribute(misp, attr_uuid, "delete focus point")
 
 
 # Map a focus point category back to the PIR/GIR object scope relation. Every
@@ -1751,10 +1769,12 @@ def remove_focus_point_with_scope(req_uuid, attr_uuid):
     misp = _misp()
     event = misp.get_event(req_uuid, pythonify=True)
     if isinstance(event, dict) or event is None:
-        delete_focus_point(attr_uuid)
-        return
+        raise ValueError(f"Requirement {req_uuid} not found")
+    if not (_is_record(event, "zsazsa-pir", config.TAG_PIR) or _is_record(event, "zsazsa-gir", config.TAG_GIR)):
+        raise ValueError(f"Event {req_uuid} is not a PIR or GIR")
 
-    fp_attr = next((a for a in event.attributes if a.uuid == attr_uuid), None)
+    # Only one of this requirement's own scope items, never any other attribute.
+    fp_attr = next((a for a in _get_fp_attrs(event) if a.uuid == attr_uuid), None)
     if fp_attr is None:
         return
 
@@ -1956,11 +1976,8 @@ def list_rfis():
 
 
 def get_rfi(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        return None
-    return _rfi_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-rfi", config.TAG_RFI)
+    return None if event is None else _rfi_ns(event)
 
 
 def create_rfi(data):
@@ -1983,6 +2000,8 @@ def update_rfi(uuid, data):
     if isinstance(event, dict):
         logger.warning("RFI event %s not found; recreating", uuid)
         return create_rfi(data)
+    if not _is_record(event, "zsazsa-rfi", config.TAG_RFI):
+        raise ValueError(f"Event {uuid} is not an RFI")
     old = _get_obj(event, "zsazsa-rfi")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
@@ -2004,8 +2023,7 @@ def update_rfi(uuid, data):
 
 
 def delete_rfi(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete RFI")
+    _delete_record(uuid, "zsazsa-rfi", config.TAG_RFI, "RFI")
 
 
 def add_rfi_attachment(event_uuid, filename, file_bytes):
@@ -2136,11 +2154,8 @@ def list_indicator_feeds():
 
 
 def get_indicator_feed(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        return None
-    return _indicator_feed_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-indicator-feed", config.TAG_INDICATOR_FEED)
+    return None if event is None else _indicator_feed_ns(event)
 
 
 def create_indicator_feed(data):
@@ -2166,6 +2181,8 @@ def update_indicator_feed(uuid, data):
     if isinstance(event, dict):
         logger.warning("Indicator feed event %s not found; recreating", uuid)
         return create_indicator_feed(data)
+    if not _is_record(event, "zsazsa-indicator-feed", config.TAG_INDICATOR_FEED):
+        raise ValueError(f"Event {uuid} is not an indicator feed")
     old = _get_obj(event, "zsazsa-indicator-feed")
     if old:
         data.setdefault("creator", _obj_attr(old, "creator") or "")
@@ -2185,8 +2202,7 @@ def profiles_using_indicator_feed(feed_uuid: str) -> list:
 
 
 def delete_indicator_feed(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete indicator feed")
+    _delete_record(uuid, "zsazsa-indicator-feed", config.TAG_INDICATOR_FEED, "indicator feed")
 
 
 def get_indicator_feed_by_token(token):
@@ -2380,11 +2396,8 @@ def list_threat_actor_profiles(status=None):
 
 
 def get_threat_actor_profile(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        return None
-    return _tap_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-threat-actor-profile", config.TAG_THREAT_ACTOR_PROFILE)
+    return None if event is None else _tap_ns(event)
 
 
 def create_threat_actor_profile(data):
@@ -2414,6 +2427,8 @@ def update_threat_actor_profile(uuid, data):
     if isinstance(event, dict):
         logger.warning("Threat actor profile event %s not found; recreating", uuid)
         return create_threat_actor_profile(data)
+    if not _is_record(event, "zsazsa-threat-actor-profile", config.TAG_THREAT_ACTOR_PROFILE):
+        raise ValueError(f"Event {uuid} is not a threat actor profile")
     old = _get_obj(event, "zsazsa-threat-actor-profile")
     old_actors = _json_list(_obj_attr(old, "threat-actors")) if old else []
     if old:
@@ -2459,8 +2474,7 @@ def publish_threat_actor_profile(uuid):
 
 
 def delete_threat_actor_profile(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete threat actor profile")
+    _delete_record(uuid, "zsazsa-threat-actor-profile", config.TAG_THREAT_ACTOR_PROFILE, "threat actor profile")
 
 
 # ── Indicator-feed MISP servers (the data-collection sources) ────────────────
@@ -3961,8 +3975,8 @@ def create_collection_source(data: dict) -> str:
 def update_collection_source(uuid, data: dict):
     """Update a collection source: replace the MISP object with new field values."""
     misp = _misp()
-    ev = misp.get_event(uuid, pythonify=True)
-    if not ev or isinstance(ev, dict):
+    ev = _zsazsa_event(uuid, "zsazsa-collection-source", TAG_COLLECTION_SOURCE)
+    if ev is None:
         raise ValueError(f"Collection source {uuid} not found")
     old_enabled = True
     old_obj = _get_obj(ev, "zsazsa-collection-source")
@@ -4000,8 +4014,7 @@ def toggle_collection_source(uuid, enabled: bool):
 
 def delete_collection_source(uuid):
     """Delete a collection source registry event from MISP."""
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete collection source")
+    _delete_record(uuid, "zsazsa-collection-source", TAG_COLLECTION_SOURCE, "collection source")
 
 
 def imap_source_labels() -> list[str]:
@@ -4806,11 +4819,8 @@ def list_fias(review_state=None):
 
 
 def get_fia(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
-        return None
-    return _fia_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL)
+    return None if event is None else _fia_ns(event)
 
 
 def create_fia(data):
@@ -4862,8 +4872,8 @@ def create_fia(data):
 def update_fia(uuid, data):
     """Replace the FIA object on the event and re-render the report."""
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL)
+    if event is None:
         raise RuntimeError(f"FIA event {uuid} not found")
 
     old = _get_obj(event, "zsazsa-flash-intel")
@@ -4926,8 +4936,8 @@ def set_fia_review_state(uuid, state, reason=None):
     if state not in FIA_REVIEW_STATES:
         raise ValueError(f"invalid review state: {state}")
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL)
+    if event is None:
         raise RuntimeError(f"FIA event {uuid} not found")
     fia = _fia_ns(event)
     payload = {
@@ -5008,8 +5018,7 @@ def reject_fia(uuid, reason=""):
 
 
 def delete_fia(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete FIA")
+    _delete_record(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL, "FIA")
 
 
 # ── Flash intel attachments ──────────────────────────────────────────────────
@@ -5638,11 +5647,8 @@ def list_veas(review_state=None):
 
 
 def get_vea(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
-        return None
-    return _vea_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-vea", config.TAG_VEA)
+    return None if event is None else _vea_ns(event)
 
 
 def create_vea(data):
@@ -5687,8 +5693,8 @@ def create_vea(data):
 
 def update_vea(uuid, data):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-vea", config.TAG_VEA)
+    if event is None:
         raise RuntimeError(f"VEA event {uuid} not found")
 
     old = _get_obj(event, "zsazsa-vea")
@@ -5722,8 +5728,8 @@ def set_vea_review_state(uuid, state, reason=None):
     if state not in VEA_REVIEW_STATES:
         raise ValueError(f"invalid VEA review state: {state}")
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-vea", config.TAG_VEA)
+    if event is None:
         raise RuntimeError(f"VEA event {uuid} not found")
     vea = _vea_ns(event)
 
@@ -5792,8 +5798,7 @@ def reject_vea(uuid, reason=""):
 
 
 def delete_vea(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete VEA")
+    _delete_record(uuid, "zsazsa-vea", config.TAG_VEA, "VEA")
 
 
 # ── Detection Engineering Request ────────────────────────────────────────────
@@ -6069,11 +6074,8 @@ def list_ders(review_state=None):
 
 
 def get_der(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
-        return None
-    return _der_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
+    return None if event is None else _der_ns(event)
 
 
 def create_der(data):
@@ -6118,8 +6120,8 @@ def create_der(data):
 
 def update_der(uuid, data):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
+    if event is None:
         raise RuntimeError(f"DER event {uuid} not found")
 
     old = _get_obj(event, "zsazsa-detection-eng-request")
@@ -6152,8 +6154,8 @@ def set_der_review_state(uuid, state, reason=None):
     if state not in DER_REVIEW_STATES:
         raise ValueError(f"invalid DER review state: {state}")
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
+    if event is None:
         raise RuntimeError(f"DER event {uuid} not found")
     der = _der_ns(event)
 
@@ -6193,8 +6195,7 @@ def reject_der(uuid, reason=""):
 
 
 def delete_der(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete DER")
+    _delete_record(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG, "DER")
 
 
 # ── Daily Threat Briefing ────────────────────────────────────────────────────
@@ -6638,11 +6639,8 @@ def list_briefings():
 
 
 def get_briefing(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
-        return None
-    return _briefing_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING)
+    return None if event is None else _briefing_ns(event)
 
 
 def create_briefing(data):
@@ -6709,8 +6707,8 @@ def update_briefing(uuid, data, expected_state=None):
 
 def _update_briefing(uuid, data, expected_state):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING)
+    if event is None:
         raise RuntimeError(f"Briefing event {uuid} not found")
 
     existing = _briefing_ns(event)
@@ -6758,8 +6756,8 @@ def publish_briefing(uuid):
 
 def _publish_briefing(uuid):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING)
+    if event is None:
         raise RuntimeError(f"Briefing event {uuid} not found")
     briefing = _briefing_ns(event)
 
@@ -6789,8 +6787,7 @@ def _publish_briefing(uuid):
 
 
 def delete_briefing(uuid):
-    misp = _misp()
-    _check(misp.delete_event(uuid), "delete briefing")
+    _delete_record(uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING, "briefing")
 
 
 def scraper_existing_uuids(uuids):
@@ -7034,11 +7031,8 @@ def list_tlrs():
 
 
 def get_tlr(uuid):
-    misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
-        return None
-    return _tlr_ns(event)
+    event = _zsazsa_event(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR)
+    return None if event is None else _tlr_ns(event)
 
 
 def create_tlr(data):
@@ -7059,8 +7053,8 @@ def create_tlr(data):
 
 def update_tlr(uuid, data):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR)
+    if event is None:
         raise RuntimeError(f"TLR event {uuid} not found")
     old = _get_obj(event, "zsazsa-threat-landscape-report")
     if old:
@@ -7076,8 +7070,8 @@ def update_tlr(uuid, data):
 
 def publish_tlr(uuid):
     misp = _misp()
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict) or event is None:
+    event = _zsazsa_event(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR)
+    if event is None:
         raise RuntimeError(f"TLR event {uuid} not found")
     tlr = _tlr_ns(event)
     old = _get_obj(event, "zsazsa-threat-landscape-report")
@@ -7106,7 +7100,7 @@ def publish_tlr(uuid):
 
 
 def delete_tlr(uuid):
-    _check(_misp().delete_event(uuid), "delete TLR")
+    _delete_record(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR, "TLR")
 
 
 def find_products_using_source(src_uuid: str) -> list:
