@@ -8,7 +8,9 @@ again only now and then, not once per request.
 """
 
 import contextlib
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from flask import Flask, g
@@ -140,6 +142,27 @@ class PublishPermission(unittest.TestCase):
         for value in (False, 0, "0", "false", "", None):
             with self.subTest(value=value):
                 self.assertFalse(self.can_publish({"Role": {"perm_publish": value}}, redirect=True))
+
+
+class RecognisedUsers(unittest.TestCase):
+    """sso_configured() asks whether anyone was ever recognised. Before the app
+    has created its tables, as in a test or on a fresh install, nobody has."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(misp_session.config, "DB_FILE", str(Path(tmp.name) / "test.db"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_database_without_the_table_has_nobody_recorded(self):
+        self.assertFalse(misp_session.sso_users.any_recorded())
+
+    def test_a_recorded_user_is_found(self):
+        misp_session.sso_users.init_db()
+        self.assertFalse(misp_session.sso_users.any_recorded())
+        misp_session.sso_users.record_sighting({"email": "analyst@example.org", "id": "7"})
+        self.assertTrue(misp_session.sso_users.any_recorded())
 
 
 @contextlib.contextmanager
