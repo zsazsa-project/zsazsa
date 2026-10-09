@@ -24,6 +24,8 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   it, use "Remove" to clear it, and enter it again when you change its address.
 - Every MISP user could read these secrets before, so rotate them: the MISP API
   keys, the SMTP, IMAP and Redis passwords, and the LLM and Flowintel keys.
+- Mattermost notifications sent before the upgrade lose their Diamond Model
+  image, and so do all of them when `SECRET_KEY` changes.
 
 ### Security
 
@@ -31,6 +33,8 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
   user could read every stored credential and rewrite the configuration,
   including where single sign-on reads identities from, and so act as any user.
   / reported by @elhoim
+- Diamond Model images of any threat actor profile, drafts included, were
+  readable without a login (GHSA-x326-2rwv-jc78). / reported by @elhoim
 
 ## 1.0.6
 
