@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+{% from "_macros.html" import galaxy_multiselect %}
+
+{% block title %}{{ tlr.tlr_id }} dataset | zsazsa CTI{% endblock %}
+{% block page_title %}{{ tlr.tlr_id }}: dataset{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('threat_landscape.detail', id=tlr.uuid) }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-arrow-left me-1"></i> Back to report
+</a>
+{% endblock %}
+
+{% macro options(values, current, blank='-') %}
+<option value="">{{ blank }}</option>
+{% for value in values %}
+<option value="{{ value }}" {{ 'selected' if current == value }}>{{ value }}</option>
+{% endfor %}
+{% endmacro %}
+
+{# Field, label and galaxy of the classification lists of an entry. #}
+{% set classification = [
+  ('sectors', 'Sectors', sector_items),
+  ('geographic_scope', 'Geography', geo_items),
+  ('threat_actors', 'Actors', threat_actor_items),
+  ('techniques', 'Techniques', mitre_items),
+] %}
+
+{% block content %}
+{% if not tlr.entries %}
+<div class="card content-card">
+  <div class="card-body text-muted">
+    This report has no events yet. Pick them from the queue on the
+    <a href="{{ url_for('threat_landscape.review') }}">report list</a>.
+  </div>
+</div>
+{% else %}
+
+<div class="row g-4 mb-4">
+  {% if stats %}
+  <div class="{{ 'col-xl-8' if coverage else 'col-12' }}">
+    <div class="card content-card h-100">
+      <div class="card-header"><i class="fas fa-chart-column me-2"></i>Statistics</div>
+      <div class="card-body">
+        <p class="small text-muted">
+          Counted over the {{ tlr.entries | rejectattr('excluded') | list | length }} events in the analysis.
+          An event can count towards several sectors, actors or techniques.
+          {% if previous %}The second column is {{ previous.tlr_id }}, the report before this one.{% endif %}
+        </p>
+        <div class="row g-3">
+          {% for heading, counts in stats %}
+          <div class="col-md-6 {{ 'col-xxl-4' if coverage else 'col-xl-4' }}">
+            <div class="fw-semibold small mb-1">{{ heading }}</div>
+            <table class="table table-sm mb-0 small">
+              {% for value, count, before in counts[:10] %}
+              <tr>
+                <td>{{ value }}</td>
+                <td class="text-end font-monospace" style="width:3rem;">{{ count }}</td>
+                {% if previous %}<td class="text-end font-monospace text-muted" style="width:3rem;">{{ before }}</td>{% endif %}
+              </tr>
+              {% endfor %}
+            </table>
+            {% if counts | length > 10 %}<div class="text-muted small">and {{ counts | length - 10 }} more</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if coverage %}
+  <div class="col-xl-4">
+    <div class="card content-card h-100">
+      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Coverage of the linked PIRs</div>
+      <div class="card-body small">
+        <p class="text-muted">How many events in the analysis speak to each item of the PIR's scope. None is a gap.</p>
+        {% for pir, items in coverage %}
+        <div class="fw-semibold mb-1">
+          <a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}" class="text-decoration-none">{{ pir.pir_id }}</a>
+          <span class="fw-normal text-muted">{{ pir.question | truncate(90) }}</span>
+        </div>
+        {% if items %}
+        <table class="table table-sm mb-3">
+          {% for label, term, count in items %}
+          <tr class="{{ 'table-warning' if not count }}">
+            <td class="text-muted" style="width:7rem;">{{ label }}</td>
+            <td>{{ term }}</td>
+            <td class="text-end font-monospace" style="width:3rem;">{{ count if count else 'gap' }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <p class="text-muted mb-3">This PIR names no sectors, places, actors, threat types or techniques to check.</p>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<form method="post" data-unsaved-warning>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="card content-card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>
+        <i class="fas fa-table-list me-2"></i>Triage <span class="badge text-bg-secondary ms-1">{{ tlr.entries | length }}</span>
+        <span class="small text-muted ms-2">
+          Scope:
+          {% if tlr.scope_sectors or tlr.scope_geography %}
+          {{ (tlr.scope_sectors + tlr.scope_geography) | join(', ') }}
+          {% else %}
+          the whole organisation
+          {% endif %}
+        </span>
+      </span>
+      {% if not locked %}
+      <span class="d-flex align-items-center gap-2 small flex-wrap" id="bulk-bar">
+        <span class="text-muted">For the ticked rows:</span>
+        <select class="form-select form-select-sm w-auto" data-bulk="relevance">{{ options(relevance_levels, '', 'Relevance') }}</select>
+        <select class="form-select form-select-sm w-auto" data-bulk="threat_type">{{ options(threat_types, '', 'Threat type') }}</select>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="1">Leave out</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="0">Include</button>
+        {% if outside_scope %}
+        <button type="button" class="btn btn-sm btn-outline-warning" id="exclude-outside-scope"
+                title="Tick Left out for every event outside the report's scope">
+          Leave out the {{ outside_scope | length }} outside the scope
+        </button>
+        {% endif %}
+      </span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      <fieldset {{ 'disabled' if locked }}>
+      <table class="table table-sm zsazsa-table mb-0 align-middle">
+        <thead>
+          <tr>
+            <th style="width:2rem;"><input type="checkbox" class="form-check-input" id="entry-select-all" title="Tick all"></th>
+            <th>Event</th>
+            <th>Relevance</th>
+            <th title="Admiralty source reliability and information credibility">Admiralty</th>
+            <th>Threat type</th>
+            <th>Classification</th>
+            <th title="Leave the event out of the analysis">Left out</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in tlr.entries %}
+          <tr class="{{ 'text-muted opacity-50' if e.excluded }}" {% if e.uuid in outside_scope %}data-outside-scope{% endif %}>
+            <td><input type="checkbox" class="form-check-input entry-pick"></td>
+            <td style="min-width:14rem;">
+              <a href="{{ url_for('data_collection.index') }}#{{ e.event_uuid }}" class="text-decoration-none entry-title">{{ e.event_info or '(untitled)' }}</a>
+              <div class="text-muted" style="font-size:.72rem;">
+                {{ e.event_date or '-' }} · {{ e.source_id or '-' }}
+                {% if e.uuid in outside_scope %}<span class="badge text-bg-warning ms-1">outside the scope</span>{% endif %}
+              </div>
+            </td>
+            <td>
+              <select name="relevance-{{ e.uuid }}" class="form-select form-select-sm" data-field="relevance">{{ options(relevance_levels, e.relevance) }}</select>
+            </td>
+            <td style="white-space:nowrap;">
+              <select name="reliability-{{ e.uuid }}" class="form-select form-select-sm d-inline-block w-auto">{{ options(reliabilities, e.source_reliability) }}</select>
+              <select name="credibility-{{ e.uuid }}" class="form-select form-select-sm d-inline-block w-auto">{{ options(credibilities, e.information_credibility) }}</select>
+            </td>
+            <td>
+              <select name="threat_type-{{ e.uuid }}" class="form-select form-select-sm" data-field="threat_type">{{ options(threat_types, e.threat_type) }}</select>
+            </td>
+            <td class="small entry-classification" data-entry="{{ e.uuid }}" style="min-width:12rem;">
+              <div class="entry-classification-text">
+                {% for key, label, _items in classification if e[key] %}
+                <div><span class="text-muted">{{ label }}:</span> {{ e[key] | join(', ') }}</div>
+                {% endfor %}
+                {% for key, label in entry_questions if e[key] %}
+                <div><span class="text-muted">{{ label }}:</span> {{ e[key] }}</div>
+                {% endfor %}
+              </div>
+              {% for key, _label, _items in classification %}{% for value in e[key] %}
+              <input type="hidden" name="{{ key }}-{{ e.uuid }}" value="{{ value }}">
+              {% endfor %}{% endfor %}
+              {% for key, _label in entry_questions %}
+              <input type="hidden" name="{{ key }}-{{ e.uuid }}" value="{{ e[key] }}">
+              {% endfor %}
+              {% if not locked %}
+              <button type="button" class="btn btn-xs btn-outline-secondary mt-1 classification-edit" title="Edit the classification">
+                <i class="fas fa-pen"></i>
+              </button>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              <input type="checkbox" class="form-check-input" name="excluded-{{ e.uuid }}" {{ 'checked' if e.excluded }}>
+            </td>
+            <td>
+              <input type="text" name="note-{{ e.uuid }}" class="form-control form-control-sm" value="{{ e.note }}"
+                     placeholder="{{ 'Why it is left out' if e.excluded }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </fieldset>
+    </div>
+    {% if not locked %}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <span class="text-muted small">
+        The classification starts from the event's galaxies when it was added; the pencil also takes the
+        affected assets, impact, motivation and mitigation. Changes here stay with this report.
+      </span>
+      <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-floppy-disk me-1"></i>Save triage</button>
+    </div>
+    {% endif %}
+  </div>
+</form>
+
+{% if not locked %}
+{# One picker for every row: the row's values are loaded into it when it opens,
+   and written back to the row's hidden fields on Apply. #}
+<div class="modal fade" id="classification-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="fas fa-tags me-2"></i>Classification: <span id="classification-event"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          {% for key, label, items in classification %}
+          <div class="col-md-6" data-classification="{{ key }}" data-label="{{ label }}">
+            <label class="form-label small fw-semibold">{{ label }}</label>
+            {% if items %}
+            {{ galaxy_multiselect('classification-' ~ key, items=items) }}
+            {% else %}
+            <div class="form-text text-warning mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Galaxy data unavailable. One per line.</div>
+            <textarea class="form-control form-control-sm" rows="4"></textarea>
+            {% endif %}
+          </div>
+          {% endfor %}
+          {% for key, label in entry_questions %}
+          <div class="col-md-6" data-question="{{ key }}" data-label="{{ label }}">
+            <label class="form-label small fw-semibold">{{ label }}</label>
+            <textarea class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="classification-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var bar = document.getElementById('bulk-bar');
+  if (!bar) return;
+  var all = document.getElementById('entry-select-all');
+
+  function picked() {
+    return Array.prototype.filter.call(document.querySelectorAll('.entry-pick'), function(box) { return box.checked; });
+  }
+  function setExcluded(row, excluded) {
+    row.querySelector('[name^="excluded-"]').checked = excluded;
+  }
+  all.addEventListener('change', function() {
+    document.querySelectorAll('.entry-pick').forEach(function(box) { box.checked = all.checked; });
+  });
+
+  // Sets the field on every ticked row, then resets itself so the same value
+  // can be applied to the next batch.
+  bar.querySelectorAll('[data-bulk]').forEach(function(select) {
+    select.addEventListener('change', function() {
+      if (!select.value) return;
+      picked().forEach(function(box) {
+        box.closest('tr').querySelector('[data-field="' + select.dataset.bulk + '"]').value = select.value;
+      });
+      select.value = '';
+    });
+  });
+  bar.querySelectorAll('[data-bulk-exclude]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      picked().forEach(function(box) { setExcluded(box.closest('tr'), button.dataset.bulkExclude === '1'); });
+    });
+  });
+  var outside = document.getElementById('exclude-outside-scope');
+  if (outside) {
+    outside.addEventListener('click', function() {
+      document.querySelectorAll('tr[data-outside-scope]').forEach(function(row) { setExcluded(row, true); });
+    });
+  }
+})();
+
+/* ── Classification picker ── */
+(function() {
+  var modal = document.getElementById('classification-modal');
+  if (!modal) return;
+  var cell = null;
+
+  // A technique stored as its bare ID (T1566) is the same one the galaxy lists
+  // as "Phishing - T1566".
+  function techniqueId(value) {
+    var m = /\bT\d{4}(?:\.\d{3})?\b/.exec(value);
+    return m ? m[0] : '';
+  }
+  function same(a, b) {
+    return a.toLowerCase() === b.toLowerCase() || (techniqueId(a) !== '' && techniqueId(a) === techniqueId(b));
+  }
+
+  function load(part, values) {
+    var text = part.querySelector('textarea');
+    if (text) { text.value = values.join('\n'); return; }
+    var list = part.querySelector('.gms-list');
+    var boxes = Array.prototype.slice.call(list.querySelectorAll('input[type="checkbox"]'));
+    boxes.forEach(function(box) { box.checked = false; });
+    values.forEach(function(value) {
+      var box = boxes.find(function(b) { return same(b.value, value); });
+      if (!box) {
+        // A value the galaxy does not list stays selectable rather than lost.
+        var label = document.createElement('label');
+        label.className = 'gms-item';
+        box = document.createElement('input');
+        box.type = 'checkbox';
+        box.value = value;
+        var span = document.createElement('span');
+        span.textContent = value;
+        label.append(box, span);
+        list.prepend(label);
+        boxes.push(box);
+      }
+      box.checked = true;
+    });
+    // Clears the filter and refreshes the selected pills, which base.html draws.
+    var search = part.querySelector('[data-gms-search]');
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+  }
+
+  function read(part) {
+    var text = part.querySelector('textarea');
+    if (text) return text.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
+    return Array.prototype.map.call(part.querySelectorAll('.gms-list input:checked'), function(box) { return box.value; });
+  }
+
+  function field(key) {
+    return cell.querySelector('input[name="' + key + '-' + cell.dataset.entry + '"]');
+  }
+  function addLine(text, label, value) {
+    var line = document.createElement('div');
+    var span = document.createElement('span');
+    span.className = 'text-muted';
+    span.textContent = label + ': ';
+    line.append(span, value);
+    text.appendChild(line);
+  }
+
+  document.querySelectorAll('.classification-edit').forEach(function(button) {
+    button.addEventListener('click', function() {
+      cell = button.closest('.entry-classification');
+      document.getElementById('classification-event').textContent =
+        cell.closest('tr').querySelector('.entry-title').textContent;
+      modal.querySelectorAll('[data-classification]').forEach(function(part) {
+        var name = part.dataset.classification + '-' + cell.dataset.entry;
+        load(part, Array.prototype.map.call(cell.querySelectorAll('input[name="' + name + '"]'), function(i) { return i.value; }));
+      });
+      modal.querySelectorAll('[data-question]').forEach(function(part) {
+        part.querySelector('textarea').value = field(part.dataset.question).value;
+      });
+      bootstrap.Modal.getOrCreateInstance(modal).show();
+    });
+  });
+
+  document.getElementById('classification-apply').addEventListener('click', function() {
+    var text = cell.querySelector('.entry-classification-text');
+    text.replaceChildren();
+    modal.querySelectorAll('[data-classification]').forEach(function(part) {
+      var name = part.dataset.classification + '-' + cell.dataset.entry;
+      cell.querySelectorAll('input[name="' + name + '"]').forEach(function(i) { i.remove(); });
+      var values = read(part);
+      values.forEach(function(value) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        cell.appendChild(input);
+      });
+      if (values.length) addLine(text, part.dataset.label, values.join(', '));
+    });
+    modal.querySelectorAll('[data-question]').forEach(function(part) {
+      var value = part.querySelector('textarea').value.trim();
+      field(part.dataset.question).value = value;
+      if (value) addLine(text, part.dataset.label, value);
+    });
+    bootstrap.Modal.getOrCreateInstance(modal).hide();
+  });
+})();
+</script>
+{% endblock %}

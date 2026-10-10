@@ -1183,6 +1183,7 @@ def collection_used_in(uuid):
         "daily-briefing": "daily_briefing.detail",
         "flash-intel": "flash_intel.detail",
         "vea": "vea.detail",
+        "threat-landscape": "threat_landscape.detail",
     }
     for product in products:
         endpoint = endpoints.get(product["type"])

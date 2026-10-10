@@ -329,7 +329,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
           body.innerHTML = '<p class="text-muted mb-0">No products found that reference this event.</p>';
           return;
         }
-        var icons = {'daily-briefing':'fa-newspaper','flash-intel':'fa-bolt','vea':'fa-shield-halved'};
+        var icons = {'daily-briefing':'fa-newspaper','flash-intel':'fa-bolt','vea':'fa-shield-halved','threat-landscape':'fa-map'};
         var html = '<ul class="list-group list-group-flush">';
         data.products.forEach(function(p) {
           var icon = icons[p.type] || 'fa-box-open';

@@ -79,7 +79,7 @@
 {% if review_state == 'approved' %}<span class="badge bg-success">approved</span>
 {% elif review_state == 'published' %}<span class="badge bg-success">published</span>
 {% elif review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
-{% elif review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
+{% elif review_state in ('pending-review', 'internal-review', 'stakeholder-review') %}<span class="badge bg-info text-dark">{{ review_state | replace('-', ' ') }}</span>
 {% else %}<span class="badge bg-secondary">{{ review_state }}</span>{% endif %}
 {% endmacro %}
 

@@ -34,6 +34,12 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 
 ### Added
 
+- A threat landscape report has a box for nation state, cybercrime,
+  hacker-for-hire and hacktivist actors.
+- Threat landscape reports follow ENISA's method. A report is built from
+  events picked in a filtered queue.
+- A threat landscape report downloads as a PDF with an annex on its dataset,
+  and techniques as an ATT&CK Navigator layer.
 - A feed's public URL can be switched on or off on the feed's page, by users
   with MISP publish rights only.
 - The response of an RFI can be edited on the RFI's page.

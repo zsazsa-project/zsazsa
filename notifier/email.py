@@ -202,6 +202,15 @@ def send_detection_eng_request_notification(der, markdown: str, channel_ids: lis
     return send_email(_recipients(channel_ids), subject, markdown, f"DER {der_id}", html_body=html)
 
 
+def send_threat_landscape_report_notification(tlr, markdown: str, channel_ids: list[str] | None = None) -> bool:
+    tlr_id = getattr(tlr, "tlr_id", "")
+    title = getattr(tlr, "title", "")
+    tlp = getattr(tlr, "tlp", "")
+    subject = _subject(tlp, f"{tlr_id}: {title}" if title else tlr_id)
+    html = product_email.markdown_html(markdown, "Threat Landscape Report", tlp)
+    return send_email(_recipients(channel_ids), subject, markdown, f"TLR {tlr_id}", html_body=html)
+
+
 def send_threat_actor_profile_notification(tap, markdown: str, channel_ids: list[str] | None = None,
                                            diamond_png: bytes | None = None) -> bool:
     tap_id = getattr(tap, "tap_id", "")

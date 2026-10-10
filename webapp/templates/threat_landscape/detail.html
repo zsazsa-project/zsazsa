@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import review_state_badge %}
 
 {% block title %}{{ tlr.tlr_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ tlr.tlr_id }}: {{ tlr.title or '(no title)' }}{% endblock %}
@@ -6,14 +7,9 @@
 {% block misp_object_url %}{{ tlr.misp_url }}{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-outline-secondary">
-  <i class="fas fa-arrow-left me-1"></i> Back
+<a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
-{% if tlr.review_state != 'published' %}
-<a href="{{ url_for('threat_landscape.wizard_edit', id=tlr.uuid) }}" class="btn btn-sm btn-outline-primary">
-  <i class="fas fa-pen me-1"></i> Edit
-</a>
-{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -21,20 +17,90 @@
 
   <div class="col-lg-8">
 
-    {% if tlr.top_threats %}
+    {% if tlr.purpose or tlr.audience_level or tlr.period_start or tlr.period_end
+          or tlr.scope_sectors or tlr.scope_geography or linked_pirs %}
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Top threats</div>
+      <div class="card-header"><i class="fas fa-compass me-2"></i>Direction</div>
       <div class="card-body">
-        <div style="white-space: pre-wrap;">{{ tlr.top_threats }}</div>
+        {% if tlr.purpose %}<div class="report-md-body mb-3" data-md="{{ tlr.purpose | e }}"></div>{% endif %}
+        <dl class="row small mb-0">
+          {% if tlr.audience_level %}
+          <dt class="col-sm-3">Audience level</dt><dd class="col-sm-9">{{ tlr.audience_level }}</dd>
+          {% endif %}
+          {% if tlr.period_start or tlr.period_end %}
+          <dt class="col-sm-3">Period</dt><dd class="col-sm-9">{{ tlr.period_start or '…' }} to {{ tlr.period_end or '…' }}</dd>
+          {% endif %}
+          <dt class="col-sm-3">Scope</dt>
+          <dd class="col-sm-9">
+            {% if tlr.scope_sectors or tlr.scope_geography %}
+            {% for v in tlr.scope_sectors + tlr.scope_geography %}<span class="badge chip-source me-1">{{ v }}</span>{% endfor %}
+            {% else %}
+            The whole organisation
+            {% endif %}
+          </dd>
+          {% if linked_pirs %}
+          <dt class="col-sm-3">Answers</dt>
+          <dd class="col-sm-9">
+            {% for pir in linked_pirs %}
+            <div>
+              <a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}" class="text-decoration-none">{{ pir.pir_id }}</a>
+              <span class="text-muted">{{ pir.question | truncate(110) }}</span>
+            </div>
+            {% endfor %}
+          </dd>
+          {% endif %}
+        </dl>
       </div>
     </div>
     {% endif %}
 
-    {% if tlr.trending_actors %}
+    {% if tlr.top_threats %}
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Top threats</div>
+      <div class="card-body">
+        <div class="report-md-body" data-md="{{ tlr.top_threats | e }}"></div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% for section in tlr.threat_sections %}
+    <div class="card content-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          <i class="fas fa-crosshairs me-2"></i>{{ section.title or section.threat_type or 'Threat assessment' }}
+          {% if section.title and section.threat_type %}<span class="text-muted small ms-1">{{ section.threat_type }}</span>{% endif %}
+        </span>
+        {% if section.confidence %}
+        <span class="badge bg-secondary" title="Confidence in the analytic judgment (estimative language)">
+          Confidence: {{ confidence_labels.get(section.confidence, section.confidence) }}
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% for key, heading in section_texts if section[key] %}
+        <div class="fw-semibold small text-uppercase text-muted {{ 'mt-3' if not loop.first }} mb-1">{{ heading }}</div>
+        <div class="report-md-body" data-md="{{ section[key] | e }}"></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% set ns = namespace(any=tlr.trending_actors) %}
+    {% for key, label, icon in actor_categories %}
+      {% if tlr | attr(key) %}{% set ns.any = true %}{% endif %}
+    {% endfor %}
+    {% if ns.any %}
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-user-secret me-2"></i>Trending threat actors</div>
       <div class="card-body">
-        <div style="white-space: pre-wrap;">{{ tlr.trending_actors }}</div>
+        {% if tlr.trending_actors %}<div class="report-md-body" data-md="{{ tlr.trending_actors | e }}"></div>{% endif %}
+        {% for key, label, icon in actor_categories %}
+        {% set text = tlr | attr(key) %}
+        {% if text %}
+        <div class="fw-semibold mt-3"><i class="fas {{ icon }} fa-fw me-1"></i>{{ label }}</div>
+        <div class="report-md-body" data-md="{{ text | e }}"></div>
+        {% endif %}
+        {% endfor %}
       </div>
     </div>
     {% endif %}
@@ -43,7 +109,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-fire me-2"></i>Key incidents</div>
       <div class="card-body">
-        <div style="white-space: pre-wrap;">{{ tlr.key_incidents }}</div>
+        <div class="report-md-body" data-md="{{ tlr.key_incidents | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -52,7 +118,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-shield me-2"></i>Recommendations</div>
       <div class="card-body">
-        <div style="white-space: pre-wrap;">{{ tlr.recommendations }}</div>
+        <div class="report-md-body" data-md="{{ tlr.recommendations | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -61,7 +127,30 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-binoculars me-2"></i>Outlook</div>
       <div class="card-body">
-        <div style="white-space: pre-wrap;">{{ tlr.outlook }}</div>
+        <div class="report-md-body" data-md="{{ tlr.outlook | e }}"></div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if tlr.methodology %}
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-book me-2"></i>Methodology and limitations</div>
+      <div class="card-body">
+        <div class="report-md-body" data-md="{{ tlr.methodology | e }}"></div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if tlr.corrections %}
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-pen-to-square me-2"></i>Corrections</div>
+      <div class="card-body">
+        {% for c in tlr.corrections %}
+        <div class="{{ 'mt-3' if not loop.first }}">
+          <div class="small text-muted mb-1">{{ c.date }}{% if c.by %} · {{ c.by }}{% endif %}</div>
+          <div class="report-md-body" data-md="{{ c.text | e }}"></div>
+        </div>
+        {% endfor %}
       </div>
     </div>
     {% endif %}
@@ -71,13 +160,48 @@
   <div class="col-lg-4">
 
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-info-circle me-2"></i>Metadata</div>
+      <div class="card-header"><i class="fas fa-table-list me-2"></i>Dataset</div>
+      <div class="card-body small">
+        {% if tlr.entries %}
+        {% if annex %}
+        <dl class="row mb-2">
+          {% for label, value in annex %}
+          <dt class="col-5">{{ label }}</dt><dd class="col-7">{{ value }}</dd>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <p class="mb-2">Every event is left out of the analysis.</p>
+        {% endif %}
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('threat_landscape.entries', id=tlr.uuid) }}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-table-list me-1"></i>Triage and statistics
+          </a>
+          <a href="{{ url_for('threat_landscape.navigator_layer', id=tlr.uuid) }}" class="btn btn-sm btn-outline-secondary"
+             title="The techniques of the events, as a layer for the MITRE ATT&CK Navigator">
+            <i class="fas fa-download me-1"></i>ATT&amp;CK layer
+          </a>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No events yet. Pick them from the queue on the report list.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fas fa-info-circle me-2"></i>Metadata</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                data-recipients-url="{{ url_for('threat_landscape.recipients_fragment', id=tlr.uuid) }}"
+                title="Preview recipients">
+          <i class="fas fa-users me-1"></i> Recipients
+        </button>
+      </div>
       <div class="card-body small">
         <dl class="row mb-0">
           <dt class="col-5">ID</dt>
           <dd class="col-7 font-monospace">{{ tlr.tlr_id }}</dd>
 
-          <dt class="col-5">Period</dt>
+          <dt class="col-5">Reporting period</dt>
           <dd class="col-7">{{ tlr.reporting_period or '-' }}</dd>
 
           <dt class="col-5">Author</dt>
@@ -90,13 +214,7 @@
           <dd class="col-7"><span class="tlp-badge tlp-{{ tlr.tlp | slug }}">TLP:{{ tlr.tlp | upper }}</span></dd>
 
           <dt class="col-5">State</dt>
-          <dd class="col-7">
-            {% if tlr.review_state == 'published' %}
-            <span class="badge bg-success">published</span>
-            {% else %}
-            <span class="badge bg-secondary">draft</span>
-            {% endif %}
-          </dd>
+          <dd class="col-7">{{ review_state_badge(tlr.review_state) }}</dd>
 
           <dt class="col-5">Created</dt>
           <dd class="col-7">{{ tlr.created_at.strftime('%d-%m-%Y') if tlr.created_at else '-' }}</dd>
@@ -112,31 +230,7 @@
       </div>
     </div>
 
-    {% if tlr.review_state != 'published' %}
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-check-circle me-2"></i>Publish</div>
-      <div class="card-body">
-        <p class="text-muted small mb-3">Publishing marks this report as final and notifies MISP.</p>
-        {% if not can_publish %}
-        <span class="d-block" style="cursor:not-allowed;"
-              title="Only users with MISP publish rights can publish.">
-          <button class="btn btn-success w-100" disabled style="pointer-events:none;">
-            <i class="fas fa-paper-plane me-1"></i> Publish report
-          </button>
-        </span>
-        {% else %}
-        <form method="post" action="{{ url_for('threat_landscape.publish', id=tlr.uuid) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-success w-100">
-            <i class="fas fa-paper-plane me-1"></i> Publish report
-          </button>
-        </form>
-        {% endif %}
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback</div>
       <div class="card-body">
         {% if feedback %}
@@ -168,24 +262,125 @@
       </div>
     </div>
 
-    <form method="post" action="{{ url_for('threat_landscape.delete', id=tlr.uuid) }}"
-          data-submit-confirm="Delete {{ tlr.tlr_id }}?">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn-sm btn-outline-danger w-100">
-        <i class="fas fa-trash me-1"></i> Delete report
-      </button>
-    </form>
+    {% if tlr.review_log %}
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-list-check me-2"></i>Review</div>
+      <ul class="list-group list-group-flush small">
+        {% for step in tlr.review_log %}
+        <li class="list-group-item">
+          <div class="text-muted">{{ step.date }} · {{ step.by or 'unknown' }}</div>
+          <div>{{ step['from'] | replace('-', ' ') }} <i class="fas fa-arrow-right fa-xs mx-1"></i> {{ step.to | replace('-', ' ') }}</div>
+          {% if step.comment %}<div class="report-md-body mt-1" data-md="{{ step.comment | e }}"></div>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4">
+      <div class="card-header"><i class="fas fa-bolt me-2"></i>Actions</div>
+      <div class="card-body">
+        {% if next_states %}
+        {# ENISA's validation: internal review, stakeholder review, then approval. #}
+        {% set moves = {
+          'draft': ('Back to draft', 'btn-outline-secondary'),
+          'internal-review': ('Submit for internal review', 'btn-outline-primary'),
+          'stakeholder-review': ('Send for stakeholder review', 'btn-outline-primary'),
+          'approved': ('Approve', 'btn-outline-success'),
+        } %}
+        <form method="post" action="{{ url_for('threat_landscape.move', id=tlr.uuid) }}" class="mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="comment" class="form-control form-control-sm mb-2" rows="2"
+                    placeholder="Comment for the review (optional)"></textarea>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for state in next_states %}
+            {% if state == 'approved' and not can_publish %}
+            <span class="flex-fill" style="cursor:not-allowed;" title="Only users with MISP publish rights can approve.">
+              <button class="btn btn-sm btn-outline-success w-100" disabled style="pointer-events:none;">Approve</button>
+            </span>
+            {% else %}
+            {% set label, style = moves[state] %}
+            <button name="state" value="{{ state }}" class="btn btn-sm flex-fill {{ style }}">{{ label }}</button>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </form>
+        {% endif %}
+
+        {% if tlr.review_state == 'approved' %}
+          {% if not can_publish %}
+          <span class="d-block mb-2" style="cursor:not-allowed;"
+                title="Only users with MISP publish rights can publish.">
+            <button class="btn btn-success w-100" disabled style="pointer-events:none;">
+              <i class="fas fa-paper-plane me-1"></i> Publish
+            </button>
+          </span>
+          {% else %}
+          <form method="post" action="{{ url_for('threat_landscape.publish', id=tlr.uuid) }}" class="mb-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-success w-100"><i class="fas fa-paper-plane me-1"></i> Publish</button>
+          </form>
+          {% endif %}
+        {% elif tlr.review_state == 'published' %}
+        <form method="post" action="{{ url_for('threat_landscape.resend', id=tlr.uuid) }}"
+              class="mb-2" data-submit-confirm="Resend {{ tlr.tlr_id }} to its recipients?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-secondary w-100"><i class="fas fa-paper-plane me-1"></i> Resend to recipients</button>
+        </form>
+        {% if can_publish %}
+        <form method="post" action="{{ url_for('threat_landscape.correction', id=tlr.uuid) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="text" class="form-control form-control-sm mb-2" rows="2" required
+                    placeholder="A correction that leaves the analysis as it stands"></textarea>
+          <button class="btn btn-sm btn-outline-secondary w-100"><i class="fas fa-pen-to-square me-1"></i> Add a correction</button>
+        </form>
+        {% endif %}
+        {% endif %}
+
+        <a href="{{ url_for('threat_landscape.pdf', id=tlr.uuid) }}" class="btn btn-sm btn-outline-secondary w-100 mb-2">
+          <i class="fas fa-file-pdf me-1"></i> Download PDF
+        </a>
+        <div class="d-flex gap-2">
+          {% if locked %}
+          <span class="flex-fill" title="Send the report back to draft to change it" style="cursor:not-allowed;">
+            <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
+              <i class="fas fa-pen me-1"></i> Edit
+            </button>
+          </span>
+          {% else %}
+          <a href="{{ url_for('threat_landscape.wizard_edit', id=tlr.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
+            <i class="fas fa-pen me-1"></i> Edit
+          </a>
+          {% endif %}
+          {% if tlr.review_state == 'published' %}
+          <span class="flex-fill" title="Published reports cannot be deleted" style="cursor:not-allowed;">
+            <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
+              <i class="fas fa-trash me-1"></i> Delete
+            </button>
+          </span>
+          {% else %}
+          <form method="post" action="{{ url_for('threat_landscape.delete', id=tlr.uuid) }}"
+                class="flex-fill" data-submit-confirm="Delete {{ tlr.tlr_id }}? Its events go back to the queue.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger w-100"><i class="fas fa-trash me-1"></i> Delete</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
 
   </div>
 </div>
+{% include "_recipients_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
+marked.setOptions({ breaks: true, gfm: true });
 document.querySelectorAll('.report-md-body').forEach(el => {
-  const raw = el.getAttribute('data-md') || '';
-  if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') el.innerHTML = DOMPurify.sanitize(marked.parse(raw));
-  else el.textContent = raw;
+  el.innerHTML = DOMPurify.sanitize(marked.parse(el.getAttribute('data-md') || ''));
 });
 </script>
 {% endblock %}

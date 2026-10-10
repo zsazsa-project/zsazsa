@@ -241,6 +241,7 @@ class _ThreatLandscapeFixture(_Gate):
         self.update = self.stub(threat_landscape.misp_store, "update_tlr")
         self.stub(threat_landscape, "_form_data", return_value={})
         self.publish = self.stub(threat_landscape.misp_store, "publish_tlr")
+        self.deliver = self.stub(threat_landscape, "_start_delivery")
         self.stub(threat_landscape.audit, "record")
 
 
@@ -248,6 +249,12 @@ class ThreatLandscape(_ThreatLandscapeFixture):
     def test_publish_is_refused(self):
         self.assertRefused(self.client.post(f"/products/threat-landscape/{UUID}/publish"))
         self.publish.assert_not_called()
+        self.deliver.assert_not_called()
+
+    def test_resend_is_refused(self):
+        self.tlr.review_state = threat_landscape.misp_store.TLR_REVIEW_PUBLISHED
+        self.assertRefused(self.client.post(f"/products/threat-landscape/{UUID}/resend"))
+        self.deliver.assert_not_called()
 
     def test_a_published_report_cannot_be_edited(self):
         self.tlr.review_state = threat_landscape.misp_store.TLR_REVIEW_PUBLISHED
@@ -268,8 +275,10 @@ class ThreatLandscapePublisher(_ThreatLandscapeFixture):
         self.update.assert_not_called()
 
     def test_publish_publishes(self):
+        self.tlr.review_state = threat_landscape.misp_store.TLR_REVIEW_APPROVED
         self.client.post(f"/products/threat-landscape/{UUID}/publish")
         self.publish.assert_called_once_with(UUID)
+        self.deliver.assert_called_once_with(self.tlr, "publish")
 
 
 class _ThreatActorProfileFixture(_Gate):

@@ -237,6 +237,13 @@ def send_detection_eng_request_notification(der, markdown: str, channel_ids: lis
     return _chunk_and_send(targets, body, f"detection engineering request {getattr(der, 'der_id', '')}")
 
 
+def send_threat_landscape_report_notification(tlr, markdown: str, channel_ids: list[str] | None = None) -> bool:
+    """Send a threat landscape report to the given Mattermost channels."""
+    body = f"### :world_map: {getattr(tlr, 'tlr_id', '')}: Threat landscape report\n{markdown}"
+    targets = _active_webhooks(channel_ids)
+    return _chunk_and_send(targets, body, f"threat landscape report {getattr(tlr, 'tlr_id', '')}")
+
+
 def send_threat_actor_profile_notification(tap, markdown: str,
                                            channel_ids: list[str] | None = None,
                                            diamond_url: str | None = None) -> bool:

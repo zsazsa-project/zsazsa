@@ -1,0 +1,117 @@
+{
+    "name": "zsazsa-tlr-entry",
+    "meta-category": "intelligence",
+    "description": "One source event in the dataset of a zsazsa threat landscape report, with the report's assessment of it",
+    "uuid": "48f626fa-2970-4b18-87ca-394f84c2cb6e",
+    "version": 1,
+    "attributes": {
+        "event-uuid": {
+            "misp-attribute": "text",
+            "ui-priority": 0,
+            "description": "UUID of the source event, which may live on another MISP server",
+            "disable_correlation": true
+        },
+        "source-id": {
+            "misp-attribute": "text",
+            "ui-priority": 1,
+            "description": "Collection source the event came from",
+            "disable_correlation": true
+        },
+        "event-info": {
+            "misp-attribute": "text",
+            "ui-priority": 2,
+            "description": "Title of the source event when it was added",
+            "disable_correlation": true
+        },
+        "event-date": {
+            "misp-attribute": "text",
+            "ui-priority": 3,
+            "description": "Date of the source event",
+            "disable_correlation": true
+        },
+        "relevance": {
+            "misp-attribute": "text",
+            "ui-priority": 4,
+            "description": "Relevance to this landscape: high, medium or low",
+            "disable_correlation": true
+        },
+        "source-reliability": {
+            "misp-attribute": "text",
+            "ui-priority": 5,
+            "description": "Admiralty source reliability, A to F",
+            "disable_correlation": true
+        },
+        "information-credibility": {
+            "misp-attribute": "text",
+            "ui-priority": 6,
+            "description": "Admiralty information credibility, 1 to 6",
+            "disable_correlation": true
+        },
+        "threat-type": {
+            "misp-attribute": "text",
+            "ui-priority": 7,
+            "description": "Threat type, one of the ENISA prime threats",
+            "disable_correlation": true
+        },
+        "sectors": {
+            "misp-attribute": "text",
+            "ui-priority": 8,
+            "description": "Targeted sectors (JSON list)",
+            "disable_correlation": true
+        },
+        "geographic-scope": {
+            "misp-attribute": "text",
+            "ui-priority": 9,
+            "description": "Targeted countries or regions (JSON list)",
+            "disable_correlation": true
+        },
+        "threat-actors": {
+            "misp-attribute": "text",
+            "ui-priority": 10,
+            "description": "Threat actors involved (JSON list)",
+            "disable_correlation": true
+        },
+        "techniques": {
+            "misp-attribute": "text",
+            "ui-priority": 11,
+            "description": "MITRE ATT&CK technique IDs (JSON list)",
+            "disable_correlation": true
+        },
+        "excluded": {
+            "misp-attribute": "text",
+            "ui-priority": 12,
+            "description": "yes when the analyst left the event out of the analysis",
+            "disable_correlation": true
+        },
+        "note": {
+            "misp-attribute": "text",
+            "ui-priority": 13,
+            "description": "Analyst note, such as the reason for leaving the event out",
+            "disable_correlation": true
+        },
+        "affected-assets": {
+            "misp-attribute": "text",
+            "ui-priority": 14,
+            "description": "Assets the incident affected",
+            "disable_correlation": true
+        },
+        "impact": {
+            "misp-attribute": "text",
+            "ui-priority": 15,
+            "description": "Impact of the incident",
+            "disable_correlation": true
+        },
+        "motivation": {
+            "misp-attribute": "text",
+            "ui-priority": 16,
+            "description": "Motivation behind the incident",
+            "disable_correlation": true
+        },
+        "mitigation": {
+            "misp-attribute": "text",
+            "ui-priority": 17,
+            "description": "Mitigation that applies",
+            "disable_correlation": true
+        }
+    }
+}

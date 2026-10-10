@@ -283,3 +283,23 @@ def match_events(events: list, pirs: list, girs: list) -> dict:
             matches.sort(key=lambda x: x["score"], reverse=True)
             result[uuid] = matches
     return result
+
+
+def coverage(events: list, req) -> list:
+    """How many of the events match each scope item of a requirement.
+
+    Returns (label, term, count) in the order of the requirement's scope, so a
+    count of zero shows a gap: something the requirement asks about that none
+    of the events speaks to.
+    """
+    counts = {}
+    for event in events:
+        match = match_event_to_requirement(event, req, "pir")
+        for e in (match.evidence if match else []):
+            counts[(e.category, e.term)] = counts.get((e.category, e.term), 0) + 1
+    return [
+        (label, term, counts.get((attr, term), 0))
+        for attr, _methods, label, _weight in _SCOPE_CATEGORIES
+        for term in getattr(req, attr, None) or []
+        if _norm(term)
+    ]
