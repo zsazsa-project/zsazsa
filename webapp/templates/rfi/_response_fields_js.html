@@ -1,0 +1,29 @@
+{# The output format rows of _response_fields.html: adding and removing one,
+   and the icon beside it following the product picked. #}
+{% from "_macros.html" import product_icons %}
+<script>
+(function() {
+  var list = document.getElementById('fmt-list');
+  var template = document.getElementById('fmt-row-template');
+  var add = document.getElementById('fmt-add');
+  if (!list || !template || !add) return;
+  var icons = {{ product_icons | tojson }};
+
+  add.addEventListener('click', function() {
+    list.appendChild(template.content.firstElementChild.cloneNode(true));
+  });
+  list.addEventListener('click', function(e) {
+    var btn = e.target.closest('.fmt-remove');
+    if (btn) btn.closest('.fmt-row').remove();
+  });
+  list.addEventListener('change', function(e) {
+    if (e.target.name !== 'output_format_item') return;
+    var holder = e.target.closest('.fmt-row').querySelector('.fmt-icon');
+    holder.replaceChildren();
+    if (!e.target.value) return;
+    var icon = document.createElement('i');
+    icon.className = 'fas fa-' + (icons[e.target.value] || 'cube') + ' fa-fw text-muted me-1';
+    holder.appendChild(icon);
+  });
+})();
+</script>

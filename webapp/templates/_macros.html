@@ -79,7 +79,7 @@
 {% if review_state == 'approved' %}<span class="badge bg-success">approved</span>
 {% elif review_state == 'published' %}<span class="badge bg-success">published</span>
 {% elif review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
-{% elif review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
+{% elif review_state in ('pending-review', 'internal-review', 'stakeholder-review') %}<span class="badge bg-info text-dark">{{ review_state | replace('-', ' ') }}</span>
 {% else %}<span class="badge bg-secondary">{{ review_state }}</span>{% endif %}
 {% endmacro %}
 
@@ -152,3 +152,18 @@
   <label class="form-check-label small text-muted" for="remove-{{ name }}">{{ label }}</label>
 </div>
 {% endmacro %}
+
+{# The icon each CTI product has in the Products menu, for every other place
+   that lists products. A product an admin added has no menu entry and gets the
+   cube. #}
+{% set product_icons = {
+  'Daily threat briefing': 'newspaper',
+  'Threat landscape report': 'globe',
+  'Flash intel alert': 'bolt',
+  'Vulnerability advisory': 'bug',
+  'Threat actor profile': 'user-secret',
+  'Indicator feed': 'satellite-dish',
+  'Detection engineering request': 'crosshairs',
+} %}
+
+{% macro product_icon(name) %}<i class="fas fa-{{ product_icons.get(name, 'cube') }} fa-fw text-muted me-1"></i>{% endmacro %}

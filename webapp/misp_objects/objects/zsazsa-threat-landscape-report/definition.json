@@ -3,7 +3,7 @@
     "meta-category": "intelligence",
     "description": "Threat landscape report (TLR) managed by the zsazsa CTI program",
     "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "version": 1,
+    "version": 2,
     "attributes": {
         "tlr-id": {
             "misp-attribute": "text",
@@ -53,6 +53,30 @@
             "description": "Threat actors that increased in activity",
             "disable_correlation": true
         },
+        "actors-nation-state": {
+            "misp-attribute": "text",
+            "ui-priority": 14,
+            "description": "Trending nation state threat actors",
+            "disable_correlation": true
+        },
+        "actors-cybercrime": {
+            "misp-attribute": "text",
+            "ui-priority": 15,
+            "description": "Trending cybercrime threat actors",
+            "disable_correlation": true
+        },
+        "actors-hacker-for-hire": {
+            "misp-attribute": "text",
+            "ui-priority": 16,
+            "description": "Trending hacker-for-hire threat actors",
+            "disable_correlation": true
+        },
+        "actors-hacktivists": {
+            "misp-attribute": "text",
+            "ui-priority": 17,
+            "description": "Trending hacktivist threat actors",
+            "disable_correlation": true
+        },
         "key-incidents": {
             "misp-attribute": "text",
             "ui-priority": 8,
@@ -87,6 +111,72 @@
             "misp-attribute": "text",
             "ui-priority": 13,
             "description": "User who published this report",
+            "disable_correlation": true
+        },
+        "purpose": {
+            "misp-attribute": "text",
+            "ui-priority": 18,
+            "description": "Why the report is written and the decisions it supports",
+            "disable_correlation": true
+        },
+        "audience-level": {
+            "misp-attribute": "text",
+            "ui-priority": 19,
+            "description": "Strategic, operational or tactical",
+            "disable_correlation": true
+        },
+        "period-start": {
+            "misp-attribute": "text",
+            "ui-priority": 20,
+            "description": "First day of the period the report covers",
+            "disable_correlation": true
+        },
+        "period-end": {
+            "misp-attribute": "text",
+            "ui-priority": 21,
+            "description": "Last day of the period the report covers",
+            "disable_correlation": true
+        },
+        "scope-sectors": {
+            "misp-attribute": "text",
+            "ui-priority": 22,
+            "description": "Sectors the report is limited to, none for the whole organisation (JSON list)",
+            "disable_correlation": true
+        },
+        "scope-geography": {
+            "misp-attribute": "text",
+            "ui-priority": 23,
+            "description": "Countries or regions the report is limited to, none for all (JSON list)",
+            "disable_correlation": true
+        },
+        "linked-pir-uuids": {
+            "misp-attribute": "text",
+            "ui-priority": 24,
+            "description": "UUIDs of the PIRs the report answers (JSON list)",
+            "disable_correlation": true
+        },
+        "methodology": {
+            "misp-attribute": "text",
+            "ui-priority": 25,
+            "description": "How the report was produced, and its limitations",
+            "disable_correlation": true
+        },
+        "threat-sections": {
+            "misp-attribute": "text",
+            "ui-priority": 26,
+            "description": "Threat assessments: threat type, title, findings, confidence, key drivers, alternative hypotheses and recommendations (JSON list)",
+            "disable_correlation": true
+        },
+        "review-log": {
+            "misp-attribute": "text",
+            "ui-priority": 27,
+            "description": "Each move through the review, with who made it, when and why (JSON list)",
+            "disable_correlation": true
+        },
+        "corrections": {
+            "misp-attribute": "text",
+            "ui-priority": 28,
+            "description": "Dated corrections made after publication (JSON list)",
             "disable_correlation": true
         }
     }

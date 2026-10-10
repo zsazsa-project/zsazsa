@@ -12,20 +12,8 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 - Configuration and Collection sources need `perm_site_admin` on the MISP role.
   Other users no longer see the Settings menu. Installs without single sign-on
   are unchanged.
-- zsazsa asks MISP for that role on every visit to these pages, so
-  `MISP_WEBAPP_KEY` has to be allowed to look up users, which a site admin key
-  is. Otherwise the settings stay closed for everyone, and the log says so.
-- The session Redis for single sign-on (`MISP_SESSION_REDIS_*`) is set in
-  `config/__init__.py` only. Existing values are kept.
-- Once zsazsa has recognised a user through a MISP session, it treats single
-  sign-on as in use, even with the redirect off and no cookie name set. A
-  request without a session can then no longer publish or open the settings.
 - Saved keys and passwords show as "Configured". Leave a field empty to keep
   it, use "Remove" to clear it, and enter it again when you change its address.
-- Every MISP user could read these secrets before, so rotate them: the MISP API
-  keys, the SMTP, IMAP and Redis passwords, and the LLM and Flowintel keys.
-- Mattermost notifications sent before the upgrade lose their Diamond Model
-  image, and so do all of them when `SECRET_KEY` changes.
 - An indicator feed tracks if it has a public URL. Existing feeds
   keep their public URL,  until someone with MISP publish rights switches it off. A new
   feed starts with it on only when a publisher creates it.
@@ -34,8 +22,18 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 
 ### Added
 
+- A threat landscape report has a box for nation state, cybercrime,
+  hacker-for-hire and hacktivist actors.
+- Threat landscape reports follow ENISA's method. A report is built from
+  events picked in a filtered queue.
+- A threat landscape report downloads as a PDF with an annex on its dataset,
+  and techniques as an ATT&CK Navigator layer.
 - A feed's public URL can be switched on or off on the feed's page, by users
   with MISP publish rights only.
+- The response of an RFI can be edited on the RFI's page.
+- A vulnerability advisory is built with AI from its source events header, the
+  way a flash intel alert is done.
+
 
 ### Fixed
 

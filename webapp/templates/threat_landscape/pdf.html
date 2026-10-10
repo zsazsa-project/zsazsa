@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-tlp="{{ tlr.tlp | slug }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ tlr.tlr_id }} - {{ tlr.title }}</title>
+  <link rel="stylesheet" href="{{ css_url }}">
+  <style>
+    :root {
+      --c1: {{ brand.color1 }};
+      --c2: {{ brand.color2 }};
+      --c3: {{ brand.color3 }};
+    }
+  </style>
+</head>
+<body>
+{% import "_pdf_header.html" as header %}
+
+{{ header.doc_header(brand, doc_label='Threat Landscape Report',
+                     title=tlr.title or '(untitled)',
+                     tlp=tlr.tlp, doc_id=tlr.tlr_id, subtitle=tlr.reporting_period) }}
+
+<div class="meta-block">
+  <div class="meta-grid">
+    {{ header.meta_item('ID', tlr.tlr_id) }}
+    {{ header.meta_item('Date', tlr.created_at.strftime('%Y-%m-%d') if tlr.created_at else '-') }}
+    {{ header.meta_item('Author', tlr.author or '-') }}
+    {% if tlr.approved_by %}{{ header.meta_item('Approved by', tlr.approved_by) }}{% endif %}
+    {{ header.tlp_meta_item(tlr.tlp) }}
+    {# A copy taken for review must not pass for the published report. #}
+    {% if tlr.review_state != 'published' %}{{ header.meta_item('State', tlr.review_state | replace('-', ' ')) }}{% endif %}
+    {% if tlr.audience_level %}{{ header.meta_item('Audience level', tlr.audience_level) }}{% endif %}
+    {% if tlr.period_start or tlr.period_end %}
+    {{ header.meta_item('Period', (tlr.period_start or '…') ~ ' to ' ~ (tlr.period_end or '…')) }}
+    {% endif %}
+  </div>
+  {{ header.wide_meta_item('Audience', tlr.audience or '-') }}
+  {{ header.wide_meta_item('Scope', (tlr.scope_sectors + tlr.scope_geography) | join(', ') or 'The whole organisation') }}
+  {% if linked_pirs %}
+  {{ header.wide_meta_item('Answers', linked_pirs | map(attribute='pir_id') | join(', ')) }}
+  {% endif %}
+</div>
+
+{% macro section(heading, text) %}
+{% if text %}
+<div class="section-heading">{{ heading }}</div>
+<div class="section-box">{{ text | md }}</div>
+{% endif %}
+{% endmacro %}
+
+{{ section('Purpose', tlr.purpose) }}
+{{ section('Top threats', tlr.top_threats) }}
+
+{% for assessment in tlr.threat_sections %}
+<div class="section-heading">{{ assessment.title or assessment.threat_type or 'Threat assessment' }}</div>
+<div class="section-box">
+  {% if assessment.threat_type or assessment.confidence %}
+  <table class="detail-table">
+    {% if assessment.threat_type %}<tr><th>Threat type</th><td>{{ assessment.threat_type }}</td></tr>{% endif %}
+    {% if assessment.confidence %}
+    <tr><th>Confidence</th><td>{{ confidence_labels.get(assessment.confidence, assessment.confidence) }}</td></tr>
+    {% endif %}
+  </table>
+  {% endif %}
+  {% for key, heading in section_texts if assessment[key] %}<h3>{{ heading }}</h3>{{ assessment[key] | md }}{% endfor %}
+</div>
+{% endfor %}
+
+{% set ns = namespace(any=tlr.trending_actors) %}
+{% for key, _label, _icon in actor_categories %}{% if tlr[key] %}{% set ns.any = true %}{% endif %}{% endfor %}
+{% if ns.any %}
+<div class="section-heading">Trending threat actors</div>
+<div class="section-box">
+  {% if tlr.trending_actors %}{{ tlr.trending_actors | md }}{% endif %}
+  {% for key, label, _icon in actor_categories %}
+  {% if tlr[key] %}<h3>{{ label }}</h3>{{ tlr[key] | md }}{% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{{ section('Key incidents', tlr.key_incidents) }}
+{{ section('Recommendations', tlr.recommendations) }}
+{{ section('Outlook', tlr.outlook) }}
+{{ section('Methodology and limitations', tlr.methodology) }}
+
+{% if annex %}
+<div class="section-heading">Dataset</div>
+<div class="section-box">
+  <table class="detail-table">
+    {% for label, value in annex %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if tlr.corrections %}
+<div class="section-heading">Corrections</div>
+<div class="section-box">
+  {% for c in tlr.corrections %}<h3>{{ c.date }}</h3>{{ c.text | md }}{% endfor %}
+</div>
+{% endif %}
+
+</body>
+</html>

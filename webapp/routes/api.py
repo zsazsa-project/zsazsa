@@ -596,9 +596,9 @@ def draft_tap():
 @bp.route("/draft-vea", methods=["POST"])
 @rate_limited("api_draft_vea", limit=30, window_s=60)
 def draft_vea():
-    """Draft VEA section content from CVE info and optional article content.
+    """Draft VEA section content from CVE info and the reports of its source events.
 
-    POST JSON: {"cve_id": "CVE-...", "product_info": "...", "article_content": "..."}
+    POST JSON: {"cve_id": "CVE-...", "product_info": "...", "source_uuids": ["uuid1", ...]}
     Returns: {"sections": {...}, "error": null}
     """
     body, err = _json_object()
@@ -606,10 +606,17 @@ def draft_vea():
         return jsonify({"sections": {}, "error": "Invalid JSON payload."}), 400
     cve_id = (body.get("cve_id") or "").strip()
     product_info = (body.get("product_info") or "").strip()
-    article_content = (body.get("article_content") or "").strip()
+    source_uuids = [str(u).strip() for u in (body.get("source_uuids") or []) if str(u).strip()]
+
+    article_content = ""
+    if source_uuids:
+        try:
+            article_content = _report_content(misp_store.fetch_source_events(source_uuids))
+        except Exception as exc:
+            logger.warning("draft_vea: fetch_source_events failed: %s", exc)
 
     if not cve_id and not article_content:
-        return jsonify({"sections": {}, "error": "CVE ID or article content required."})
+        return jsonify({"sections": {}, "error": "Enter a CVE ID, or start from events that have a report."})
 
     try:
         from analyser import llm
@@ -876,6 +883,18 @@ def _parse_fia_markdown(text: str) -> dict:
     return fields
 
 
+def _report_content(source_events, raw_only=False):
+    """Join the reports of the source events, leaving out the AI summaries if raw_only."""
+    parts = []
+    for ev in source_events:
+        for r in ev.get('reports', []):
+            if raw_only and (r.get('name') or '').startswith(AI_SUMMARY_PREFIX):
+                continue
+            c = (r.get('content') or '').strip()
+            if c: parts.append(c)
+    return '\n\n---\n\n'.join(parts)
+
+
 @bp.route("/build-fia", methods=["POST"])
 @rate_limited("api_build_fia", limit=10, window_s=60)
 def build_fia():
@@ -897,19 +916,13 @@ def build_fia():
         logger.warning("build_fia: fetch_source_events failed: %s", exc)
         source_events = []
 
-    report_mode = body.get("report_mode", "both")
-    content_parts, all_tags, info_parts, dates = [], [], [], []
+    all_tags, info_parts, dates = [], [], []
     for ev in source_events:
         if ev.get('info'): info_parts.append(ev['info'])
         if ev.get('date'): dates.append(str(ev['date']))
         all_tags.extend(ev.get('tags', []))
-        for r in ev.get('reports', []):
-            if report_mode == 'raw_only' and (r.get('name') or '').startswith('[AI-Summary]'):
-                continue
-            c = (r.get('content') or '').strip()
-            if c: content_parts.append(c)
 
-    content = '\n\n---\n\n'.join(content_parts)
+    content = _report_content(source_events, raw_only=body.get("report_mode") == "raw_only")
     if not content:
         return jsonify({"fields": {}, "error": "No report content found in source events."})
 
@@ -1170,6 +1183,7 @@ def collection_used_in(uuid):
         "daily-briefing": "daily_briefing.detail",
         "flash-intel": "flash_intel.detail",
         "vea": "vea.detail",
+        "threat-landscape": "threat_landscape.detail",
     }
     for product in products:
         endpoint = endpoints.get(product["type"])

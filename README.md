@@ -248,7 +248,7 @@ The OpenAI card holds the API key, the token usage counters and the default mode
 
 Each feature chooses its own **provider, model, temperature and prompt** in the feature table under the provider cards. An empty model field means the feature uses the default model of the provider it points at, and an empty temperature leaves sampling to the model. A provider that is switched off is no longer offered in the table, and it cannot be switched off while features are still pointing at it.
 
-Alongside relevance checking, briefing stories, report summaries and advisory drafts, three options work on the products themselves. A **threat actor profile** can be drafted from the selected actors and the MISP galaxy context. A **threat landscape report** can be drafted from the collection events queued for it. A **flash intel alert or vulnerability advisory** can be audited against its source events before publishing.
+Alongside relevance checking, briefing stories, report summaries and advisory drafts, three options work on the products themselves. A **threat actor profile** can be drafted from the selected actors and the MISP galaxy context. A **threat landscape report** can be drafted from the events in its dataset, or from the queue while it has none. A **flash intel alert or vulnerability advisory** can be audited against its source events before publishing.
 
 Two things to watch with a local model. Reasoning models spend part of the token budget thinking before they answer, and the per-feature budgets are sized for a straight answer; zsazsa asks the server to skip the thinking step, which Ollama honours, but a server that ignores the request can spend the whole budget and return nothing.
 
@@ -358,7 +358,7 @@ The platform stores each entity as one MISP event, with its data inside a custom
 | Flash Intel Alert | zsazsa-flash-intel |
 | Vulnerability advisory | zsazsa-vea |
 | Daily briefing | zsazsa-daily-briefing |
-| Threat landscape report | zsazsa-threat-landscape-report |
+| Threat landscape report | zsazsa-threat-landscape-report, and a zsazsa-tlr-entry per event in its dataset |
 | Indicator feed | zsazsa-indicator-feed |
 | Threat actor profile | zsazsa-threat-actor-profile |
 | Detection engineering request | zsazsa-detection-eng-request |

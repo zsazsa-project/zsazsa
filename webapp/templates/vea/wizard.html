@@ -45,9 +45,49 @@
       <div class="card-header d-flex justify-content-between align-items-center"
            id="vea-source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
         <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
-        <button type="button" class="btn btn-xs btn-link text-muted p-0" id="vea-source-events-toggle">
-          <i class="fas fa-chevron-down me-1"></i>Show
-        </button>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="zs-toolbar-label">AI assistance</span>
+          <div class="zs-pill-group" id="build-ai-group" role="group">
+            <button type="button" class="zs-pill" id="build-ai-btn"
+                    data-source-uuids='{{ source_events | map(attribute="uuid") | list | tojson }}'>
+              <i class="fas fa-wand-magic-sparkles"></i>Build with AI
+            </button>
+            <button type="button" class="zs-pill dropdown-toggle"
+                    id="build-ai-mode-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+              <span class="visually-hidden">Build options</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end p-1" style="min-width:270px;" id="build-ai-menu">
+              <li>
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="lookup">
+                  <div class="d-flex align-items-start gap-2">
+                    <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);">&#10003;</span>
+                    <i class="fas fa-layer-group" style="color:var(--adm-tlp-green-border);margin-top:2px;width:13px;font-size:.8rem;"></i>
+                    <div>
+                      <div style="font-size:.78rem;font-weight:600;">AI summary + Vuln lookup</div>
+                      <div class="text-muted" style="font-size:.67rem;line-height:1.35;">Looks up the CVEs on Vulnerability Lookup first, then drafts from those details and the source reports</div>
+                    </div>
+                  </div>
+                </a>
+              </li>
+              <li><hr class="dropdown-divider mx-2 my-1"></li>
+              <li>
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="summary">
+                  <div class="d-flex align-items-start gap-2">
+                    <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);visibility:hidden;">&#10003;</span>
+                    <i class="fas fa-file-lines" style="color:var(--admiralty-section-fg);margin-top:2px;width:13px;font-size:.8rem;"></i>
+                    <div>
+                      <div style="font-size:.78rem;font-weight:600;">AI summary</div>
+                      <div class="text-muted" style="font-size:.67rem;line-height:1.35;">Drafts from the source reports only, without a lookup</div>
+                    </div>
+                  </div>
+                </a>
+              </li>
+            </ul>
+          </div>
+          <button type="button" class="btn btn-xs btn-link text-muted p-0" id="vea-source-events-toggle">
+            <i class="fas fa-chevron-down me-1"></i>Show
+          </button>
+        </div>
       </div>
       <div id="vea-source-events-accordion" style="display:none;">
         <div class="accordion accordion-flush" id="vea-src-acc">
@@ -204,6 +244,8 @@
                    placeholder="e.g. CWE-77"
                    value="{{ vea.cwe if vea else '' }}">
           </div>
+          {# With source events, Build with AI in their header takes over. #}
+          {% if not source_events %}
           <div class="col-md-4 d-flex align-items-end">
             <div class="zs-toolbar mb-1">
               <span class="zs-toolbar-label">AI assistance</span>
@@ -214,6 +256,7 @@
               </button>
             </div>
           </div>
+          {% endif %}
 
           <div class="col-12">
             <div id="ai-draft-status" class="form-text" style="display:none;"></div>
@@ -647,7 +690,7 @@
     veaSrcToggle.addEventListener('click', function(e) { e.stopPropagation(); toggleVeaSrc(); });
     if (veaSrcHeader) {
       veaSrcHeader.addEventListener('click', function(e) {
-        if (e.target.closest('#vea-source-events-toggle')) return;
+        if (e.target.closest('#vea-source-events-toggle, #build-ai-group')) return;
         toggleVeaSrc();
       });
     }
@@ -873,108 +916,107 @@ function _renderCvssBadge(cvssVal) {
 (function() { _renderCvssBadge((document.getElementById('cvss') || {}).value || ''); })();
 
 /* ── Vulnerability lookup (vulnerability.circl.lu) ── */
-(function() {
+// Settles once the lookup is over, whatever came of it, so Build with AI can
+// draft from what it filled in.
+function runVulnLookup() {
   var btn = document.getElementById('btn-vl-lookup');
   var status = document.getElementById('vl-status');
   var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
-  if (!btn) return;
+  var raw = (document.getElementById('cve_id').value || '').trim();
+  var cveIds = raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
+  if (!cveIds.length) {
+    status.textContent = 'Enter at least one CVE ID first.';
+    status.style.display = '';
+    return Promise.resolve();
+  }
 
-  btn.addEventListener('click', function() {
-    var raw = (document.getElementById('cve_id').value || '').trim();
-    var cveIds = raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
-    if (!cveIds.length) {
-      status.textContent = 'Enter at least one CVE ID first.';
-      status.style.display = '';
-      return;
+  var origHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Looking up…';
+  status.textContent = '';
+  status.style.display = 'none';
+
+  return fetch(SCRIPT_ROOT + '/api/cve-lookup', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+    body: JSON.stringify({cve_ids: cveIds}),
+  })
+  .then(zsazsaReadJson)
+  .then(function(data) {
+    if (!data.ok) { status.textContent = 'Lookup failed: ' + (data.error || 'unknown error'); status.style.display = ''; return; }
+
+    function _fillInput(id, val) {
+      if (!val) return;
+      var el = document.getElementById(id) || document.querySelector('[name=' + id + ']');
+      if (el && !el.value.trim()) el.value = val;
+    }
+    function _fillSelect(id, val) {
+      if (!val) return;
+      var el = document.getElementById(id);
+      if (!el) return;
+      for (var i = 0; i < el.options.length; i++) {
+        if (el.options[i].value === val) { el.selectedIndex = i; return; }
+      }
     }
 
-    var origHTML = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Looking up…';
-    status.textContent = '';
-    status.style.display = 'none';
-
-    fetch(SCRIPT_ROOT + '/api/cve-lookup', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
-      body: JSON.stringify({cve_ids: cveIds}),
-    })
-    .then(zsazsaReadJson)
-    .then(function(data) {
-      if (!data.ok) { status.textContent = 'Lookup failed: ' + (data.error || 'unknown error'); status.style.display = ''; return; }
-
-      function _fillInput(id, val) {
-        if (!val) return;
-        var el = document.getElementById(id) || document.querySelector('[name=' + id + ']');
-        if (el && !el.value.trim()) el.value = val;
-      }
-      function _fillSelect(id, val) {
-        if (!val) return;
-        var el = document.getElementById(id);
-        if (!el) return;
-        for (var i = 0; i < el.options.length; i++) {
-          if (el.options[i].value === val) { el.selectedIndex = i; return; }
-        }
-      }
-
-      var allProducts = [], allVersions = [], allCwes = [], allRefs = [], errors = [];
-      var exploitAvail = '', cisaKev = '', firstDesc = '', firstScore = '', firstSeverity = '';
-      (data.results || []).forEach(function(r) {
-        if (!r.ok) { errors.push(r.cve_id + ': ' + (r.error || 'not found')); return; }
-        (r.products || []).forEach(function(p) { if (!allProducts.includes(p)) allProducts.push(p); });
-        (r.versions || []).forEach(function(v) { if (!allVersions.includes(v)) allVersions.push(v); });
-        (r.cwes || []).forEach(function(c) { if (!allCwes.includes(c)) allCwes.push(c); });
-        (r.references || []).forEach(function(u) { if (!allRefs.includes(u)) allRefs.push(u); });
-        if (!exploitAvail && r.exploit_availability) exploitAvail = r.exploit_availability;
-        if (r.cisa_kev === 'Yes') cisaKev = 'Yes';
-        if (!firstDesc && r.description) firstDesc = r.description;
-        if (!firstScore && r.cvss_score) { firstScore = r.cvss_score; firstSeverity = r.cvss_severity || ''; }
-      });
-      if (!cisaKev && (data.results || []).some(function(r) { return r.ok; })) cisaKev = 'No';
-
-      _fillInput('affected_product', allProducts.join(', '));
-      _fillInput('affected_versions', allVersions.join(', '));
-      _fillInput('summary', firstDesc);
-      if (allCwes.length) _fillInput('cwe', allCwes.join(', '));
-      if (firstScore) {
-        var cvssDisplay = firstScore + (firstSeverity ? ' (' + firstSeverity + ')' : '');
-        _fillInput('cvss', cvssDisplay);
-        _renderCvssBadge(cvssDisplay);
-      }
-      _fillSelect('exploit_availability', exploitAvail);
-      _fillSelect('cisa_kev', cisaKev);
-
-      // Append VL references to the references textarea (skip duplicates)
-      if (allRefs.length) {
-        var refsEl = document.getElementById('references');
-        if (refsEl) {
-          var existing = refsEl.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-          allRefs.forEach(function(u) { if (!existing.includes(u)) existing.push(u); });
-          refsEl.value = existing.join('\n');
-        }
-      }
-
-      var ok = (data.results || []).filter(function(r) { return r.ok; }).length;
-      status.textContent = ok + ' of ' + cveIds.length + ' CVE(s) resolved.'
-        + (errors.length ? ' Errors: ' + errors.join('; ') : '');
-      status.style.display = '';
-
-      if (ok > 0) {
-        var draftBtn = document.getElementById('btn-draft-vea');
-        if (draftBtn) draftBtn.disabled = false;
-      }
-    })
-    .catch(function(err) {
-      status.textContent = 'CVE lookup did not complete: ' + zsazsaErrorText(err);
-      status.style.display = '';
-    })
-    .finally(function() {
-      btn.disabled = false;
-      btn.innerHTML = origHTML;
+    var allProducts = [], allVersions = [], allCwes = [], allRefs = [], errors = [];
+    var exploitAvail = '', cisaKev = '', firstDesc = '', firstScore = '', firstSeverity = '';
+    (data.results || []).forEach(function(r) {
+      if (!r.ok) { errors.push(r.cve_id + ': ' + (r.error || 'not found')); return; }
+      (r.products || []).forEach(function(p) { if (!allProducts.includes(p)) allProducts.push(p); });
+      (r.versions || []).forEach(function(v) { if (!allVersions.includes(v)) allVersions.push(v); });
+      (r.cwes || []).forEach(function(c) { if (!allCwes.includes(c)) allCwes.push(c); });
+      (r.references || []).forEach(function(u) { if (!allRefs.includes(u)) allRefs.push(u); });
+      if (!exploitAvail && r.exploit_availability) exploitAvail = r.exploit_availability;
+      if (r.cisa_kev === 'Yes') cisaKev = 'Yes';
+      if (!firstDesc && r.description) firstDesc = r.description;
+      if (!firstScore && r.cvss_score) { firstScore = r.cvss_score; firstSeverity = r.cvss_severity || ''; }
     });
+    if (!cisaKev && (data.results || []).some(function(r) { return r.ok; })) cisaKev = 'No';
+
+    _fillInput('affected_product', allProducts.join(', '));
+    _fillInput('affected_versions', allVersions.join(', '));
+    _fillInput('summary', firstDesc);
+    if (allCwes.length) _fillInput('cwe', allCwes.join(', '));
+    if (firstScore) {
+      var cvssDisplay = firstScore + (firstSeverity ? ' (' + firstSeverity + ')' : '');
+      _fillInput('cvss', cvssDisplay);
+      _renderCvssBadge(cvssDisplay);
+    }
+    _fillSelect('exploit_availability', exploitAvail);
+    _fillSelect('cisa_kev', cisaKev);
+
+    // Append VL references to the references textarea (skip duplicates)
+    if (allRefs.length) {
+      var refsEl = document.getElementById('references');
+      if (refsEl) {
+        var existing = refsEl.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+        allRefs.forEach(function(u) { if (!existing.includes(u)) existing.push(u); });
+        refsEl.value = existing.join('\n');
+      }
+    }
+
+    var ok = (data.results || []).filter(function(r) { return r.ok; }).length;
+    status.textContent = ok + ' of ' + cveIds.length + ' CVE(s) resolved.'
+      + (errors.length ? ' Errors: ' + errors.join('; ') : '');
+    status.style.display = '';
+
+    if (ok > 0) {
+      var draftBtn = document.getElementById('btn-draft-vea');
+      if (draftBtn) draftBtn.disabled = false;
+    }
+  })
+  .catch(function(err) {
+    status.textContent = 'CVE lookup did not complete: ' + zsazsaErrorText(err);
+    status.style.display = '';
+  })
+  .finally(function() {
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
   });
-})();
+}
+document.getElementById('btn-vl-lookup').addEventListener('click', runVulnLookup);
 
 /* ── Detection rule lookup (Rulezet, by CVE ID) ── */
 (function() {
@@ -1024,31 +1066,34 @@ function _renderCvssBadge(cvssVal) {
   });
 })();
 
-document.getElementById('btn-draft-vea').addEventListener('click', function() {
+/* ── Draft with AI ── */
+// Fills only the fields that are still empty. sourceUuids is empty for an
+// advisory without source events, which then drafts from the CVE alone.
+function draftVea(btn, sourceUuids) {
   var cveIdEl = document.getElementById('cve_id');
   var cveId = cveIdEl ? cveIdEl.value.split('\n')[0].trim() : '';
   var product = document.querySelector('[name=affected_product]').value.trim();
   var status = document.getElementById('ai-draft-status');
-  var btn = this;
   var origHTML = btn.innerHTML;
 
-  if (!cveId) {
+  if (!cveId && !sourceUuids.length) {
     alert('Enter a CVE ID on the first line first.');
-    return;
+    return Promise.resolve();
   }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   status.textContent = 'Drafting with AI…';
+  status.style.color = '';
   status.style.display = '';
 
-  fetch(SCRIPT_ROOT + '/api/draft-vea', {
+  return fetch(SCRIPT_ROOT + '/api/draft-vea', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
     },
-    body: JSON.stringify({cve_id: cveId, product_info: product}),
+    body: JSON.stringify({cve_id: cveId, product_info: product, source_uuids: sourceUuids}),
   })
   .then(zsazsaReadJson)
   .then(data => {
@@ -1096,7 +1141,45 @@ document.getElementById('btn-draft-vea').addEventListener('click', function() {
     btn.disabled = false;
     btn.innerHTML = origHTML;
   });
-});
+}
+
+var draftVeaBtn = document.getElementById('btn-draft-vea');
+if (draftVeaBtn) {
+  draftVeaBtn.addEventListener('click', function() { draftVea(draftVeaBtn, []); });
+}
+
+/* ── Build with AI (source events header) ── */
+(function() {
+  var buildAiBtn = document.getElementById('build-ai-btn');
+  var modeToggle = document.getElementById('build-ai-mode-toggle');
+  var currentMode = 'lookup';
+  if (!buildAiBtn) return;
+
+  function build() {
+    var sourceUuids = JSON.parse(buildAiBtn.dataset.sourceUuids || '[]');
+    buildAiBtn.disabled = true;
+    modeToggle.disabled = true;
+    var lookup = currentMode === 'lookup' ? runVulnLookup() : Promise.resolve();
+    lookup
+      .then(function() { return draftVea(buildAiBtn, sourceUuids); })
+      .finally(function() {
+        buildAiBtn.disabled = false;
+        modeToggle.disabled = false;
+      });
+  }
+
+  buildAiBtn.addEventListener('click', build);
+  document.querySelectorAll('.build-ai-option').forEach(function(opt) {
+    opt.addEventListener('click', function(e) {
+      e.preventDefault();
+      currentMode = this.dataset.mode;
+      document.querySelectorAll('.build-ai-check').forEach(function(check) {
+        check.style.visibility = check.closest('.build-ai-option') === opt ? 'visible' : 'hidden';
+      });
+      build();
+    });
+  });
+})();
 </script>
 {% include "_tlp_mirror_js.html" %}
 {% endblock %}

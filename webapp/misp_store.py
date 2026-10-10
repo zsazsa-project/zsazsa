@@ -298,11 +298,15 @@ def extract_story_context(event) -> dict:
     Scale ratings, CTI-evaluation taxonomy tags) survives onto the story
     instead of being lost when the article is folded into the briefing.
     """
+    return context_from_tags([getattr(t, "name", "") or "" for t in getattr(event, "tags", []) or []])
+
+
+def context_from_tags(tag_names) -> dict:
+    """extract_story_context() for a list of tag names, such as a cached event's."""
     geographic_scope, sectors, threat_actors, techniques = [], [], [], []
     source_reliability, information_credibility = "", ""
     cti_evaluation = {}
-    for t in getattr(event, "tags", []) or []:
-        name = getattr(t, "name", "") or ""
+    for name in tag_names:
         if name.startswith('misp-galaxy:country=') or name.startswith('misp-galaxy:target-information='):
             v = name.split('=', 1)[1].strip('"')
             if v and v not in geographic_scope:
@@ -565,6 +569,12 @@ def mitre_technique_label(value: str) -> str:
     return f"{raw} - {name}" if name else raw
 
 
+def technique_id(value: str) -> str:
+    """The ATT&CK id in a technique reference, "T1566" from "Phishing - T1566", or ""."""
+    found = _STORY_TECHNIQUE_RE.search(value or "")
+    return found.group(0) if found else ""
+
+
 def mitre_technique_labels(values) -> list:
     """Map a list of technique references through mitre_technique_label()."""
     return [mitre_technique_label(v) for v in (values or []) if v]
@@ -785,7 +795,11 @@ def _sync_object_attributes(misp, event, object_name, new_obj, label="object"):
     if old is None:
         _check(misp.add_object(_event_ref(event), new_obj), f"add {label} object")
         return
+    _update_object(misp, old, new_obj, label)
 
+
+def _update_object(misp, old, new_obj, label="object"):
+    """Edit old in place so it matches new_obj, as _sync_object_attributes does."""
     existing = {}
     for a in getattr(old, "attributes", []) or []:
         if getattr(a, "deleted", False):
@@ -6955,11 +6969,98 @@ def pir_collection_gap(pir) -> dict:
 
 # ── Threat Landscape Report ──────────────────────────────────────────────────
 
+# ENISA's validation stage: an internal review, then the stakeholders' review,
+# then a formal approval before the report goes out.
 TLR_REVIEW_DRAFT = "draft"
+TLR_REVIEW_INTERNAL = "internal-review"
+TLR_REVIEW_STAKEHOLDER = "stakeholder-review"
+TLR_REVIEW_APPROVED = "approved"
 TLR_REVIEW_PUBLISHED = "published"
-TLR_REVIEW_STATES = [TLR_REVIEW_DRAFT, TLR_REVIEW_PUBLISHED]
+TLR_REVIEW_STATES = [TLR_REVIEW_DRAFT, TLR_REVIEW_INTERNAL, TLR_REVIEW_STAKEHOLDER,
+                     TLR_REVIEW_APPROVED, TLR_REVIEW_PUBLISHED]
+# Where a report can go from each state, other than publishing. A review can
+# always send it back to draft.
+TLR_NEXT_STATES = {
+    TLR_REVIEW_DRAFT: [TLR_REVIEW_INTERNAL],
+    TLR_REVIEW_INTERNAL: [TLR_REVIEW_STAKEHOLDER, TLR_REVIEW_DRAFT],
+    TLR_REVIEW_STAKEHOLDER: [TLR_REVIEW_APPROVED, TLR_REVIEW_DRAFT],
+    TLR_REVIEW_APPROVED: [TLR_REVIEW_DRAFT],
+}
+# Once approved, a report reads as it was signed off: changing it means sending
+# it back to draft first.
+TLR_LOCKED_STATES = (TLR_REVIEW_APPROVED, TLR_REVIEW_PUBLISHED)
 
 TLR_TLP_LEVELS = ["clear", "green", "amber", "amber+strict", "red"]
+
+# Form field, label and icon of the actor categories under trending threat actors.
+# The MISP attribute is the field name with hyphens.
+TLR_ACTOR_CATEGORIES = [
+    ("actors_nation_state", "Nation state", "fa-landmark"),
+    ("actors_cybercrime", "Cybercrime", "fa-sack-dollar"),
+    ("actors_hacker_for_hire", "Hacker-for-hire", "fa-user-ninja"),
+    ("actors_hacktivists", "Hacktivists", "fa-bullhorn"),
+]
+
+
+# The prime threats of ENISA's threat landscape, which an entry's threat type
+# is picked from.
+TLR_THREAT_TYPES = [
+    "Ransomware",
+    "Malware",
+    "Social engineering",
+    "Threats against data",
+    "Threats against availability",
+    "Information manipulation and interference",
+    "Supply chain attacks",
+]
+TLR_RELEVANCE = ["high", "medium", "low"]
+
+# An entry is one source event in a landscape's dataset, with the landscape's
+# own assessment of it. The MISP attribute is the field name with hyphens.
+TLR_ENTRY_FIELDS = ("event_uuid", "source_id", "event_info", "event_date", "relevance",
+                    "source_reliability", "information_credibility", "threat_type", "note",
+                    "affected_assets", "impact", "motivation", "mitigation")
+# The questions ENISA asks of every incident besides who, where and how.
+TLR_ENTRY_QUESTIONS = (("affected_assets", "Affected assets"), ("impact", "Impact"),
+                       ("motivation", "Motivation"), ("mitigation", "Mitigation"))
+TLR_ENTRY_LISTS = ("sectors", "geographic_scope", "threat_actors", "techniques")
+
+
+def _tlr_entry_obj(entry):
+    obj = _build_obj("zsazsa-tlr-entry")
+    for key in TLR_ENTRY_FIELDS:
+        _oa(obj, key.replace("_", "-"), entry.get(key))
+    for key in TLR_ENTRY_LISTS:
+        _oa_json(obj, key.replace("_", "-"), entry.get(key))
+    _oa(obj, "excluded", "yes" if entry.get("excluded") else "")
+    return obj
+
+
+def _tlr_entry(obj):
+    entry = {key: _obj_attr(obj, key.replace("_", "-")) or "" for key in TLR_ENTRY_FIELDS}
+    entry.update({key: _json_list(_obj_attr(obj, key.replace("_", "-"))) for key in TLR_ENTRY_LISTS})
+    entry["excluded"] = _obj_attr(obj, "excluded") == "yes"
+    return entry
+
+
+def _tlr_entry_objs(event):
+    return [o for o in event.objects if o.name == "zsazsa-tlr-entry"]
+
+
+# The direction of a report, after the first stage of ENISA's method: why it is
+# written, for whom, the period and scope it covers, and the PIRs it answers.
+# Without scope sectors or geography a report covers the whole organisation.
+TLR_DIRECTION_FIELDS = ("purpose", "audience_level", "period_start", "period_end", "methodology")
+TLR_DIRECTION_LISTS = ("scope_sectors", "scope_geography", "linked_pir_uuids")
+
+# The fields of one threat assessment. A report holds any number, stored
+# together as a JSON list.
+TLR_SECTION_FIELDS = ("threat_type", "title", "findings", "confidence", "key_drivers",
+                      "alternative_hypotheses", "recommendations")
+# The written parts of a threat assessment, in reading order, with their headings.
+TLR_SECTION_TEXTS = (("findings", "Findings"), ("key_drivers", "Key drivers"),
+                     ("alternative_hypotheses", "Alternative hypotheses"),
+                     ("recommendations", "Recommendations"))
 
 
 def _tlr_obj(data):
@@ -6972,9 +7073,18 @@ def _tlr_obj(data):
     _oa(obj, "audience", data.get("audience"))
     _oa(obj, "top-threats", data.get("top_threats"))
     _oa(obj, "trending-actors", data.get("trending_actors"))
+    for key, _label, _icon in TLR_ACTOR_CATEGORIES:
+        _oa(obj, key.replace("_", "-"), data.get(key))
     _oa(obj, "key-incidents", data.get("key_incidents"))
     _oa(obj, "recommendations", data.get("recommendations"))
     _oa(obj, "outlook", data.get("outlook"))
+    for key in TLR_DIRECTION_FIELDS:
+        _oa(obj, key.replace("_", "-"), data.get(key))
+    for key in TLR_DIRECTION_LISTS:
+        _oa_json(obj, key.replace("_", "-"), data.get(key))
+    _oa_json(obj, "threat-sections", data.get("threat_sections"))
+    _oa_json(obj, "review-log", data.get("review_log"))
+    _oa_json(obj, "corrections", data.get("corrections"))
     _oa(obj, "review-state", data.get("review_state", TLR_REVIEW_DRAFT))
     _oa(obj, "creator", data.get("creator"))
     _oa(obj, "approved-by", data.get("approved_by"))
@@ -7000,38 +7110,107 @@ def _tlr_ns(event):
         audience=g("audience"),
         top_threats=g("top-threats"),
         trending_actors=g("trending-actors"),
+        **{key: g(key.replace("_", "-")) for key, _label, _icon in TLR_ACTOR_CATEGORIES},
         key_incidents=g("key-incidents"),
         recommendations=g("recommendations"),
         outlook=g("outlook"),
+        **{key: g(key.replace("_", "-")) for key in TLR_DIRECTION_FIELDS},
+        **{key: _json_list(g(key.replace("_", "-"))) for key in TLR_DIRECTION_LISTS},
+        threat_sections=_json_list(g("threat-sections")),
+        review_log=_json_list(g("review-log")),
+        corrections=_json_list(g("corrections")),
         review_state=g("review-state") or TLR_REVIEW_DRAFT,
         creator=g("creator"),
         approved_by=g("approved-by"),
         published=bool(getattr(event, "published", False)),
         created_at=_parse_dt(event.date.isoformat() if event.date else None),
+        entries=sorted((SimpleNamespace(uuid=o.uuid, **_tlr_entry(o)) for o in _tlr_entry_objs(event)),
+                       key=lambda e: e.event_date, reverse=True),
     )
 
 
-def render_tlr_markdown(tlr):
-    lines = [
-        f"# Threat Landscape Report - {tlr.reporting_period or tlr.tlr_id}",
-        "",
-        f"**Prepared by:** {tlr.author or 'analyst'}",
-        f"**Audience:** {tlr.audience or '-'}",
-        f"**Classification:** TLP:{(tlr.tlp or 'AMBER').upper()}",
-        "",
-        "---",
-        "",
+def tlr_annex(tlr):
+    """The dataset behind a report, as (label, value) rows for its annex.
+
+    ENISA has every landscape say what it was built from: how many events,
+    from which sources, over which dates, and how they were rated.
+    """
+    included = [e for e in tlr.entries if not e.excluded]
+    if not included:
+        return []
+
+    def mix(values):
+        return ", ".join(f"{value} ({count})" for value, count in Counter(values).most_common())
+
+    dates = sorted(e.event_date for e in included if e.event_date)
+    rows = [
+        ("Events", f"{len(included)} in the analysis, {len(tlr.entries) - len(included)} left out"),
+        ("Event dates", f"{dates[0]} to {dates[-1]}" if dates else ""),
+        ("Sources", mix(e.source_id or "unknown" for e in included)),
+        ("Relevance", mix(e.relevance or "not assessed" for e in included)),
+        ("Source reliability", mix(e.source_reliability or "not rated" for e in included)),
+        ("Information credibility", mix(e.information_credibility or "not rated" for e in included)),
     ]
+    return [(label, value) for label, value in rows if value]
+
+
+def render_tlr_markdown(tlr, linked_pirs=(), preview_url=""):
+    """The report as Markdown, for the mail and Mattermost channels.
+
+    The metadata rows run without a break under the title, so the e-mail
+    renderer lifts them into its meta grid, and the order follows the PDF.
+    """
+    scope = tlr.scope_sectors + tlr.scope_geography
+    period = f"{tlr.period_start or '…'} to {tlr.period_end or '…'}" if tlr.period_start or tlr.period_end else ""
+    meta = [
+        ("ID", tlr.tlr_id),
+        ("Date", (tlr.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d")),
+        ("Author", tlr.author),
+        ("Classification", f"TLP:{(tlr.tlp or 'amber').upper()}"),
+        ("Reporting period", tlr.reporting_period),
+        ("Period", period),
+        ("Audience", tlr.audience),
+        ("Audience level", tlr.audience_level),
+        ("Scope", ", ".join(scope) if scope else "the whole organisation"),
+        ("Answers", ", ".join(p.pir_id for p in linked_pirs)),
+    ]
+    lines = [f"# {tlr.title or tlr.tlr_id}", ""]
+    lines += [f"**{label}:** {value}" for label, value in meta if value]
+    lines += ["", "---", ""]
+    if tlr.purpose:
+        lines += ["## Purpose", "", tlr.purpose, ""]
+    if tlr.top_threats:
+        lines += ["## Top threats", "", tlr.top_threats, ""]
+
+    labels = {value: label for value, label, _help in ESTIMATIVE_CONFIDENCE}
+    for section in tlr.threat_sections:
+        lines += [f"## {section.get('title') or section.get('threat_type') or 'Threat assessment'}", ""]
+        facts = [f"**Threat type:** {section['threat_type']}"] if section.get("threat_type") else []
+        if section.get("confidence"):
+            facts.append(f"**Confidence:** {labels.get(section['confidence'], section['confidence'])}")
+        if facts:
+            lines += [" | ".join(facts), ""]
+        for key, heading in TLR_SECTION_TEXTS:
+            if section.get(key):
+                lines += [f"### {heading}", "", section[key], ""]
+
+    categories = [f"### {label}\n\n{getattr(tlr, key, '')}" for key, label, _icon in TLR_ACTOR_CATEGORIES
+                  if getattr(tlr, key, "")]
+    actors = "\n\n".join(([tlr.trending_actors] if tlr.trending_actors else []) + categories)
     sections = [
-        ("Top threats", tlr.top_threats),
-        ("Trending threat actors", tlr.trending_actors),
+        ("Trending threat actors", actors),
         ("Key incidents", tlr.key_incidents),
         ("Recommendations", tlr.recommendations),
         ("Outlook", tlr.outlook),
+        ("Methodology and limitations", tlr.methodology),
+        ("Dataset", "\n".join(f"- **{label}:** {value}" for label, value in tlr_annex(tlr))),
+        ("Corrections", "\n".join(f"- {c['date']}: {c['text']}" for c in tlr.corrections)),
     ]
     for heading, content in sections:
         if content:
             lines += [f"## {heading}", "", content, ""]
+    if preview_url:
+        lines += [f"[Open report]({preview_url})", ""]
     return "\n".join(lines)
 
 
@@ -7066,43 +7245,68 @@ def create_tlr(data):
     return uuid
 
 
-def update_tlr(uuid, data):
-    misp = _misp()
+def _tlr_event(uuid):
     event = _zsazsa_event(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR)
     if event is None:
         raise RuntimeError(f"TLR event {uuid} not found")
+    return event
+
+
+def update_tlr(uuid, data):
+    misp = _misp()
+    event = _tlr_event(uuid)
     old = _get_obj(event, "zsazsa-threat-landscape-report")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
         data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
-        misp.delete_object(old.id)
-    title = data.get("title", "")
-    tlr_id = data.get("tlr_id", "")
-    misp.edit_event(uuid, info=f"[zsazsa:tlr] {tlr_id}: {title}")
-    _check(misp.add_object(_event_ref(event), _tlr_obj(data)), "update TLR object")
+        # Kept by the report itself, not by the form.
+        data.setdefault("review_log", _json_list(_obj_attr(old, "review-log")))
+        data.setdefault("corrections", _json_list(_obj_attr(old, "corrections")))
+    # In place, as for the other records: deleting the object and adding a new
+    # one left a report with no content at all whenever the add failed.
+    _sync_object_attributes(misp, event, "zsazsa-threat-landscape-report", _tlr_obj(data), "TLR")
+    info = f"[zsazsa:tlr] {data.get('tlr_id', '')}: {data.get('title', '')}"
+    misp.update_event({"Event": {"id": event.id, "info": info}})
     return uuid
+
+
+def _rewrite_tlr(misp, event, changes):
+    """Store the report with some of its fields changed, keeping everything else it holds."""
+    data = {**vars(_tlr_ns(event)), **changes}
+    _sync_object_attributes(misp, event, "zsazsa-threat-landscape-report", _tlr_obj(data), "TLR")
+
+
+def _move_tlr(misp, event, state, comment):
+    tlr = _tlr_ns(event)
+    step = {"date": date.today().isoformat(), "by": misp_session.current_user_email(),
+            "from": tlr.review_state, "to": state, "comment": comment}
+    changes = {"review_state": state, "review_log": tlr.review_log + [step]}
+    # Approval names who signed off; sending the report back to draft withdraws it.
+    if state == TLR_REVIEW_APPROVED:
+        changes["approved_by"] = step["by"]
+    elif state == TLR_REVIEW_DRAFT:
+        changes["approved_by"] = ""
+    _rewrite_tlr(misp, event, changes)
+
+
+def set_tlr_state(uuid, state, comment=""):
+    """Move a report through its review, logging who moved it, when and why."""
+    _move_tlr(_misp(), _tlr_event(uuid), state, comment)
+
+
+def add_tlr_correction(uuid, text):
+    """Add a dated correction to a published report and publish it again."""
+    misp = _misp()
+    event = _tlr_event(uuid)
+    correction = {"date": date.today().isoformat(), "by": misp_session.current_user_email(), "text": text}
+    _rewrite_tlr(misp, event, {"corrections": _tlr_ns(event).corrections + [correction]})
+    misp.publish(event)
 
 
 def publish_tlr(uuid):
     misp = _misp()
-    event = _zsazsa_event(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR)
-    if event is None:
-        raise RuntimeError(f"TLR event {uuid} not found")
-    tlr = _tlr_ns(event)
-    old = _get_obj(event, "zsazsa-threat-landscape-report")
-    if old:
-        misp.delete_object(old.id)
-    data = {
-        "tlr_id": tlr.tlr_id, "title": tlr.title,
-        "reporting_period": tlr.reporting_period, "tlp": tlr.tlp,
-        "author": tlr.author, "audience": tlr.audience,
-        "top_threats": tlr.top_threats, "trending_actors": tlr.trending_actors,
-        "key_incidents": tlr.key_incidents, "recommendations": tlr.recommendations,
-        "outlook": tlr.outlook, "review_state": TLR_REVIEW_PUBLISHED,
-        "creator": tlr.creator,
-        "approved_by": misp_session.current_user_email(),
-    }
-    _check(misp.add_object(_event_ref(event), _tlr_obj(data)), "publish TLR object")
+    event = _tlr_event(uuid)
+    _move_tlr(misp, event, TLR_REVIEW_PUBLISHED, "")
     for tag in list(getattr(event, "tags", []) or []):
         name = getattr(tag, "name", "") or ""
         if name.startswith('workflow:state='):
@@ -7118,8 +7322,43 @@ def delete_tlr(uuid):
     _delete_record(uuid, "zsazsa-threat-landscape-report", config.TAG_TLR, "TLR")
 
 
+def add_tlr_entries(uuid, entries):
+    """Add source events to a landscape's dataset, skipping any it holds already.
+
+    Returns how many were added.
+    """
+    misp = _misp()
+    event = _tlr_event(uuid)
+    held = {_obj_attr(o, "event-uuid") for o in _tlr_entry_objs(event)}
+    added = 0
+    for entry in entries:
+        if entry["event_uuid"] in held:
+            continue
+        _check(misp.add_object(_event_ref(event), _tlr_entry_obj(entry)), "add TLR entry")
+        held.add(entry["event_uuid"])
+        added += 1
+    return added
+
+
+def update_tlr_entries(uuid, changes):
+    """Save the triage of a landscape's entries.
+
+    changes maps an entry's object UUID to the fields the analyst set. An entry
+    left as it was is not written, so a save of a long table costs a call per
+    entry changed rather than per entry.
+    """
+    misp = _misp()
+    for obj in _tlr_entry_objs(_tlr_event(uuid)):
+        if obj.uuid not in changes:
+            continue
+        current = _tlr_entry(obj)
+        wanted = {**current, **changes[obj.uuid]}
+        if wanted != current:
+            _update_object(misp, obj, _tlr_entry_obj(wanted), "TLR entry")
+
+
 def find_products_using_source(src_uuid: str) -> list:
-    """Return all products (briefings, FIAs, VEAs) that reference src_uuid as a source event."""
+    """Return all products (briefings, FIAs, VEAs, landscape reports) that reference src_uuid as a source event."""
     results = []
     try:
         for b in list_briefings():
@@ -7161,4 +7400,15 @@ def find_products_using_source(src_uuid: str) -> list:
                 })
     except Exception as exc:
         logger.warning("find_products_using_source VEAs failed: %s", exc)
+    try:
+        for t in list_tlrs():
+            if any(e.event_uuid == src_uuid for e in t.entries):
+                results.append({
+                    "type": "threat-landscape",
+                    "uuid": t.uuid,
+                    "title": t.title or f"Threat landscape {t.tlr_id}",
+                    "date": (t.created_at.strftime("%Y-%m-%d") if t.created_at else ""),
+                })
+    except Exception as exc:
+        logger.warning("find_products_using_source TLRs failed: %s", exc)
     return results

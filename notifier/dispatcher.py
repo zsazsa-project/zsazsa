@@ -227,6 +227,19 @@ def send_detection_eng_request(der, markdown: str, stakeholders: list) -> dict:
     return _dispatch(stakeholders, senders, "detection engineering request", getattr(der, "der_id", ""))
 
 
+def send_threat_landscape_report(tlr, markdown: str, stakeholders: list) -> dict:
+    """Deliver a threat landscape report to stakeholder channels across all channel types."""
+    senders = {
+        "mattermost": lambda channel_ids: bool(
+            mattermost.send_threat_landscape_report_notification(tlr, markdown, channel_ids=channel_ids)
+        ),
+        "email": lambda channel_ids: bool(
+            email.send_threat_landscape_report_notification(tlr, markdown, channel_ids=channel_ids)
+        ),
+    }
+    return _dispatch(stakeholders, senders, "threat landscape report", getattr(tlr, "tlr_id", ""))
+
+
 def send_threat_actor_profile(tap, markdown: str, stakeholders: list,
                               diamond_png: bytes | None = None, diamond_url: str | None = None) -> dict:
     """Deliver a threat actor profile to stakeholder channels across all channel types.

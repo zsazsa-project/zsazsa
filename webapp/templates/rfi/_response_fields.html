@@ -1,0 +1,68 @@
+{# The response to an RFI: its text, the confidence and the output formats the
+   requester asked for. Shared by the RFI form and the inline edit on the RFI
+   page. Expects rfi (or none), is_edit, triaged, estimative_confidence,
+   output_formats and tlp_levels. #}
+{% from "_macros.html" import product_icon %}
+
+{% macro fmt_row(item) %}
+<div class="fmt-row d-flex gap-2 mb-2 align-items-center">
+  <span class="fmt-icon" style="width:1.25rem;">{{ product_icon(item.format) if item.format }}</span>
+  <select name="output_format_item" class="form-select form-select-sm" style="max-width:220px;">
+    <option value="">-</option>
+    {# A product since removed from the list stays, or a save would drop it. #}
+    {% if item.format and item.format not in output_formats %}
+    <option value="{{ item.format }}" selected>{{ item.format }}</option>
+    {% endif %}
+    {% for fmt in output_formats | sort(case_sensitive=False) %}
+    <option value="{{ fmt }}" {{ 'selected' if item.format == fmt }}>{{ fmt }}</option>
+    {% endfor %}
+  </select>
+  <select name="output_format_tlp" class="form-select form-select-sm" style="max-width:160px;">
+    {% for lvl in tlp_levels %}
+    <option value="{{ lvl }}" {{ 'selected' if item.tlp == lvl }}>TLP:{{ lvl }}</option>
+    {% endfor %}
+  </select>
+  <button type="button" class="btn btn-sm btn-outline-danger fmt-remove"><i class="fas fa-minus"></i></button>
+</div>
+{% endmacro %}
+
+<div class="mb-3">
+  <label class="form-label">Response (delivered to the requester)</label>
+  <textarea name="response" class="form-control" rows="6" {{ 'disabled' if not triaged }}>{{ rfi.response if is_edit else '' }}</textarea>
+  {% if not triaged %}
+  <div class="form-text"><i class="fas fa-lock me-1"></i>The response can be recorded once the RFI has been triaged (acknowledged) from the RFI list.</div>
+  {% endif %}
+</div>
+<div class="mb-3">
+  <label class="form-label">Confidence
+    <span class="text-muted fw-normal small">(estimative language)</span>
+  </label>
+  {% set cur_conf = rfi.response_confidence if is_edit else '' %}
+  <select name="response_confidence" class="form-select" {{ 'disabled' if not triaged }}>
+    <option value="">-</option>
+    {% for value, label, desc in estimative_confidence %}
+    <option value="{{ value }}" {{ 'selected' if cur_conf == value }} title="{{ desc }}">{{ label }}</option>
+    {% endfor %}
+  </select>
+  <div class="form-text">Confidence in the analytic judgment of the response.</div>
+  {% include "_estimative_help.html" %}
+</div>
+<div>
+  <label class="form-label">Preferred output formats</label>
+  <div class="form-text d-flex gap-2 mt-0 mb-2">
+    <i class="fas fa-circle-exclamation text-warning mt-1"></i>
+    <span>
+      The formats the requester would like the answer in.
+      <strong>Nothing is produced or sent from here.</strong>
+    </span>
+  </div>
+  <div id="fmt-list">
+    {% for item in (rfi.output_format_list if is_edit else []) %}
+    {{ fmt_row(item) }}
+    {% endfor %}
+  </div>
+  <template id="fmt-row-template">{{ fmt_row({"format": "", "tlp": "amber"}) }}</template>
+  <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="fmt-add">
+    <i class="fas fa-plus me-1"></i>Add format
+  </button>
+</div>

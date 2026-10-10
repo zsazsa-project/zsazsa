@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import galaxy_multiselect %}
 
 {% block title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report | zsazsa CTI{% endblock %}
 {% block page_title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report{% endblock %}
@@ -8,6 +9,60 @@
   <i class="fas fa-arrow-left me-1"></i> Back
 </a>
 {% endblock %}
+
+{# One threat assessment of the report; also the template a new one is cloned from. #}
+{% macro threat_section(section) %}
+<div class="tlr-section border rounded p-3 mb-3">
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label small">Threat type</label>
+      <select name="section_threat_type" class="form-select form-select-sm tlr-section-type">
+        <option value="">-</option>
+        {% for t in threat_types %}
+        <option value="{{ t }}" {{ 'selected' if section.threat_type == t }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text tlr-section-count">{% if type_counts.get(section.threat_type) %}Events in the dataset: {{ type_counts[section.threat_type] }}{% endif %}</div>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label small">Title</label>
+      <input type="text" name="section_title" class="form-control form-control-sm" value="{{ section.title }}"
+             placeholder="e.g. Ransomware against hospitals">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small">Confidence</label>
+      <select name="section_confidence" class="form-select form-select-sm">
+        <option value="">-</option>
+        {% for value, label, desc in estimative_confidence %}
+        <option value="{{ value }}" {{ 'selected' if section.confidence == value }} title="{{ desc }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label small">Findings</label>
+      <textarea name="section_findings" class="form-control form-control-sm" rows="4"
+                placeholder="What the events show, and the judgement drawn from them">{{ section.findings }}</textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label small">Key drivers</label>
+      <textarea name="section_key_drivers" class="form-control form-control-sm" rows="2"
+                placeholder="What is behind the trend, and what would change it">{{ section.key_drivers }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small">Alternative hypotheses</label>
+      <textarea name="section_alternative_hypotheses" class="form-control form-control-sm" rows="3"
+                placeholder="Other explanations considered, and why they were set aside">{{ section.alternative_hypotheses }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small">Recommendations</label>
+      <textarea name="section_recommendations" class="form-control form-control-sm" rows="3">{{ section.recommendations }}</textarea>
+    </div>
+  </div>
+  <div class="text-end mt-2">
+    <button type="button" class="btn btn-sm btn-outline-danger tlr-section-remove"><i class="fas fa-minus me-1"></i>Remove</button>
+  </div>
+</div>
+{% endmacro %}
 
 {% block content %}
 <form method="post" data-unsaved-warning>
@@ -34,7 +89,7 @@
                      value="{{ tlr.reporting_period if tlr else '' }}"
                      placeholder="e.g. Q1 2026, January 2026">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
               <label class="form-label">TLP</label>
               <select name="tlp" class="form-select">
                 {% for lvl in tlp_levels %}
@@ -44,16 +99,101 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
               <label class="form-label">Author</label>
               <input type="text" name="author" class="form-control"
                      value="{{ tlr.author if tlr else '' }}">
             </div>
-            <div class="col-md-4">
+            <div class="col-12">
               <label class="form-label">Audience</label>
-              <input type="text" name="audience" class="form-control"
-                     value="{{ tlr.audience if tlr else '' }}"
-                     placeholder="Leadership, SOC, ...">
+              {% set current_audiences = (tlr.audience or '').split(', ') if tlr else [] %}
+              <div class="d-flex flex-wrap gap-2">
+                {% for a in audiences %}
+                <div class="form-check form-check-inline me-0">
+                  <input class="form-check-input" type="checkbox" name="audience" value="{{ a }}"
+                         id="aud-{{ loop.index }}" {{ 'checked' if a in current_audiences }}>
+                  <label class="form-check-label small" for="aud-{{ loop.index }}">{{ a }}</label>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="form-text">The stakeholder roles that receive the report when it is published.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-compass me-2"></i>Direction</div>
+        <div class="card-body">
+          <div class="row g-3">
+            {% if last_feedback %}
+            <div class="col-12">
+              <div class="alert alert-info small mb-0">
+                <div class="fw-semibold mb-1">
+                  <i class="fas fa-comment-dots me-1"></i>What the stakeholders said of {{ last.tlr_id }}, the last report
+                </div>
+                {% for f in last_feedback %}
+                <div class="mt-2"><span class="text-muted">{{ f.name }}:</span> {{ f.content | md_inline }}</div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            <div class="col-12">
+              <label class="form-label">Purpose</label>
+              <textarea name="purpose" class="form-control" rows="2"
+                        placeholder="Why this report is written and which decisions it supports">{{ tlr.purpose if tlr else '' }}</textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Audience level</label>
+              <select name="audience_level" class="form-select">
+                <option value="">-</option>
+                {% for level in intel_levels %}
+                <option value="{{ level }}" {{ 'selected' if tlr and tlr.audience_level == level }}>{{ level }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Period from</label>
+              <input type="date" name="period_start" class="form-control" value="{{ tlr.period_start if tlr else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Period until</label>
+              <input type="date" name="period_end" class="form-control" value="{{ tlr.period_end if tlr else '' }}">
+            </div>
+            <div class="col-12 form-text mt-1">
+              Without sectors or geography the report covers the whole organisation. With them, the dataset
+              marks the events that fall outside.
+            </div>
+            {% for field, label, items in [('scope_sectors', 'Sectors', sector_items), ('scope_geography', 'Geography', geo_items)] %}
+            <div class="col-md-6">
+              <label class="form-label">{{ label }}</label>
+              {% set values = (tlr | attr(field)) if tlr else [] %}
+              {% if items %}
+              {{ galaxy_multiselect(field, values=values, items=items) }}
+              {% else %}
+              <div class="form-text text-warning mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Galaxy data unavailable. One per line.</div>
+              <textarea name="{{ field }}" class="form-control form-control-sm" rows="3">{{ values | join('\n') }}</textarea>
+              {% endif %}
+            </div>
+            {% endfor %}
+            <div class="col-12">
+              <label class="form-label">PIRs this report answers</label>
+              {% if pirs %}
+              <div class="border rounded p-2" style="max-height:180px;overflow-y:auto;">
+                {% for pir in pirs %}
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="linked_pir_uuids" value="{{ pir.uuid }}"
+                         id="pir-{{ pir.uuid }}" {{ 'checked' if tlr and pir.uuid in tlr.linked_pir_uuids }}>
+                  <label class="form-check-label small" for="pir-{{ pir.uuid }}">
+                    <span class="fw-semibold">{{ pir.pir_id }}</span> {{ pir.question | truncate(120) }}
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="form-text">The dataset shows how well its events cover the scope of each one.</div>
+              {% else %}
+              <div class="form-text">There are no active PIRs to link.</div>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -68,10 +208,39 @@
       </div>
 
       <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Threat assessments</div>
+        <div class="card-body">
+          <p class="form-text mt-0">
+            One per threat type or theme: the findings, what drives them, how confident you are, the other
+            explanations you weighed, and what to do about it.
+          </p>
+          <div id="tlr-sections" data-counts='{{ type_counts | tojson }}'>
+            {% for section in (tlr.threat_sections if tlr else []) %}
+            {{ threat_section(section) }}
+            {% endfor %}
+          </div>
+          <template id="tlr-section-template">{{ threat_section({}) }}</template>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="tlr-section-add">
+            <i class="fas fa-plus me-1"></i>Add a threat assessment
+          </button>
+        </div>
+      </div>
+
+      <div class="card content-card mb-4">
         <div class="card-header"><i class="fas fa-user-secret me-2"></i>Trending threat actors</div>
         <div class="card-body">
           <textarea name="trending_actors" class="form-control font-monospace" rows="4"
                     placeholder="Threat actors that increased in activity or relevance…">{{ tlr.trending_actors if tlr else '' }}</textarea>
+          {% for key, label, icon in actor_categories %}
+          <div class="row g-2 mt-2 align-items-start">
+            <label class="col-md-3 col-form-label" for="{{ key }}">
+              <i class="fas {{ icon }} fa-fw me-1"></i>{{ label }}
+            </label>
+            <div class="col-md-9">
+              <textarea id="{{ key }}" name="{{ key }}" class="form-control font-monospace" rows="3">{{ (tlr | attr(key)) if tlr else '' }}</textarea>
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
 
@@ -99,6 +268,14 @@
         </div>
       </div>
 
+      <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-book me-2"></i>Methodology and limitations</div>
+        <div class="card-body">
+          <textarea name="methodology" class="form-control" rows="4"
+                    placeholder="Sources and period covered, how events were selected and rated, where AI was used, and what the report cannot say…">{{ tlr.methodology if tlr else '' }}</textarea>
+        </div>
+      </div>
+
     </div>
 
     <!-- Right: save + queued sources -->
@@ -112,16 +289,20 @@
         </div>
       </div>
 
-      {% if queued %}
+      {# Editing, the draft reads the report's own entries; a new report has
+         none yet and reads the queue. #}
+      {% set draft_count = (tlr.entries | rejectattr('excluded') | list | length) if is_edit else queued | length %}
+      {% if draft_count %}
       <div class="card content-card mb-4">
         <div class="card-header"><i class="fas fa-robot me-2"></i>Draft with AI</div>
         <div class="card-body">
-          <button type="button" class="btn btn-outline-info w-100" id="tlr-draft-btn">
-            <i class="fas fa-wand-magic-sparkles me-1"></i> Draft sections from the queue
+          <button type="button" class="btn btn-outline-info w-100" id="tlr-draft-btn"
+                  {% if is_edit %}data-tlr="{{ tlr.uuid }}"{% endif %}>
+            <i class="fas fa-wand-magic-sparkles me-1"></i> Draft sections from the {{ 'entries' if is_edit else 'queue' }}
           </button>
           <div class="form-text">
-            Reads the {{ queued | length }} queued event{{ '' if queued | length == 1 else 's' }} and fills the
-            sections that are still empty. Trends are counted from the events; the analyst writes what they mean
+            Reads the events {{ 'included in this report' if is_edit else 'in the queue' }} ({{ draft_count }})
+            and fills the sections that are still empty. Trends are counted from the events; the analyst writes what they mean
             for the organisation, marked <code>[ANALYST]</code>.
           </div>
           <div id="tlr-draft-status" class="form-text"></div>
@@ -152,6 +333,37 @@
         </div>
       </div>
       {% endif %}
+
+      {% if is_edit %}
+      {% set included = tlr.entries | rejectattr('excluded') | list %}
+      <div class="card content-card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="fas fa-table-list me-2"></i>Dataset <span class="badge text-bg-secondary ms-1">{{ included | length }}</span></span>
+          <a href="{{ url_for('threat_landscape.entries', id=tlr.uuid) }}" class="small">Triage and statistics</a>
+        </div>
+        {% if included %}
+        <div class="card-body p-0">
+          <div style="max-height:400px;overflow-y:auto;">
+            <ul class="list-group list-group-flush">
+              {% for e in included %}
+              <li class="list-group-item px-3 py-2">
+                <div class="small fw-semibold text-truncate" title="{{ e.event_info }}">{{ e.event_info or '(untitled)' }}</div>
+                <div class="text-muted" style="font-size:.7rem;">
+                  {{ e.event_date or '' }}{% if e.threat_type %} · {{ e.threat_type }}{% endif %}{% if e.relevance %} · {{ e.relevance }} relevance{% endif %}
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+        {% else %}
+        <div class="card-body small text-muted">
+          No events in the analysis yet. Pick them from the queue on the
+          <a href="{{ url_for('threat_landscape.review') }}">report list</a>.
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
 
   </div>
@@ -160,8 +372,28 @@
 
 {% block scripts %}
 <script>
-// "Draft sections from the queue": drafts the report from the queued collection
-// events and fills the sections the analyst has not written yet.
+// Threat assessments: add one from the template, remove one, and show how many
+// events of the dataset carry the threat type picked.
+(function() {
+  var list = document.getElementById('tlr-sections');
+  var template = document.getElementById('tlr-section-template');
+  document.getElementById('tlr-section-add').addEventListener('click', function() {
+    list.appendChild(template.content.firstElementChild.cloneNode(true));
+  });
+  list.addEventListener('click', function(e) {
+    var button = e.target.closest('.tlr-section-remove');
+    if (button) button.closest('.tlr-section').remove();
+  });
+  list.addEventListener('change', function(e) {
+    if (!e.target.classList.contains('tlr-section-type')) return;
+    var count = e.target.closest('.tlr-section').querySelector('.tlr-section-count');
+    var n = JSON.parse(list.dataset.counts)[e.target.value];
+    count.textContent = n ? 'Events in the dataset: ' + n : '';
+  });
+})();
+
+// "Draft sections": drafts the report from its entries, or from the queue for a
+// new report, and fills the sections the analyst has not written yet.
 (function() {
   var btn = document.getElementById('tlr-draft-btn');
   var status = document.getElementById('tlr-draft-status');
@@ -185,9 +417,10 @@
 
   btn.addEventListener('click', function() {
     btn.disabled = true;
-    status.textContent = 'Reading the queue and drafting…';
+    status.textContent = 'Reading the events and drafting…';
     var body = new FormData();
     body.append('reporting_period', document.querySelector('[name="reporting_period"]').value.trim());
+    if (btn.dataset.tlr) body.append('tlr', btn.dataset.tlr);
 
     fetch('{{ url_for("threat_landscape.draft_trends") }}', {
       method: 'POST',
@@ -210,7 +443,7 @@
         drafted.push(sections[name]);
       });
       status.textContent = drafted.length
-        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' queued events. Review before saving.'
+        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' events. Review before saving.'
         : 'Nothing to draft: every section already has content.';
     })
     .catch(function(err) { status.textContent = 'Drafting did not complete: ' + zsazsaErrorText(err); })

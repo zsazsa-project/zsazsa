@@ -1024,6 +1024,21 @@
       timer = setTimeout(poll, delay);
     }
 
+    // A page whose content depends on a job's outcome listens for
+    // 'zsazsa:job-completed', which fires for a job seen running here that has
+    // since completed, whichever page started it.
+    var lastStatus = {};
+
+    function announceCompleted(list) {
+      list.forEach(function(job) {
+        var was = lastStatus[job.id];
+        if ((was === 'queued' || was === 'running') && job.status === 'completed') {
+          document.dispatchEvent(new CustomEvent('zsazsa:job-completed', {detail: job}));
+        }
+        lastStatus[job.id] = job.status;
+      });
+    }
+
     function poll() {
       if (document.hidden) { schedule(IDLE_MS); return; }
       var next = IDLE_MS;
@@ -1034,6 +1049,7 @@
           jobs = data.jobs || [];
           next = data.running ? BUSY_MS : IDLE_MS;
           paint();
+          announceCompleted(jobs);
         })
         .catch(function() { /* the badge is not worth an error on screen */ })
         .finally(function() { schedule(next); });
