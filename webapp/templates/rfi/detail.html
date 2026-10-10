@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import product_icon %}
 
 {% block title %}{{ rfi.rfi_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ rfi.rfi_id }}{% endblock %}
@@ -49,19 +50,40 @@
     <div class="card content-card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="fas fa-paper-plane me-2"></i>Response</span>
-        {% if rfi.response_confidence %}
-        <span class="badge bg-secondary" title="Confidence in the analytic judgment (estimative language)">
-          Confidence: {{ rfi.response_confidence | capitalize }}
+        <span class="d-flex align-items-center gap-2">
+          {% if rfi.response_confidence %}
+          <span class="badge bg-secondary" title="Confidence in the analytic judgment (estimative language)">
+            Confidence: {{ rfi.response_confidence | capitalize }}
+          </span>
+          {% endif %}
+          {% if rfi.status != 'New' %}
+          <button type="button" class="btn btn-xs btn-outline-secondary" title="Edit the response"
+                  data-bs-toggle="collapse" data-bs-target=".rfi-response-part" aria-expanded="false">
+            <i class="fas fa-pen"></i>
+          </button>
+          {% endif %}
         </span>
-        {% endif %}
       </div>
-      <div class="card-body">
+      <div class="card-body collapse show rfi-response-part">
         {% if rfi.response %}
         <div class="report-md-body" data-md="{{ rfi.response | e }}"></div>
         {% else %}
         <p class="text-muted mb-0"><em>No response recorded yet.</em></p>
         {% endif %}
       </div>
+      {% if rfi.status != 'New' %}
+      <form method="post" action="{{ url_for('rfi.rfi_response', id=rfi.id) }}"
+            class="card-body collapse rfi-response-part" data-unsaved-warning>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% with is_edit=true, triaged=true %}{% include "rfi/_response_fields.html" %}{% endwith %}
+        <div class="d-flex gap-2 justify-content-end mt-3">
+          {# A reload rather than a collapse: hiding the form would keep its
+             edits, and leaving the page later would ask about them. #}
+          <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-floppy-disk me-1"></i>Save response</button>
+        </div>
+      </form>
+      {% endif %}
     </div>
 
     {% include "rfi/_attachments_notes.html" %}
@@ -183,11 +205,11 @@
             {% endif %}
           </dd>
 
-          <dt class="col-5">Output formats</dt>
+          <dt class="col-5">Preferred output formats</dt>
           <dd class="col-7">
             {% if rfi.output_format_list %}
             {% for item in rfi.output_format_list %}
-            <div>{{ item.format }} <span class="tlp-badge tlp-{{ item.tlp | slug }} ms-1">TLP:{{ item.tlp | upper }}</span></div>
+            <div>{{ product_icon(item.format) }}{{ item.format }} <span class="tlp-badge tlp-{{ item.tlp | slug }} ms-1">TLP:{{ item.tlp | upper }}</span></div>
             {% endfor %}
             {% else %}
             -
@@ -355,4 +377,5 @@
   });
 })();
 </script>
+{% include "rfi/_response_fields_js.html" %}
 {% endblock %}

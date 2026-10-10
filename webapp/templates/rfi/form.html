@@ -61,52 +61,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-paper-plane me-2"></i>Response</div>
       <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Response (delivered to the requester)</label>
-          <textarea name="response" class="form-control" rows="6" {{ 'disabled' if not triaged }}>{{ rfi.response if is_edit else '' }}</textarea>
-          {% if not triaged %}
-          <div class="form-text"><i class="fas fa-lock me-1"></i>The response can be recorded once the RFI has been triaged (acknowledged) from the RFI list.</div>
-          {% endif %}
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Confidence
-            <span class="text-muted fw-normal small">(estimative language)</span>
-          </label>
-          {% set cur_conf = rfi.response_confidence if is_edit else '' %}
-          <select name="response_confidence" class="form-select" {{ 'disabled' if not triaged }}>
-            <option value="">-</option>
-            {% for value, label, desc in estimative_confidence %}
-            <option value="{{ value }}" {{ 'selected' if cur_conf == value }} title="{{ desc }}">{{ label }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">Confidence in the analytic judgment of the response.</div>
-          {% include "_estimative_help.html" %}
-        </div>
-        <div>
-          <label class="form-label">Output formats</label>
-          <div id="fmt-list">
-            {% set existing = rfi.output_format_list if is_edit else [] %}
-            {% for item in existing %}
-            <div class="fmt-row d-flex gap-2 mb-2 align-items-center">
-              <select name="output_format_item" class="form-select form-select-sm" style="max-width:220px;">
-                <option value="">-</option>
-                {% for fmt in output_formats %}
-                <option value="{{ fmt }}" {{ 'selected' if item.format == fmt }}>{{ fmt }}</option>
-                {% endfor %}
-              </select>
-              <select name="output_format_tlp" class="form-select form-select-sm" style="max-width:160px;">
-                {% for lvl in tlp_levels %}
-                <option value="{{ lvl }}" {{ 'selected' if item.tlp == lvl }}>TLP:{{ lvl }}</option>
-                {% endfor %}
-              </select>
-              <button type="button" class="btn btn-sm btn-outline-danger fmt-remove"><i class="fas fa-minus"></i></button>
-            </div>
-            {% endfor %}
-          </div>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="fmt-add">
-            <i class="fas fa-plus me-1"></i>Add format
-          </button>
-        </div>
+        {% include "rfi/_response_fields.html" %}
       </div>
     </div>
 
@@ -291,63 +246,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function() {
-  var fmtList = document.getElementById('fmt-list');
-  var fmtAdd = document.getElementById('fmt-add');
-  var outputFormats = {{ output_formats | tojson }};
-  var tlpLevels = {{ tlp_levels | tojson }};
-
-  function buildRow() {
-    var row = document.createElement('div');
-    row.className = 'fmt-row d-flex gap-2 mb-2 align-items-center';
-
-    var fmtSel = document.createElement('select');
-    fmtSel.name = 'output_format_item';
-    fmtSel.className = 'form-select form-select-sm';
-    fmtSel.style.maxWidth = '220px';
-    var blank = document.createElement('option');
-    blank.value = ''; blank.textContent = '-';
-    fmtSel.appendChild(blank);
-    outputFormats.forEach(function(f) {
-      var o = document.createElement('option');
-      o.value = f; o.textContent = f;
-      fmtSel.appendChild(o);
-    });
-
-    var tlpSel = document.createElement('select');
-    tlpSel.name = 'output_format_tlp';
-    tlpSel.className = 'form-select form-select-sm';
-    tlpSel.style.maxWidth = '160px';
-    tlpLevels.forEach(function(l) {
-      var o = document.createElement('option');
-      o.value = l; o.textContent = 'TLP:' + l;
-      if (l === 'amber') o.selected = true;
-      tlpSel.appendChild(o);
-    });
-
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-sm btn-outline-danger fmt-remove';
-    btn.innerHTML = '<i class="fas fa-minus"></i>';
-    btn.addEventListener('click', function() { row.remove(); });
-
-    row.appendChild(fmtSel);
-    row.appendChild(tlpSel);
-    row.appendChild(btn);
-    return row;
-  }
-
-  fmtAdd.addEventListener('click', function() {
-    fmtList.appendChild(buildRow());
-  });
-
-  fmtList.addEventListener('click', function(e) {
-    var btn = e.target.closest('.fmt-remove');
-    if (btn) btn.closest('.fmt-row').remove();
-  });
-})();
-</script>
+{% include "rfi/_response_fields_js.html" %}
 {% if is_edit %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>

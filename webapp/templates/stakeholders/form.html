@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import product_icon %}
 
 {% set is_edit = stakeholder is not none %}
 {% block title %}{{ 'Edit' if is_edit else 'New' }} Stakeholder | zsazsa CTI{% endblock %}
@@ -234,21 +235,12 @@
 
         <label class="form-label">Products subscribed</label>
         <div class="product-checklist">
-          {% set product_icons = {
-            'Daily threat briefing': 'newspaper',
-            'Threat landscape report': 'globe',
-            'Flash intel alert': 'bolt',
-            'Vulnerability advisory': 'bug',
-            'Threat actor profile': 'user-secret',
-            'Indicator feed': 'satellite-dish',
-            'Detection engineering request': 'crosshairs',
-          } %}
           {% for p in products | sort(case_sensitive=False) %}
           {% set current_mode = (stakeholder.product_modes.get(p) if is_edit and stakeholder.product_modes else default_subscription_mode) %}
           <div class="form-check d-flex align-items-center gap-2 mb-2">
             <input class="form-check-input mt-0" type="checkbox" name="products" value="{{ p }}" id="prod_{{ loop.index }}"
               {{ 'checked' if is_edit and p in stakeholder.products }}>
-            <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}"><i class="fas fa-{{ product_icons.get(p, 'cube') }} fa-fw text-muted me-1"></i>{{ p }}</label>
+            <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}">{{ product_icon(p) }}{{ p }}</label>
             {# The mode picker is hidden for now, but the stored mode still has to
                survive a save, so it travels with the form. #}
             <input type="hidden" name="mode__{{ p }}" value="{{ current_mode }}">

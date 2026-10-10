@@ -41,12 +41,16 @@ def _sla_status(rfi):
     return ("green", delta)
 
 
-def _form_data(form, rfi_id):
+def _output_formats(form):
     formats = form.getlist("output_format_item")
     tlps = form.getlist("output_format_tlp")
     if len(formats) != len(tlps):
         raise ValueError("Invalid output format payload.")
-    fmt_list = [{"format": f, "tlp": t} for f, t in zip(formats, tlps) if f.strip()]
+    return [{"format": f, "tlp": t} for f, t in zip(formats, tlps) if f.strip()]
+
+
+def _form_data(form, rfi_id):
+    fmt_list = _output_formats(form)
     return {
         "rfi_id": rfi_id,
         "question": form["question"],
@@ -214,7 +218,33 @@ def rfi_detail(id):
         feedback_requirement=FEEDBACK_REQUIREMENT,
         feedback_on_time=FEEDBACK_ON_TIME,
         feedback_usefulness=FEEDBACK_USEFULNESS,
+        output_formats=cti_products(),
+        tlp_levels=TLP_LEVELS,
+        estimative_confidence=misp_store.ESTIMATIVE_CONFIDENCE,
     )
+
+
+@bp.route("/<string:id>/response", methods=["POST"])
+def rfi_response(id):
+    """Save the response card's inline edit: the response, its confidence and
+    the preferred output formats, leaving the rest of the RFI as stored."""
+    rfi = misp_store.get_rfi(id)
+    if rfi is None:
+        return "RFI not found", 404
+    if rfi.status == "New":
+        flash("Triage this RFI before recording a response.", "warning")
+        return redirect(url_for("rfi.rfi_detail", id=id))
+    data = _rfi_data_from_store(rfi)
+    try:
+        data["output_format_list"] = _output_formats(request.form)
+        data["response"] = request.form.get("response", "")
+        data["response_confidence"] = request.form.get("response_confidence") or ""
+        misp_store.update_rfi(id, data)
+        audit.record("update", "rfi", entity_id=id, entity_label=rfi.rfi_id, details="response")
+        flash(f"{rfi.rfi_id} response saved.", "success")
+    except Exception as exc:
+        flash(f"Could not save the response: {exc}", "warning")
+    return redirect(url_for("rfi.rfi_detail", id=id))
 
 
 @bp.route("/<string:id>/feedback", methods=["POST"])
