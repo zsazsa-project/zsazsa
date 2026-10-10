@@ -112,6 +112,48 @@ PORT = 5000
 
 These values can also be changed from the Settings page in the web app (System tab). After saving, restart the application for the port change to take effect (the `HOSTNAME` value is stored for reference; the listener address is always `0.0.0.0`).
 
+## Docker
+
+The repository ships a `Dockerfile` and a `docker-compose.yml` as an alternative to `docs/install.sh`. The image is based on `python:3.12-slim`, includes the WeasyPrint system libraries and runs as an unprivileged `zsazsa` user. The compose file runs four services:
+
+| Service | Runs | Replaces |
+|---|---|---|
+| `webapp` | `run_webapp.py` | `python run_webapp.py` / the systemd service |
+| `analyser` | `run_analyser.py` in a loop, every `ANALYSER_INTERVAL` seconds (default 3600) | the hourly cron entry |
+| `imap-collector` | `run_imap_collector.py` in a loop, every `IMAP_COLLECTOR_INTERVAL` seconds (default 900) | the 15-minute cron entry |
+| `redis` | `redis:7-alpine` | the local Redis used for background job state (`JOB_REDIS_*`) |
+
+MISP and misp-scraper are not part of it and stay external, as in a normal install. The bundled Redis only holds zsazsa's job state: single sign-on reads MISP's own session Redis and the newsletter importer publishes to misp-scraper's Redis, so point `MISP_SESSION_REDIS_*` and `SCRAPER_REDIS_*` at those instances.
+
+```bash
+docker compose up -d --build
+```
+
+On first start, when the `config` volume holds no `config/__init__.py`, the entrypoint creates it from `config/__init__.py.example` with a generated `SECRET_KEY`, exactly as `install.sh` does, and sets `JOB_REDIS_HOST` to the `redis` service. An existing config is never changed. Then set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, either on the Settings page or by editing the file:
+
+```bash
+docker compose cp webapp:/app/config/__init__.py zsazsa-config.py
+# edit zsazsa-config.py, then copy it back and give it to the zsazsa user
+docker compose cp zsazsa-config.py webapp:/app/config/__init__.py
+docker compose exec -u root webapp chown zsazsa:zsazsa config/__init__.py
+docker compose restart
+rm zsazsa-config.py   # it holds the API keys
+```
+
+State is kept in three named volumes, so it survives rebuilding the image:
+
+| Volume | Mounted at | Holds |
+|---|---|---|
+| `config` | `/app/config` | `config/__init__.py` and its backup |
+| `data` | `/app/data` | the SQLite databases, caches, uploads, `ai_features.json` and the log |
+| `prompts` | `/app/zsazsaprompts` | the LLM prompts, which can be edited on the Settings page |
+
+Use named volumes rather than bind mounts: on first use they are seeded with the files the image ships in those directories (the shipped prompts, `ai_features.json`, the MITRE cache). Because they are only seeded once, prompts changed in a later release do not replace the ones in an existing `prompts` volume.
+
+The web app is published on `127.0.0.1:5000` only. Keep `PORT` at 5000 in the config, since that is the container port the compose file maps, and serve zsazsa through the MISP Apache virtual host as described below, proxying to `http://127.0.0.1:5000/`. That is also what single sign-on needs. TLS is terminated by Apache, so no certificate is mounted.
+
+To upgrade, pull the new code and run `docker compose up -d --build` again.
+
 ## Production deployment behind Apache
 
 zsazsa is designed to run alongside MISP and can be served under a subpath of the MISP Apache virtual host, for example `https://misp.example.com/zsazsa`. The application adapts to any subpath automatically, so `/cti`, `/cti-program`, or any other value works without changing the application.

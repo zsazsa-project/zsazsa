@@ -1,0 +1,61 @@
+# zsazsa with Docker Compose: the web app, the analyser and the IMAP collector,
+# plus a Redis for background job state. MISP (and misp-scraper) stay external
+# and are configured in config/__init__.py. See the "Docker" section of
+# INSTALL.md.
+
+x-zsazsa: &zsazsa
+  build: .
+  image: zsazsa:latest
+  restart: unless-stopped
+  environment:
+    # Only applied when config/__init__.py is generated on first start.
+    ZSAZSA_JOB_REDIS_HOST: redis
+  volumes:
+    - config:/app/config
+    - data:/app/data
+    - prompts:/app/zsazsaprompts
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  webapp:
+    <<: *zsazsa
+    command: ["python", "run_webapp.py"]
+    ports:
+      # Bound to localhost: put the MISP Apache virtual host in front of it,
+      # as described under "Production deployment behind Apache".
+      - "127.0.0.1:5000:5000"
+
+  # The two periodic jobs INSTALL.md schedules from cron (analyser hourly,
+  # IMAP collector every 15 minutes), run as loops. A failed run is logged and
+  # retried on the next pass.
+  analyser:
+    <<: *zsazsa
+    init: true
+    environment:
+      ZSAZSA_JOB_REDIS_HOST: redis
+      INTERVAL: ${ANALYSER_INTERVAL:-3600}
+    command: ["sh", "-c", "while true; do python run_analyser.py || echo 'analyser run failed'; sleep \"$$INTERVAL\"; done"]
+
+  imap-collector:
+    <<: *zsazsa
+    init: true
+    environment:
+      ZSAZSA_JOB_REDIS_HOST: redis
+      INTERVAL: ${IMAP_COLLECTOR_INTERVAL:-900}
+    command: ["sh", "-c", "while true; do python run_imap_collector.py || echo 'IMAP collector run failed'; sleep \"$$INTERVAL\"; done"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  config:
+  data:
+  prompts:
