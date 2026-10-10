@@ -218,6 +218,18 @@ _PRODUCT_TYPE_ALIASES = {"vulnerability exploitation advisory": "vulnerability a
 _ProductType = namedtuple("_ProductType", "label tag_value endpoint")
 
 
+def fill_product_tag_defaults():
+    """Give config a tag setting for every product that lacks one.
+
+    A config file written before a product existed has no setting for its tag,
+    and saving the Settings page is what adds it. Until then every page that
+    reads the setting would fail, so the product gets the tag zsazsa ships with.
+    """
+    for config_attr, builtin, _endpoint in _PRODUCT_TYPES.values():
+        if not getattr(config, config_attr, ""):
+            setattr(config, config_attr, f'{PRODUCT_TAG_PREFIX}"{builtin}"')
+
+
 def _configured_tag_value(config_attr: str, builtin: str) -> str:
     """Return the value inside a configured product tag, e.g. 'flash-intel'.
 

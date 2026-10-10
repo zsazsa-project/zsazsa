@@ -37,6 +37,13 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 - A feed's public URL can be switched on or off on the feed's page, by users
   with MISP publish rights only.
 
+### Fixed
+
+- An install whose configuration predates the detection engineering request,
+  threat landscape report, threat actor profile or indicator feed no longer
+  fails on that product's pages. A missing tag setting gets the default until
+  the Settings page is saved.
+
 ### Security
 
 - Missing authorisation on the settings pages (GHSA-v6rj-fh3w-rx8x): any MISP
