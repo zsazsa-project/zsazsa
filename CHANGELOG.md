@@ -36,6 +36,10 @@ Pull and restart, there is nothing to migrate. A few things behave differently:
 
 - A feed's public URL can be switched on or off on the feed's page, by users
   with MISP publish rights only.
+- The response of an RFI can be edited on the RFI's page.
+- A vulnerability advisory is built with AI from its source events header, the
+  way a flash intel alert is done.
+
 
 ### Security
 
