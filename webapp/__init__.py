@@ -14,7 +14,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import config
 from core import pymisp_compat
 from webapp import audit, misp_session, org_store, sso_users, collection_cache, indicator_meta_store
-from webapp.utils import human_size, md_to_html, md_to_html_inline
+from webapp.utils import fill_product_tag_defaults, human_size, md_to_html, md_to_html_inline
 from webapp.version import APP_VERSION
 
 
@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # PyMISP has to be able to parse the galaxy clusters MISP sends
 pymisp_compat.apply()
+# A config file from before a product existed lacks that product's tag setting.
+fill_product_tag_defaults()
 
 
 def _setup_file_logging():
