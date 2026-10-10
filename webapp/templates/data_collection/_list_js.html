@@ -244,8 +244,9 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
           // Wait for the sweep to report back, so the page reloads on fresh
           // rows. A sweep over several MISP servers easily outlasts a fixed
           // wait, and reloading early just shows the old cache again.
+          followedJobs.add(payload.job_id);
           zsazsaFollowJob(payload.job_id,
-            function() { window.location.reload(); },
+            function() { reloadTable('Table updated: the collection refresh finished.'); },
             function(message) {
               resetRefreshButton();
               alert('The refresh did not complete: ' + message);
@@ -510,11 +511,9 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
     var q = state.q.toLowerCase().trim();
     var visible = 0;
     var totalMatching = 0;
-    // Events that exist for the user regardless of the discretionary filters,
-    // i.e. excluding the ones the rejected-state mode hides. Used as the
-    // "without filter" total and the per-source badge counts, so they stay
-    // consistent with totalMatching (which also drops rejected events).
-    var activeTotal = 0;
+    // Per source, the events that exist for the user regardless of the
+    // discretionary filters, i.e. excluding the ones the rejected-state mode
+    // hides, for the source badges.
     var sourceActiveCounts = {};
     var todayStr = new Date().toISOString().slice(0, 10);
     var cutoffStr = state.dateFilter !== 'none' ? getDateCutoff(state.dateFilter) : '';
@@ -531,7 +530,6 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       var setAsideHidden = (state.hideRejected && tagSet.has(REJECTED_TAG)) ||
                            (state.dismissedFilter === 'without' && tagSet.has(DISMISSED_TAG));
       if (!setAsideHidden) {
-        activeTotal++;
         sourceActiveCounts[srcId] = (sourceActiveCounts[srcId] || 0) + 1;
       }
 
@@ -638,14 +636,6 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
 
     var totalNoteEl = document.getElementById('total-count-note');
     if (totalNoteEl) totalNoteEl.textContent = 'of ' + totalMatching + ' matching';
-
-    var ofTotalEl = document.getElementById('table-count-of-total');
-    if (ofTotalEl) {
-      if (totalMatching < activeTotal) {
-        ofTotalEl.textContent = '(' + activeTotal + ' without filter)';
-        ofTotalEl.style.display = '';
-      } else { ofTotalEl.style.display = 'none'; }
-    }
 
     // Keep each source badge in sync with its active (non-rejected) event count,
     // so rejecting an event updates the badge without a reload. Error sources
@@ -1300,6 +1290,7 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         /* The summary runs as a job, so the spinner stays until it reports back
            and the badge in the top bar covers leaving the page meanwhile. */
         if (window.zsazsaJobsChanged) zsazsaJobsChanged();
+        followedJobs.add(data.job_id);
         zsazsaFollowJob(data.job_id, function(job) {
           if ((job.result || {}).summarised) {
             btn.remove();
@@ -1511,6 +1502,53 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       try { (new bootstrap.Alert(el)).close(); } catch (e) { el.remove(); }
     }, 4000);
   }
+
+  /* ── Keeping the table current ──
+     A summary or a cache refresh changes the rows, and it can finish after the
+     page that started it was reloaded or left. The filters live in session
+     storage, so a reload brings the table back the way the analyst had it. */
+  var TABLE_JOBS = ['summarise', 'bulk-summarise', 'collection-refresh'];
+  var followedJobs = new Set();
+  var RELOAD_NOTE = 'zsazsa_collection_reload';
+
+  function reloadTable(message) {
+    try {
+      sessionStorage.setItem(RELOAD_NOTE, JSON.stringify({message: message, scroll: window.scrollY}));
+    } catch (e) {}
+    window.location.reload();
+  }
+
+  /* Ticked rows, an open panel or a field being typed in would be lost. */
+  function analystIsBusy() {
+    var focused = document.activeElement;
+    return getSelectedEvents().length > 0
+      || document.querySelector('.offcanvas.show, .modal.show') !== null
+      || !!(focused && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName) && focused.type !== 'checkbox');
+  }
+
+  function offerTableReload(message) {
+    var container = document.getElementById('flash-container');
+    if (!container || document.getElementById('table-reload-offer')) return;
+    var el = document.createElement('div');
+    el.id = 'table-reload-offer';
+    el.className = 'alert alert-info alert-dismissible fade show alert-flash';
+    el.setAttribute('role', 'alert');
+    el.innerHTML = '<i class="fas fa-rotate me-2"></i><span class="alert-text"></span>' +
+                   '<button type="button" class="btn btn-xs btn-outline-primary ms-2">Reload table</button>' +
+                   '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+    el.querySelector('.alert-text').textContent = message;
+    el.querySelector('.btn-outline-primary').addEventListener('click', function() {
+      reloadTable('Table updated.');
+    });
+    container.appendChild(el);
+  }
+
+  document.addEventListener('zsazsa:job-completed', function(e) {
+    var job = e.detail;
+    if (TABLE_JOBS.indexOf(job.action) === -1 || followedJobs.has(job.id)) return;
+    if (analystIsBusy()) offerTableReload(job.label + ' finished. Reload the table to see the result.');
+    else reloadTable('Table updated: ' + job.label + ' finished.');
+  });
 
   function updateRowRejectedState(row, rejected) {
     if (!row) return;
@@ -1776,9 +1814,9 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
         }
         showFeedback(data.message + ' Progress is shown in the top bar.', 'info');
         if (window.zsazsaJobsChanged) zsazsaJobsChanged();
+        followedJobs.add(data.job_id);
         zsazsaFollowJob(data.job_id, function(job) {
-          showFeedback(job.message || 'Summaries created.', 'success');
-          setTimeout(function() { window.location.reload(); }, 1500);
+          reloadTable('Table updated: ' + (job.message || 'summaries created.'));
         }, function(reason) {
           showFeedback('Summaries did not finish: ' + reason, 'danger');
         });
@@ -1923,6 +1961,16 @@ if (window.marked) { marked.setOptions({ breaks: true, gfm: true }); }
       }
     }
     _filterStatePersistReady = true;
+
+    var note = null;
+    try {
+      note = JSON.parse(sessionStorage.getItem(RELOAD_NOTE) || 'null');
+      sessionStorage.removeItem(RELOAD_NOTE);
+    } catch (e) {}
+    if (note) {
+      window.scrollTo(0, note.scroll || 0);
+      showFeedback(note.message, 'success');
+    }
     _saveFilterState();
   })();
 
