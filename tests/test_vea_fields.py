@@ -149,6 +149,14 @@ class Markdown(unittest.TestCase):
     def test_an_advisory_without_a_summary_names_the_cve_and_product(self):
         self.assertIn("CVE-2026-31431 affects Linux kernel.", self.summary(self.markdown(summary="")))
 
+    def test_the_summary_has_no_action_taken_from_the_risk_assessment(self):
+        """An advisory has no action required. The summary showed the most
+        likely case under that name, which the risk assessment already has."""
+        markdown = self.markdown()
+        self.assertNotIn("Action required", markdown)
+        self.assertNotIn("Local privilege escalation.", self.summary(markdown))
+        self.assertIn("**Most likely:** Local privilege escalation.", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()

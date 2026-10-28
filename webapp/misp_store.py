@@ -6042,8 +6042,6 @@ def render_vea_markdown(vea, vea_id=None, preview_url: str = ""):
         "",
         vea.summary or f"{vea.cve_id or 'This vulnerability'} affects {vea.affected_product or 'affected product'}.",
         "",
-        f"**Action required:** {vea.most_likely or '_To be defined._'}",
-        "",
         "---",
         "",
         "## Affected technology",

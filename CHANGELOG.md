@@ -64,6 +64,7 @@
 
 ### Fixed
 
+- The mail, MISP report and chat posts of a vulnerability advisory had an "Action required" line under the summary, filled with the most likely case from the risk assessment. Advisories have no such field, so the line is removed (issue #69).
 - A failed MISP report request no longer rejects the source event as empty.
 - Analyser products made from manual entries keep their webapp MISP source hint, so later edits and deletion update the right source event.
 - An AI summary job from data collection that created nothing because every summary failed showed as done, in green, with only its message counting the errors. It now fails with the reason. One that created some summaries is shown in amber as done with errors.

@@ -101,6 +101,7 @@ def _render_briefing_form(
         field: sorted(_scope_keys(values) - _scope_keys(gathered[field]))
         for field, values in own_scope.items()
     }
+    edit_title = f"Edit {title}" if title else f"Edit briefing {date or '(no date)'}"
     return render_template(
         "daily_briefing/form.html",
         stories=stories,
@@ -116,8 +117,8 @@ def _render_briefing_form(
         briefing_summary=summary,
         briefing_summary_stale=summary_stale,
         page_mode=mode,
-        page_title_text=(f"Edit briefing {date or '(no date)'}" if is_edit else "Compose daily briefing"),
-        browser_title=(f"Edit briefing {date or '(no date)'}" if is_edit else "Compose briefing"),
+        page_title_text=(edit_title if is_edit else "Compose daily briefing"),
+        browser_title=(edit_title if is_edit else "Compose briefing"),
         form_action=form_action,
         save_label=("Save changes" if is_edit else "Save draft"),
         cancel_url=cancel_url,
