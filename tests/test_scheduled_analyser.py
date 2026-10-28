@@ -14,6 +14,8 @@ is not checked and logged again every hour, unless a summary failed in it. The
 briefing comes once a day, from its hour on, and a day only counts as briefed
 when the run went through. An event gets one flash intel alert at most,
 whichever run made it: the alerts themselves say which events they came from.
+Manual collection entries with a report are read alongside the scraper's events,
+from the webapp MISP they are kept on, and are summarised and tagged there.
 
 The state file, the database and the log are temporary; every MISP and model
 call is stubbed.
@@ -21,6 +23,7 @@ call is stubbed.
     python -m unittest tests.test_scheduled_analyser
 """
 
+import contextlib
 import json
 import os
 import tempfile
@@ -158,6 +161,39 @@ class Candidates(unittest.TestCase):
              self.assertRaises(RuntimeError):
             pipeline._incomplete_scraper_events(days=2, since=1761336900)
 
+    def test_manual_entries_with_a_report_are_read_from_the_webapp_misp(self):
+        webapp = mock.create_autospec(PyMISP, instance=True)
+        incomplete = [SimpleNamespace(name='workflow:state="incomplete"')]
+        webapp.search.return_value = [SimpleNamespace(uuid="m1", tags=incomplete, event_reports=["Report"]),
+                                      SimpleNamespace(uuid="m2", tags=incomplete, event_reports=[])]
+        pipeline = run_analyser.analyser_pipeline
+        with mock.patch.object(pipeline.misp_store, "_misp", return_value=webapp):
+            misp, entries = pipeline._incomplete_manual_entries(days=2)
+        self.assertIs(misp, webapp)
+        self.assertEqual([e.uuid for e in entries], ["m1"])
+        self.assertEqual(webapp.search.call_args.kwargs["tags"], [pipeline.misp_store.TAG_MANUAL_ENTRY])
+
+    def test_each_event_is_read_and_summarised_on_the_misp_it_is_on(self):
+        pipeline = run_analyser.analyser_pipeline
+        scraped = SimpleNamespace(uuid="a" * 36, info="Scraped", tags=[])
+        entered = SimpleNamespace(uuid="m" * 36, info="Entered", tags=[])
+        article = [SimpleNamespace(name="Article", content="An article")]
+        used = []
+        with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
+             mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [scraped])), \
+             mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=("webapp", [entered])), \
+             mock.patch.object(pipeline, "_event_reports",
+                               side_effect=lambda misp, e: used.append((e.info, misp)) or article), \
+             mock.patch.object(pipeline, "_event_http_error", return_value=False), \
+             mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
+             mock.patch.object(pipeline, "_ensure_ai_summary",
+                               side_effect=lambda misp, e, r, g: used.append((e.info, misp)) or ("", True)):
+            clients, kept, *_ = pipeline._common_candidate_events()
+        self.assertEqual([e.info for e in kept], ["Scraped", "Entered"])
+        self.assertEqual(clients, {scraped.uuid: "scraper", entered.uuid: "webapp"})
+        # Their reports first, then their summaries.
+        self.assertEqual(used, [("Scraped", "scraper"), ("Entered", "webapp")] * 2)
+
     def test_the_run_on_requirements_skips_an_event_with_an_alert(self):
         pipeline = run_analyser.analyser_pipeline
         events = [SimpleNamespace(uuid="a" * 36, info="Alerted", tags=[], galaxies=[]),
@@ -211,36 +247,50 @@ class BriefingDay(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
-    def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), **on):
+    def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), manual=(), on_webapp=(), **on):
         self.order = []
         self.misp = mock.create_autospec(PyMISP, instance=True)
-        self.misp.get_event.side_effect = lambda uuid, pythonify: SimpleNamespace(uuid=uuid, info="Advised")
+        self.webapp = mock.create_autospec(PyMISP, instance=True)
+
+        def found_on(webapp):
+            """An advised event is on the scraper, or on the webapp MISP when in on_webapp."""
+            return lambda uuid, pythonify: ([SimpleNamespace(uuid=uuid, info="Advised")]
+                                            if (uuid in on_webapp) == webapp else [])
+        self.misp.search.side_effect = found_on(False)
+        self.webapp.search.side_effect = found_on(True)
         results = {"vea": {"source_event_uuids": list(advised)}} if advised else {}
-        with _switches(**on), \
-             mock.patch.object(run_analyser, "scheduled_actions", return_value=list(due)), \
-             mock.patch.object(run_analyser, "setup_logging"), \
-             mock.patch.object(run_analyser, "init_db"), \
-             mock.patch.object(run_analyser.audit, "init"), \
-             mock.patch.object(run_analyser, "log_pipeline_run_start", return_value=1), \
-             mock.patch.object(run_analyser, "log_pipeline_run_end"), \
-             mock.patch.object(run_analyser, "scraper_enabled", return_value=True), \
-             mock.patch.object(run_analyser, "get_misp", return_value=self.misp), \
-             mock.patch.object(run_analyser, "get_misp_webapp"), \
-             mock.patch.object(run_analyser, "get_new_scraper_events",
-                               side_effect=lambda misp: self.order.append("focus points: read") or list(events)) as read, \
-             mock.patch.object(run_analyser.misp_store, "flash_intel_source_uuids", return_value=set(alerted)), \
-             mock.patch.object(run_analyser.analyser_pipeline, "requirement_matches",
-                               return_value={uuid: [{"id": "PIR-0003"}] for uuid in matched}), \
-             mock.patch.object(run_analyser, "process_flash_intel",
-                               side_effect=lambda *a, **kw: self.order.append("focus points: check")
-                               or {"outcome": "not_relevant"}) as self.process, \
-             mock.patch.object(run_analyser, "log_event"), \
-             mock.patch.object(run_analyser.job_store, "create_job", return_value={"id": "job-1"}), \
-             mock.patch.object(run_analyser.job_store, "update_job"), \
-             mock.patch.object(run_analyser, "save_last_run") as watermark, \
-             mock.patch.object(run_analyser.feed_cache, "refresh_due", return_value=0), \
-             mock.patch.object(run_analyser, "run_scheduled_actions",
-                               side_effect=lambda actions, now: self.order.extend(actions) or results) as scheduled:
+        with contextlib.ExitStack() as stack:
+            for patch in (
+                _switches(**on),
+                mock.patch.object(run_analyser, "scheduled_actions", return_value=list(due)),
+                mock.patch.object(run_analyser, "setup_logging"),
+                mock.patch.object(run_analyser, "init_db"),
+                mock.patch.object(run_analyser.audit, "init"),
+                mock.patch.object(run_analyser, "log_pipeline_run_start", return_value=1),
+                mock.patch.object(run_analyser, "log_pipeline_run_end"),
+                mock.patch.object(run_analyser, "scraper_enabled", return_value=True),
+                mock.patch.object(run_analyser, "get_misp", return_value=self.misp),
+                mock.patch.object(run_analyser, "get_misp_webapp", return_value=self.webapp),
+                mock.patch.object(run_analyser, "get_new_manual_entries", return_value=list(manual)),
+                mock.patch.object(run_analyser.misp_store, "flash_intel_source_uuids", return_value=set(alerted)),
+                mock.patch.object(run_analyser.analyser_pipeline, "requirement_matches",
+                                  return_value={uuid: [{"id": "PIR-0003"}] for uuid in matched}),
+                mock.patch.object(run_analyser, "log_event"),
+                mock.patch.object(run_analyser.job_store, "create_job", return_value={"id": "job-1"}),
+                mock.patch.object(run_analyser.job_store, "update_job"),
+                mock.patch.object(run_analyser.feed_cache, "refresh_due", return_value=0),
+            ):
+                stack.enter_context(patch)
+            read = stack.enter_context(mock.patch.object(
+                run_analyser, "get_new_scraper_events",
+                side_effect=lambda misp: self.order.append("focus points: read") or list(events)))
+            self.process = stack.enter_context(mock.patch.object(
+                run_analyser, "process_flash_intel",
+                side_effect=lambda *a, **kw: self.order.append("focus points: check") or {"outcome": "not_relevant"}))
+            watermark = stack.enter_context(mock.patch.object(run_analyser, "save_last_run"))
+            scheduled = stack.enter_context(mock.patch.object(
+                run_analyser, "run_scheduled_actions",
+                side_effect=lambda actions, now: self.order.extend(actions) or results))
             run_analyser.main()
         return read, watermark, scheduled
 
@@ -293,9 +343,20 @@ class Main(unittest.TestCase):
         both. It is never rejected for the focus points: it is in an advisory."""
         self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="New")], due=["vea"],
                       advised=["a" * 36, "b" * 36, "c" * 36], alerted=["c" * 36])
-        self.misp.get_event.assert_called_once_with("b" * 36, pythonify=True)
+        self.misp.search.assert_called_once_with(uuid="b" * 36, pythonify=True)
         self.assertEqual([(c.args[2].uuid, c.kwargs["keep_open_for"]) for c in self.process.call_args_list],
                          [("a" * 36, "its advisory"), ("b" * 36, "its advisory")])
+
+    def test_a_manual_entry_is_checked_on_the_webapp_misp(self):
+        self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="Scraped")],
+                      manual=[SimpleNamespace(uuid="m" * 36, info="Entered")])
+        self.assertEqual([(c.args[0], c.args[2].info) for c in self.process.call_args_list],
+                         [(self.misp, "Scraped"), (self.webapp, "Entered")])
+
+    def test_an_advised_manual_entry_is_fetched_from_the_webapp_misp(self):
+        self.run_main(due=["vea"], advised=["m" * 36], on_webapp={"m" * 36})
+        self.assertEqual([(c.args[0], c.args[2].uuid) for c in self.process.call_args_list],
+                         [(self.webapp, "m" * 36)])
 
     def test_switched_off_the_scraper_queue_is_left_where_it_is(self):
         """Moving the watermark over events nobody read would skip them for good."""

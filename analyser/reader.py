@@ -5,6 +5,7 @@ from pathlib import Path
 
 import config
 from core.atomic_write import write_atomically
+from webapp.misp_store import TAG_MANUAL_ENTRY
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,23 @@ def save_last_action(timestamp: int) -> None:
 
 
 def get_new_scraper_events(misp) -> list:
+    events = _new_incomplete_events(misp, config.SCRAPER_MARKER_TAG)
+    logger.info("Found %d scraper events to process", len(events))
+    return events
+
+
+def get_new_manual_entries(misp) -> list:
+    """The manual collection entries of the same window that have a report.
+
+    They are kept on the webapp MISP, so ``misp`` is that one. An entry without
+    a report has nothing for the model to read and is left for the analyst.
+    """
+    entries = [e for e in _new_incomplete_events(misp, TAG_MANUAL_ENTRY) if getattr(e, "event_reports", None)]
+    logger.info("Found %d manual entries to process", len(entries))
+    return entries
+
+
+def _new_incomplete_events(misp, marker_tag) -> list:
     last_run = load_last_run()
     lookback = int(time.time()) - (config.POLL_WINDOW_HOURS * 3600)
     since = max(last_run, lookback) if last_run else lookback
@@ -89,7 +107,7 @@ def get_new_scraper_events(misp) -> list:
     events, page = [], 1
     while True:
         batch = misp.search(
-            tags=[config.SCRAPER_MARKER_TAG],
+            tags=[marker_tag],
             timestamp=since,
             limit=limit,
             page=page,
@@ -106,10 +124,7 @@ def get_new_scraper_events(misp) -> list:
         page += 1
 
     needed = 'workflow:state="incomplete"'
-    filtered = [
-        e for e in (events or [])
+    return [
+        e for e in events
         if any(getattr(t, "name", "") == needed for t in (getattr(e, "tags", []) or []))
     ]
-
-    logger.info("Found %d scraper events to process", len(filtered))
-    return filtered

@@ -195,10 +195,25 @@ def _incomplete_scraper_events(days=1, since=None):
     if not scraper_enabled():
         return None, []
     misp = misp_store._scraper_misp()
+    return misp, _incomplete_events(misp, config.SCRAPER_MARKER_TAG, days, since)
+
+
+def _incomplete_manual_entries(days=1, since=None):
+    """The manual collection entries of the same window that have a report.
+
+    They are kept on the webapp MISP. One without a report has nothing for the
+    model to read, so it is left for the analyst rather than rejected.
+    """
+    misp = misp_store._misp()
+    entries = _incomplete_events(misp, misp_store.TAG_MANUAL_ENTRY, days, since)
+    return misp, [e for e in entries if getattr(e, "event_reports", None)]
+
+
+def _incomplete_events(misp, marker_tag, days, since):
     first_day = datetime.now(timezone.utc).date() - timedelta(days=days - 1)
     changed = {"timestamp": since} if since else {}
     events = misp.search(
-        tags=[config.SCRAPER_MARKER_TAG],
+        tags=[marker_tag],
         date_from=first_day.isoformat(),
         limit=getattr(config, "MISP_SCRAPER_LIMIT", 500),
         page=1,
@@ -212,7 +227,7 @@ def _incomplete_scraper_events(days=1, since=None):
         # run that completed on an error answer would skip these events for good.
         raise RuntimeError(f"MISP search failed: {events.get('errors') or events}")
     if not events:
-        return misp, []
+        return []
 
     eligible = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
     filtered = []
@@ -220,7 +235,7 @@ def _incomplete_scraper_events(days=1, since=None):
         tags = {getattr(t, "name", "") for t in (getattr(event, "tags", []) or [])}
         if tags & eligible:
             filtered.append(event)
-    return misp, filtered
+    return filtered
 
 
 def _event_has_product_tag(event, product_label: str) -> bool:
@@ -383,8 +398,17 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
     _emit(progress, "refresh-cache", "completed", "Scraper cache refreshed.")
 
     period = "today" if days == 1 else f"the last {days} days"
-    _emit(progress, "collect-events", "in_progress", f"Collecting the incomplete scraper events of {period}...")
+    _emit(progress, "collect-events", "in_progress",
+          f"Collecting the incomplete scraper events and manual entries of {period}...")
     misp, events = _incomplete_scraper_events(days, since)
+    # The MISP each event is on, which is where its reports are read and its
+    # summary and workflow state written.
+    clients = dict.fromkeys((e.uuid for e in events), misp)
+    # Read with the scraper's: without one the analyser does not run at all.
+    if misp is not None:
+        webapp_misp, entries = _incomplete_manual_entries(days, since)
+        clients.update(dict.fromkeys((e.uuid for e in entries), webapp_misp))
+        events = events + entries
     _emit(progress, "collect-events", "completed", f"Loaded {len(events)} incomplete event(s) of {period}.")
 
     hard_rejected = 0
@@ -399,7 +423,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
     _emit(progress, "filter-events", "in_progress", filter_msg + "...")
 
     for event in events:
-        reports = _event_reports(misp, event)
+        reports = _event_reports(clients[event.uuid], event)
         reports_cache[event.uuid] = reports
         first_report = _first_non_empty_report_content(reports)
 
@@ -409,7 +433,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
             reason = "HTTP error fetching article" if is_http_error else "No report content"
             event_decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "rejected", "reason": reason})
             try:
-                tagger.set_workflow_state(misp, event, "rejected")
+                tagger.set_workflow_state(clients[event.uuid], event, "rejected")
             except Exception as exc:
                 logger.warning("Could not mark %s as rejected: %s", event.uuid, exc)
             _log(event, "http_error" if is_http_error else "no_content")
@@ -449,7 +473,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
             _emit(progress, "generate-summaries", "in_progress",
                   f"AI summary {written} of {missing}: {(event.info or event.uuid)[:80]}")
         try:
-            summary, created = _ensure_ai_summary(misp, event, reports, galaxy_lookup)
+            summary, created = _ensure_ai_summary(clients[event.uuid], event, reports, galaxy_lookup)
         except Exception as exc:
             # One event the model or MISP fails on should not end the run for
             # the others. It goes on with its article, and the next scheduled
@@ -463,7 +487,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
 
     _emit(progress, "generate-summaries", "completed", f"AI summary pass complete: created {summary_created} new summary report(s).")
 
-    return misp, kept, summaries, {
+    return clients, kept, summaries, {
         "total_incomplete_today": len(events),
         "hard_rejected": hard_rejected,
         "excluded_by_title": excluded_by_title,
@@ -512,7 +536,7 @@ def requirement_matches(events) -> dict:
 
 def run_daily_briefing_action(progress=None, days=1, since=None) -> dict:
     exclusions = daily_briefing_title_exclusions()
-    misp, events, summaries, stats, reports_cache = _common_candidate_events(
+    clients, events, summaries, stats, reports_cache = _common_candidate_events(
         progress=progress, title_exclusions=exclusions or None, days=days, since=since,
     )
     decisions = list(stats.get("event_decisions", []))
@@ -558,14 +582,14 @@ def run_daily_briefing_action(progress=None, days=1, since=None) -> dict:
             decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "rejected", "reason": reason or "Failed relevance check"})
             marked = False
             try:
-                marked = tagger.set_workflow_state(misp, event, "rejected")
+                marked = tagger.set_workflow_state(clients[event.uuid], event, "rejected")
             except Exception as exc:
                 logger.warning("Could not mark %s as rejected after relevance review: %s", event.uuid, exc)
             # An event that keeps its incomplete state comes back on the next
             # run, is reviewed again and collects a second rejection note, so
             # only write one once the event has actually been moved on.
             if marked:
-                _add_briefing_rejection_note(misp, event, reason=reason, report_title=report_title)
+                _add_briefing_rejection_note(clients[event.uuid], event, reason=reason, report_title=report_title)
             _log(event, "not_relevant", reason or "rejected by briefing relevance check")
             continue
         kept.append(event)
@@ -732,7 +756,7 @@ def run_daily_briefing_action(progress=None, days=1, since=None) -> dict:
 
 
 def run_flash_intel_action(progress=None, days=1, since=None) -> dict:
-    _misp, events, summaries, stats, _ = _common_candidate_events(progress=progress, days=days, since=since)
+    _clients, events, summaries, stats, _ = _common_candidate_events(progress=progress, days=days, since=since)
     # One alert per event, whichever run made it and whatever became of it.
     alerted = misp_store.flash_intel_source_uuids()
     events = [e for e in events if e.uuid not in alerted]
@@ -857,7 +881,7 @@ def run_vea_action(progress=None, days=1, since=None) -> dict:
     checking_assets = asset_inventory.enabled()
     if checking_assets:
         asset_inventory.assets()
-    _misp, events, summaries, stats, reports_cache = _common_candidate_events(
+    _clients, events, summaries, stats, reports_cache = _common_candidate_events(
         progress=progress, days=days, since=since)
     events = [e for e in events if not _event_has_product_tag(e, "vea")]
 

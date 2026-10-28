@@ -8,7 +8,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import config
 from core.logging_setup import setup_logging
 from analyser.products.flash_intel import process as process_flash_intel
-from analyser.reader import get_new_scraper_events, load_last_briefing, save_last_briefing, save_last_run
+from analyser.reader import (get_new_manual_entries, get_new_scraper_events, load_last_briefing,
+                             save_last_briefing, save_last_run)
 from core.db import get_latest_pipeline_run, init_db, log_event, log_pipeline_run_start, log_pipeline_run_end
 from core.misp_client import get_misp, get_misp_webapp
 from webapp import analyser_pipeline, audit, feed_cache, job_store, misp_store
@@ -103,6 +104,8 @@ def main() -> None:
         # no events so the feed caches below still get their scheduled refresh.
         misp = misp_webapp = None
         events = []
+        # The MISP each event is on: manual entries are kept on the webapp's.
+        sources = {}
         alerted, matched = set(), set()
         # With the daily briefing on, it judges every event of the day itself,
         # so nothing is rejected here for missing the focus points. Without it,
@@ -120,15 +123,23 @@ def main() -> None:
             # sent to the model, again on the next run.
             read_at = int(time.time())
             events = get_new_scraper_events(misp)
+            manual = get_new_manual_entries(misp_webapp)
+            sources = dict.fromkeys((e.uuid for e in events), misp) | dict.fromkeys((e.uuid for e in manual), misp_webapp)
+            events += manual
             # One alert per event, whichever run made it and whatever became of it.
             alerted = misp_store.flash_intel_source_uuids()
             # An advisory just made moved its event on to ongoing, which the read
             # above leaves out, but a CVE in a product we run can be worth an
-            # alert as well. Fetched again, so its tags are the ones it has now.
-            for uuid in advised - alerted - {e.uuid for e in events}:
-                event = misp.get_event(uuid, pythonify=True)
-                if not isinstance(event, dict):
-                    events.append(event)
+            # alert as well. Fetched again, so its tags are the ones it has now,
+            # from whichever of the two it is on. A search, because get_event
+            # logs an error for an event the other one has.
+            for uuid in advised - alerted - set(sources):
+                for client in (misp, misp_webapp):
+                    found = client.search(uuid=uuid, pythonify=True)
+                    if found and not isinstance(found, dict):
+                        events.append(found[0])
+                        sources[uuid] = client
+                        break
             if events and not for_briefing:
                 matched = set(analyser_pipeline.requirement_matches(events))
     except Exception as e:
@@ -161,7 +172,8 @@ def main() -> None:
             else:
                 keep_open_for = ""
             try:
-                result = process_flash_intel(misp, misp_webapp, event, focus_points, keep_open_for=keep_open_for)
+                result = process_flash_intel(sources[event.uuid], misp_webapp, event, focus_points,
+                                             keep_open_for=keep_open_for)
                 outcome = result["outcome"]
                 counts[outcome] = counts.get(outcome, 0) + 1
 

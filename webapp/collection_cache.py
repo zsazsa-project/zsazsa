@@ -56,6 +56,22 @@ AI_SUMMARY_PREFIX = "[AI-Summary]"
 # A summary of the whole event, written by the AI-connector MISP module.
 AI_EVENT_SUMMARY_PREFIX = "[AI-Event-Summary]"
 
+WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
+
+
+def dismissed_tag() -> str:
+    """Local tag marking an event an analyst set aside.
+
+    Used for events from another MISP server, whose workflow state belongs to
+    that server. Configurable under Configuration > Context elements.
+    """
+    return getattr(config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"')
+
+
+def is_set_aside(tags) -> bool:
+    """True when an analyst already rejected or dismissed the event."""
+    return WORKFLOW_REJECTED_TAG in tags or dismissed_tag() in tags
+
 
 def is_ai_summary_report(name: str) -> bool:
     """True for a report zsazsa wrote as an AI summary, of a report or of the event."""

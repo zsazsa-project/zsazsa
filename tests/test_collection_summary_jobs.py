@@ -394,13 +394,14 @@ class BatchAcrossSources(unittest.TestCase):
     """A selection can mix scraper events with manual entries, so the batch has
     to reach for the right connection per event rather than one for all."""
 
-    def _run(self, batch, sources=_ALL_SOURCES, cached=None):
+    def _run(self, batch, sources=_ALL_SOURCES, cached=None, outcomes=None):
         """Run the batch job with both MISP connections and the LLM stubbed out.
 
         ``cached`` is what the collection cache holds, by default the batch
         itself. The returned namespace holds the stubs, so a check can see which
         connection each event was loaded from and how often the source list and
-        the connections themselves were opened.
+        the connections themselves were opened. ``outcomes`` are what the
+        summaries come back with, in turn; by default every one is written.
         """
         if cached is None:
             cached = [{"uuid": ev["uuid"], "source_id": ev["sourceId"], "source_report_count": 1} for ev in batch]
@@ -415,9 +416,10 @@ class BatchAcrossSources(unittest.TestCase):
              mock.patch.object(data_collection.misp_store, "_scraper_misp", return_value=scraper_misp), \
              mock.patch.object(data_collection.misp_store, "_misp", return_value=webapp_misp) as open_webapp, \
              mock.patch.object(data_collection.job_store, "update_job") as update, \
+             mock.patch.object(data_collection.job_store, "append_log"), \
              mock.patch.object(data_collection.job_store, "heartbeat"), \
              mock.patch.object(data_collection, "_generate_ai_summary",
-                               return_value=(True, "ok", 200)) as generate:
+                               side_effect=outcomes or (lambda *a, **kw: (True, "ok", 200))) as generate:
             data_collection._run_summarise_job("job-1", batch, "koen@example.org")
         return SimpleNamespace(list_sources=list_sources, open_webapp=open_webapp,
                                scraper_misp=scraper_misp, webapp_misp=webapp_misp, server_misp=server_misp,
@@ -466,6 +468,22 @@ class BatchAcrossSources(unittest.TestCase):
         run = self._run([{"uuid": "b" * 36, "sourceId": "manual-slack"}], cached=[])
         run.generate.assert_not_called()
         run.webapp_misp.get_event.assert_not_called()
+
+    def test_a_batch_that_made_nothing_fails_with_the_reason(self):
+        """It ended green, with only "1 error(s)" in its message to say it had
+        not worked."""
+        run = self._run([{"uuid": "b" * 36, "sourceId": "manual-slack"}],
+                        outcomes=[(False, "QUALITY: insufficient content for analysis", 422)])
+        final = run.update.call_args.kwargs
+        self.assertEqual((final["status"], final["error"]),
+                         ("failed", "An event: QUALITY: insufficient content for analysis"))
+
+    def test_a_batch_that_made_some_completes_and_counts_its_errors(self):
+        run = self._run([{"uuid": "a" * 36, "sourceId": "scraper"}, {"uuid": "b" * 36, "sourceId": "manual-slack"}],
+                        outcomes=[(True, "ok", 200), (False, "QUALITY: insufficient content for analysis", 422)])
+        final = run.update.call_args.kwargs
+        self.assertEqual((final["status"], final["result"]["summarised"], final["result"]["errors"]),
+                         ("completed", 1, 1))
 
     def test_an_event_from_an_unwritable_source_is_skipped(self):
         run = self._run([{"uuid": "c" * 36, "sourceId": "partner-misp"}])

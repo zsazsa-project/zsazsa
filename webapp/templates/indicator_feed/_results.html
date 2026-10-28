@@ -18,7 +18,10 @@
         <i class="fas fa-triangle-exclamation me-1"></i>search failed
       </span>
       {% elif run %}
+      {# The plain text list has each value once, as indicator_values_text does. #}
+      {% set unique_values = rows | map(attribute='value') | map('string') | unique(case_sensitive=true) | list | length %}
       <span id="count-shown">{{ rows | length }}</span> shown
+      {%- if unique_values < rows | length %}<span id="count-unique" title="The same value is on more than one attribute. The feed URL's plain text list has each value once; CSV and JSON list every attribute.">, {{ unique_values }} unique values</span>{% endif %}
       <button type="button" class="btn btn-xs btn-outline-secondary ms-2" id="count-total-btn"
               data-url="{{ url_for('indicator_feed.count') }}?{{ query_string }}" data-shown="{{ rows | length }}">
         <i class="fas fa-calculator me-1"></i>Show total

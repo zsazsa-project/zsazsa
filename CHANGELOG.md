@@ -24,6 +24,8 @@
 
 ### Changed
 
+- An indicator feed's results table says how many unique values its rows hold when that is fewer, which is what the plain text list at the feed URL returns.
+- The analyser also reads the manual collection entries that have a report. It writes their AI summary and moves their workflow state on the webapp MISP they are kept on.
 - Rejection in flash intel and advisory previews opens a compact form beneath the button. QA checks show a spinner and a reminder to keep the page open for the result.
 - Product edit forms share the same draft action styling and no longer offer "Publish & notify". Draft products have a distinct "Preview and approve" action. Detection requests keep "Approve first" until approved, and only then show the normal Preview action. The new threat actor profile form no longer has a Recipients button.
 - The detection request marks Audience as required. The threat actor profile form explains the audience requirement and shows a warning while none is selected.
@@ -62,6 +64,8 @@
 
 ### Fixed
 
+- An AI summary job from data collection that created nothing because every summary failed showed as done, in green, with only its message counting the errors. It now fails with the reason. One that created some summaries is shown in amber as done with errors.
+- The scope preview of a PIR or GIR, and a PIR's Collection coverage card, counted events that had been rejected or dismissed in data collection. They are now left out.
 - Changing a product's TLP left its MISP event with the old TLP tag, except on flash intel alerts, and threat actor profiles and indicator feeds had none at all. Saving a product now sets it.
 - A PIR's Collection coverage card counted fewer events than its scope preview, because it left out the ATT&CK techniques. Both now search the same scope values.
 - Bulk deletion checks the review state again on the event being deleted, so a product that is no longer rejected is not removed.
@@ -87,6 +91,7 @@
 
 ### Upgrading
 
+- The next analyser run reads the manual entries that are still `incomplete` and have a report. With the scheduled daily briefing off, the check against the focus points rejects one that matches no focus point and no PIR or GIR, as it does a scraper event. Set an entry to `complete` before updating to keep it out.
 - Threat actor profiles and indicator feeds made before this release have no TLP tag on their MISP event, and a product other than a flash intel alert whose TLP was changed still has its old tag. Saving the product again sets the right one.
 - The `zsazsa-pir` object template is now version 8 with a `linked-gir-uuids` attribute. Nothing needs doing; existing PIRs are linked to no GIR.
 - The `zsazsa-daily-briefing` object template is now version 6 with a `rejection-reason` attribute. Nothing needs doing; existing briefings keep their state and have no rejection reason until rejected.

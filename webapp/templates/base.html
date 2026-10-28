@@ -940,11 +940,12 @@
         return j.status !== 'running' && j.status !== 'queued' && j.age < 3600;
       });
       var failed = recent.filter(function(j) { return j.status === 'failed'; });
+      var withErrors = recent.filter(function(j) { return j.with_errors; });
 
       badges.forEach(function(badge) {
         var icon = badge.querySelector('.job-badge-icon');
         var text = badge.querySelector('.job-badge-text');
-        badge.classList.remove('job-badge-running', 'job-badge-done', 'job-badge-failed');
+        badge.classList.remove('job-badge-running', 'job-badge-done', 'job-badge-warning', 'job-badge-failed');
         if (active.length) {
           badge.classList.remove('d-none');
           badge.classList.add('job-badge-running');
@@ -965,6 +966,13 @@
           icon.innerHTML = '<i class="fas fa-circle-xmark"></i>';
           text.textContent = failed.length === 1 ? failed[0].label + ' failed' : failed.length + ' jobs failed';
           badge.title = failed.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
+        } else if (withErrors.length) {
+          badge.classList.remove('d-none');
+          badge.classList.add('job-badge-warning');
+          icon.innerHTML = '<i class="fas fa-triangle-exclamation"></i>';
+          text.textContent = withErrors.length === 1 ? withErrors[0].label + ' done with errors'
+            : withErrors.length + ' jobs done with errors';
+          badge.title = withErrors.map(function(j) { return j.label + ': ' + j.message; }).join('\n');
         } else if (recent.length) {
           badge.classList.remove('d-none');
           badge.classList.add('job-badge-done');
@@ -982,8 +990,9 @@
         return;
       }
       list.innerHTML = jobs.map(function(job) {
-        var state = job.stale ? 'stalled' : job.status;
-        var tone = job.status === 'completed' ? 'text-bg-success'
+        var state = job.stale ? 'stalled' : job.with_errors ? 'completed with errors' : job.status;
+        var tone = job.with_errors ? 'text-bg-warning'
+                 : job.status === 'completed' ? 'text-bg-success'
                  : (job.status === 'failed' || job.stale) ? 'text-bg-danger'
                  : job.status === 'running' ? 'text-bg-primary' : 'text-bg-secondary';
         var unfinished = job.status === 'queued' || job.status === 'running';

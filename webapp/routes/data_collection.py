@@ -202,7 +202,7 @@ def _build_list_context() -> dict:
         for ev in events:
             if analyser_pipeline.title_excluded(ev.get("info") or "", excl_patterns):
                 briefing_excluded_uuids.add(ev["uuid"])
-                if not _is_set_aside(ev.get("tags", [])):
+                if not collection_cache.is_set_aside(ev.get("tags", [])):
                     briefing_pending_reject_uuids.add(ev["uuid"])
 
     return dict(
@@ -212,7 +212,7 @@ def _build_list_context() -> dict:
         limit=_DEFAULT_LIMIT,
         marker_tag=config.SCRAPER_MARKER_TAG,
         followup_tag=getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
-        dismissed_tag=_dismissed_tag(),
+        dismissed_tag=collection_cache.dismissed_tag(),
         total_reports=sum(ev.get("report_count", 0) for ev in events),
         sources=sources,
         has_manual_sources=any(s.get("kind") == "manual" for s in sources),
@@ -1254,23 +1254,6 @@ def scope_tag(uuid):
 
 
 _WORKFLOW_STATE_PREFIX = "workflow:state="
-_WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
-
-
-def _dismissed_tag() -> str:
-    """Local tag marking an event an analyst set aside.
-
-    Used for events from another MISP server, whose workflow state belongs to
-    that server. Configurable under Configuration > Context elements.
-    """
-    return getattr(config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"')
-
-
-def _is_set_aside(tags) -> bool:
-    """True when an analyst already rejected or dismissed the event."""
-    return _WORKFLOW_REJECTED_TAG in tags or _dismissed_tag() in tags
-
-
 def _force_workflow_tag(row: dict, tag_name: str) -> None:
     """Overwrite the cached row's workflow:state tag with the one we just applied.
 
@@ -1302,7 +1285,7 @@ def _apply_dismiss_tag(misp, event, source_id: str) -> tuple[bool, str]:
     carried the tag.
     """
     uuid = event.uuid
-    tag_name = _dismissed_tag()
+    tag_name = collection_cache.dismissed_tag()
     if any(getattr(t, "name", "") == tag_name for t in (getattr(event, "tags", []) or [])):
         return False, ""
 
@@ -1399,14 +1382,14 @@ def bulk_reject_excluded():
     if requested_uuids:
         events = [ev for ev in events if (ev.get("uuid") or "") in requested_uuids]
 
-    dismissed_tag = _dismissed_tag()
+    dismissed_tag = collection_cache.dismissed_tag()
     to_set_aside = []
     already_rejected = already_dismissed = 0
     for ev in events:
         if not analyser_pipeline.title_excluded(ev.get("info") or "", excl_patterns):
             continue
         tags = ev.get("tags", [])
-        if _WORKFLOW_REJECTED_TAG in tags:
+        if collection_cache.WORKFLOW_REJECTED_TAG in tags:
             already_rejected += 1
         elif dismissed_tag in tags:
             already_dismissed += 1
@@ -1444,7 +1427,7 @@ def bulk_reject_excluded():
             from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             rejected += 1
-            audit.record("tag", "misp-event", entity_id=uuid, details=_WORKFLOW_REJECTED_TAG)
+            audit.record("tag", "misp-event", entity_id=uuid, details=collection_cache.WORKFLOW_REJECTED_TAG)
             _refresh_cached_event(uuid, src_id, misp, context="bulk_reject_excluded")
         except Exception as exc:
             logger.warning("bulk_reject_excluded: failed to tag %s: %s", uuid, exc)
@@ -1598,7 +1581,7 @@ def bulk_reject():
             continue
 
         currently_rejected = any(
-            getattr(t, "name", "") == _WORKFLOW_REJECTED_TAG
+            getattr(t, "name", "") == collection_cache.WORKFLOW_REJECTED_TAG
             for t in (getattr(event, "tags", []) or [])
         )
         if currently_rejected:
@@ -1610,11 +1593,11 @@ def bulk_reject():
             tagger.set_workflow_state(misp, event, "rejected")
             audit.record(
                 "reject", "misp-event", entity_id=uuid, entity_label=event.info or uuid,
-                details=f"applied {_WORKFLOW_REJECTED_TAG}",
+                details=f"applied {collection_cache.WORKFLOW_REJECTED_TAG}",
             )
             _refresh_cached_event(
                 uuid, source_id, misp, context="bulk_reject",
-                row_mutator=lambda row: _force_workflow_tag(row, _WORKFLOW_REJECTED_TAG),
+                row_mutator=lambda row: _force_workflow_tag(row, collection_cache.WORKFLOW_REJECTED_TAG),
             )
             rejected += 1
         except Exception as exc:
@@ -1649,7 +1632,9 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
     """
     uuids = [(ev.get("uuid") or "").strip() for ev in batch if (ev.get("uuid") or "").strip()]
     cached = {(row["uuid"], row["source_id"]): row for row in collection_cache.get_events_by_uuids(uuids)}
-    summarised = event_summaries = errors = 0
+    summarised = event_summaries = 0
+    # What went wrong, one line per event and summary, as the job log has it.
+    failures = []
 
     run_id = log_pipeline_run_start(run_action, triggered_by="data collection") if run_action else 0
     job_store.update_job(job_id, status="running", message=f"Summarising {len(batch)} event(s)...")
@@ -1683,8 +1668,8 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
                 connections[key] = _connect_source(src)
             misp, why_not = connections[key]
             if misp is None:
-                job_store.append_log(job_id, f"{uuid[:8]}: {why_not}")
-                errors += 1
+                failures.append(f"{uuid[:8]}: {why_not}")
+                job_store.append_log(job_id, failures[-1])
                 continue
 
             # MISP's own JSON, which the AI-connector module is given as MISP gives
@@ -1693,12 +1678,12 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
                 misp_json = misp.get_event(uuid)
             except Exception as exc:
                 logger.warning("bulk_summarise: cannot load %s: %s", uuid, exc)
-                job_store.append_log(job_id, f"{uuid[:8]}: could not be loaded from MISP")
-                errors += 1
+                failures.append(f"{uuid[:8]}: could not be loaded from MISP")
+                job_store.append_log(job_id, failures[-1])
                 continue
             if not isinstance(misp_json, dict) or not isinstance(misp_json.get("Event"), dict):
-                job_store.append_log(job_id, f"{uuid[:8]}: not found on {source_id}")
-                errors += 1
+                failures.append(f"{uuid[:8]}: not found on {source_id}")
+                job_store.append_log(job_id, failures[-1])
                 continue
             event = MISPEvent()
             event.load(copy.deepcopy(misp_json))  # load() takes the dict apart
@@ -1714,14 +1699,15 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
                     outcomes.append(("event", *_generate_event_summary(misp, event, misp_json["Event"], source_id,
                                                                        user=user)))
             for what, ok, message, _status in outcomes:
+                line = f"{event.info or uuid[:8]}: {message}"
                 if not ok:
                     logger.warning("bulk_summarise: failed for %s: %s", uuid, message)
-                    errors += 1
+                    failures.append(line)
                 elif what == "report":
                     summarised += 1
                 else:
                     event_summaries += 1
-                job_store.append_log(job_id, f"{event.info or uuid[:8]}: {message}")
+                job_store.append_log(job_id, line)
 
         parts = []
         if mode != "event":
@@ -1730,12 +1716,16 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
             parts.append(f"{event_summaries} event summary/summaries created")
         if skipped:
             parts.append(f"{skipped} skipped")
-        if errors:
-            parts.append(f"{errors} error(s)")
+        if failures:
+            parts.append(f"{len(failures)} error(s)")
         result = {"summarised": summarised, "event_summaries": event_summaries, "skipped": skipped,
-                  "errors": errors, "message": ", ".join(parts)}
-        log_pipeline_run_end(run_id, "completed", result)
-        job_store.update_job(job_id, status="completed", result=result, message=result["message"])
+                  "errors": len(failures), "message": ", ".join(parts)}
+        # A run that made nothing and hit an error failed. Left green, it read
+        # as done, with only its message saying otherwise.
+        status = "failed" if failures and not (summarised or event_summaries) else "completed"
+        log_pipeline_run_end(run_id, status, result)
+        job_store.update_job(job_id, status=status, result=result, message=result["message"],
+                             error=failures[-1] if status == "failed" else None)
     except Exception as exc:
         log_pipeline_run_end(run_id, "failed")
         job_store.update_job(job_id, status="failed", error=str(exc), message=f"Failed: {exc}")
@@ -1845,7 +1835,7 @@ def reject_event(uuid):
 
     event_title = (getattr(event, "info", "") or "").strip() or uuid
     currently_rejected = any(
-        getattr(t, "name", "") == _WORKFLOW_REJECTED_TAG
+        getattr(t, "name", "") == collection_cache.WORKFLOW_REJECTED_TAG
         for t in (getattr(event, "tags", []) or [])
     )
 
@@ -1863,7 +1853,7 @@ def reject_event(uuid):
         logger.info("reject_event: marked %s rejected (%s)", uuid, event_title)
         audit.record(
             "reject", "misp-event", entity_id=uuid, entity_label=event_title,
-            details=f"applied {_WORKFLOW_REJECTED_TAG}",
+            details=f"applied {collection_cache.WORKFLOW_REJECTED_TAG}",
         )
         message = f"Event '{event_title[:80]}' marked as rejected."
     except Exception as exc:
@@ -1873,7 +1863,7 @@ def reject_event(uuid):
     # Refresh cache row so badge/state is immediately visible without a manual refresh
     _refresh_cached_event(
         uuid, source_id, misp, context="reject_event",
-        row_mutator=lambda row: _force_workflow_tag(row, _WORKFLOW_REJECTED_TAG),
+        row_mutator=lambda row: _force_workflow_tag(row, collection_cache.WORKFLOW_REJECTED_TAG),
     )
 
     return jsonify({

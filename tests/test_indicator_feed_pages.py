@@ -407,6 +407,22 @@ class RenderedPages(unittest.TestCase):
         self.assertNotIn("no query run", card.get_text())
         self.assertIsNotNone(card.select_one("#results-table"))
 
+    def test_the_count_says_how_many_values_the_plain_feed_lists(self):
+        """A value on several attributes is one line of the feed URL's plain
+        text list, so a demo feed of 28 rows was 23 lines there without the
+        page saying why. Values are compared as the list compares them, case
+        and all."""
+        rows = [_row("1.2.3.4"), _row("1.2.3.4", event_uuid="f" * 36), _row("ABC"), _row("abc")]
+        for found, said in ((rows, "4 shown, 3 unique values"), (rows[2:], "2 shown")):
+            with self.subTest(said), \
+                 mock.patch.object(misp_store, "search_indicators", return_value=found), \
+                 mock.patch.object(misp_store, "get_indicator_feed", return_value=_feed()), \
+                 mock.patch.object(misp_store, "get_pir", return_value=None):
+                html = self.client.get(f"/products/indicator-feed/{_UUID}").data
+            header = BeautifulSoup(html, "html.parser").select_one("#results .card-header")
+            self.assertIn(said, " ".join(header.get_text().split()))
+            self.assertEqual(header.select_one("#count-unique") is not None, "unique" in said)
+
     def test_a_saved_feed_offers_its_pymisp_script_with_the_downloads(self):
         with mock.patch.object(misp_store, "get_indicator_feed", return_value=_feed()), \
              mock.patch.object(misp_store, "get_pir", return_value=None):

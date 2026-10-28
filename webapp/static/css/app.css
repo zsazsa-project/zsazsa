@@ -733,6 +733,7 @@ body {
 .job-badge:hover { border-color: var(--misp-status-hover-border); }
 .job-badge-running  { color: var(--accent-blue); }
 .job-badge-done     { color: var(--accent-green); }
+.job-badge-warning  { color: var(--accent-orange); }
 .job-badge-failed   { color: var(--accent-red); }
 
 /* ─── Flash messages ────────────────────────────────────────────────────── */

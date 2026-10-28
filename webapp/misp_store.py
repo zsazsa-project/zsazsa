@@ -7308,6 +7308,7 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
     Whole-word-aware match (case-insensitive) over cached event fields, so a
     term like "gas" does not match inside "gasten". When ``timeframe_hours`` is
     set, only events whose MISP event date falls within that window are kept.
+    Events set aside in data collection are left out.
 
     Every configured collection source counts, not just the scraper: an
     installation collecting from other MISP servers would otherwise get an empty
@@ -7351,6 +7352,10 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
 
     rows = []
     for e in events:
+        # An event an analyst rejected or dismissed in data collection is
+        # nothing the requirement has to look at.
+        if collection_cache.is_set_aside(e.get("tags") or []):
+            continue
         if cutoff_date is not None:
             event_date = _parse_date(e.get("date"))
             if event_date is None or event_date < cutoff_date:

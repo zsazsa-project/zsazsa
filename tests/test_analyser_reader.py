@@ -1,4 +1,5 @@
-"""The analyser reads every scraper event changed since its watermark.
+"""The analyser reads every scraper event changed since its watermark, and
+every manual entry with a report.
 
 The run moves the watermark to the moment it started, so whatever the search
 did not return is never asked for again. That makes two things load-bearing:
@@ -62,6 +63,22 @@ class EveryPageIsRead(unittest.TestCase):
                 misp = _PagedMISP([_event(1), _event(2), _event(3)], fail_on_page=page)
                 with self.assertRaises(RuntimeError):
                     self.read(misp)
+
+
+
+class ManualEntries(unittest.TestCase):
+    """Manual collection entries are read too, from the webapp MISP, when they
+    have a report for the model to read."""
+
+    def test_only_an_incomplete_entry_with_a_report_is_read(self):
+        def entry(n, state=INCOMPLETE, reports=("Report",)):
+            return SimpleNamespace(uuid=f"m{n}", tags=[SimpleNamespace(name=state)], event_reports=list(reports))
+        misp = mock.Mock()
+        misp.search.return_value = [entry(1), entry(2, reports=()), entry(3, COMPLETE)]
+        with mock.patch.object(reader, "load_last_run", return_value=None):
+            read = reader.get_new_manual_entries(misp)
+        self.assertEqual([e.uuid for e in read], ["m1"])
+        self.assertEqual(misp.search.call_args.kwargs["tags"], [reader.TAG_MANUAL_ENTRY])
 
 
 if __name__ == "__main__":

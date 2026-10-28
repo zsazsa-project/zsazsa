@@ -9,6 +9,7 @@ generated config and the product source markers must all leave it out.
     python -m unittest tests.test_optional_scraper
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -391,13 +392,13 @@ class ScopePreviewSources(unittest.TestCase):
                    MISP_SERVERS=[_server()])
         collection_cache.init_db()
 
-    def cache(self, source_id, count=1, date="2026-09-01"):
+    def cache(self, source_id, count=1, date="2026-09-01", tags=()):
         with collection_cache._db() as conn:
             for i in range(count):
                 conn.execute(
                     "INSERT INTO events (source_id, uuid, info, date, tags, galaxy_names)"
-                    " VALUES (?,?,?,?,'[]','[]')",
-                    (source_id, f"{source_id}-{i}", f"{source_id} ransomware story", date))
+                    " VALUES (?,?,?,?,?,'[]')",
+                    (source_id, f"{source_id}-{i}", f"{source_id} ransomware story", date, json.dumps(list(tags))))
 
     def matches(self, **kwargs):
         return sorted({r["info"] for r in
@@ -441,6 +442,14 @@ class ScopePreviewSources(unittest.TestCase):
                                    matches=misp_store.preview_scope_matches(["ransomware"]),
                                    embedded=True, timeframe_action="", timeframe_key="", timeframe_options=[])
         self.assertIn("/collection/community-0?source=community", body)
+
+    def test_an_event_set_aside_in_data_collection_is_left_out(self):
+        """Rejected and dismissed events were 28 of the 46 matches of a PIR on
+        the demo server."""
+        self.cache("scraper", tags=[collection_cache.WORKFLOW_REJECTED_TAG])
+        self.cache("community", tags=[collection_cache.dismissed_tag()])
+        self.cache("manual-vendor-blog", tags=['workflow:state="incomplete"'])
+        self.assertEqual(self.matches(), ["manual-vendor-blog ransomware story"])
 
     def test_manual_sources_are_searched_without_naming_them_out_of_misp(self):
         """Listing manual sources pages through MISP, and this runs on every PIR

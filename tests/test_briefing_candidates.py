@@ -81,13 +81,14 @@ class RequirementMatches(unittest.TestCase):
         """Brief "Matched", which the model would reject but matches PIR-0003,
         "Off topic", which it rejects, and "On topic", which it keeps."""
         pipeline = analyser_pipeline
-        events = [SimpleNamespace(uuid=c * 36, info=title, tags=[], galaxies=[])
-                  for c, title in (("a", "Matched"), ("b", "Off topic"), ("c", "On topic"))]
+        self.events = events = [SimpleNamespace(uuid=c * 36, info=title, tags=[], galaxies=[])
+                                for c, title in (("a", "Matched"), ("b", "Off topic"), ("c", "On topic"))]
         reports = [SimpleNamespace(name="Article", content="An article")]
         self.created = []
         patches = [
             mock.patch.object(pipeline, "_common_candidate_events", return_value=(
-                None, events, {}, {"event_decisions": []}, {e.uuid: reports for e in events})),
+                {e.uuid: f"MISP of {e.info}" for e in events}, events, {}, {"event_decisions": []},
+                {e.uuid: reports for e in events})),
             mock.patch.object(pipeline, "daily_briefing_title_exclusions", return_value=[]),
             mock.patch.object(pipeline, "requirement_matches",
                               return_value={"a" * 36: [{"id": "PIR-0003", "type": "pir"}]}),
@@ -118,7 +119,8 @@ class RequirementMatches(unittest.TestCase):
         result = self.brief()
         self.assertEqual([c.kwargs["event_title"] for c in self.asked.call_args_list], ["Off topic", "On topic"])
         self.assertEqual([s["title"] for s in self.created[0]["stories"]], ["Matched", "On topic"])
-        self.assertEqual([c.args[1].info for c in self.rejected.call_args_list], ["Off topic"])
+        self.assertEqual([c.args[:2] for c in self.rejected.call_args_list],
+                         [("MISP of Off topic", self.events[1])])
         self.assertEqual((result["rejected_by_relevance"], result["event_decisions"][0]["reason"]),
                          (1, "Off"))
 
