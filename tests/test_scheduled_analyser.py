@@ -173,6 +173,16 @@ class Candidates(unittest.TestCase):
         self.assertEqual([e.uuid for e in entries], ["m1"])
         self.assertEqual(webapp.search.call_args.kwargs["tags"], [pipeline.misp_store.TAG_MANUAL_ENTRY])
 
+    def test_a_manual_entry_whose_report_was_deleted_is_not_read(self):
+        webapp = mock.create_autospec(PyMISP, instance=True)
+        deleted = SimpleNamespace(name="Report", deleted=True)
+        webapp.search.return_value = [SimpleNamespace(uuid="m1", tags=[SimpleNamespace(name='workflow:state="incomplete"')],
+                                                      event_reports=[deleted])]
+        pipeline = run_analyser.analyser_pipeline
+        with mock.patch.object(pipeline.misp_store, "_misp", return_value=webapp):
+            _misp, entries = pipeline._incomplete_manual_entries(days=2)
+        self.assertEqual(entries, [])
+
     def test_each_event_is_read_and_summarised_on_the_misp_it_is_on(self):
         pipeline = run_analyser.analyser_pipeline
         scraped = SimpleNamespace(uuid="a" * 36, info="Scraped", tags=[])
@@ -182,7 +192,7 @@ class Candidates(unittest.TestCase):
         with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
              mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [scraped])), \
              mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=("webapp", [entered])), \
-             mock.patch.object(pipeline, "_event_reports",
+             mock.patch.object(pipeline, "read_event_reports",
                                side_effect=lambda misp, e: used.append((e.info, misp)) or article), \
              mock.patch.object(pipeline, "_event_http_error", return_value=False), \
              mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
@@ -193,6 +203,42 @@ class Candidates(unittest.TestCase):
         self.assertEqual(clients, {scraped.uuid: "scraper", entered.uuid: "webapp"})
         # Their reports first, then their summaries.
         self.assertEqual(used, [("Scraped", "scraper"), ("Entered", "webapp")] * 2)
+
+    def test_a_manual_entry_synced_to_the_scraper_is_processed_once(self):
+        pipeline = run_analyser.analyser_pipeline
+        scraped = SimpleNamespace(uuid="a" * 36, id="42", info="Synced entry", tags=[])
+        entered = SimpleNamespace(uuid=scraped.uuid, id="91", info="Original entry", tags=[])
+        reports = [SimpleNamespace(name="Article", content="An article")]
+        with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
+             mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [scraped])), \
+             mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=("webapp", [entered])), \
+             mock.patch.object(pipeline, "read_event_reports", return_value=reports) as read, \
+             mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
+             mock.patch.object(pipeline, "_ensure_ai_summary", return_value=("", False)) as summarise:
+            clients, kept, *_ = pipeline._common_candidate_events()
+        self.assertEqual(kept, [entered])
+        self.assertEqual(clients, {entered.uuid: "webapp"})
+        read.assert_called_once_with("webapp", entered)
+        summarise.assert_called_once_with("webapp", entered, reports, {})
+
+    def test_a_report_read_failure_does_not_reject_a_manual_entry(self):
+        pipeline = run_analyser.analyser_pipeline
+        entered = SimpleNamespace(uuid="m" * 36, id="91", info="Manual entry", tags=[])
+        for reply in ({"errors": ["Report access refused"]}, ConnectionError("Report access refused")):
+            with self.subTest(reply=reply):
+                webapp = mock.create_autospec(PyMISP, instance=True)
+                if isinstance(reply, Exception):
+                    webapp.get_event_reports.side_effect = reply
+                else:
+                    webapp.get_event_reports.return_value = reply
+                with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
+                     mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [])), \
+                     mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=(webapp, [entered])), \
+                     mock.patch.object(pipeline, "_log"), \
+                     mock.patch.object(pipeline.tagger, "set_workflow_state") as state, \
+                     self.assertRaisesRegex((RuntimeError, ConnectionError), "Report access refused"):
+                    pipeline._common_candidate_events()
+                state.assert_not_called()
 
     def test_the_run_on_requirements_skips_an_event_with_an_alert(self):
         pipeline = run_analyser.analyser_pipeline
@@ -247,15 +293,18 @@ class BriefingDay(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
-    def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), manual=(), on_webapp=(), **on):
+    def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), manual=(), on_webapp=(), synced=(),
+                 search_error=False, **on):
         self.order = []
         self.misp = mock.create_autospec(PyMISP, instance=True)
         self.webapp = mock.create_autospec(PyMISP, instance=True)
 
         def found_on(webapp):
             """An advised event is on the scraper, or on the webapp MISP when in on_webapp."""
-            return lambda uuid, pythonify: ([SimpleNamespace(uuid=uuid, info="Advised")]
-                                            if (uuid in on_webapp) == webapp else [])
+            if search_error:
+                return lambda **kwargs: {"errors": ["Search refused"]}
+            return lambda uuid, pythonify, **filters: ([SimpleNamespace(uuid=uuid, info="Advised")]
+                                                      if (uuid in on_webapp) == webapp or uuid in synced else [])
         self.misp.search.side_effect = found_on(False)
         self.webapp.search.side_effect = found_on(True)
         results = {"vea": {"source_event_uuids": list(advised)}} if advised else {}
@@ -353,10 +402,32 @@ class Main(unittest.TestCase):
         self.assertEqual([(c.args[0], c.args[2].info) for c in self.process.call_args_list],
                          [(self.misp, "Scraped"), (self.webapp, "Entered")])
 
+    def test_a_manual_entry_synced_to_the_scraper_is_checked_once(self):
+        scraped = SimpleNamespace(uuid="a" * 36, id="42", info="Synced entry")
+        entered = SimpleNamespace(uuid=scraped.uuid, id="91", info="Original entry")
+        self.run_main(events=[scraped], manual=[entered])
+        self.assertEqual([(c.args[0], c.args[2]) for c in self.process.call_args_list],
+                         [(self.webapp, entered)])
+
     def test_an_advised_manual_entry_is_fetched_from_the_webapp_misp(self):
         self.run_main(due=["vea"], advised=["m" * 36], on_webapp={"m" * 36})
         self.assertEqual([(c.args[0], c.args[2].uuid) for c in self.process.call_args_list],
                          [(self.webapp, "m" * 36)])
+
+    def test_an_advised_manual_entry_uses_its_original_not_a_synced_copy(self):
+        uuid = "m" * 36
+        self.run_main(due=["vea"], advised=[uuid], on_webapp={uuid}, synced={uuid})
+        self.assertEqual([(c.args[0], c.args[2].uuid) for c in self.process.call_args_list],
+                         [(self.webapp, uuid)])
+        self.webapp.search.assert_called_once_with(uuid=uuid, pythonify=True,
+                                                  tags=[run_analyser.misp_store.TAG_MANUAL_ENTRY])
+        self.misp.search.assert_not_called()
+
+    def test_an_advised_event_search_error_is_not_treated_as_not_found(self):
+        with self.assertLogs("run_analyser", level="ERROR"), \
+             self.assertRaisesRegex(RuntimeError, "Search refused"):
+            self.run_main(due=["vea"], advised=["m" * 36], search_error=True)
+        self.process.assert_not_called()
 
     def test_switched_off_the_scraper_queue_is_left_where_it_is(self):
         """Moving the watermark over events nobody read would skip them for good."""

@@ -130,7 +130,7 @@ class SummaryProgress(unittest.TestCase):
         pipeline = analyser_pipeline
         with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
              mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=(None, events)), \
-             mock.patch.object(pipeline, "_event_reports", side_effect=lambda misp, e: reports[e.uuid]), \
+             mock.patch.object(pipeline, "read_event_reports", side_effect=lambda misp, e: reports[e.uuid]), \
              mock.patch.object(pipeline, "_event_http_error", return_value=False), \
              mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
              mock.patch.object(pipeline, "_ensure_ai_summary",

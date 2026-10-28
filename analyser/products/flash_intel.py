@@ -6,6 +6,7 @@ from pymisp import MISPEvent, MISPEventReport
 
 import config
 from analyser import llm, tagger
+from analyser.reader import read_event_reports
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +14,7 @@ _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
 # Must be the product type as PRODUCT_TYPES spells it: stakeholder subscriptions
 # and delivery modes are keyed by that string, so a near miss matches nobody.
 _FLASH_INTEL_PRODUCT_NAME = "Flash intel alert"
-# Classification stamped on every auto-generated alert, and the one its
-# notifications are sent under.
+# Default classification, raised when the source is more restricted.
 _AUTO_TLP = "amber"
 
 
@@ -33,10 +33,10 @@ def _get_source_reliability(event) -> str:
 
 
 def _get_reports(misp, event) -> tuple[str | None, list]:
-    reports = misp.get_event_reports(event.id, pythonify=True)
-    if not isinstance(reports, list) or not reports:
-        return None, []
-    return getattr(reports[0], "content", None), reports
+    from webapp.analyser_pipeline import _first_non_empty_report_content
+
+    reports = read_event_reports(misp, event)
+    return _first_non_empty_report_content(reports) or None, reports
 
 
 def _event_date(event) -> str:
@@ -52,7 +52,10 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     it is left open for: the daily briefing only reads the events nobody
     rejected.
     """
+    from webapp import misp_store
+
     source_feed = tagger.get_source_feed(event)
+    tlp = misp_store.source_events_tlp([event], _AUTO_TLP)
 
     http_error = _get_http_error(event)
     if http_error:
@@ -111,7 +114,7 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     product_event.threat_level_id = 2
     product_event.analysis = 2
     product_event.extends_uuid = event.uuid
-    product_event.add_tag(f"tlp:{_AUTO_TLP}")
+    product_event.add_tag(f"tlp:{tlp}")
     product_event.add_tag("curation:source:OSINT")
 
     product_event = misp_webapp.add_event(product_event, pythonify=True)
@@ -146,7 +149,7 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     # the draft. The summary seeds with the LLM body; analyst refines fields
     # before approving and publishing.
     object_saved = _add_flash_intel_object(misp_webapp, product_event, fia_id, event, fia_content, matched,
-                                           relevance.get("reason", ""))
+                                           relevance.get("reason", ""), tlp)
 
     # Mark the source event as routed for review (not yet complete). If that
     # does not take, the event still reads as incomplete and the next run makes
@@ -159,11 +162,11 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     if not object_saved:
         detail += " (draft object not saved)"
 
-    recipients = _automated_subscribers()
+    recipients = _automated_subscribers(tlp)
     auto = bool(recipients)
     if auto:
         try:
-            _auto_publish(misp_webapp, product_event, fia_id, fia_content, recipients)
+            _auto_publish(misp_webapp, product_event, fia_id, fia_content, recipients, tlp=tlp)
         except Exception as exc:
             logger.warning("Auto-publish failed for %s: %s", fia_id, exc)
             auto = False
@@ -184,18 +187,18 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     }
 
 
-def _automated_subscribers() -> list:
+def _automated_subscribers(tlp=_AUTO_TLP) -> list:
     """The stakeholders an alert may be published to without an analyst."""
     from webapp import misp_store
 
     try:
-        return misp_store.stakeholders_on_automated_mode(_FLASH_INTEL_PRODUCT_NAME, _AUTO_TLP)
+        return misp_store.stakeholders_on_automated_mode(_FLASH_INTEL_PRODUCT_NAME, tlp)
     except Exception as exc:
         logger.warning("Could not query stakeholders: %s", exc)
         return []
 
 
-def _auto_publish(misp_webapp, product_event, fia_id, content, recipients):
+def _auto_publish(misp_webapp, product_event, fia_id, content, recipients, tlp=_AUTO_TLP):
     """Mark the FIA approved, publish, and deliver it to the automated subscribers."""
     from notifier import dispatcher
     from webapp import misp_store
@@ -228,12 +231,12 @@ def _auto_publish(misp_webapp, product_event, fia_id, content, recipients):
     # are named directly; `id` carries the MISP link Mattermost puts under the
     # message. A channel that could not be reached is already logged by the
     # dispatcher, so the summary here only has to say who the alert was for.
-    fia = SimpleNamespace(fia_id=fia_id, tlp=_AUTO_TLP, id=product_event.id)
+    fia = SimpleNamespace(fia_id=fia_id, tlp=tlp, id=product_event.id)
     _ok, detail = dispatcher.delivery_outcome(dispatcher.send_flash_intel(fia, content, recipients))
     logger.info("%s auto-published to %d subscriber(s): %s", fia_id, len(recipients), detail)
 
 
-def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, content, matched, reason):
+def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, content, matched, reason, tlp):
     """Attach a draft zsazsa-flash-intel object to the product event. False when MISP refused it."""
     from webapp import misp_store
 
@@ -246,12 +249,14 @@ def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, co
 
     add("fia-id", fia_id)
     add("title", source_event.info)
-    add("tlp", _AUTO_TLP)
+    add("tlp", tlp)
     add("summary", _extract_section(content, "Summary"))
     add("source-description", f"OSINT feed: {tagger.get_source_feed(source_event)}")
     add("source-reliability", _get_source_reliability(source_event).upper())
     add("review-state", "draft")
     add("source-event-uuid", source_event.uuid)
+    misp_store._oa_json(obj, "source-event-hints",
+                        {source_event.uuid: misp_store.analyser_source_id(source_event)})
     add("author", "analyser")
     if matched:
         add("affected-assets", ", ".join(matched))
@@ -259,7 +264,7 @@ def _add_flash_intel_object(misp_webapp, product_event, fia_id, source_event, co
         add("analyser-reason", f"Focus points: {', '.join(matched)}. {reason}".strip())
     try:
         # Everyone the alert can reach, for the analyst to narrow down.
-        add("audience", misp_store.subscriber_audience(_FLASH_INTEL_PRODUCT_NAME, _AUTO_TLP))
+        add("audience", misp_store.subscriber_audience(_FLASH_INTEL_PRODUCT_NAME, tlp))
     except Exception as exc:
         logger.warning("Could not read the stakeholders for the audience of %s: %s", fia_id, exc)
     reply = misp_webapp.add_object(product_event, obj)

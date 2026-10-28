@@ -709,6 +709,11 @@ def _source_client(source_id: str):
     return _scraper_misp() if scraper_enabled() else None
 
 
+def analyser_source_id(event) -> str:
+    """Manual entries are on the webapp MISP; scraped events are on the scraper."""
+    return "webapp" if _event_has_tag(event, TAG_MANUAL_ENTRY) else "scraper"
+
+
 def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
                                           misp_client=None, source_id: str = "") -> None:
     """Tag a source event as having been used to create a product.
@@ -5690,6 +5695,23 @@ def _tlp_cleared(clearance: str, tlp: str) -> bool:
     return have_rank >= need_rank
 
 
+def source_events_tlp(events, default):
+    """Keep the default classification or the strictest source TLP, whichever is higher."""
+    strictest = default
+    for event in events:
+        for tag in getattr(event, "tags", []) or []:
+            name = tag.name.strip()
+            if not name.lower().startswith("tlp:"):
+                continue
+            level = _tlp_level(name)
+            if level is None:
+                logger.warning("Unrecognised source TLP %s on %s; using red", name, event.uuid)
+                level = "red"
+            if _TLP_RANK[level] > _TLP_RANK[strictest]:
+                strictest = level
+    return strictest
+
+
 def stakeholders_cleared_for(product_type: str, tlp: str) -> list:
     """Subscribers to `product_type` whose clearance covers its classification.
 
@@ -7352,8 +7374,6 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
 
     rows = []
     for e in events:
-        # An event an analyst rejected or dismissed in data collection is
-        # nothing the requirement has to look at.
         if collection_cache.is_set_aside(e.get("tags") or []):
             continue
         if cutoff_date is not None:

@@ -77,12 +77,15 @@ class DuplicateStories(unittest.TestCase):
 
 
 class RequirementMatches(unittest.TestCase):
-    def brief(self):
+    def brief(self, manual=False):
         """Brief "Matched", which the model would reject but matches PIR-0003,
         "Off topic", which it rejects, and "On topic", which it keeps."""
         pipeline = analyser_pipeline
         self.events = events = [SimpleNamespace(uuid=c * 36, info=title, tags=[], galaxies=[])
                                 for c, title in (("a", "Matched"), ("b", "Off topic"), ("c", "On topic"))]
+        if manual:
+            events[0].tags = [SimpleNamespace(name=pipeline.misp_store.TAG_MANUAL_ENTRY),
+                              SimpleNamespace(name="tlp:red")]
         reports = [SimpleNamespace(name="Article", content="An article")]
         self.created = []
         patches = [
@@ -128,6 +131,11 @@ class RequirementMatches(unittest.TestCase):
         result = self.brief()
         included = {d["title"]: d["reason"] for d in result["event_decisions"] if d["outcome"] == "included"}
         self.assertEqual(included, {"Matched": "Matches PIR-0003", "On topic": ""})
+
+    def test_a_manual_story_keeps_its_source_server(self):
+        self.brief(manual=True)
+        self.assertEqual(self.created[0]["stories"][0]["source_id"], "webapp")
+        self.assertEqual(self.created[0]["tlp"], "red")
 
 
 if __name__ == "__main__":

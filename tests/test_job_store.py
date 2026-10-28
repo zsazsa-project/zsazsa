@@ -84,6 +84,16 @@ class MemoryFallback(unittest.TestCase):
         self.redis.up = False
         self.assertEqual(job_store.list_jobs(), [])
 
+    def test_a_completed_job_says_when_it_counted_errors(self):
+        for label, status, errors in (("clean", "completed", 0), ("partial", "completed", 1), ("broken", "failed", 1)):
+            job = job_store.create_job("bulk-summarise", label)
+            job_store.update_job(job["id"], status=status, result={"errors": errors})
+        app = Flask(__name__)
+        app.register_blueprint(dashboard.bp)
+        jobs = app.test_client().get("/pipeline/jobs").get_json()["jobs"]
+        self.assertEqual({job["label"]: job["with_errors"] for job in jobs},
+                         {"clean": False, "partial": True, "broken": False})
+
 
 class ForgetFinished(unittest.TestCase):
     """The Remove buttons in the jobs panel drop entries, never work in flight."""
@@ -148,24 +158,6 @@ class ForgetFinished(unittest.TestCase):
             reply = app.test_client().post("/pipeline/jobs/clear", json={"scope": "all"})
         self.assertEqual(reply.get_json(), {"ok": True, "removed": 3})
         self.assertEqual(self._statuses(), ["queued"])
-
-
-
-class JobsPanel(unittest.TestCase):
-    """A job that went through but hit errors on the way is told apart from
-    one that went through cleanly, so the panel does not show it as plainly done."""
-
-    setUp = MemoryFallback.setUp
-
-    def test_a_completed_job_says_when_it_counted_errors(self):
-        for label, status, errors in (("clean", "completed", 0), ("partial", "completed", 1), ("broken", "failed", 1)):
-            job = job_store.create_job("bulk-summarise", label)
-            job_store.update_job(job["id"], status=status, result={"errors": errors})
-        app = Flask(__name__)
-        app.register_blueprint(dashboard.bp)
-        jobs = app.test_client().get("/pipeline/jobs").get_json()["jobs"]
-        self.assertEqual({job["label"]: job["with_errors"] for job in jobs},
-                         {"clean": False, "partial": True, "broken": False})
 
 
 if __name__ == "__main__":

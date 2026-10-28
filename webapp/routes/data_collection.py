@@ -1633,7 +1633,6 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
     uuids = [(ev.get("uuid") or "").strip() for ev in batch if (ev.get("uuid") or "").strip()]
     cached = {(row["uuid"], row["source_id"]): row for row in collection_cache.get_events_by_uuids(uuids)}
     summarised = event_summaries = 0
-    # What went wrong, one line per event and summary, as the job log has it.
     failures = []
 
     run_id = log_pipeline_run_start(run_action, triggered_by="data collection") if run_action else 0
@@ -1720,8 +1719,6 @@ def _run_summarise_job(job_id: str, batch: list[dict], user: str,
             parts.append(f"{len(failures)} error(s)")
         result = {"summarised": summarised, "event_summaries": event_summaries, "skipped": skipped,
                   "errors": len(failures), "message": ", ".join(parts)}
-        # A run that made nothing and hit an error failed. Left green, it read
-        # as done, with only its message saying otherwise.
         status = "failed" if failures and not (summarised or event_summaries) else "completed"
         log_pipeline_run_end(run_id, status, result)
         job_store.update_job(job_id, status=status, result=result, message=result["message"],

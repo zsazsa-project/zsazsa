@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import config
 from analyser import llm, tagger
-from analyser.reader import save_last_action
+from analyser.reader import read_event_reports, save_last_action
 from core import asset_inventory
 from core.db import log_event, log_pipeline_run_end, log_pipeline_run_start
 from core.vuln_lookup import CVE_RE, fetch_cve_info
@@ -206,7 +206,7 @@ def _incomplete_manual_entries(days=1, since=None):
     """
     misp = misp_store._misp()
     entries = _incomplete_events(misp, misp_store.TAG_MANUAL_ENTRY, days, since)
-    return misp, [e for e in entries if getattr(e, "event_reports", None)]
+    return misp, [e for e in entries if misp_store.live_reports(e)]
 
 
 def _incomplete_events(misp, marker_tag, days, since):
@@ -249,13 +249,6 @@ def _event_http_error(event) -> bool:
             return True
     return False
 
-
-
-def _event_reports(misp, event):
-    try:
-        return misp.get_event_reports(event.id, pythonify=True) or []
-    except Exception:
-        return []
 
 
 def _first_non_empty_report_content(reports) -> str:
@@ -408,7 +401,9 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
     if misp is not None:
         webapp_misp, entries = _incomplete_manual_entries(days, since)
         clients.update(dict.fromkeys((e.uuid for e in entries), webapp_misp))
-        events = events + entries
+        # A manual entry synced to the scraper is there too, under the same
+        # uuid. The entry itself is the one kept.
+        events = list({e.uuid: e for e in events + entries}.values())
     _emit(progress, "collect-events", "completed", f"Loaded {len(events)} incomplete event(s) of {period}.")
 
     hard_rejected = 0
@@ -423,7 +418,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=1, since
     _emit(progress, "filter-events", "in_progress", filter_msg + "...")
 
     for event in events:
-        reports = _event_reports(clients[event.uuid], event)
+        reports = read_event_reports(clients[event.uuid], event)
         reports_cache[event.uuid] = reports
         first_report = _first_non_empty_report_content(reports)
 
@@ -638,6 +633,7 @@ def run_daily_briefing_action(progress=None, days=1, since=None) -> dict:
             "drafted_by": drafted_by,
             "source_url": misp_store.extract_source_url(event),
             "source_event_uuid": event.uuid,
+            "source_id": misp_store.analyser_source_id(event),
             "correlation": "",
             "threat_actor_types": [actor_type] if actor_type else [],
             "sectors": context.get("sectors", []),
@@ -714,11 +710,12 @@ def run_daily_briefing_action(progress=None, days=1, since=None) -> dict:
           "Briefing summary written." if briefing_summary
           else "No briefing summary written; the draft opens without one.")
 
+    included_uuids = {s["source_event_uuid"] for s in stories}
     data = {
         "date": now.date().isoformat(),
         "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
         "author": "analyser",
-        "tlp": "clear",
+        "tlp": misp_store.source_events_tlp((e for e in events if e.uuid in included_uuids), "clear"),
         "escalations": "",
         "notes": "",
         "summary": briefing_summary,
@@ -785,11 +782,13 @@ def run_flash_intel_action(progress=None, days=1, since=None) -> dict:
         linked_pir_uuid = top.get("uuid", "") if top.get("type") == "pir" else ""
         requirement = requirements.get(top.get("uuid"))
         audience = misp_store.requirement_audience(requirement, stakeholders) if requirement else ""
+        tlp = misp_store.source_events_tlp([event], "amber")
+        fallback_audience = reachable if tlp == "amber" else misp_store.subscriber_audience("Flash intel alert", tlp)
 
         data = {
             "title": event.info or "Untitled",
-            "audience": audience or reachable,
-            "tlp": "amber",
+            "audience": audience or fallback_audience,
+            "tlp": tlp,
             "summary": (summaries.get(event.uuid) or "").strip(),
             "action_required": "Review and decide whether publication is required.",
             "what_happened": [],
@@ -817,6 +816,7 @@ def run_flash_intel_action(progress=None, days=1, since=None) -> dict:
             "feedback_deadline": "",
             "author": "analyser",
             "source_event_uuids": [event.uuid],
+            "source_event_hints": {event.uuid: misp_store.analyser_source_id(event)},
             "context_tags": [f"match:{m.get('id', '')}" for m in matches[:3] if m.get("id")],
             "linked_pir_uuid": linked_pir_uuid,
             "analyser_reason": "Matches " + "; ".join(
@@ -952,15 +952,16 @@ def run_vea_action(progress=None, days=1, since=None) -> dict:
             if enrichment.get("cvss_severity"):
                 cvss += f" {enrichment['cvss_severity']}"
 
+        tlp = misp_store.source_events_tlp([event], "amber")
         data = {
             "cve_id": "\n".join(cves),
             "summary": (drafted.get("summary") or summaries.get(event.uuid) or "").strip(),
             "cvss": cvss or drafted.get("cvss", ""),
             "cwe": enrichment.get("cwes", [""])[0] if enrichment.get("cwes") else drafted.get("cwe", ""),
             "title": event.info or "",
-            "tlp": "amber",
+            "tlp": tlp,
             "author": "analyser",
-            "audience": audience,
+            "audience": audience if tlp == "amber" else misp_store.subscriber_audience("Vulnerability advisory", tlp),
             "affected_product": ", ".join(enrichment.get("products") or []) or drafted.get("affected_product", ""),
             "affected_versions": ", ".join(enrichment.get("versions") or []) or drafted.get("affected_versions", ""),
             "fixed_version": "",
@@ -985,6 +986,7 @@ def run_vea_action(progress=None, days=1, since=None) -> dict:
             "context_tags": [f"cve:{c}" for c in cves],
             "review_state": misp_store.VEA_REVIEW_DRAFT,
             "source_event_uuid": event.uuid,
+            "source_event_hints": {event.uuid: misp_store.analyser_source_id(event)},
             "linked_pir_uuid": "",
             "analyser_reason": f"The event names {', '.join(cves)}. {exposure}".strip(),
         }

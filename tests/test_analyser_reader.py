@@ -13,6 +13,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from pymisp import PyMISP
+
 import config
 from analyser import reader
 
@@ -64,8 +66,6 @@ class EveryPageIsRead(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.read(misp)
 
-
-
 class ManualEntries(unittest.TestCase):
     """Manual collection entries are read too, from the webapp MISP, when they
     have a report for the model to read."""
@@ -73,12 +73,22 @@ class ManualEntries(unittest.TestCase):
     def test_only_an_incomplete_entry_with_a_report_is_read(self):
         def entry(n, state=INCOMPLETE, reports=("Report",)):
             return SimpleNamespace(uuid=f"m{n}", tags=[SimpleNamespace(name=state)], event_reports=list(reports))
-        misp = mock.Mock()
+        misp = mock.create_autospec(PyMISP, instance=True)
         misp.search.return_value = [entry(1), entry(2, reports=()), entry(3, COMPLETE)]
         with mock.patch.object(reader, "load_last_run", return_value=None):
             read = reader.get_new_manual_entries(misp)
         self.assertEqual([e.uuid for e in read], ["m1"])
         self.assertEqual(misp.search.call_args.kwargs["tags"], [reader.TAG_MANUAL_ENTRY])
+
+    def test_an_entry_whose_report_was_deleted_is_left_for_the_analyst(self):
+        """MISP keeps a deleted report on the event. Read, the entry would be
+        rejected for having nothing to summarise."""
+        deleted = SimpleNamespace(name="Report", deleted=True)
+        entry = SimpleNamespace(uuid="m1", tags=[SimpleNamespace(name=INCOMPLETE)], event_reports=[deleted])
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.search.return_value = [entry]
+        with mock.patch.object(reader, "load_last_run", return_value=None):
+            self.assertEqual(reader.get_new_manual_entries(misp), [])
 
 
 if __name__ == "__main__":

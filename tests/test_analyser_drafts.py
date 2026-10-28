@@ -36,6 +36,26 @@ STAKEHOLDERS = [_stakeholder("owner", "Cyber Threat Intelligence"), _stakeholder
                 _stakeholder("ir", "Incident Response"), _stakeholder("soc2", "SOC")]
 
 
+class SourceClassification(unittest.TestCase):
+    def test_source_tags_can_raise_but_not_lower_the_default(self):
+        for tags, default, expected in (
+            ([], "amber", "amber"),
+            (["tlp:clear"], "amber", "amber"),
+            (["tlp:green", "TLP:AMBER_STRICT"], "amber", "amber+strict"),
+            (["tlp:red", "tlp:white"], "clear", "red"),
+        ):
+            with self.subTest(tags=tags, default=default):
+                events = [SimpleNamespace(uuid=str(i), tags=[SimpleNamespace(name=name)])
+                          for i, name in enumerate(tags)]
+                self.assertEqual(misp_store.source_events_tlp(events, default), expected)
+
+    def test_an_unknown_source_classification_is_reported_and_treated_as_red(self):
+        event = SimpleNamespace(uuid="restricted", tags=[SimpleNamespace(name="tlp:unknown")])
+        with self.assertLogs(misp_store.logger, level="WARNING") as logs:
+            self.assertEqual(misp_store.source_events_tlp([event], "amber"), "red")
+        self.assertIn("restricted", logs.output[0])
+
+
 class Audience(unittest.TestCase):
     def test_a_requirement_s_owner_and_distribution(self):
         pir = SimpleNamespace(owner_uuid="owner", distribution=["soc", "soc2"])
@@ -50,8 +70,11 @@ class Audience(unittest.TestCase):
 
 
 class AlertFromARequirement(unittest.TestCase):
-    def alert(self, pir):
-        event = SimpleNamespace(uuid="e" * 36, info="Phishing against Belgian banks", tags=[], galaxies=[])
+    def alert(self, pir, manual=False, tlp=""):
+        tags = [SimpleNamespace(name=misp_store.TAG_MANUAL_ENTRY)] if manual else []
+        if tlp:
+            tags.append(SimpleNamespace(name=f"tlp:{tlp}"))
+        event = SimpleNamespace(uuid="e" * 36, info="Phishing against Belgian banks", tags=tags, galaxies=[])
         created = []
         with mock.patch.object(analyser_pipeline, "_common_candidate_events",
                                return_value=(None, [event], {}, {}, {})), \
@@ -68,6 +91,7 @@ class AlertFromARequirement(unittest.TestCase):
              mock.patch.object(analyser_pipeline, "_log"):
             analyser_pipeline.run_flash_intel_action()
         self.reason = created[0]["analyser_reason"]
+        self.created = created[0]
         return created[0]["audience"], reachable
 
     def test_it_is_for_the_requirement_s_stakeholders(self):
@@ -84,10 +108,23 @@ class AlertFromARequirement(unittest.TestCase):
         self.assertEqual(audience, "SOC")
         reachable.assert_called_once_with("Flash intel alert", "amber")
 
+    def test_a_manual_source_is_saved_with_its_existing_server_hint(self):
+        self.alert(SimpleNamespace(uuid="p", owner_uuid="", distribution=[]), manual=True)
+        self.assertEqual(self.created["source_event_hints"], {"e" * 36: "webapp"})
+
+    def test_a_restricted_source_is_not_downgraded(self):
+        _audience, reachable = self.alert(SimpleNamespace(uuid="p", owner_uuid="", distribution=[]),
+                                          manual=True, tlp="red")
+        self.assertEqual(self.created["tlp"], "red")
+        self.assertIn(mock.call("Flash intel alert", "red"), reachable.call_args_list)
+
 
 class AdvisoryForACoveredCve(unittest.TestCase):
-    def run_vea(self, cves_by_title, open_veas=()):
-        events = [SimpleNamespace(uuid=f"{i}" * 36, info=title, tags=[])
+    def run_vea(self, cves_by_title, open_veas=(), manual=False, tlp=""):
+        tags = [SimpleNamespace(name=misp_store.TAG_MANUAL_ENTRY)] if manual else []
+        if tlp:
+            tags.append(SimpleNamespace(name=f"tlp:{tlp}"))
+        events = [SimpleNamespace(uuid=f"{i}" * 36, info=title, tags=tags)
                   for i, title in enumerate(cves_by_title, start=1)]
         self.created, self.logged = [], []
 
@@ -132,6 +169,14 @@ class AdvisoryForACoveredCve(unittest.TestCase):
         self.run_vea({"Siemens": ["CVE-2026-110936"]}, done)
         self.assertEqual([v["cve_id"] for v in self.created], ["CVE-2026-110936"])
 
+    def test_a_manual_source_is_saved_with_its_existing_server_hint(self):
+        self.run_vea({"A manual entry": ["CVE-2026-110936"]}, manual=True)
+        self.assertEqual(self.created[0]["source_event_hints"], {"1" * 36: "webapp"})
+
+    def test_a_restricted_source_is_not_downgraded(self):
+        self.run_vea({"A manual entry": ["CVE-2026-110936"]}, manual=True, tlp="amber+strict")
+        self.assertEqual(self.created[0]["tlp"], "amber+strict")
+
 
 class OneFailedCall(unittest.TestCase):
     def test_a_summary_that_fails_leaves_the_other_events_alone(self):
@@ -145,7 +190,7 @@ class OneFailedCall(unittest.TestCase):
             return f"Summary of {event.info}", True
         with mock.patch.object(analyser_pipeline, "_refresh_scraper_cache"), \
              mock.patch.object(analyser_pipeline, "_incomplete_scraper_events", return_value=(None, events)), \
-             mock.patch.object(analyser_pipeline, "_event_reports", return_value=article), \
+             mock.patch.object(analyser_pipeline, "read_event_reports", return_value=article), \
              mock.patch.object(analyser_pipeline, "_event_http_error", return_value=False), \
              mock.patch.object(analyser_pipeline, "_build_galaxy_lookup", return_value={}), \
              mock.patch.object(analyser_pipeline, "_ensure_ai_summary", side_effect=summarise), \

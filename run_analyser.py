@@ -125,18 +125,23 @@ def main() -> None:
             events = get_new_scraper_events(misp)
             manual = get_new_manual_entries(misp_webapp)
             sources = dict.fromkeys((e.uuid for e in events), misp) | dict.fromkeys((e.uuid for e in manual), misp_webapp)
-            events += manual
+            # A manual entry synced to the scraper is there too, under the same
+            # uuid. The entry itself is the one kept.
+            events = list({e.uuid: e for e in events + manual}.values())
             # One alert per event, whichever run made it and whatever became of it.
             alerted = misp_store.flash_intel_source_uuids()
             # An advisory just made moved its event on to ongoing, which the read
             # above leaves out, but a CVE in a product we run can be worth an
-            # alert as well. Fetched again, so its tags are the ones it has now,
-            # from whichever of the two it is on. A search, because get_event
-            # logs an error for an event the other one has.
+            # alert as well. Fetched again, so its tags are the ones it has now.
+            # A manual entry is looked for first, so a copy of it synced to the
+            # scraper is not the one changed. A search, because get_event logs
+            # an error for an event the other MISP has.
             for uuid in advised - alerted - set(sources):
-                for client in (misp, misp_webapp):
-                    found = client.search(uuid=uuid, pythonify=True)
-                    if found and not isinstance(found, dict):
+                for client, filters in ((misp_webapp, {"tags": [misp_store.TAG_MANUAL_ENTRY]}), (misp, {})):
+                    found = client.search(uuid=uuid, pythonify=True, **filters)
+                    if isinstance(found, dict):
+                        raise RuntimeError(f"MISP search for advised event {uuid} failed: {found.get('errors') or found}")
+                    if found:
                         events.append(found[0])
                         sources[uuid] = client
                         break

@@ -265,7 +265,6 @@ def pipeline_jobs():
             "label": job.get("label") or job.get("action", ""),
             "status": status,
             "message": job.get("message", ""),
-            # A job that went through but not for everything it was given.
             "with_errors": status == "completed" and bool((job.get("result") or {}).get("errors")),
             "stale": job_store.stalled(job),
             "age": age,

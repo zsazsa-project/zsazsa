@@ -13,6 +13,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from pymisp import PyMISP
+
 import config
 from analyser.products import flash_intel
 from webapp import misp_store
@@ -84,6 +86,11 @@ class AutomatedSubscribers(unittest.TestCase):
     def test_no_mode_recorded_means_not_automated(self):
         self.assertEqual(self.select([_stakeholder("Silent", mode=None)]), [])
 
+    def test_the_source_classification_limits_automated_delivery(self):
+        with mock.patch.object(misp_store, "list_stakeholders", return_value=[
+                _stakeholder("Amber"), _stakeholder("Red", clearance="red")]):
+            self.assertEqual([s.name for s in flash_intel._automated_subscribers("red")], ["Red"])
+
     def test_nobody_on_automated_mode_leaves_nothing_to_publish_to(self):
         with mock.patch.object(misp_store, "list_stakeholders",
                                return_value=[_stakeholder("Manual", mode="after-approval")]):
@@ -95,16 +102,16 @@ class AutomatedSubscribers(unittest.TestCase):
 
 
 class AutoPublishDelivery(unittest.TestCase):
-    def publish(self, recipients, objects=None):
-        product_event = SimpleNamespace(uuid="u" * 36, id=42)
+    def publish(self, recipients, objects=None, tlp="amber"):
+        product_event = SimpleNamespace(uuid="u" * 36, id=42, tags=[SimpleNamespace(name=f"tlp:{tlp}")])
         # Auto-publish re-fetches the event to reach the draft object it just wrote.
-        misp_webapp = mock.Mock()
+        misp_webapp = mock.create_autospec(PyMISP, instance=True)
         misp_webapp.get_event.return_value = SimpleNamespace(
             objects=[_draft_object()] if objects is None else objects)
         summary = {"recipients": len(recipients), "sent_types": ["email"], "failed_types": []}
         with mock.patch("notifier.dispatcher.send_flash_intel", return_value=summary) as send, \
              mock.patch.object(flash_intel.tagger, "set_workflow_state"):
-            flash_intel._auto_publish(misp_webapp, product_event, "FIA-00042", "# Alert", recipients)
+            flash_intel._auto_publish(misp_webapp, product_event, "FIA-00042", "# Alert", recipients, tlp=tlp)
         return send, misp_webapp
 
     def test_the_alert_goes_to_the_subscribers_not_to_every_channel(self):
@@ -123,6 +130,10 @@ class AutoPublishDelivery(unittest.TestCase):
     def test_the_event_is_published_before_anything_is_sent(self):
         _send, misp_webapp = self.publish([_stakeholder("Acme")])
         misp_webapp.publish.assert_called_once_with("u" * 36, alert=False)
+
+    def test_delivery_uses_the_generated_products_classification(self):
+        send, _misp = self.publish([_stakeholder("Acme", clearance="red")], tlp="red")
+        self.assertEqual(send.call_args.args[0].tlp, "red")
 
     def test_the_draft_is_marked_approved(self):
         _send, misp_webapp = self.publish([_stakeholder("Acme")])

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import config
 from core.atomic_write import write_atomically
-from webapp.misp_store import TAG_MANUAL_ENTRY
+from webapp.misp_store import TAG_MANUAL_ENTRY, live_reports
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +86,18 @@ def get_new_manual_entries(misp) -> list:
     They are kept on the webapp MISP, so ``misp`` is that one. An entry without
     a report has nothing for the model to read and is left for the analyst.
     """
-    entries = [e for e in _new_incomplete_events(misp, TAG_MANUAL_ENTRY) if getattr(e, "event_reports", None)]
+    entries = [e for e in _new_incomplete_events(misp, TAG_MANUAL_ENTRY) if live_reports(e)]
     logger.info("Found %d manual entries to process", len(entries))
     return entries
+
+
+def read_event_reports(misp, event) -> list:
+    """The reports of an event. A failed request raises: read as an event
+    without reports, it would be rejected for having no content."""
+    reports = misp.get_event_reports(event.id, pythonify=True)
+    if isinstance(reports, dict):
+        raise RuntimeError(f"MISP report request failed: {reports.get('errors') or reports}")
+    return reports
 
 
 def _new_incomplete_events(misp, marker_tag) -> list:
