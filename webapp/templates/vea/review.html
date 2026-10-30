@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form with context %}
+{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form,
+    select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
 {% from "_sort_header.html" import sort_th with context %}
 
@@ -42,7 +43,6 @@
             {% endif %}
           </div>
         </form>
-        {{ delete_rejected_form(url_for('vea.delete_rejected'), rejected_count) }}
         {{ flow_help('How a vulnerability advisory is made') }}
       </div>
       {% if state_counts or exploitation_counts or tlp_counts or audience_counts %}
@@ -67,6 +67,7 @@
     <table class="table table-hover zsazsa-table mb-0">
       <thead>
         <tr>
+          {{ select_all_th() }}
           {{ sort_th('VEA', 'id', sort, dir, 'vea.review', '120px') }}
           {{ sort_th('CVE', 'cve', sort, dir, 'vea.review', '130px') }}
           {{ sort_th('Title', 'title', sort, dir, 'vea.review') }}
@@ -74,13 +75,16 @@
           <th>Exploitation</th>
           {{ sort_th('State', 'state', sort, dir, 'vea.review') }}
           {{ sort_th('Published', 'date', sort, dir, 'vea.review') }}
-          <th class="text-end">Actions</th>
+          <th class="text-end">
+            {% call selection_toolbar(url_for('vea.selected'), can_publish) %}{{ delete_rejected_form(url_for('vea.delete_rejected'), rejected_count) }}{% endcall %}
+          </th>
         </tr>
       </thead>
       <tbody>
         {% for v in veas %}
         {# ── Main row ── #}
         <tr id="vea-row-{{ v.uuid }}">
+          {{ select_cell(v.uuid, v.vea_id, v.review_state in ('draft', 'pending-review')) }}
           <td>
             <a href="{{ url_for('vea.detail', id=v.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ v.vea_id }}</span>
@@ -157,7 +161,7 @@
 
         {# ── Expandable preview row ── #}
         <tr id="vea-preview-{{ v.uuid }}" style="display:none;">
-          <td colspan="8" class="p-0">
+          <td colspan="9" class="p-0">
             <div class="qa-review-block" style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
 
               <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
@@ -304,6 +308,7 @@
 {% block scripts %}
 {% include "_markdown_js.html" %}
 {% include "_qa_review_js.html" %}
+{% include "_selection_js.html" %}
 <script>
 (function() {
   document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {

@@ -31,6 +31,8 @@
     border: 1px solid transparent; border-radius: 6px; padding: .45rem .55rem;
     background: transparent;
   }
+  .wb-story-row { display: flex; align-items: flex-start; gap: .1rem; }
+  .wb-story-check { flex-shrink: 0; margin-top: .65rem; cursor: pointer; }
   .wb-item:hover { background: var(--surface-hover); }
   .wb-item.active { background: var(--surface-tint); border-color: var(--border-light); }
   .wb-item.active .wb-item-title { color: var(--accent-blue); font-weight: 600; }
@@ -160,9 +162,15 @@
     <div class="card content-card wb-rail">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fas fa-list-ol me-2"></i>Contents</span>
-        <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-add-story" title="Add an empty story">
-          <i class="fas fa-plus"></i>
-        </button>
+        <span class="d-flex gap-1">
+          <button type="button" class="btn btn-xs btn-outline-danger" id="btn-delete-stories" disabled
+                  title="Tick stories below to delete them together. Shift-click ticks a range.">
+            <i class="fas fa-trash-can me-1"></i>Delete stories<span id="delete-stories-count"></span>
+          </button>
+          <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-add-story" title="Add an empty story">
+            <i class="fas fa-plus"></i>
+          </button>
+        </span>
       </div>
       {# One pane is on screen at a time and the rail chooses it, so the rail is a
          tablist. The separator and the story wrapper are presentational, which
@@ -627,6 +635,10 @@
 <script>
 var storyCount = {{ stories | length }};
 var isEditMode = {{ 'true' if page_mode == 'edit' else 'false' }};
+/* The stories ticked in the rail for deletion, by card: the rail is rebuilt on
+   every keystroke and the numbers move as stories go. */
+var storiesToDelete = new Set();
+var lastTicked = null;
 var storyTitleExclusions = {{ story_title_exclusions | tojson }};
 var threatActorTypes = {{ threat_actor_types | tojson }};
 /* Briefing-level scope values, lowercased, that no story accounts for: the
@@ -670,6 +682,39 @@ document.addEventListener('change', function(e) {
   if (e.target.id === 'briefing-tlp') syncShellMeta();
 });
 
+function updateDeleteStoriesButton() {
+  var count = storiesToDelete.size;
+  document.getElementById('btn-delete-stories').disabled = !count;
+  document.getElementById('delete-stories-count').textContent = count ? ' (' + count + ')' : '';
+}
+
+document.getElementById('rail-stories').addEventListener('click', function(e) {
+  if (!e.target.classList.contains('wb-story-check')) return;
+  var cards = _getStoryCards();
+  var boxes = Array.prototype.slice.call(this.querySelectorAll('.wb-story-check'));
+  var at = boxes.indexOf(e.target);
+  // Shift-click ticks or clears every story from the box clicked before.
+  var from = e.shiftKey && lastTicked !== null ? Math.min(lastTicked, at) : at;
+  var to = e.shiftKey && lastTicked !== null ? Math.max(lastTicked, at) : at;
+  for (var i = from; i <= to; i++) {
+    boxes[i].checked = e.target.checked;
+    if (e.target.checked) storiesToDelete.add(cards[i]);
+    else storiesToDelete.delete(cards[i]);
+  }
+  lastTicked = at;
+  updateDeleteStoriesButton();
+});
+
+document.getElementById('btn-delete-stories').addEventListener('click', function() {
+  var cards = _getStoryCards().filter(function(card) { return storiesToDelete.has(card); });
+  if (!cards.length) return;
+  if (!window.confirm('Delete ' + cards.length + (cards.length === 1 ? ' story' : ' stories')
+                      + ' from the briefing draft?')) return;
+  var position = _getStoryCards().indexOf(cards[0]) + 1;
+  cards.forEach(removeStoryCard);
+  afterStoriesRemoved(position);
+});
+
 document.getElementById('btn-add-story').addEventListener('click', function() {
   storyCount++;
   addStoryCard(storyCount, '', '', '', '');
@@ -688,10 +733,7 @@ document.addEventListener('click', function(e) {
     if (!card) return;
     var position = _getStoryCards().indexOf(card) + 1;
     removeStoryCard(card);
-    renumberStories();
-    updateOverlapButtonState();
-    refreshOverlapPairs();
-    showPaneAfterRemoval(position);
+    afterStoriesRemoved(position);
   }
   if (e.target.closest('.btn-draft-story')) {
     var btn = e.target.closest('.btn-draft-story');
@@ -811,6 +853,14 @@ function activePaneName() {
    editor blank. Land on the story that took its place, counting from where the
    analyst was, or on the details when the last story is gone. Does nothing when
    the pane they were looking at is still there. */
+/* What has to follow taking stories off the page, one or many. */
+function afterStoriesRemoved(position) {
+  renumberStories();
+  updateOverlapButtonState();
+  refreshOverlapPairs();
+  showPaneAfterRemoval(position);
+}
+
 function showPaneAfterRemoval(position) {
   if (document.querySelector('.wb-pane.active')) return;
   var left = _getStoryCards().length;
@@ -907,10 +957,24 @@ function refreshRail() {
     item.appendChild(dot);
     item.appendChild(num);
     item.appendChild(body);
-    container.appendChild(item);
+
+    // The tick box sits beside the tab rather than in it: a button cannot hold
+    // another control.
+    var row = document.createElement('div');
+    row.className = 'wb-story-row';
+    row.setAttribute('role', 'presentation');
+    var tick = document.createElement('input');
+    tick.type = 'checkbox';
+    tick.className = 'form-check-input wb-story-check';
+    tick.checked = storiesToDelete.has(card);
+    tick.setAttribute('aria-label', 'Select story ' + idx + ' to delete');
+    row.appendChild(tick);
+    row.appendChild(item);
+    container.appendChild(row);
   });
 
   railBody.scrollTop = scrolled;
+  updateDeleteStoriesButton();
   refreshSummaryRail();
   updateShellCounters();
 }
@@ -1083,6 +1147,8 @@ function refreshGatheredScope() {
 /* Removing a story takes with it what the briefing only holds because of it. */
 function removeStoryCard(card) {
   card.remove();
+  storiesToDelete.delete(card);
+  lastTicked = null;
   dropStoryScope(card);
   refreshGatheredScope();
   markSummaryStale();
@@ -1131,10 +1197,7 @@ function autoDeleteExcludedStories() {
     }
   });
   if (removed > 0) {
-    renumberStories();
-    updateOverlapButtonState();
-    refreshOverlapPairs();
-    showPaneAfterRemoval(1);
+    afterStoriesRemoved(1);
   }
   var statusEl = document.getElementById('overlap-status');
   if (statusEl) {

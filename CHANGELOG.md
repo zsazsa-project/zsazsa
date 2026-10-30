@@ -21,6 +21,8 @@
 - The lists of daily briefings, flash intel alerts, vulnerability advisories, indicator feeds, threat actor profiles and detection engineering requests have a "How ... is made" line under their filters. It opens each step from collection to delivery, and who does it: an analyst or the analyser.
 - PIRs can link to active GIRs, with clickable relationships on detail pages and beneath list titles.
 - The audit log under Reporting > Logs is pruned after `AUDIT_LOG_RETENTION_DAYS`, 365 by default. 0 keeps it for good, which the Logs page then says.
+- On the flash intel and advisory lists, drafts and those waiting for review can be ticked, then approved and published, rejected or deleted together from the top of the table.
+- Stories in a daily briefing can be ticked in its Contents list and deleted together with "Delete stories". Shift-click ticks a range.
 
 ### Changed
 

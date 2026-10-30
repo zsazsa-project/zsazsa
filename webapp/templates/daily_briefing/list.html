@@ -29,7 +29,6 @@
             {% endif %}
           </div>
         </form>
-        {{ delete_rejected_form(url_for('daily_briefing.delete_rejected'), rejected_count) }}
         {{ flow_help('How a daily briefing is made') }}
       </div>
       {% if state_counts or tlp_counts %}
@@ -59,7 +58,7 @@
           <th>TLP</th>
           {{ sort_th('State', 'state', sort, dir, 'daily_briefing.list_briefings') }}
           {{ sort_th('Published', 'date', sort, dir, 'daily_briefing.list_briefings') }}
-          <th class="text-end">Actions</th>
+          <th class="text-end">Actions{{ delete_rejected_form(url_for('daily_briefing.delete_rejected'), rejected_count) }}</th>
         </tr>
       </thead>
       <tbody>

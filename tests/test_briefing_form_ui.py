@@ -122,6 +122,20 @@ class BriefingComposeForm(unittest.TestCase):
         self.assertEqual(self.visible_pane(), "pane-details")
         self.assertEqual(self.page.locator("#count-stories").inner_text(), "0")
 
+    def test_ticked_stories_are_deleted_together(self):
+        """Thinning out a 73-story draft one story at a time took a click, a
+        confirmation and a wait for each one. Shift-click ticks a range."""
+        before = self.story_count()
+        boxes = self.page.locator("#rail-stories .wb-story-check")
+        boxes.nth(0).click()
+        boxes.nth(1).click(modifiers=["Shift"])
+        button = self.page.locator("#btn-delete-stories")
+        self.assertEqual(button.inner_text().strip(), "Delete stories (2)")
+        button.click()
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.story_count(), before - 2)
+        self.assertTrue(button.is_disabled())
+
     def test_applying_exclusions_leaves_a_pane_open(self):
         """Exclusions can delete the story being edited. Before this was
         handled the editor was left blank with no pane at all."""

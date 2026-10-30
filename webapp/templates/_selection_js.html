@@ -1,0 +1,60 @@
+{# The tick boxes and the toolbar of select_all_th(), select_cell() and
+   selection_toolbar() in _product_actions.html. #}
+<script>
+(function() {
+  var form = document.getElementById('selection-form');
+  if (!form) return;
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.row-select-cb'));
+  var all = document.getElementById('select-all-cb');
+  var idle = document.getElementById('selection-idle');
+
+  function ticked() {
+    return boxes.filter(function(box) { return box.checked; });
+  }
+
+  function update() {
+    var count = ticked().length;
+    form.classList.toggle('d-none', !count);
+    form.classList.toggle('d-inline-flex', !!count);
+    idle.classList.toggle('d-none', !!count);
+    form.querySelector('.selection-count').textContent = count;
+    if (all) {
+      all.checked = count > 0 && count === boxes.length;
+      all.indeterminate = count > 0 && count < boxes.length;
+    }
+  }
+
+  boxes.forEach(function(box) { box.addEventListener('change', update); });
+  if (all) {
+    all.disabled = !boxes.length;
+    all.addEventListener('change', function() {
+      boxes.forEach(function(box) { box.checked = all.checked; });
+      update();
+    });
+  }
+
+  // Asked on the button rather than on submit, which cannot tell which button
+  // was pressed in every browser.
+  form.querySelectorAll('button[data-confirm]').forEach(function(button) {
+    button.addEventListener('click', function(e) {
+      var count = ticked().length;
+      if (!count || !window.confirm(button.dataset.confirm.replace('{n}', count + ' selected'))) {
+        e.preventDefault();
+      }
+    });
+  });
+
+  form.addEventListener('submit', function() {
+    form.querySelectorAll('input[name="ids"]').forEach(function(input) { input.remove(); });
+    ticked().forEach(function(box) {
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'ids';
+      input.value = box.value;
+      form.appendChild(input);
+    });
+  });
+
+  update();
+})();
+</script>

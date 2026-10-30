@@ -301,10 +301,10 @@ class ProductLists(_Page):
         with mock.patch.object(misp_store, "list_fias", return_value=fias), \
              mock.patch.object(misp_store, "list_veas", return_value=veas):
             alerts, advisories = self.page("/products/flash-intel/"), self.page("/products/vea/")
-        reasons = [div.get_text() for div in alerts.select("tbody tr[id^=fia-row] td:nth-of-type(2) .text-muted")]
+        reasons = [div.get_text() for div in alerts.select("tbody tr[id^=fia-row] td:nth-of-type(3) .text-muted")]
         self.assertEqual(reasons, ["Focus points: Palo Alto. <b>Unit 42</b> wrote it."])
         self.assertIn("The event names CVE-2026-0257.",
-                      advisories.select_one("tbody tr[id^=vea-row] td:nth-of-type(3) .text-muted").get_text())
+                      advisories.select_one("tbody tr[id^=vea-row] td:nth-of-type(4) .text-muted").get_text())
 
     def test_the_bars_stay_when_the_filters_leave_nothing(self):
         """The bars went with the last record, and with them the way back."""
@@ -335,7 +335,7 @@ class ProductLists(_Page):
             page = self.page("/products/vea/")
             kev = self.page("/products/vea/?exploitation=KEV+listed&sort=title&dir=asc")
         self.assertIn("Exploitation Active 1 KEV listed 1 PoC public 1 Unknown 1", self.stats(page))
-        self.assertEqual([td.get_text(" ", strip=True) for td in page.select("tbody tr[id^=vea-row] td:nth-of-type(5)")],
+        self.assertEqual([td.get_text(" ", strip=True) for td in page.select("tbody tr[id^=vea-row] td:nth-of-type(6)")],
                          ["Active", "KEV listed", "PoC public", "Unknown"])
         self.assertEqual([a.get_text() for a in kev.select("tbody tr[id^=vea-row] .req-id-badge")], ["VEA-00002"])
         self.assertEqual(kev.select_one('select[name="exploitation"] option[selected]')["value"], "KEV listed")

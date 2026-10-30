@@ -246,7 +246,7 @@ class BriefingRejectionRoutes(unittest.TestCase):
                 if stale:
                     self.assertIn("out of date", form["data-submit-confirm"])
 
-    def test_only_draft_details_offer_rejection_and_an_empty_list_disables_bulk_delete(self):
+    def test_only_draft_details_offer_rejection_and_bulk_delete_is_off_with_nothing_rejected(self):
         for state in ("draft", "published"):
             with self.subTest(state=state), \
                  mock.patch.object(misp_store, "get_briefing",
@@ -257,9 +257,10 @@ class BriefingRejectionRoutes(unittest.TestCase):
                 page = BeautifulSoup(self.client.get(f"/briefing/{UUID}").data, "html.parser")
                 form = page.select_one(f'form[action="/briefing/{UUID}/reject"]')
                 self.assertEqual(form is not None, state == "draft")
-        with mock.patch.object(misp_store, "list_briefings", return_value=[]):
+        # Nothing rejected: the button is on the table, and off.
+        with mock.patch.object(misp_store, "list_briefings", return_value=[misp_store._briefing_ns(_event("draft"))]):
             page = BeautifulSoup(self.client.get("/briefing/").data, "html.parser")
-        self.assertTrue(page.select_one('form[action="/briefing/rejected/delete"] button').has_attr("disabled"))
+        self.assertTrue(page.select_one('th form[action="/briefing/rejected/delete"] button').has_attr("disabled"))
 
     def test_metadata_displays_the_saved_reason_as_text(self):
         reason = '<script>alert("no")</script>'

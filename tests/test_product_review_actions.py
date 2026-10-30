@@ -322,7 +322,9 @@ class ProductReviewActions(unittest.TestCase):
                     self.assertIn("regardless of the current filters", form["data-submit-confirm"])
                     self.assertEqual(form.select_one("[name=csrf_token]")["value"], "test-token")
                     button = form.select_one("button")
-                    self.assertIn("Delete all rejected products", button.get_text())
+                    self.assertIn("Delete rejected", button.get_text())
+                    # On the table with the entries, not with the filters.
+                    self.assertIsNotNone(form.find_parent("th"))
                     self.assertEqual(button.has_attr("disabled"), count == 0)
                     self.assertIn(str(count), button.get_text())
 
@@ -488,6 +490,68 @@ class ProductReviewActions(unittest.TestCase):
         self.assertIn("TLP clearance (clear) is below TLP:GREEN", page.get_text(" ", strip=True))
         with mock.patch.object(misp_store, "get_briefing", return_value=None):
             self.assertEqual(self.client.get(f"/briefing/{UUID}/recipients").status_code, 404)
+
+
+class TickedDrafts(unittest.TestCase):
+    """Drafts on the alert and advisory lists can be ticked and approved,
+    rejected or deleted together, as events are in data collection. Clearing
+    out a list of analyser drafts took a click and a confirmation each."""
+
+    setUp = ProductReviewActions.setUp
+    LISTS = ((flash_intel, "/products/flash-intel", "fia", "_start_flash_intel_delivery"),
+             (vea, "/products/vea", "vea", "_start_vea_delivery"))
+    STATES = {"a" * 36: "draft", "b" * 36: "pending-review", "c" * 36: "approved", "d" * 36: "rejected"}
+
+    def records(self, kind):
+        records = {}
+        for uuid, state in self.STATES.items():
+            record = _product(f"_{kind}_ns")
+            record.uuid, record.id, record.review_state = uuid, uuid, state
+            setattr(record, f"{kind}_id", f"{kind.upper()}-{state}")
+            records[uuid] = record
+        return records
+
+    def test_only_drafts_and_those_in_review_can_be_ticked(self):
+        for module, path, kind, _delivery in self.LISTS:
+            with self.subTest(kind), \
+                 mock.patch.object(misp_store, f"list_{kind}s", return_value=list(self.records(kind).values())):
+                page = BeautifulSoup(self.client.get(path + "/", headers=self.headers).data, "html.parser")
+            self.assertEqual([box["value"] for box in page.select(".row-select-cb")], ["a" * 36, "b" * 36])
+            self.assertEqual(page.select_one("#selection-form")["action"], f"/zsazsa{path}/selected")
+            self.assertIsNotNone(page.select_one("#select-all-cb"))
+
+    def post(self, module, path, kind, delivery, action, allowed=True):
+        records = self.records(kind)
+        self.can_publish.return_value = allowed
+        with mock.patch.object(misp_store, f"get_{kind}", side_effect=records.get), \
+             mock.patch.object(misp_store, f"publish_{kind}", return_value=True) as publish, \
+             mock.patch.object(misp_store, f"reject_{kind}") as reject, \
+             mock.patch.object(misp_store, f"delete_{kind}") as delete, \
+             mock.patch.object(module, delivery) as deliver:
+            response = self.client.post(path + "/selected", headers=self.headers,
+                                        data={"csrf_token": "test-token", "action": action, "ids": list(records)})
+        self.assertEqual(response.status_code, 302)
+        return SimpleNamespace(publish=publish, reject=reject, delete=delete, deliver=deliver)
+
+    def test_each_action_leaves_what_is_already_published_or_rejected(self):
+        for module, path, kind, delivery in self.LISTS:
+            with self.subTest(kind):
+                calls = self.post(module, path, kind, delivery, "delete")
+                self.assertEqual(calls.delete.call_args_list,
+                                 [mock.call("a" * 36, expected_state="draft"),
+                                  mock.call("b" * 36, expected_state="pending-review")])
+                calls = self.post(module, path, kind, delivery, "reject")
+                self.assertEqual([c.args[0] for c in calls.reject.call_args_list], ["a" * 36, "b" * 36])
+                calls = self.post(module, path, kind, delivery, "approve")
+                self.assertEqual([c.args[0] for c in calls.publish.call_args_list], ["a" * 36, "b" * 36])
+                self.assertEqual(calls.deliver.call_count, 2)
+
+    def test_approving_needs_publish_rights(self):
+        for module, path, kind, delivery in self.LISTS:
+            with self.subTest(kind):
+                calls = self.post(module, path, kind, delivery, "approve", allowed=False)
+                calls.publish.assert_not_called()
+                calls.deliver.assert_not_called()
 
 
 if __name__ == "__main__":

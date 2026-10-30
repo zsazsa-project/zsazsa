@@ -412,6 +412,52 @@ def delete_rejected():
     return redirect(url_for("flash_intel.review"))
 
 
+@bp.route("/selected", methods=["POST"])
+def selected():
+    """Approve and publish, reject or delete the alerts ticked on the list.
+
+    Only drafts and alerts waiting for review, each read again as it is now:
+    the list can be older than a change made in another tab.
+    """
+    action = request.form.get("action")
+    if action not in ("approve", "reject", "delete"):
+        return "Unknown action", 400
+    if action == "approve" and not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("approve and publish"), "warning")
+        return redirect(url_for("flash_intel.review"))
+    done = []
+    for id in request.form.getlist("ids"):
+        fia = misp_store.get_fia(id)
+        if fia is None or fia.review_state not in (misp_store.FIA_REVIEW_DRAFT, misp_store.FIA_REVIEW_PENDING):
+            continue
+        try:
+            if action == "approve":
+                if not (fia.audience or "").strip():
+                    flash(f"{fia.fia_id} has no target audience and was not published.", "warning")
+                    continue
+                if not misp_store.publish_fia(id):
+                    flash(f"{fia.fia_id}: {misp_store.MISP_NOT_PUBLISHED}", "warning")
+                audit.record("publish", "fia", entity_id=id, entity_label=fia.fia_id)
+                _start_flash_intel_delivery(fia.fia_id, id, "publish")
+            elif action == "reject":
+                misp_store.reject_fia(id)
+                audit.record("reject", "fia", entity_id=id, entity_label=fia.fia_id)
+            else:
+                misp_store.delete_fia(id, expected_state=fia.review_state)
+                audit.record("delete", "fia", entity_id=id, entity_label=fia.fia_id)
+            done.append(fia.fia_id)
+        except Exception as exc:
+            flash(f"Could not {action} {fia.fia_id}: {exc}", "warning")
+    verb = {"approve": "approved and published", "reject": "rejected", "delete": "deleted"}[action]
+    if done:
+        flash(f"{', '.join(done)} {verb}.", "success")
+        if action == "approve":
+            flash("Notifications are being sent in the background; the job badge reports the result.", "info")
+    else:
+        flash(f"Nothing was {verb}.", "info")
+    return redirect(url_for("flash_intel.review"))
+
+
 @bp.route("/<string:id>/delete", methods=["POST"])
 def delete(id):
     fia = misp_store.get_fia(id)

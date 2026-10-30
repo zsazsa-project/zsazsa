@@ -53,12 +53,16 @@
 </div>
 {% endmacro %}
 
+{# Sits in the Actions heading of a product list; the negative margin keeps it
+   from making the heading row taller. #}
 {% macro delete_rejected_form(action, count) %}
-<form method="post" action="{{ action }}" class="d-flex justify-content-end mt-2"
+<form method="post" action="{{ action }}" class="d-inline ms-2"
       data-submit-confirm="Delete all {{ count }} rejected products, regardless of the current filters? This cannot be undone.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <button type="submit" class="btn btn-xs btn-outline-danger" {% if not count %}disabled{% endif %}>
-    <i class="fas fa-trash me-1" aria-hidden="true"></i>Delete all rejected products ({{ count }})
+  <button type="submit" class="btn btn-xs btn-outline-danger text-nowrap" style="margin:-.3rem 0;"
+          title="{{ 'Delete all rejected products' if count else 'There are no rejected products' }}"
+          {% if not count %}disabled{% endif %}>
+    <i class="fas fa-trash me-1" aria-hidden="true"></i>Delete rejected ({{ count }})
   </button>
 </form>
 {% endmacro %}
@@ -82,6 +86,44 @@
           {% elif not has_audience %}disabled title="Select a target audience on the edit form before publishing."
           {% endif %}>
     <i class="fas fa-check me-1" aria-hidden="true"></i>Approve &amp; publish
+  </button>
+</form>
+{% endmacro %}
+
+{# Ticking the drafts on a product list to approve, reject or delete them
+   together, as events are ticked in data collection. The toolbar replaces the
+   Actions heading while something is ticked; _selection_js.html wires it up and
+   posts the ticked ids to ``action``. #}
+{% macro select_all_th() %}
+<th style="width:2rem;">
+  <input type="checkbox" class="form-check-input" id="select-all-cb" title="Select all drafts and those waiting for review" aria-label="Select all drafts and those waiting for review">
+</th>
+{% endmacro %}
+
+{% macro select_cell(record_id, label, selectable) %}
+<td>{% if selectable %}<input type="checkbox" class="form-check-input row-select-cb" value="{{ record_id }}" aria-label="Select {{ label }}">{% endif %}</td>
+{% endmacro %}
+
+{% macro selection_toolbar(action, can_publish) %}
+<span id="selection-idle">Actions{% if caller %}{{ caller() }}{% endif %}</span>
+{# The negative margin keeps the buttons from making the heading row taller. #}
+<form method="post" action="{{ action }}" id="selection-form" class="d-none flex-nowrap gap-1 justify-content-end align-items-center"
+      style="margin:-.3rem 0;white-space:nowrap;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <span class="small text-muted fw-normal me-1"><span class="selection-count"></span> selected</span>
+  <button type="submit" name="action" value="approve" class="btn btn-xs btn-outline-success"
+          data-confirm="Approve and publish {n}? Each goes out to its stakeholders." aria-label="Approve and publish"
+          title="{{ 'Approve and publish' if can_publish else 'Only users with MISP publish rights can approve and publish.' }}"
+          {% if not can_publish %}disabled{% endif %}>
+    <i class="fas fa-check" aria-hidden="true"></i>
+  </button>
+  <button type="submit" name="action" value="reject" class="btn btn-xs btn-outline-danger"
+          data-confirm="Reject {n}?" title="Reject" aria-label="Reject">
+    <i class="fas fa-ban" aria-hidden="true"></i>
+  </button>
+  <button type="submit" name="action" value="delete" class="btn btn-xs btn-outline-danger"
+          data-confirm="Delete {n}? This cannot be undone." title="Delete" aria-label="Delete">
+    <i class="fas fa-trash" aria-hidden="true"></i>
   </button>
 </form>
 {% endmacro %}

@@ -3,7 +3,8 @@
    context, for the filters. #}
 {% macro sort_th(label, key, sort, dir, endpoint, width="") %}
 {% set next_dir = 'desc' if (sort == key and dir == 'asc') else 'asc' %}
-<th{% if width %} style="width:{{ width }}"{% endif %}>
+{# A label never wraps away from its sort icon. #}
+<th style="white-space:nowrap;{% if width %}width:{{ width }};{% endif %}">
   <a href="{{ url_for(endpoint, **dict(request.args.to_dict(), sort=key, dir=next_dir)) }}"
      class="text-decoration-none text-reset">
     {{ label }}

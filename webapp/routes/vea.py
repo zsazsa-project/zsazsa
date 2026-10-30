@@ -502,6 +502,52 @@ def delete_rejected():
     return redirect(url_for("vea.review"))
 
 
+@bp.route("/selected", methods=["POST"])
+def selected():
+    """Approve and publish, reject or delete the advisories ticked on the list.
+
+    Only drafts and advisories waiting for review, each read again as it is now:
+    the list can be older than a change made in another tab.
+    """
+    action = request.form.get("action")
+    if action not in ("approve", "reject", "delete"):
+        return "Unknown action", 400
+    if action == "approve" and not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("approve and publish"), "warning")
+        return redirect(url_for("vea.review"))
+    done = []
+    for id in request.form.getlist("ids"):
+        vea = misp_store.get_vea(id)
+        if vea is None or vea.review_state not in (misp_store.VEA_REVIEW_DRAFT, misp_store.VEA_REVIEW_PENDING):
+            continue
+        try:
+            if action == "approve":
+                if not (vea.audience or "").strip():
+                    flash(f"{vea.vea_id} has no target audience and was not published.", "warning")
+                    continue
+                if not misp_store.publish_vea(id):
+                    flash(f"{vea.vea_id}: {misp_store.MISP_NOT_PUBLISHED}", "warning")
+                audit.record("publish", "vea", entity_id=id, entity_label=vea.vea_id)
+                _start_vea_delivery(vea.vea_id, id, "publish")
+            elif action == "reject":
+                misp_store.reject_vea(id)
+                audit.record("reject", "vea", entity_id=id, entity_label=vea.vea_id)
+            else:
+                misp_store.delete_vea(id, expected_state=vea.review_state)
+                audit.record("delete", "vea", entity_id=id, entity_label=vea.vea_id)
+            done.append(vea.vea_id)
+        except Exception as exc:
+            flash(f"Could not {action} {vea.vea_id}: {exc}", "warning")
+    verb = {"approve": "approved and published", "reject": "rejected", "delete": "deleted"}[action]
+    if done:
+        flash(f"{', '.join(done)} {verb}.", "success")
+        if action == "approve":
+            flash("Notifications are being sent in the background; the job badge reports the result.", "info")
+    else:
+        flash(f"Nothing was {verb}.", "info")
+    return redirect(url_for("vea.review"))
+
+
 @bp.route("/<string:id>/delete", methods=["POST"])
 def delete(id):
     vea = misp_store.get_vea(id)

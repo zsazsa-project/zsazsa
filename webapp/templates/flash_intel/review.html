@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form with context %}
+{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form,
+    select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
 {% from "_sort_header.html" import sort_th with context %}
 
@@ -39,7 +40,6 @@
             {% endif %}
           </div>
         </form>
-        {{ delete_rejected_form(url_for('flash_intel.delete_rejected'), rejected_count) }}
         {{ flow_help('How a flash intel alert is made') }}
       </div>
       {% if state_counts or tlp_counts or audience_counts %}
@@ -63,19 +63,23 @@
     <table class="table table-hover zsazsa-table mb-0">
       <thead>
         <tr>
+          {{ select_all_th() }}
           {{ sort_th('FIA', 'id', sort, dir, 'flash_intel.review', '110px') }}
           {{ sort_th('Title', 'title', sort, dir, 'flash_intel.review') }}
           <th>TLP</th>
           {{ sort_th('State', 'state', sort, dir, 'flash_intel.review') }}
           {{ sort_th('Published', 'date', sort, dir, 'flash_intel.review') }}
           <th>Author</th>
-          <th class="text-end">Actions</th>
+          <th class="text-end">
+            {% call selection_toolbar(url_for('flash_intel.selected'), can_publish) %}{{ delete_rejected_form(url_for('flash_intel.delete_rejected'), rejected_count) }}{% endcall %}
+          </th>
         </tr>
       </thead>
       <tbody>
         {% for f in fias %}
         {# ── Main row ── #}
         <tr id="fia-row-{{ f.uuid }}">
+          {{ select_cell(f.uuid, f.fia_id, f.review_state in ('draft', 'pending-review')) }}
           <td>
             <a href="{{ url_for('flash_intel.detail', id=f.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ f.fia_id }}</span>
@@ -143,7 +147,7 @@
 
         {# ── Expandable preview row ── #}
         <tr id="fia-preview-{{ f.uuid }}" style="display:none;">
-          <td colspan="7" class="p-0">
+          <td colspan="8" class="p-0">
             <div class="qa-review-block" style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
 
               {# Header strip #}
@@ -386,6 +390,7 @@
 {% block scripts %}
 {% include "_markdown_js.html" %}
 {% include "_qa_review_js.html" %}
+{% include "_selection_js.html" %}
 <script>
 (function() {
   // Preview row toggle
