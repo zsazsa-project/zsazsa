@@ -30,9 +30,15 @@ class EditHeading(unittest.TestCase):
         app.register_blueprint(briefing_routes.bp)
         briefing = _briefing(title)
         # The form asks whether a drafting job is running, which is a read of
-        # the Redis the app uses.
+        # the Redis the app uses, and fills its scope pickers from the galaxies
+        # on MISP.
+        store = briefing_routes.misp_store
         with mock.patch.object(job_store, "_command", return_value=None), \
-             mock.patch.object(briefing_routes.misp_store, "get_briefing", return_value=briefing), \
+             mock.patch.object(store, "galaxy_geography", return_value=[]), \
+             mock.patch.object(store, "galaxy_sectors", return_value=[]), \
+             mock.patch.object(store, "galaxy_threat_actors", return_value=[]), \
+             mock.patch.object(store, "galaxy_mitre_attack_patterns", return_value=[]), \
+             mock.patch.object(store, "get_briefing", return_value=briefing), \
              mock.patch.object(briefing_routes, "render_template", return_value="") as render:
             app.test_client().get(f"/briefing/{briefing.uuid}/edit")
         kwargs = render.call_args.kwargs

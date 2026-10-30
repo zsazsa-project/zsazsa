@@ -243,10 +243,7 @@ class StoryOrigin(unittest.TestCase):
     cannot tell an untouched AI draft from one an analyst has reworked."""
 
     def _written(self, story):
-        misp = mock.MagicMock()
-        misp_store._write_briefing_story_report(misp, "u" * 36, 1, story)
-        report = misp.add_event_report.call_args[0][1]
-        return json.loads(report.content)
+        return json.loads(misp_store._briefing_story_report(1, story).content)
 
     def test_the_drafting_state_is_stored_with_the_story(self):
         self.assertEqual(self._written({"content": "text", "drafted_by": "ai"})["drafted_by"], "ai")

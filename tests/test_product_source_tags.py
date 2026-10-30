@@ -188,7 +188,7 @@ class Editing(unittest.TestCase):
         with mock.patch.object(misp_store, "list_briefings", return_value=[]):
             result = self.edit(misp_store.update_briefing, _briefing_event([A, B]), _briefing_event([B, C]),
                                {"title": "Edited", "review_state": "draft", "stories": stories},
-                               ("_delete_briefing_reports", "_write_briefing_story_report", "_write_briefing_report"))
+                               ("_replace_reports",))
         self.assertEqual(result, ([C], [A]))
 
 

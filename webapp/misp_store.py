@@ -7044,26 +7044,35 @@ def render_briefing_markdown(briefing, preview_url: str = ""):
     return "\n".join(lines)
 
 
-def _delete_briefing_reports(misp, event):
-    """Permanently remove old story/summary reports before writing fresh ones.
+def _replace_reports(misp, event_uuid, stored, wanted, label):
+    """Make the event's reports in ``stored`` read as ``wanted``, matched by name.
 
-    A plain delete_event_report() only soft-deletes: the report stays in
-    event.event_reports (with deleted=True) and would be counted again
-    alongside the freshly written one on the next edit, doubling the
-    apparent story count. Hard-delete so the slate is actually clean.
+    An unchanged report is left alone and a changed one is edited in place.
+    Each write is a request and an audit log entry on MISP, so deleting and
+    adding every story on each save took a 73-story briefing ten seconds. A
+    report no longer wanted is hard-deleted: a soft-deleted one stays on the
+    event and would be read again as a story.
     """
-    for r in getattr(event, "event_reports", []) or []:
-        if getattr(r, "deleted", False):
-            continue
-        name = getattr(r, "name", "") or ""
-        if name.startswith(_STORY_REPORT_PREFIX) or name.startswith("briefing-"):
-            try:
-                misp.delete_event_report(r.id, hard=True)
-            except Exception as exc:
-                logger.warning("delete briefing report %s failed: %s", r.id, exc)
+    by_name, surplus = {}, []
+    for report in stored:
+        if report.name in by_name:
+            surplus.append(report)
+        else:
+            by_name[report.name] = report
+    for report in wanted:
+        old = by_name.pop(report.name, None)
+        if old is None:
+            _check(misp.add_event_report(event_uuid, report), f"add {label} {report.name}")
+        elif old.content != report.content:
+            _check(misp.update_event_report(report, old.id), f"update {label} {report.name}")
+    for old in surplus + list(by_name.values()):
+        try:
+            misp.delete_event_report(old.id, hard=True)
+        except Exception as exc:
+            logger.warning("delete %s %s failed: %s", label, old.id, exc)
 
 
-def _write_briefing_story_report(misp, event_uuid, index, story):
+def _briefing_story_report(index, story):
     from pymisp import MISPEventReport
     er = MISPEventReport()
     er.name = f"{_STORY_REPORT_PREFIX}{index:02d}]"
@@ -7088,11 +7097,11 @@ def _write_briefing_story_report(misp, event_uuid, index, story):
         "drafted_by": story.get("drafted_by", ""),
     })
     er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), f"add briefing story {index}")
+    return er
 
 
-def _write_briefing_report(misp, event_uuid, briefing):
-    """Store the whole briefing as one readable markdown report on its event.
+def _briefing_report(briefing):
+    """The whole briefing as one readable markdown report on its event.
 
     Not to be confused with the briefing's summary, which is the paragraph
     render_briefing_markdown() puts at the top of what this writes.
@@ -7102,7 +7111,7 @@ def _write_briefing_report(misp, event_uuid, briefing):
     er.name = f"briefing-{briefing.date or 'unknown'}"
     er.content = render_briefing_markdown(briefing)
     er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), "add briefing report")
+    return er
 
 
 def _briefing_source_uuids() -> set:
@@ -7142,11 +7151,10 @@ def create_briefing(data):
         _check(misp.add_object(_event_ref(result), _briefing_obj(data)), "add briefing object")
 
         for i, story in enumerate(data.get("stories", []), 1):
-            _write_briefing_story_report(misp, uuid, i, story)
+            _check(misp.add_event_report(uuid, _briefing_story_report(i, story)), f"add briefing story {i}")
 
         refreshed = misp.get_event(uuid, pythonify=True)
-        briefing = _briefing_ns(refreshed)
-        _write_briefing_report(misp, uuid, briefing)
+        _check(misp.add_event_report(uuid, _briefing_report(_briefing_ns(refreshed))), "add briefing report")
     except Exception:
         # Clean up the shell event so it doesn't appear as a dateless entry.
         try:
@@ -7205,13 +7213,14 @@ def _update_briefing(uuid, data, expected_state):
     _sync_object_attributes(misp, event, "zsazsa-daily-briefing", obj, "briefing")
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
 
-    _delete_briefing_reports(misp, event)
-    for i, story in enumerate(data.get("stories", []), 1):
-        _write_briefing_story_report(misp, uuid, i, story)
+    stored = live_reports(event)
+    _replace_reports(misp, uuid, [r for r in stored if (r.name or "").startswith(_STORY_REPORT_PREFIX)],
+                     [_briefing_story_report(i, story) for i, story in enumerate(data.get("stories", []), 1)],
+                     "briefing story")
 
     refreshed = misp.get_event(uuid, pythonify=True)
-    briefing = _briefing_ns(refreshed)
-    _write_briefing_report(misp, uuid, briefing)
+    _replace_reports(misp, uuid, [r for r in stored if (r.name or "").startswith("briefing-")],
+                     [_briefing_report(_briefing_ns(refreshed))], "briefing report")
 
     # Each story's source_id, so the tag goes to the MISP the story was collected from.
     _retag_product_sources("daily-briefing", _briefing_sources(existing.stories),

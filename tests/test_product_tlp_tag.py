@@ -58,7 +58,7 @@ class Editing(unittest.TestCase):
         "detection request": (misp_store.update_der, misp_store._der_obj, config.TAG_DETECTION_ENG,
                               ("_delete_der_reports", "_write_der_report")),
         "briefing": (misp_store.update_briefing, misp_store._briefing_obj, config.TAG_BRIEFING,
-                     ("_delete_briefing_reports", "_write_briefing_story_report", "_write_briefing_report")),
+                     ("_replace_reports",)),
         "landscape report": (misp_store.update_tlr, misp_store._tlr_obj, config.TAG_TLR, ()),
         "threat actor profile": (misp_store.update_threat_actor_profile, misp_store._tap_obj,
                                  config.TAG_THREAT_ACTOR_PROFILE, ("_apply_scope_tags", "_add_victimology_notes")),

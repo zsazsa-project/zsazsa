@@ -68,6 +68,7 @@
 
 ### Fixed
 
+- Saving a daily briefing deleted and wrote back every story report, this is slow. Only the reports that changed are written now.
 - Unreadable AI relevance answers leave events open and are logged as errors. Relevance checks have a larger token budget.
 - Focus-point alerts also filter by MISP event date, excluding recently edited old events. All analyser searches exclude future-dated events.
 - The mail, MISP report and chat posts of a vulnerability advisory had an "Action required" line under the summary, filled with the most likely case from the risk assessment. Advisories have no such field, so the line is removed (issue #69).
