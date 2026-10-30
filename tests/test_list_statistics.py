@@ -65,7 +65,10 @@ class _Page(unittest.TestCase):
                         mock.patch.object(config, "MISP_SESSION_COOKIE_NAME", "MISP-test", create=True),
                         mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
                         mock.patch.object(collection_cache, "start_worker"),
-                        mock.patch.object(misp_store, "list_stakeholders", return_value=[])):
+                        mock.patch.object(misp_store, "list_stakeholders", return_value=[]),
+                        # The PIR and GIR lists each read the other for their links.
+                        mock.patch.object(misp_store, "list_pirs", return_value=[]),
+                        mock.patch.object(misp_store, "list_girs", return_value=[])):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.client = create_app().test_client()

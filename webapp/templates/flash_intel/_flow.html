@@ -15,7 +15,7 @@
       The scheduled alerts are off{% if is_site_admin %}
       (<a href="{{ url_for('config_page.index', tab='tab-system') }}">Settings &gt; System</a>){% endif %}.
       {% endif %}
-      Started from the dashboard, it checks today's events against your PIRs and GIRs.
+      Started from the dashboard, it checks yesterday's and today's events against your PIRs and GIRs.
     </span>
   </span>
   <span class="flow-mode flow-hand">
@@ -35,7 +35,7 @@
     <div class="flow-row"><i class="fas fa-wand-magic-sparkles"></i><span>An AI summary tags the sectors, countries, actors and ATT&amp;CK techniques.</span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Selecting the events</span>
-      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Open events that came in or changed since the previous run, and today's when started from the dashboard</span></div>
+      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Open events of yesterday and today. On the schedule, only those that came in or changed since the previous run</span></div>
       <div class="flow-row"><i class="fas fa-link-slash"></i><span>Article not fetched or empty <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
       <div class="flow-row"><i class="fas fa-clone"></i><span>Already has an alert <span class="flow-out flow-out-skip">left out</span></span></div>
     </div>

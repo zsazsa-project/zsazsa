@@ -252,15 +252,32 @@ def match_event_to_requirement(
     category_hits = len({e.category for e in evidence})
     score = min(1.0, 0.25 + 0.1 * category_hits + 0.05 * total_weight)
 
-    req_label = getattr(req, "question", None) or getattr(req, "topic", None) or ""
     return ScopeMatch(
         req_type=req_type,
         req_id=getattr(req, "pir_id", None) or getattr(req, "gir_id", None) or "",
         req_uuid=req.uuid,
-        req_label=req_label,
+        req_label=_requirement_text(req),
         evidence=evidence,
         score=score,
     )
+
+
+def _requirement_text(req) -> str:
+    return getattr(req, "question", None) or getattr(req, "topic", None) or ""
+
+
+def requirement_scope(req) -> dict:
+    """A PIR or GIR as the model is shown it: its question or topic and the
+    scope it was matched on."""
+    scope = {"requirement": _requirement_text(req)}
+    for attr, _methods, _label, _weight in _SCOPE_CATEGORIES:
+        items = [i for i in (getattr(req, attr, None) or []) if i]
+        if items:
+            scope[attr] = items
+    excluded = [i for i in (getattr(req, "out_of_scope", None) or []) if i]
+    if excluded:
+        scope["out_of_scope"] = excluded
+    return scope
 
 
 def match_events(events: list, pirs: list, girs: list) -> dict:

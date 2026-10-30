@@ -186,6 +186,15 @@
             <a href="{{ url_for('requirements.pir_detail', id=pir.id) }}" class="fw-semibold text-decoration-none">
               {{ pir.question | truncate(90) }}
             </a>
+            {% if linked_girs.get(pir.uuid) %}
+            <div class="req-links text-muted small mt-1">
+              Related GIRs:
+              {% for g in linked_girs[pir.uuid] %}
+              <a href="{{ url_for('requirements.gir_detail', id=g.id) }}" class="text-decoration-none ms-1" title="{{ g.topic }}">
+                <span class="req-id-badge">{{ g.gir_id }}</span> {{ g.topic | truncate(40) }}</a>{{ ',' if not loop.last }}
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td>
             {% if pir.owner_stakeholder %}

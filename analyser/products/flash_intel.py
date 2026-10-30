@@ -45,14 +45,15 @@ def _event_date(event) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "") -> dict:
+def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "", open_alerts=()) -> dict:
     """Make a flash intel alert from an event whose article matches a focus point.
 
-    An event that matches none is rejected, unless ``keep_open_for`` says what
-    it is left open for: the daily briefing only reads the events nobody
-    rejected.
+    An event that matches none, or whose story one of ``open_alerts`` already
+    tells, is rejected, unless ``keep_open_for`` says what it is left open
+    for: the daily briefing only reads the events nobody rejected.
     """
     from webapp import misp_store
+    from webapp.analyser_pipeline import covering_alert
 
     source_feed = tagger.get_source_feed(event)
     tlp = misp_store.source_events_tlp([event], _AUTO_TLP)
@@ -72,16 +73,23 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
     source_reliability = _get_source_reliability(event)
 
     relevance = llm.check_relevance(article_content, focus_points, source_reliability)
+    if relevance is None:
+        # No verdict on the article, so it is not rejected for one.
+        return {"outcome": "error", "source_feed": source_feed, "detail": "The model's answer could not be read"}
     matched = relevance.get("matched_focus_points") or []
-    if not relevance.get("relevant") or not matched:
-        reason = relevance.get("reason", "")
+    if relevance.get("relevant") and matched:
+        covered_by = covering_alert(event.info or "", article_content, list(open_alerts))
+        reason = f"The same story as {covered_by}." if covered_by else ""
+    else:
+        reason = relevance.get("reason", "") or "Not relevant to the focus points."
         if relevance.get("relevant"):
             # The prompt asks for the focus points a relevant article matches.
-            reason = f"Relevant, but no focus point matched. {reason}".strip()
-        logger.info("Event %s not relevant: %s", event.uuid, reason)
+            reason = f"Relevant, but no focus point matched. {relevance.get('reason', '')}".strip()
+    if reason:
+        logger.info("Event %s gets no alert: %s", event.uuid, reason)
         if keep_open_for:
             return {"outcome": "not_relevant", "source_feed": source_feed,
-                    "detail": f"{reason} Kept open for {keep_open_for}.".strip()}
+                    "detail": f"{reason} Kept open for {keep_open_for}."}
         tagger.set_workflow_state(misp, event, "rejected")
         return {"outcome": "not_relevant", "source_feed": source_feed, "detail": reason}
 
@@ -103,7 +111,7 @@ def process(misp, misp_webapp, event, focus_points: dict, keep_open_for: str = "
         # error. Carrying on would file an alert holding only its own heading,
         # mark the source event as handled so it is never looked at again, and
         # send that to any subscriber on automated mode. Leave the event alone
-        # and let the next run try it again.
+        # for the daily briefing or a run from the dashboard to try again.
         logger.error("Flash intel generation returned nothing for %s", event.uuid)
         return {"outcome": "error", "source_feed": source_feed,
                 "detail": "The model returned an empty flash intel draft"}

@@ -60,7 +60,7 @@ class TheJobWritesOnce(unittest.TestCase):
              mock.patch.object(api.misp_store, "briefing_scope_summary", return_value=[]), \
              mock.patch.object(api, "_get_event_content_and_scope",
                                return_value=(content, {})), \
-             mock.patch.object(api, "_focus_points", return_value={}), \
+             mock.patch.object(api.analyser_pipeline, "focus_points", return_value={}), \
              mock.patch.object(api, "_threat_actor_types", return_value=[]), \
              mock.patch.object(api.audit, "record"), \
              mock.patch("analyser.llm.draft_briefing_story",
@@ -207,7 +207,7 @@ class APublishWhileDraftingIsNotUndone(unittest.TestCase):
         with mock.patch.object(api.misp_store, "get_briefing", return_value=_briefing()), \
              mock.patch.object(api.misp_store, "update_briefing", side_effect=published_meanwhile), \
              mock.patch.object(api, "_get_event_content_and_scope", return_value=("text", {})), \
-             mock.patch.object(api, "_focus_points", return_value={}), \
+             mock.patch.object(api.analyser_pipeline, "focus_points", return_value={}), \
              mock.patch.object(api, "_threat_actor_types", return_value=[]), \
              mock.patch.object(api.audit, "record") as record, \
              mock.patch("analyser.llm.draft_briefing_story", return_value=("Drafted.", "")):

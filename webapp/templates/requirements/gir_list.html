@@ -123,6 +123,15 @@
             {% if gir.description %}
             <div class="text-muted small">{{ gir.description | truncate(80) }}</div>
             {% endif %}
+            {% if linked_pirs.get(gir.uuid) %}
+            <div class="req-links text-muted small mt-1">
+              Related PIRs:
+              {% for p in linked_pirs[gir.uuid] %}
+              <a href="{{ url_for('requirements.pir_detail', id=p.id) }}" class="text-decoration-none ms-1" title="{{ p.question }}">
+                <span class="req-id-badge">{{ p.pir_id }}</span> {{ p.question | truncate(40) }}</a>{{ ',' if not loop.last }}
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td>
             {% if gir.owner_stakeholder %}

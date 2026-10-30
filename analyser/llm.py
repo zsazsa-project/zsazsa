@@ -234,16 +234,27 @@ def _feature_cfg(feature_id: str) -> dict:
         return {}
 
 
-def check_relevance(article_content: str, focus_points: dict, source_reliability: str) -> dict:
+def check_relevance(article_content: str, focus_points: dict, source_reliability: str) -> dict | None:
+    """The model's view of the article against the focus points, or None when
+    its answer could not be read, which is no verdict on the article."""
     fc = _feature_cfg("check_relevance")
     system = _build_system_prompt(
         _resolve_prompt(fc.get("prompt") or "flash_intel_relevance.md"),
         f"Focus points:\n{json.dumps(focus_points, indent=2)}\n\nSource reliability (Admiralty Scale): {source_reliability}",
     )
-    text = _call(system, _untrusted_block(article_content[:10000]), 512, feature="check_relevance", cfg=fc)
+    # A reasoning model spends part of the budget thinking, and at 512 a local
+    # one often ran out before it wrote the answer.
+    text = _call(system, _untrusted_block(article_content[:10000]), 1024, feature="check_relevance", cfg=fc)
     parsed = _json_object(text, "check_relevance")
     if parsed is None:
-        return {"relevant": False, "reason": "LLM response parse error"}
+        return None
+    matched = parsed.get("matched_focus_points")
+    if (type(parsed.get("relevant")) is not bool
+            or not isinstance(matched, list)
+            or any(not isinstance(point, str) for point in matched)
+            or not isinstance(parsed.get("reason"), str)):
+        logger.error("check_relevance returned an invalid answer shape")
+        return None
     return parsed
 
 
@@ -277,6 +288,16 @@ def generate_flash_intel(
     return _call(system, user_message, 2048, feature="generate_flash_intel", cfg=fc)
 
 
+def configured_focus_points() -> dict:
+    return {
+        "geographies": list(getattr(config, "FOCUS_POINTS_GEOGRAPHIES", []) or []),
+        "sectors": list(getattr(config, "FOCUS_POINTS_SECTORS", []) or []),
+        "technologies": list(getattr(config, "FOCUS_POINTS_TECHNOLOGIES", []) or []),
+        "threat_types": list(getattr(config, "FOCUS_POINTS_THREAT_TYPES", []) or []),
+        "threat_actors": list(getattr(config, "FOCUS_POINTS_THREAT_ACTORS", []) or []),
+    }
+
+
 def generate_fia_draft(
     content: str,
     event_info: str = "",
@@ -286,13 +307,7 @@ def generate_fia_draft(
 ) -> str:
     """Generate a Flash Intel Alert draft from article content."""
     if focus_points is None:
-        focus_points = {
-            "geographies": list(getattr(config, "FOCUS_POINTS_GEOGRAPHIES", []) or []),
-            "sectors": list(getattr(config, "FOCUS_POINTS_SECTORS", []) or []),
-            "technologies": list(getattr(config, "FOCUS_POINTS_TECHNOLOGIES", []) or []),
-            "threat_types": list(getattr(config, "FOCUS_POINTS_THREAT_TYPES", []) or []),
-            "threat_actors": list(getattr(config, "FOCUS_POINTS_THREAT_ACTORS", []) or []),
-        }
+        focus_points = configured_focus_points()
     fc = _feature_cfg("generate_fia_draft")
     extra_parts = []
     if focus_points:
@@ -398,24 +413,54 @@ def draft_briefing_summary(stories: list[dict], scope_summary: list = None, date
     return (text or "").strip()
 
 
-def review_briefing_relevance(event_title: str, report_title: str, content: str) -> dict:
-    """Decide if a source story should be included in the daily briefing."""
+BRIEFING_SCOPE_RULE = (
+    "This rule takes precedence over any broader instruction above. Include a story "
+    "only when it contains concrete threat information and substantively concerns one "
+    "of the focus points or answers one of the intelligence requirements below, or "
+    "when it is a major threat development every organisation needs to know about, "
+    "such as mass exploitation of a widely used product or a large supply-chain "
+    "compromise. Broad usefulness to defenders is not enough: the story must "
+    "contain threat information relevant to this organisation. "
+    "A passing mention of a country, sector or vendor is not a match, and neither is "
+    "the publisher of the story: a vendor describing how its own products protect "
+    "customers does not make the story about that vendor's technology. Leave out a "
+    "threat confined to regions, sectors and technologies the organisation does not "
+    "follow. If a requirement lists out-of-scope items, do not confirm a match when "
+    "the story is about one of them. Name the focus point or requirement in the "
+    "reason when there is one."
+)
+
+
+def review_briefing_relevance(event_title: str, report_title: str, content: str,
+                              focus_points: dict, requirements: list[dict]) -> dict | None:
+    """Decide if a source story belongs in the daily briefing of this
+    organisation, or None when the model's answer could not be read."""
     fc = _feature_cfg("review_briefing_relevance")
+    # The scope rule goes with the focus points rather than in the prompt file,
+    # so a prompt changed on the Prompts tab cannot leave it out.
     system = _build_system_prompt(
-        _resolve_prompt(fc.get("prompt") or "daily_briefing_relevance.md")
+        _resolve_prompt(fc.get("prompt") or "daily_briefing_relevance.md"),
+        f"{BRIEFING_SCOPE_RULE}\n\n"
+        f"Organisation focus points:\n{json.dumps(focus_points, indent=2)}\n\n"
+        f"Intelligence requirements:\n{json.dumps(requirements, indent=2)}",
     )
     payload = {
         "event_title": (event_title or "").strip(),
         "report_title": (report_title or "").strip(),
         "content": (content or "")[:12000],
     }
-    text = _call(system, json.dumps(payload, ensure_ascii=True), 256, feature="review_briefing_relevance", cfg=fc)
+    text = _call(system, _untrusted_block(json.dumps(payload, ensure_ascii=True)), 1024,
+                 feature="review_briefing_relevance", cfg=fc)
     parsed = _json_object(text, "review_briefing_relevance")
     if parsed is None:
-        return {"include": True, "reason": "fallback include on parse error"}
+        return None
+    if (type(parsed.get("include")) is not bool
+            or not isinstance(parsed.get("reason"), str)):
+        logger.error("review_briefing_relevance returned an invalid answer shape")
+        return None
     return {
-        "include": bool(parsed.get("include", True)),
-        "reason": (parsed.get("reason") or "").strip(),
+        "include": parsed["include"],
+        "reason": parsed["reason"].strip(),
     }
 
 

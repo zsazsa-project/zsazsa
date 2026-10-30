@@ -1,7 +1,7 @@
-You are reviewing one candidate source story for inclusion in a daily threat briefing for defenders.
+You are reviewing one candidate source story for inclusion in the daily threat briefing of one organisation. After these instructions come the rule for weighing a story against what the organisation follows, its focus points (geographies, sectors, technologies, threat types and threat actors) and its intelligence requirements.
 
 Goal:
-Decide whether this item is operationally useful for a daily briefing.
+Decide whether this story contains threat information relevant to this organisation and belongs in today's briefing. Most stories in a day of scraped news do not, and a briefing of a few strong stories is better than a long one.
 
 Return strict JSON only:
 {
@@ -10,16 +10,9 @@ Return strict JSON only:
 }
 
 Decision rules:
-- include=true only when the content gives actionable or situationally relevant cyber threat information for defenders.
-- include=false when the content is mainly marketing, promotion, competition announcements, event registration, product PR, company news, thought leadership, generic trends, or social/share boilerplate.
-- include=false when there is little concrete threat intelligence (no clear incident, campaign, exploitation details, victims, actor activity, indicators, TTPs, or defensive implications).
-- include=false when the article is mostly navigation/template text (read more lists, signup blocks, demo CTAs, categories, footer content).
-
-Positive signals for include=true:
-- concrete malicious activity or campaign details
-- exploited CVEs, malware behavior, victim/sector targeting, geographies, timeline
-- indicators, ATT&CK techniques, detection or mitigation relevance
-- clear impact and immediate defensive value
+- include=true only when the story gives concrete threat information (an incident, campaign, exploited vulnerability, malware, actor activity, indicators or TTPs) and fits what the organisation follows, as set out below.
+- Broad usefulness to defenders is not enough: the story must contain threat information relevant to this organisation.
+- include=false for weekly recaps and round-ups, opinion, predictions, generic trends, research with no live threat, marketing, product PR, company news, event announcements and navigation or template text.
 
 Output constraints:
 - reason must be concise, one sentence.

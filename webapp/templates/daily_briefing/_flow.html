@@ -23,17 +23,17 @@
 </div>
 
 <div class="flow">
-  {{ funnel(["Everything collected", "Today's open events", "What is relevant", "One draft", "Approved", "Delivered"]) }}
+  {{ funnel(["Everything collected", "Recent open events", "What is relevant", "One draft", "Approved", "Delivered"]) }}
   {{ collection_step() }}
 
   <div class="flow-step flow-next-auto flow-is-auto" style="--step-color:var(--accent-blue);">
-    {{ step_head(2, 'fa-tags', 'Triage and enrichment', 75, "Today's open events") }}
+    {{ step_head(2, 'fa-tags', 'Triage and enrichment', 75, "Recent open events") }}
     <div class="flow-row"><i class="fas fa-rss"></i><span>The scraper tags the feed, the source and its reliability (Admiralty scale).</span></div>
     <div class="flow-row"><i class="fas fa-traffic-light"></i><span>TLP, and the workflow state <em>incomplete</em>.</span></div>
     <div class="flow-row"><i class="fas fa-wand-magic-sparkles"></i><span>An AI summary tags the sectors, countries, actors and ATT&amp;CK techniques.</span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Selecting the events</span>
-      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Today's events still open, and yesterday's on the scheduled run</span></div>
+      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Yesterday's and today's events still open</span></div>
       <div class="flow-row"><i class="fas fa-link-slash"></i><span>Article not fetched or empty <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
       <div class="flow-row"><i class="fas fa-filter"></i><span>Excluded title <span class="flow-out flow-out-skip">left out</span></span></div>
       <div class="flow-row"><i class="fas fa-clone"></i><span>Already in a briefing <span class="flow-out flow-out-skip">left out</span></span></div>
@@ -50,9 +50,9 @@
     <div class="flow-row"><i class="fas fa-star"></i><span>Matches the scope of an active PIR or GIR <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>always in</span></span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Every other event</span>
-      <div class="flow-row"><i class="fas fa-shield-halved"></i><span>The AI asks: is it useful threat intelligence? An incident, a campaign, an exploited CVE or attacker techniques, not marketing or company news.</span></div>
-      <div class="flow-row"><i class="fas fa-circle-check"></i><span>Useful <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>kept</span></span></div>
-      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>Not useful <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span> with the reason in a report on the event</span></div>
+      <div class="flow-row"><i class="fas fa-shield-halved"></i><span>Does it contain threat information relevant to us? An incident, a campaign, an exploited CVE or attacker techniques, not marketing or company news.</span></div>
+      <div class="flow-row"><i class="fas fa-circle-check"></i><span>Relevant threat information <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>kept</span></span></div>
+      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>No relevant threat information <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span> with the reason in a report on the event</span></div>
     </div>
     <div class="flow-links">
       <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-star me-1"></i>PIRs</a>

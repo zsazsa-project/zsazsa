@@ -16,16 +16,6 @@ from webapp import analyser_pipeline, audit, feed_cache, job_store, misp_store
 from webapp.utils import scraper_enabled
 
 
-def load_focus_points() -> dict:
-    return {
-        "geographies": list(getattr(config, "FOCUS_POINTS_GEOGRAPHIES", []) or []),
-        "sectors": list(getattr(config, "FOCUS_POINTS_SECTORS", []) or []),
-        "technologies": list(getattr(config, "FOCUS_POINTS_TECHNOLOGIES", []) or []),
-        "threat_types": list(getattr(config, "FOCUS_POINTS_THREAT_TYPES", []) or []),
-        "threat_actors": list(getattr(config, "FOCUS_POINTS_THREAT_ACTORS", []) or []),
-    }
-
-
 def scheduled_actions(now: datetime) -> list[str]:
     """The dashboard's analyser actions this run makes, switched on under
     Settings > System. The daily briefing comes once a day, from its hour on."""
@@ -62,14 +52,11 @@ def run_scheduled_actions(actions: list[str], now: datetime) -> dict:
         label = analyser_pipeline.ACTION_LABELS[action]
         job = job_store.create_job(action, label=f"Scheduled {label.lower()}",
                                    steps=analyser_pipeline.action_steps(action))
-        # Yesterday's events too: one that came in after the last run of the
-        # day, or after the day's briefing, would otherwise never be read. The
-        # briefing takes the two days whole, once a day. The others run every
-        # hour and only read what came in or changed since they last did, or an
-        # event would be checked, and logged, some 48 times over.
+        # The briefing takes yesterday and today whole, once a day. The others
+        # run every hour and only read what came in or changed since they last
+        # did, or an event would be checked, and logged, some 48 times over.
         since = None if action == "daily-briefing" else _last_scheduled_run(action)
-        result = analyser_pipeline.run_action(job["id"], "analyser", triggered_by="schedule", days=2,
-                                              since=since)
+        result = analyser_pipeline.run_action(job["id"], "analyser", triggered_by="schedule", since=since)
         if result is None:
             continue
         results[action] = result
@@ -98,7 +85,7 @@ def main() -> None:
         # briefing, which rejects too, goes last.
         results = run_scheduled_actions([a for a in due if a != "daily-briefing"], now)
         advised = set((results.get("vea") or {}).get("source_event_uuids") or [])
-        focus_points = load_focus_points()
+        focus_points = analyser_pipeline.focus_points()
         # Only the event analysis needs the scraper. An installation that
         # collects from other MISP servers has none, and the run goes ahead with
         # no events so the feed caches below still get their scheduled refresh.
@@ -107,10 +94,11 @@ def main() -> None:
         # The MISP each event is on: manual entries are kept on the webapp's.
         sources = {}
         alerted, matched = set(), set()
+        open_alerts = []
         # With the daily briefing on, it judges every event of the day itself,
         # so nothing is rejected here for missing the focus points. Without it,
-        # an event a PIR or GIR matches is still left open: a briefing started
-        # from the dashboard always includes those.
+        # an event a PIR or GIR matches is still left open for a briefing
+        # started from the dashboard to judge.
         for_briefing = getattr(config, "ANALYSER_DAILY_BRIEFING", False)
         if not scraper_enabled():
             logger.info("No MISP scraper configured; refreshing feed caches only")
@@ -147,6 +135,8 @@ def main() -> None:
                         break
             if events and not for_briefing:
                 matched = set(analyser_pipeline.requirement_matches(events))
+            if events:
+                open_alerts = analyser_pipeline.open_alerts()
     except Exception as e:
         logger.error("Startup failed: %s", e)
         log_pipeline_run_end(run_id, "failed")
@@ -178,8 +168,10 @@ def main() -> None:
                 keep_open_for = ""
             try:
                 result = process_flash_intel(sources[event.uuid], misp_webapp, event, focus_points,
-                                             keep_open_for=keep_open_for)
+                                             keep_open_for=keep_open_for, open_alerts=open_alerts)
                 outcome = result["outcome"]
+                if outcome == "product_created":
+                    open_alerts.append({"id": result["fia_id"], "title": event.info, "content": result["content"]})
                 counts[outcome] = counts.get(outcome, 0) + 1
 
                 log_event(

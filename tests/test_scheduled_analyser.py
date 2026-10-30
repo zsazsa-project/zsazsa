@@ -7,7 +7,8 @@ dashboard's three options run each only when switched on. The alerts from PIRs
 and GIRs and the advisories go before the check against the focus points, which
 rejects every event that matches no focus point and would take it out of both;
 that check reads its events after them. The briefing, which rejects too, goes
-last. They read yesterday's events as well as today's, or an event that came in
+last. They read yesterday's events as well as today's, as a run from the
+dashboard does, or an event that came in
 after the last run of a day would never be read; the hourly ones only those that
 came in or changed since their last scheduled run that went through, so an event
 is not checked and logged again every hour, unless a summary failed in it. The
@@ -83,8 +84,8 @@ class RunScheduled(unittest.TestCase):
         self.assertEqual(jobs, [("flash-intel", "Scheduled flash intel alert"),
                                 ("vea", "Scheduled vulnerability advisory")])
         self.assertEqual(run.call_args_list, [
-            mock.call("flash-intel", "analyser", triggered_by="schedule", days=2, since=None),
-            mock.call("vea", "analyser", triggered_by="schedule", days=2, since=None)])
+            mock.call("flash-intel", "analyser", triggered_by="schedule", since=None),
+            mock.call("vea", "analyser", triggered_by="schedule", since=None)])
 
     def test_the_hourly_ones_read_only_what_changed_since_they_last_went_through(self):
         _jobs, run, _briefed = self.run_them(["vea", "daily-briefing"], {"message": "Done."},
@@ -113,7 +114,7 @@ class RunAction(unittest.TestCase):
 
     def run_action(self, outcome):
         pipeline = run_analyser.analyser_pipeline
-        with mock.patch.object(pipeline, "run_vea_action", **outcome), \
+        with mock.patch.object(pipeline, "run_vea_action", **outcome) as self.handler, \
              mock.patch.object(pipeline.job_store, "get_job", return_value={"action": "vea"}), \
              mock.patch.multiple(pipeline.job_store, update_job=mock.DEFAULT, append_log=mock.DEFAULT,
                                  set_step=mock.DEFAULT, complete_open_steps=mock.DEFAULT), \
@@ -121,13 +122,19 @@ class RunAction(unittest.TestCase):
              mock.patch.object(pipeline, "save_last_action"), \
              mock.patch.object(pipeline, "log_pipeline_run_start", return_value=1) as started, \
              mock.patch.object(pipeline, "log_pipeline_run_end"):
-            result = pipeline.run_action("job-1", "analyser", triggered_by="schedule")
+            result = pipeline.run_action("job-1", "analyser")
         return result, started
 
     def test_it_says_who_ran_it_and_returns_what_it_made(self):
         result, started = self.run_action({"return_value": {"message": "Created 2 drafts."}})
         self.assertEqual(result, {"message": "Created 2 drafts."})
-        started.assert_called_once_with("vea", triggered_by="schedule")
+        started.assert_called_once_with("vea", triggered_by="dashboard")
+
+    def test_a_dashboard_run_reads_yesterday_as_well(self):
+        """Like the schedule, so an event from late yesterday is not missed."""
+        self.run_action({"return_value": {"message": "Done."}})
+        self.assertEqual(self.handler.call_args.kwargs["days"], 2)
+        self.assertIsNone(self.handler.call_args.kwargs["since"])
 
     def test_a_failed_action_returns_nothing(self):
         with self.assertLogs("webapp.analyser_pipeline", level="ERROR"):
@@ -136,7 +143,25 @@ class RunAction(unittest.TestCase):
 
 
 class Candidates(unittest.TestCase):
-    def test_the_schedule_reads_yesterday_as_well(self):
+    def test_the_window_is_the_event_date_not_the_last_edit(self):
+        pipeline = run_analyser.analyser_pipeline
+        misp = mock.create_autospec(PyMISP, instance=True)
+        today = datetime.now(timezone.utc).date()
+        dated = [(today - timedelta(days=3), "old"),
+                 (today - timedelta(days=1), "yesterday"), (today, "today"),
+                 (today + timedelta(days=1), "future")]
+
+        def search(**filters):
+            return [SimpleNamespace(uuid=uuid, tags=[SimpleNamespace(name='workflow:state="incomplete"')])
+                    for day, uuid in dated
+                    if filters.get("date_from", "") <= day.isoformat() <= filters.get("date_to", "9999-12-31")]
+
+        misp.search.side_effect = search
+        events = pipeline._incomplete_events(misp, "marker", days=2, since=1761336900)
+        self.assertEqual([e.uuid for e in events], ["yesterday", "today"])
+        self.assertEqual(misp.search.call_args.kwargs["timestamp"], 1761336900)
+
+    def test_yesterday_is_read_as_well(self):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.search.return_value = []
         today = datetime.now(timezone.utc).date()
@@ -144,9 +169,8 @@ class Candidates(unittest.TestCase):
         with mock.patch.object(pipeline, "scraper_enabled", return_value=True), \
              mock.patch.object(pipeline.misp_store, "_scraper_misp", return_value=misp):
             pipeline._incomplete_scraper_events()
-            self.assertEqual(misp.search.call_args.kwargs["date_from"], today.isoformat())
-            pipeline._incomplete_scraper_events(days=2)
             self.assertEqual(misp.search.call_args.kwargs["date_from"], (today - timedelta(days=1)).isoformat())
+            self.assertEqual(misp.search.call_args.kwargs["date_to"], today.isoformat())
             self.assertNotIn("timestamp", misp.search.call_args.kwargs)
             pipeline._incomplete_scraper_events(days=2, since=1761336900)
             self.assertEqual(misp.search.call_args.kwargs["timestamp"], 1761336900)
@@ -263,8 +287,8 @@ class FlashIntelSources(unittest.TestCase):
 
 class LatestRun(unittest.TestCase):
     def test_only_a_scheduled_run_that_went_through_counts(self):
-        """A dashboard run reads today's events only, and a failed run did not
-        get through its own."""
+        """A dashboard run does not move the schedule's starting point, and a
+        failed run did not get through its own."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         with mock.patch.object(config, "DB_FILE", os.path.join(tmp.name, "test.db")):
@@ -294,8 +318,9 @@ class BriefingDay(unittest.TestCase):
 
 class Main(unittest.TestCase):
     def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), manual=(), on_webapp=(), synced=(),
-                 search_error=False, **on):
-        self.order = []
+                 search_error=False, created=(), **on):
+        """`created` are the events the check against the focus points makes an alert for."""
+        self.order, self.seen_alerts = [], []
         self.misp = mock.create_autospec(PyMISP, instance=True)
         self.webapp = mock.create_autospec(PyMISP, instance=True)
 
@@ -322,6 +347,8 @@ class Main(unittest.TestCase):
                 mock.patch.object(run_analyser, "get_misp_webapp", return_value=self.webapp),
                 mock.patch.object(run_analyser, "get_new_manual_entries", return_value=list(manual)),
                 mock.patch.object(run_analyser.misp_store, "flash_intel_source_uuids", return_value=set(alerted)),
+                mock.patch.object(run_analyser.analyser_pipeline, "open_alerts",
+                                  return_value=[{"id": "FIA-00500", "title": "Open", "content": "An alert"}]),
                 mock.patch.object(run_analyser.analyser_pipeline, "requirement_matches",
                                   return_value={uuid: [{"id": "PIR-0003"}] for uuid in matched}),
                 mock.patch.object(run_analyser, "log_event"),
@@ -333,9 +360,15 @@ class Main(unittest.TestCase):
             read = stack.enter_context(mock.patch.object(
                 run_analyser, "get_new_scraper_events",
                 side_effect=lambda misp: self.order.append("focus points: read") or list(events)))
-            self.process = stack.enter_context(mock.patch.object(
-                run_analyser, "process_flash_intel",
-                side_effect=lambda *a, **kw: self.order.append("focus points: check") or {"outcome": "not_relevant"}))
+
+            def check(misp, misp_webapp, event, focus_points, keep_open_for="", open_alerts=()):
+                self.order.append("focus points: check")
+                self.seen_alerts.append([a["id"] for a in open_alerts])
+                if event.uuid in created:
+                    return {"outcome": "product_created", "fia_id": f"FIA-{event.uuid[:5]}", "content": "Made"}
+                return {"outcome": "not_relevant"}
+            self.process = stack.enter_context(mock.patch.object(run_analyser, "process_flash_intel",
+                                                                 side_effect=check))
             watermark = stack.enter_context(mock.patch.object(run_analyser, "save_last_run"))
             scheduled = stack.enter_context(mock.patch.object(
                 run_analyser, "run_scheduled_actions",
@@ -362,6 +395,11 @@ class Main(unittest.TestCase):
         self.run_main(events=events, alerted={"a" * 36})
         self.assertEqual([c.args[2].uuid for c in self.process.call_args_list], ["b" * 36])
 
+    def test_an_alert_made_in_the_run_is_open_for_the_events_after_it(self):
+        events = [SimpleNamespace(uuid="a" * 36, info="First"), SimpleNamespace(uuid="b" * 36, info="Second")]
+        self.run_main(events=events, created={"a" * 36})
+        self.assertEqual(self.seen_alerts, [["FIA-00500"], ["FIA-00500", "FIA-aaaaa"]])
+
     def test_an_event_a_requirement_matches_is_kept_open(self):
         events = [SimpleNamespace(uuid="a" * 36, info="Matched"), SimpleNamespace(uuid="b" * 36, info="Other")]
         self.run_main(events=events, matched={"a" * 36})
@@ -370,7 +408,7 @@ class Main(unittest.TestCase):
 
     def test_with_the_daily_briefing_on_no_event_is_rejected_for_the_focus_points(self):
         """The briefing asks its own, wider question of every event of the day:
-        an article about no focus point can still be useful to defenders."""
+        an article outside the focus points may still contain relevant threat information."""
         events = [SimpleNamespace(uuid="a" * 36, info="Matched"), SimpleNamespace(uuid="b" * 36, info="Other")]
         self.run_main(events=events, matched={"a" * 36}, ANALYSER_DAILY_BRIEFING=True)
         self.assertEqual([c.kwargs["keep_open_for"] for c in self.process.call_args_list],

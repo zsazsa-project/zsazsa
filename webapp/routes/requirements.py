@@ -375,9 +375,14 @@ def pir_list():
         matching(all_pirs, tests), request.args.get("sort"), request.args.get("dir"),
         "pir_id", "question", PIR_STATUS_ORDER,
     )
+    linked_girs = {}
+    if any(p.linked_gir_uuids for p in pirs):
+        all_girs = misp_store.list_girs()
+        linked_girs = {p.uuid: [g for g in all_girs if g.uuid in p.linked_gir_uuids] for p in pirs}
     return render_template(
         "requirements/pir_list.html",
         pirs=pirs,
+        linked_girs=linked_girs,
         scope_counts={p.uuid: _scope_item_count(p) for p in pirs},
         status_counts=ordered_counts(("Rejected" if p.intake_status == "rejected" else p.status for p in pirs),
                                      PIR_STATUS_ORDER),
@@ -696,9 +701,16 @@ def gir_list():
         matching(all_girs, tests), request.args.get("sort"), request.args.get("dir"),
         "gir_id", "topic", GIR_STATUS_ORDER,
     )
+    # The link is kept on the PIR, so a GIR's PIRs are those that name it.
+    linked_pirs = {}
+    if girs:
+        for pir in misp_store.list_pirs():
+            for gir_uuid in pir.linked_gir_uuids:
+                linked_pirs.setdefault(gir_uuid, []).append(pir)
     return render_template(
         "requirements/gir_list.html",
         girs=girs,
+        linked_pirs=linked_pirs,
         scope_counts={g.uuid: _scope_item_count(g) for g in girs},
         status_counts=ordered_counts((g.status for g in girs), GIR_STATUS_ORDER),
         level_counts=_level_counts(matching(all_girs, tests, skip="intel_level")),

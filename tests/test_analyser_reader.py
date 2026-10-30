@@ -4,12 +4,14 @@ every manual entry with a report.
 The run moves the watermark to the moment it started, so whatever the search
 did not return is never asked for again. That makes two things load-bearing:
 every page of the search is read, not only the first, and a search that fails
-stops the run instead of reading as "nothing new".
+stops the run instead of reading as "nothing new". It reads by the event's date
+as well, so editing an older event does not bring it back in.
 
     python -m unittest tests.test_analyser_reader
 """
 
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest import mock
 
@@ -89,6 +91,30 @@ class ManualEntries(unittest.TestCase):
         misp.search.return_value = [entry]
         with mock.patch.object(reader, "load_last_run", return_value=None):
             self.assertEqual(reader.get_new_manual_entries(misp), [])
+
+
+class EventDates(unittest.TestCase):
+    def test_an_older_event_edited_since_is_left_out(self):
+        now = datetime(2026, 10, 29, 8, tzinfo=timezone.utc).timestamp()
+        misp = mock.create_autospec(PyMISP, instance=True)
+        dated = [("2026-10-26", _event(1)), ("2026-10-28", _event(2)),
+                 ("2026-10-29", _event(3)), ("2026-10-30", _event(4))]
+
+        def search(**filters):
+            return [event for day, event in dated
+                    if filters.get("date_from", "") <= day <= filters.get("date_to", "9999-12-31")]
+
+        misp.search.side_effect = search
+        with mock.patch.object(reader.time, "time", return_value=now), \
+             mock.patch.object(reader, "load_last_run", return_value=int(now) - 3600), \
+             mock.patch.object(config, "POLL_WINDOW_HOURS", 24), \
+             mock.patch.object(config, "MISP_SCRAPER_LIMIT", 500):
+            events = reader.get_new_scraper_events(misp)
+        self.assertEqual([event.uuid for event in events], ["e2", "e3"])
+        filters = misp.search.call_args.kwargs
+        self.assertEqual(filters["date_from"], "2026-10-28")
+        self.assertEqual(filters["date_to"], "2026-10-29")
+        self.assertEqual(filters["timestamp"], int(now) - 3600)
 
 
 if __name__ == "__main__":

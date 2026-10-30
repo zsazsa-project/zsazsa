@@ -350,6 +350,15 @@ class PirGirLinks(unittest.TestCase):
         linked = gir_page.find("dt", string="Linked PIRs").find_next_sibling("dd")
         self.assertEqual([a["href"] for a in linked.select("a")], [f"/pirs/{UUID}"])
 
+    def test_each_list_names_the_linked_ones_under_the_title(self):
+        with mock.patch.object(misp_store, "list_girs", return_value=self.girs()), \
+             mock.patch.object(misp_store, "list_pirs", return_value=[_pir(linked_gir_uuids=[OTHER])]):
+            pir_list = BeautifulSoup(self.client.get("/pirs").data, "html.parser")
+            gir_list = BeautifulSoup(self.client.get("/girs").data, "html.parser")
+        self.assertEqual([a["href"] for a in pir_list.select("tr.req-row .req-links a")], [f"/girs/{OTHER}"])
+        self.assertEqual([(a.find_parent("tr")["data-req-id"], a["href"])
+                          for a in gir_list.select("tr.req-row .req-links a")], [(OTHER, f"/pirs/{UUID}")])
+
 
 class ProductPirChoice(unittest.TestCase):
     """The product forms offer the agreed PIRs, as the flash intel and threat

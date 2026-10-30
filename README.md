@@ -326,7 +326,7 @@ The dashboard has a **Start analyser** button with three options: **Daily threat
 ### Executed for all three options
 
 1. Refreshes the data collection cache.
-2. Asks the scraper MISP for events dated **today** (UTC) that have the scraper tag (`SCRAPER_MARKER_TAG`), up to `MISP_SCRAPER_LIMIT` events, and the webapp MISP for the manual entries of today that have a report. A manual entry without one is left for you, as there is nothing for the AI to read.
+2. Asks the scraper MISP for events dated **yesterday or today** (UTC) that have the scraper tag (`SCRAPER_MARKER_TAG`), up to `MISP_SCRAPER_LIMIT` events, and the webapp MISP for the manual entries of those two days that have a report. Yesterday is read as well so an event that came in late in the day is not missed. A manual entry without one is left for you, as there is nothing for the AI to read.
 3. Keeps only events that still need work, with workflow state `incomplete` or `ongoing`. Events marked `complete` or `rejected` are left alone.
 4. Drops events it cannot use: the article could not be fetched (HTTP error) or the report is empty. These are `rejected`. A failed MISP report request stops the action instead of treating the event as empty.
 5. For each remaining event it makes sure there is an AI summary report, and creates one if it is missing, on the MISP the event is on. When the model or MISP fails on one event, that event goes on without a summary and the run continues with the others. The next scheduled run reads it again for its summary.
@@ -337,10 +337,10 @@ Generated products are never classified below their source events. The default i
 
 ### Daily threat briefing
 
-This option is about **situational awareness**, though what your requirements track is always in it.
+This option is about **situational awareness** for your organisation: what happened today that concerns what you follow.
 
 1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing.
-2. For each event it asks the AI whether the story is useful to defenders: concrete threat information such as an incident, a campaign, an exploited CVE or attacker techniques, rather than marketing, company news or general trends. The AI is not given your focus points or requirements for this. Events that are not useful are rejected, with the reason written back onto the event. An event that matches an active PIR or GIR, which zsazsa decides from its tags and galaxies, is not asked about: it is always in the briefing, also when it got a flash intel alert.
+2. For each event it asks the AI whether the story contains threat information relevant to your briefing. The AI is given your focus points and your active PIRs and GIRs, and keeps a story with concrete threat information (an incident, a campaign, an exploited CVE, attacker techniques) that substantively concerns one of them, or a major threat development every organisation needs to know about, such as mass exploitation of a widely used product. Broad usefulness to defenders is not enough without threat information relevant to the organisation. Recaps, opinion, trends, marketing and threats confined to regions, sectors and technologies you do not follow are left out. Those events are rejected, with the reason written back onto the event. An event whose answer could not be read is left out of the briefing but not rejected, and shows as "left open" in the run's decisions. It can be assessed again while it remains within the event-date window.
 3. For the events it keeps, it drafts a short write-up with your focus points in mind, extracts sectors, geographies, techniques, threat actors and vendors, and removes near-duplicate stories.
 4. From the stories that survive, it writes the **briefing summary**: a few sentences covering the day as a whole, grouping the stories that share a sector, geography, actor or technique.
 5. The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
@@ -350,9 +350,10 @@ This option is about **situational awareness**, though what your requirements tr
 This option is **requirement-driven**. It only acts on events that match something you are actively tracking.
 
 1. For each event it compares the event's tags and galaxy clusters against the scope of your **active PIRs and GIRs**.
-2. An event that matches at least one PIR or GIR gets a **flash intel draft**, pre-filled with the summary and linked to the best-matching PIR.
-3. An event that matches nothing is skipped and logged as **"no PIR/GIR match"**. It is not an error. It means the event was not relevant to any current requirement.
-4. If you have no active PIRs or GIRs, or none whose scope fits today's events, this option creates nothing. 
+2. A keyword match is only a lead. For each matched requirement, best match first and at most three, the AI reads the article against the requirement's question or topic and scope. The first requirement it confirms gets the **flash intel draft**, pre-filled with the summary, linked to that requirement and with the AI's reason. An event the AI confirms for none is logged as not relevant, with its reason.
+3. A story that an alert still in draft or in review already tells, or one made earlier in the run, gets no second alert: the AI compares the event with those alerts, and the event is logged as "The same story as FIA-…".
+4. An event that matches nothing is skipped and logged as **"no PIR/GIR match"**. It is not an error. It means the event was not relevant to any current requirement.
+5. If you have no active PIRs or GIRs, or none whose scope fits the events read, this option creates nothing.
 
 ### Vulnerability advisory
 
@@ -360,16 +361,16 @@ This option is **CVE-driven**.
 
 1. For each event it looks for a CVE in its vulnerability attributes, and otherwise in its title.
 2. An event with at least one CVE gets a **vulnerability advisory draft**. The CVE is enriched from a vulnerability database (CVSS score, affected products and versions, description) and the advisory sections are drafted by the AI.
-3. An event with no CVE is skipped and logged as **"no CVE found"**. So is one whose CVEs are already in a draft or an advisory in review.
+3. An event with no CVE is skipped and logged as **"no CVE found"**. So is one whose CVEs are already in a draft, an advisory in review or a rejected advisory: a CVE you turned down does not come back with every new article about it. One whose advisory was approved does get a new draft.
 4. With the **asset database** on (Settings > Products), only a CVE in a product of your inventory makes a draft. See [Products](#products).
 
 ### The three options side by side
 
 | Option | What it acts on | What it skips, and why | Output |
 |---|---|---|---|
-| Daily threat briefing | Today's scraped events and manual entries the AI judges useful to defenders, and those that match an active PIR or GIR | Off-topic stories, excluded titles, events already briefed | One daily briefing draft with the day's stories |
-| Flash intel alert | Today's scraped events and manual entries that match an active PIR or GIR | Events logged as "no PIR/GIR match" | One flash intel draft per matched event |
-| Vulnerability advisory | Today's scraped events and manual entries that mention a CVE | Events logged as "no CVE found" | One vulnerability advisory draft per CVE event |
+| Daily threat briefing | Yesterday's and today's scraped events and manual entries with threat information relevant to your focus points and requirements, or a major threat development every organisation needs to know about | Off-topic stories, excluded titles, events already briefed | One daily briefing draft with the day's stories |
+| Flash intel alert | Yesterday's and today's scraped events and manual entries that match an active PIR or GIR and that the AI confirms against it | Events logged as "no PIR/GIR match", matches the AI turns down, stories an open alert already tells | One flash intel draft per matched event |
+| Vulnerability advisory | Yesterday's and today's scraped events and manual entries that mention a CVE | Events logged as "no CVE found" | One vulnerability advisory draft per CVE event |
 
 In every case the analyser stops at drafts. Publishing and sending to stakeholders is always a separate step you take by hand. The drafts come with an audience, which an alert or advisory needs before it can be published: a flash intel alert from a PIR or GIR is for the roles of the requirement's owner and of the stakeholders it is distributed to, and any other alert or advisory for the roles of everyone who can receive it, its subscribers cleared for its TLP. Narrow it down before publishing where that is too wide. The alert and advisory lists show under each title why the analyser made the draft.
 
@@ -377,9 +378,11 @@ In every case the analyser stops at drafts. Publishing and sending to stakeholde
 
 `run_analyser.py` runs from cron or in the analyser container. By default it only makes flash intel alerts from focus points. Under Settings > System > Analyser you can also switch on the three options of **Start analyser**.
 
-**Alerts from focus points.** Each run reads the `incomplete` scraper events, and the manual entries with a report, since the previous run, at most `POLL_WINDOW_HOURS` back. The AI checks each article against the focus points. A match becomes a draft flash intel alert at TLP amber or the source's higher classification, and the source event moves to `ongoing`. What happens to an event that matches no focus point depends on the daily briefing. With the scheduled briefing on, the event stays `incomplete`, and the briefing judges it in the evening with its own question: is it useful to defenders? So the briefing covers the whole day, while the alerts stay strict. With the briefing off, the event is rejected, unless it matches an active PIR or GIR, so a briefing started from the dashboard still has it. That match is read from the event's tags and galaxies, which the AI summary adds: switch on the alerts from PIRs and GIRs or the advisories as well, and the summaries are written before this check. With the scheduled briefing on, the data collection queue and the dashboard's pending count therefore hold more open events during the day, until the briefing has run. For a stakeholder subscribed in **automated** mode, the alert is published and sent without review.
+**Alerts from focus points.** Each run reads the `incomplete` scraper events, and the manual entries with a report, since the previous run, at most `POLL_WINDOW_HOURS` back. The AI checks each article against the focus points. A match becomes a draft flash intel alert at TLP amber or the source's higher classification, and the source event moves to `ongoing`, unless an alert still in draft or in review, or one made earlier in the run, already tells the story. An event whose answer from the AI could not be read is left `incomplete` and logged as an error. The next hourly run only reads what changed, so a briefing or a dashboard run can assess it again while it remains within the event-date window. What happens to an event that matches no focus point depends on the daily briefing. With the scheduled briefing on, the event stays `incomplete`, and the briefing judges it in the evening with its own, wider question, which also lets in a major threat development every organisation needs to know about. With the briefing off, the event is rejected, unless it matches an active PIR or GIR, so a briefing started from the dashboard can still judge it. That match is read from the event's tags and galaxies, which the AI summary adds: switch on the alerts from PIRs and GIRs or the advisories as well, and the summaries are written before this check. With the scheduled briefing on, the data collection queue and the dashboard's pending count therefore hold more open events during the day, until the briefing has run. For a stakeholder subscribed in **automated** mode, the alert is published and sent without review.
 
-**The Start analyser options** work as described above, but also read yesterday's events, so late events are not missed. The alerts from PIRs and GIRs and the advisories, which run every hour, only read the events that came in or changed since their previous scheduled run, so an event is not checked and logged again every hour. The daily briefing is made once a day, from `ANALYSER_DAILY_BRIEFING_HOUR` (UTC). In a run, the alerts from PIRs and GIRs and the advisories go first, then the alerts from focus points, and the briefing last: the check against the focus points can reject an event that matches no focus point, and the briefing rejects the events it finds not useful, which would take them out of the others. An event that got an alert from a PIR or GIR earlier in the run is not checked against the focus points, since it has its alert. One that got an advisory is, so a CVE in a product you run can also get an alert. Each option first writes the missing AI summaries, which adds a model call per new event.
+**The Start analyser options** work as described above. The alerts from PIRs and GIRs and the advisories, which run every hour, only read the events that came in or changed since their previous scheduled run, so an event is not checked and logged again every hour. The daily briefing is made once a day, from `ANALYSER_DAILY_BRIEFING_HOUR` (UTC). In a run, the alerts from PIRs and GIRs and the advisories go first, then the alerts from focus points, and the briefing last: the check against the focus points can reject an event that matches no focus point, and the briefing rejects events that lack relevant threat information, which would take them out of the others. An event that got an alert from a PIR or GIR earlier in the run is not checked against the focus points, since it has its alert. One that got an advisory is, so a CVE in a product you run can also get an alert. Each option first writes the missing AI summaries, which adds a model call per new event.
+
+The analyser picks events by their MISP `date`, not by when they last changed, and never past today (UTC). The alerts from focus points read the days `POLL_WINDOW_HOURS` reaches back into, yesterday and today with the default 24 hours, and of those only the events changed since the previous run. Editing an older event does not bring it back.
 
 An event never gets more than one flash intel alert.
 
@@ -556,7 +559,7 @@ This tab lists every prompt template file found in `zsazsaprompts/`.
 | `flash_intel_generate` | Must keep its overall section and field structure, since the "Generate AI draft" feature reads it line by line |
 | `flash_intel_relevance` | Must keep returning the `relevant`, `matched_focus_points`, `source_type`, `confidence` and `reason` JSON keys |
 | `daily_briefing_story` | Must keep the five-line structure followed by the `Threat actor type: <type>` line, which is parsed out separately |
-| `daily_briefing_relevance` | Must keep returning only the `include` and `reason` JSON keys |
+| `daily_briefing_relevance` | Must keep returning only the `include` and `reason` JSON keys. zsazsa adds the focus points, the active PIRs and GIRs and the rule for weighing a story against them after the prompt, whatever it says |
 | `daily_briefing_overlap` | Must keep returning the `summary` and `overlaps` JSON structure, with 1-based story indexes |
 | `daily_briefing_summary` | Must keep returning one plain paragraph, since it is rendered as-is at the top of the briefing preview, mail and PDF |
 | `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, since each key fills a named form field or panel |

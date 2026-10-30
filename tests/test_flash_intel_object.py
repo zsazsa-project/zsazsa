@@ -8,6 +8,8 @@ answers "relevant" without naming a focus point the article matches does not
 get a draft: the local model did so on an article about none of them. The
 draft names its source event, which is what keeps that event from a second
 alert, and the source event is tagged as one, as the dashboard's alerts tag it.
+An answer that cannot be read leaves the event alone, and a story an open
+alert already tells gets no second one.
 
     python -m unittest tests.test_flash_intel_object
 """
@@ -118,7 +120,8 @@ class Process(unittest.TestCase):
     RELEVANT = {"relevant": True, "matched_focus_points": ["energy"], "source_type": "news-report",
                 "reason": "The article is about a power grid operator."}
 
-    def run_process(self, object_saved=True, relevance=RELEVANT, keep_open_for="", tlp="", automated=()):
+    def run_process(self, object_saved=True, relevance=RELEVANT, keep_open_for="", tlp="", automated=(),
+                    open_alerts=(), overlaps=()):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp_webapp = mock.create_autospec(PyMISP, instance=True)
         created = MISPEvent()
@@ -135,8 +138,11 @@ class Process(unittest.TestCase):
              mock.patch.object(flash_intel, "_automated_subscribers",
                                return_value=list(automated)) as self.subscribers, \
              mock.patch.object(flash_intel, "_auto_publish") as self.publish, \
+             mock.patch.object(flash_intel.llm, "detect_story_overlaps",
+                               return_value={"overlaps": list(overlaps)}) as self.overlap, \
              mock.patch.object(flash_intel, "tagger") as tagger:
-            result = flash_intel.process(misp, misp_webapp, event, {}, keep_open_for=keep_open_for)
+            result = flash_intel.process(misp, misp_webapp, event, {}, keep_open_for=keep_open_for,
+                                         open_alerts=list(open_alerts))
         self.generate, self.misp_webapp = generate, misp_webapp
         return result, tagger, event, report
 
@@ -194,6 +200,34 @@ class Process(unittest.TestCase):
         self.assertIn("Cloud account takeover.", result["detail"])
         tagger.set_workflow_state.assert_called_once_with(mock.ANY, event, "rejected")
         self.generate.assert_not_called()
+
+    def test_an_answer_that_cannot_be_read_leaves_the_event_alone(self):
+        """It was read as "not relevant", and without the briefing that rejected the event."""
+        result, tagger, _event, _report = self.run_process(relevance=None)
+        self.assertEqual(result["outcome"], "error")
+        tagger.set_workflow_state.assert_not_called()
+        self.generate.assert_not_called()
+
+    def test_a_story_an_open_alert_already_covers_gets_no_second_one(self):
+        """SiriusQT got FIA-00521 and FIA-00550, read twice from the same feed."""
+        open_alerts = [{"id": "FIA-00521", "title": "Inside SiriusQT", "content": "A RAT"}]
+        result, tagger, event, _report = self.run_process(
+            open_alerts=open_alerts, overlaps=[{"a": 1, "b": 2, "score": 0.9, "reason": "Same RAT"}])
+        self.assertEqual((result["outcome"], result["detail"]),
+                         ("not_relevant", "The same story as FIA-00521."))
+        self.assertEqual(self.overlap.call_args.args[0][1:], open_alerts)
+        self.generate.assert_not_called()
+        tagger.set_workflow_state.assert_called_once_with(mock.ANY, event, "rejected")
+
+    def test_a_loose_resemblance_is_not_the_same_story(self):
+        result, _tagger, _event, _report = self.run_process(
+            open_alerts=[{"id": "FIA-00521", "title": "Another RAT", "content": "A RAT"}],
+            overlaps=[{"a": 1, "b": 2, "score": 0.4, "reason": "Both RATs"}])
+        self.assertEqual(result["outcome"], "product_created")
+
+    def test_without_open_alerts_the_overlap_check_is_not_asked(self):
+        self.run_process()
+        self.overlap.assert_not_called()
 
 
 if __name__ == "__main__":

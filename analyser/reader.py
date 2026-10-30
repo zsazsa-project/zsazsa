@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import config
@@ -102,8 +103,13 @@ def read_event_reports(misp, event) -> list:
 
 def _new_incomplete_events(misp, marker_tag) -> list:
     last_run = load_last_run()
-    lookback = int(time.time()) - (config.POLL_WINDOW_HOURS * 3600)
+    now = int(time.time())
+    lookback = now - (config.POLL_WINDOW_HOURS * 3600)
     since = max(last_run, lookback) if last_run else lookback
+    # By the event's date as well: editing an older event changes its
+    # timestamp, and would otherwise bring it back in.
+    date_from = datetime.fromtimestamp(lookback, timezone.utc).date().isoformat()
+    date_to = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
 
     # MISP REST treats multi-tag filters as OR. Search by the marker only,
     # then keep events that also carry workflow:state="incomplete".
@@ -120,6 +126,8 @@ def _new_incomplete_events(misp, marker_tag) -> list:
             timestamp=since,
             limit=limit,
             page=page,
+            date_from=date_from,
+            date_to=date_to,
             pythonify=True,
         )
         if isinstance(batch, dict) and "errors" in batch:
