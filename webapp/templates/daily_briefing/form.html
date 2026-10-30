@@ -709,7 +709,8 @@ document.getElementById('btn-delete-stories').addEventListener('click', function
   var cards = _getStoryCards().filter(function(card) { return storiesToDelete.has(card); });
   if (!cards.length) return;
   if (!window.confirm('Delete ' + cards.length + (cards.length === 1 ? ' story' : ' stories')
-                      + ' from the briefing draft?')) return;
+                      + ' from the briefing draft? On save, their source events are rejected,'
+                      + ' so the analyser does not propose them again.')) return;
   var position = _getStoryCards().indexOf(cards[0]) + 1;
   cards.forEach(removeStoryCard);
   afterStoriesRemoved(position);
@@ -726,7 +727,8 @@ document.getElementById('btn-add-story').addEventListener('click', function() {
 
 document.addEventListener('click', function(e) {
   if (e.target.closest('.btn-remove-story')) {
-    if (isEditMode && !window.confirm('Delete this story from the briefing draft?')) {
+    if (isEditMode && !window.confirm('Delete this story from the briefing draft? On save, its source event'
+                                      + ' is rejected, so the analyser does not propose it again.')) {
       return;
     }
     var card = e.target.closest('.story-card');

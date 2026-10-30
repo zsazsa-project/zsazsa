@@ -32,6 +32,7 @@ from types import SimpleNamespace
 
 import config
 import requests
+from analyser import tagger
 from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
@@ -767,10 +768,12 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
         logger.warning("Could not tag source event %s: %s", src_uuid, exc)
 
 
-def _untag_product_source(src_uuid: str, product_label: str, source_id: str = "") -> None:
+def _untag_product_source(src_uuid: str, product_label: str, source_id: str = "", reject=False) -> None:
     """Take a product type's tag off a source event no product of that type has.
 
-    Its workflow state stays: an analyst may have set it, or another product.
+    Its workflow state stays, as an analyst may have set it, or another product,
+    unless ``reject`` says the analyst turned the event down: then an event still
+    open is rejected, so the analyser does not propose it again.
     """
     tag = f'zsazsa:product="{product_label}"'
     try:
@@ -778,22 +781,33 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
         if client is None:
             return
         event = client.get_event(src_uuid, pythonify=True)
-        if not event or isinstance(event, dict) or tag not in {t.name for t in event.tags}:
+        if not event or isinstance(event, dict):
             return
-        client.untag(src_uuid, tag)
-        from webapp import collection_cache
-        collection_cache.patch_event_tags(src_uuid, [], [tag])
+        names = {t.name for t in event.tags}
+        added, removed = [], []
+        if tag in names:
+            client.untag(src_uuid, tag)
+            removed.append(tag)
+        open_states = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
+        if reject and names & open_states and tagger.set_workflow_state(client, event, "rejected"):
+            logger.info("Source event %s rejected: its %s turned it down", src_uuid, product_label)
+            added.append('workflow:state="rejected"')
+            removed += [name for name in names if name.startswith("workflow:state=")]
+        if added or removed:
+            from webapp import collection_cache
+            collection_cache.patch_event_tags(src_uuid, added, removed)
     except Exception as exc:
         logger.warning("Could not untag source event %s: %s", src_uuid, exc)
 
 
-def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use) -> None:
+def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use, reject_removed=False) -> None:
     """Keep the tags on a product's source events level with its sources.
 
     ``before`` and ``after`` are its sources before and after a change, as
     {event UUID: source id}, and ``after`` is empty when it was deleted. A source
     it no longer has keeps the tag while another product of its type has it:
     ``sources_in_use`` returns those, and is only asked when one was removed.
+    With ``reject_removed`` the analyst took that source out, and it is rejected.
     """
     for uuid, source_id in after.items():
         if uuid not in before:
@@ -809,7 +823,7 @@ def _retag_product_sources(product_label, before: dict, after: dict, sources_in_
             return
         for uuid, source_id in removed.items():
             if uuid not in in_use:
-                _untag_product_source(uuid, product_label, source_id)
+                _untag_product_source(uuid, product_label, source_id, reject=reject_removed)
 
 
 def _sources_of(record) -> dict:
@@ -7223,8 +7237,11 @@ def _update_briefing(uuid, data, expected_state):
                      [_briefing_report(_briefing_ns(refreshed))], "briefing report")
 
     # Each story's source_id, so the tag goes to the MISP the story was collected from.
+    # A story deleted from the briefing was turned down: left open, its event
+    # would be proposed again by the next briefing that reads its date.
     _retag_product_sources("daily-briefing", _briefing_sources(existing.stories),
-                           _briefing_sources(data.get("stories", [])), _briefing_source_uuids)
+                           _briefing_sources(data.get("stories", [])), _briefing_source_uuids,
+                           reject_removed=True)
     return uuid
 
 
@@ -7265,7 +7282,10 @@ def delete_briefing(uuid, expected_state=None):
     with _briefing_write_lock:
         briefing = _briefing_ns(_delete_record(
             uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING, "briefing", expected_state=expected_state))
-        _retag_product_sources("daily-briefing", _briefing_sources(briefing.stories), {}, _briefing_source_uuids)
+        # A draft deleted to be made again gives its events back to the analyser;
+        # a rejected one keeps them out of later briefings.
+        _retag_product_sources("daily-briefing", _briefing_sources(briefing.stories), {}, _briefing_source_uuids,
+                               reject_removed=briefing.review_state == BRIEFING_REVIEW_REJECTED)
 
 
 def reject_briefing(uuid, reason=""):

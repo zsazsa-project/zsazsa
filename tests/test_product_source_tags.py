@@ -8,7 +8,8 @@ the tag behind, so a deleted draft kept its events from the analyser for good,
 and an edit neither tagged a source it added nor untagged one it dropped. Now a
 source the product no longer has loses the tag, unless another product of the
 same type still has it, and a source it gains is tagged. The workflow state of
-the event is left as it is.
+the event is left as it is, except that a story an analyst deleted from a
+briefing rejects its event, so the next briefing does not propose it again.
 
 MISP is a specced stand-in, and the collection cache is stubbed.
 
@@ -36,8 +37,8 @@ def _event(builder, uuid="p" * 36, **fields):
     return event
 
 
-def _briefing_event(sources, uuid="p" * 36):
-    event = _event(misp_store._briefing_obj, uuid, title="Daily", date="2026-10-26", review_state="draft")
+def _briefing_event(sources, uuid="p" * 36, review_state="draft"):
+    event = _event(misp_store._briefing_obj, uuid, title="Daily", date="2026-10-26", review_state=review_state)
     for i, source in enumerate(sources, start=1):
         report = event.add_event_report(f"{misp_store._STORY_REPORT_PREFIX}{i:02d}]",
                                         json.dumps({"title": f"Story {i}", "source_event_uuid": source}))
@@ -56,11 +57,11 @@ class Retag(unittest.TestCase):
     def test_a_source_added_is_tagged_and_one_dropped_untagged(self):
         tag, untag, _asked = self.retag({A: "", B: "manual-newsletter"}, {B: "manual-newsletter", C: "scraper"})
         tag.assert_called_once_with(C, "vea", source_id="scraper")
-        untag.assert_called_once_with(A, "vea", "")
+        untag.assert_called_once_with(A, "vea", "", reject=False)
 
     def test_a_source_another_product_has_keeps_its_tag(self):
         _tag, untag, _asked = self.retag({A: "", B: ""}, {}, in_use={A})
-        untag.assert_called_once_with(B, "vea", "")
+        untag.assert_called_once_with(B, "vea", "", reject=False)
 
     def test_a_failed_read_of_the_other_products_keeps_the_tags(self):
         """The product is deleted by then: the route must not report it as failed."""
@@ -80,7 +81,7 @@ class Retag(unittest.TestCase):
 class Untag(unittest.TestCase):
     TAG = 'zsazsa:product="vea"'
 
-    def untag(self, source_id="", tags=(TAG, 'workflow:state="ongoing"')):
+    def untag(self, source_id="", tags=(TAG, 'workflow:state="ongoing"'), reject=False):
         self.scraper = mock.create_autospec(PyMISP, instance=True)
         self.webapp = mock.create_autospec(PyMISP, instance=True)
         event = MISPEvent()
@@ -92,7 +93,7 @@ class Untag(unittest.TestCase):
              mock.patch.object(misp_store, "_misp", return_value=self.webapp), \
              mock.patch.object(misp_store, "scraper_enabled", return_value=True), \
              mock.patch("webapp.collection_cache.patch_event_tags") as self.cache:
-            misp_store._untag_product_source(A, "vea", source_id)
+            misp_store._untag_product_source(A, "vea", source_id, reject=reject)
 
     def test_the_tag_comes_off_and_the_workflow_state_stays(self):
         self.untag()
@@ -109,9 +110,18 @@ class Untag(unittest.TestCase):
         self.scraper.get_event.assert_not_called()
 
     def test_another_server_s_event_is_not_ours_to_change(self):
-        self.untag("misp-intern")
+        self.untag("misp-intern", reject=True)
         self.scraper.get_event.assert_not_called()
         self.webapp.get_event.assert_not_called()
+
+    def test_an_event_turned_down_is_rejected(self):
+        self.untag(reject=True)
+        self.scraper.tag.assert_called_once_with(mock.ANY, 'workflow:state="rejected"', local=True)
+        self.cache.assert_called_once_with(A, ['workflow:state="rejected"'], [self.TAG, 'workflow:state="ongoing"'])
+
+    def test_a_complete_event_stays_complete(self):
+        self.untag(tags=(self.TAG, 'workflow:state="complete"'), reject=True)
+        self.scraper.tag.assert_not_called()
 
 
 class Deleting(unittest.TestCase):
@@ -190,6 +200,40 @@ class Editing(unittest.TestCase):
                                {"title": "Edited", "review_state": "draft", "stories": stories},
                                ("_replace_reports",))
         self.assertEqual(result, ([C], [A]))
+
+
+
+class TurnedDown(unittest.TestCase):
+    """A story deleted from a briefing came back in the next briefing that read
+    its date, since its event was left open. Now the event is rejected, as are
+    those of a rejected briefing that is deleted. A draft deleted to be made
+    again gives its events back."""
+
+    def reject_flags(self, change, stored):
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.get_event.return_value = stored
+        misp.delete_event.return_value = {}
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=stored), \
+             mock.patch.object(misp_store, "_sync_object_attributes"), \
+             mock.patch.object(misp_store, "_replace_reports"), \
+             mock.patch.object(misp_store, "list_briefings", return_value=[]), \
+             mock.patch.object(misp_store, "_untag_product_source") as untag:
+            change()
+        return {c.args[0]: c.kwargs["reject"] for c in untag.call_args_list}
+
+    def test_a_story_deleted_from_a_briefing(self):
+        data = {"title": "Daily", "review_state": "draft", "stories": [{"title": "Kept", "source_event_uuid": B}]}
+        self.assertEqual(self.reject_flags(lambda: misp_store.update_briefing("p" * 36, data),
+                                           _briefing_event([A, B])), {A: True})
+
+    def test_a_rejected_briefing_deleted(self):
+        self.assertEqual(self.reject_flags(lambda: misp_store.delete_briefing("p" * 36),
+                                           _briefing_event([A, B], review_state="rejected")), {A: True, B: True})
+
+    def test_a_draft_deleted_to_be_made_again(self):
+        self.assertEqual(self.reject_flags(lambda: misp_store.delete_briefing("p" * 36),
+                                           _briefing_event([A, B])), {A: False, B: False})
 
 
 if __name__ == "__main__":

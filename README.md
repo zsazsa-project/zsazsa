@@ -339,7 +339,7 @@ Generated products are never classified below their source events. The default i
 
 This option is about **situational awareness** for your organisation: what happened today that concerns what you follow.
 
-1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing.
+1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing. A story you delete from a briefing does not come back: saving the briefing rejects its source event, and so does deleting a rejected briefing. Deleting a draft briefing as a whole gives its events back to the analyser, so it can be made again.
 2. For each event it asks the AI whether the story contains threat information relevant to your briefing. The AI is given your focus points and your active PIRs and GIRs, and keeps a story with concrete threat information (an incident, a campaign, an exploited CVE, attacker techniques) that substantively concerns one of them, or a major threat development every organisation needs to know about, such as mass exploitation of a widely used product. Broad usefulness to defenders is not enough without threat information relevant to the organisation. Recaps, opinion, trends, marketing and threats confined to regions, sectors and technologies you do not follow are left out. Those events are rejected, with the reason written back onto the event. An event whose answer could not be read is left out of the briefing but not rejected, and shows as "left open" in the run's decisions. It can be assessed again while it remains within the event-date window.
 3. For the events it keeps, it drafts a short write-up with your focus points in mind, extracts sectors, geographies, techniques, threat actors and vendors, and removes near-duplicate stories.
 4. From the stories that survive, it writes the **briefing summary**: a few sentences covering the day as a whole, grouping the stories that share a sector, geography, actor or technique.
@@ -630,7 +630,7 @@ Everything zsazsa writes in the `zsazsa:` namespace is attached as a local tag, 
 | `COLLECTION_TAG_STRIP_PREFIXES` | Tag prefixes shortened on the data collection page |
 | `COLLECTION_TAG_HIDE_PREFIXES` | Tag prefixes hidden on the data collection page |
 
-The tab also shows the **product source markers**, the local tags applied to a scraper event when it is used as the source of a product: `zsazsa:product="daily-briefing"`, `zsazsa:product="flash-intel"`, `zsazsa:product="vea"` and `zsazsa:product="threat-landscape-report"`. These are fixed in the code, shown read-only with a link to browse the tagged events in MISP, and are not configuration settings. Deleting a product, or removing a source event from it, takes the tag off unless another product of the same type still uses the event.
+The tab also shows the **product source markers**, the local tags applied to a scraper event when it is used as the source of a product: `zsazsa:product="daily-briefing"`, `zsazsa:product="flash-intel"`, `zsazsa:product="vea"` and `zsazsa:product="threat-landscape-report"`. These are fixed in the code, shown read-only with a link to browse the tagged events in MISP, and are not configuration settings. Deleting a product, or removing a source event from it, takes the tag off unless another product of the same type still uses the event. An open event removed from a daily briefing, or from a rejected briefing that is deleted, is also set to `rejected`.
 
 ### Notifications
 

@@ -70,6 +70,7 @@
 
 ### Fixed
 
+- A story deleted from a daily briefing came back in the next day's briefing, as its source event was left open. Saving the briefing now rejects that event, and deleting a rejected briefing rejects the events of its stories. A draft briefing deleted as a whole still gives its events back, so it can be made again.
 - Saving a daily briefing deleted and wrote back every story report, this is slow. Only the reports that changed are written now.
 - Unreadable AI relevance answers leave events open and are logged as errors. Relevance checks have a larger token budget.
 - Focus-point alerts also filter by MISP event date, excluding recently edited old events. All analyser searches exclude future-dated events.
