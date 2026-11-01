@@ -302,6 +302,7 @@ def _parse_stories_from_form(form):
             "cti_evaluation": cti_evaluation,
             "threat_actor_types": [v.strip() for v in form.getlist(f"story_{i}_threat_actor_types") if v.strip()],
             "drafted_by": drafted_by if drafted_by in _STORY_ORIGINS else "",
+            "correlation": form.get(f"story_{i}_correlation", "").strip(),
         })
         i += 1
     return stories

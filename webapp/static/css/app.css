@@ -2614,3 +2614,68 @@ a.chart-row:hover { background: var(--surface-hover); }
   background: color-mix(in srgb, var(--step-color) 8%, transparent);
 }
 .flow-links { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: auto; padding-top: .2rem; }
+
+/* ── Settings: the Connections, Products and Analyser tabs ──────────────────── */
+/* The section menu */
+.settings-menu { display: flex; flex-direction: column; gap: .15rem; padding: .5rem; position: sticky; top: 1rem; }
+.settings-menu a { display: flex; align-items: center; gap: .55rem; padding: .45rem .7rem; border-radius: 6px; font-size: .85rem; color: var(--text-primary); text-decoration: none; }
+.settings-menu a:hover { background: var(--surface-tint); color: var(--misp-navy); }
+.settings-menu i { width: 1rem; text-align: center; color: var(--text-muted); }
+/* A heading inside a section */
+.settings-sub { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin: .25rem 0 .5rem; }
+/* A step of a run or of a product, numbered or not */
+.analyser-step { height: 100%; display: flex; flex-direction: column; gap: .35rem; padding: .75rem .85rem; border-radius: 8px; background: var(--surface-muted); border: 1px solid var(--border-faint); font-size: .8rem; }
+.analyser-step-n { width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--misp-navy); color: #fff; font-size: .75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.analyser-step-t { font-weight: 600; font-size: .85rem; color: var(--text-primary); }
+.analyser-step-d { color: var(--text-muted); line-height: 1.45; }
+/* A tile for what a tab sets up, with whether it is on */
+.settings-tile { display: flex; align-items: center; gap: .65rem; padding: .7rem .85rem; border-radius: 8px; border: 1px solid var(--border-faint); background: var(--surface-muted); color: var(--text-primary); text-decoration: none; font-size: .85rem; }
+.settings-tile:hover { border-color: var(--misp-blue); color: var(--text-primary); }
+.settings-tile > i { color: var(--misp-blue); width: 1.1rem; text-align: center; }
+.settings-tile small { display: block; color: var(--text-muted); }
+.settings-state { margin-left: auto; font-size: .72rem; font-weight: 700; padding: .15rem .6rem; border-radius: 999px; white-space: nowrap; }
+.settings-state-on { color: color-mix(in srgb, var(--accent-green) 75%, #000); background: color-mix(in srgb, var(--accent-green) 16%, transparent); }
+.settings-state-off { color: color-mix(in srgb, var(--accent-red) 80%, #000); background: color-mix(in srgb, var(--accent-red) 12%, transparent); }
+/* A box for one thing a section sets */
+.settings-box { height: 100%; display: flex; flex-direction: column; gap: .5rem; padding: .85rem; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--card-bg); }
+.settings-box-head { display: flex; align-items: center; gap: .55rem; font-weight: 600; }
+.settings-box-head img { height: 18px; width: auto; }
+.settings-box-head i { color: var(--misp-blue); width: 18px; text-align: center; }
+/* A link, or a name, set apart */
+.settings-chip { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; padding: .25rem .6rem; border-radius: 6px; background: var(--surface-tint); color: var(--misp-navy); text-decoration: none; }
+.settings-chip:hover { color: var(--misp-deep); }
+/* An analyst's relevance, level by level */
+.analyser-scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; }
+.analyser-level { text-align: center; padding: .5rem .25rem; border-radius: 6px; font-size: .78rem; border: 1px solid var(--border-faint); background: var(--surface-muted); color: var(--text-primary); }
+.analyser-level strong { display: block; font-size: .72rem; color: var(--text-muted); }
+.analyser-level.zone-pull { background: color-mix(in srgb, var(--accent-orange) 14%, transparent); border-color: color-mix(in srgb, var(--accent-orange) 35%, transparent); }
+.analyser-level.zone-pull strong { color: color-mix(in srgb, var(--accent-orange) 65%, #000); }
+.analyser-level.zone-briefing { background: color-mix(in srgb, var(--misp-blue) 12%, transparent); border-color: color-mix(in srgb, var(--misp-blue) 30%, transparent); }
+.analyser-level.zone-alert { background: color-mix(in srgb, var(--misp-blue) 24%, transparent); border-color: color-mix(in srgb, var(--misp-blue) 45%, transparent); }
+.analyser-level.zone-briefing strong, .analyser-level.zone-alert strong { color: var(--misp-navy); }
+/* Their switches, in the colour of the steps */
+.settings-tab .form-check-input:checked { background-color: var(--misp-navy); border-color: var(--misp-navy); }
+/* How a product is made: one strip of steps */
+.analyser-flow { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; padding: .45rem .5rem; margin-bottom: 1rem; border-radius: 8px; background: var(--surface-muted); border: 1px solid var(--border-faint); }
+.analyser-flow-step { flex: 1 1 170px; display: flex; align-items: center; gap: .55rem; padding: .3rem .4rem; min-width: 0; }
+.analyser-flow-icon { flex: none; width: 1.9rem; height: 1.9rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .8rem; color: var(--misp-navy); background: color-mix(in srgb, var(--misp-blue) 16%, transparent); }
+.analyser-flow-t { display: block; font-weight: 600; font-size: .8rem; color: var(--text-primary); line-height: 1.2; }
+.analyser-flow-d { display: block; font-size: .74rem; color: var(--text-muted); line-height: 1.3; }
+.analyser-flow-arrow { flex: none; font-size: .65rem; color: var(--neutral-500, #adb5bd); }
+@media (max-width: 767.98px) { .analyser-flow-arrow { display: none; } }
+/* A choice made by clicking its tile, as the theme on the Styling tab */
+.settings-choice { cursor: pointer; }
+.settings-choice:has(input:checked) { border-color: var(--misp-blue); background: var(--surface-tint); }
+.settings-swatches { display: inline-flex; gap: .2rem; }
+.settings-swatches span { width: .85rem; height: .85rem; border-radius: 50%; border: 1px solid var(--border-subtle); }
+/* The top of a product's PDF, in the brand colours (product_pdf.css) */
+.brand-preview { border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; background: #fff; max-width: 40rem; }
+.brand-preview-head { display: flex; align-items: center; gap: .8rem; padding: .85rem 1.1rem; background: var(--brand-1, #0f2d52); }
+.brand-preview-head img { max-height: 2.2rem; max-width: 7rem; object-fit: contain; }
+.brand-preview-company { display: block; color: #fff; font-weight: 700; font-size: .95rem; }
+.brand-preview-department { display: block; color: rgba(255,255,255,.65); font-size: .78rem; }
+.brand-preview-rule { height: 4px; background: var(--brand-2, #0078f1); }
+.brand-preview-body { display: flex; flex-direction: column; gap: .15rem; padding: .85rem 1.1rem 1rem; }
+.brand-preview-label { font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-2, #0078f1); }
+.brand-preview-title { font-size: 1.1rem; font-weight: 700; color: var(--brand-1, #0f2d52); }
+.brand-preview-meta { font-size: .75rem; color: var(--brand-3, #64748b); }

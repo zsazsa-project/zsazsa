@@ -211,7 +211,7 @@
                       {% for d in decisions %}
                       {% set outcome_fg = 'var(--outcome-success-fg)' if d.outcome == 'included' else 'var(--outcome-error-fg)' if d.outcome == 'rejected' else 'var(--outcome-warning-fg)' %}
                       <tr>
-                        <td class="text-muted" style="word-break:break-word;">{{ d.title or d.uuid or '-' }}</td>
+                        <td class="text-muted" style="word-break:break-word;">{{ d.title or d.uuid or '-' }}{% if d.source %} <span class="small">({{ d.source }})</span>{% endif %}</td>
                         <td style="color:{{ outcome_fg }};font-weight:600;">{{ d.outcome }}</td>
                         <td class="text-muted">{{ d.reason or '' }}</td>
                       </tr>

@@ -387,6 +387,10 @@ def _build_sources(with_manual: bool = True) -> list:
             "since_days": int(s.get("since_days") or 7),
             "limit": int(s.get("limit") or 500),
             "allow_reports": bool(s.get("allow_reports")),
+            # Whether the analyser reads this server's events. On unless an
+            # administrator turned it off, which a server saved before the
+            # setting existed is not.
+            "analyse": bool(s.get("analyse", True)),
         })
     if not with_manual:
         return srcs

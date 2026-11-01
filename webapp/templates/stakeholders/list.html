@@ -135,8 +135,9 @@
           <td>{{ org_map.get(s.organization, s.organization) or '-' }}</td>
           <td><span class="tlp-badge tlp-{{ s.tlp_clearance | slug }}">TLP:{{ s.tlp_clearance | upper }}</span></td>
           <td>
-            {% if s.products %}
-            <span class="text-muted small">{{ s.products | length }} product{{ 's' if s.products | length != 1 }}</span>
+            {% set products = subscribed_products(s) %}
+            {% if products %}
+            <span class="text-muted small">{{ products | length }} product{{ 's' if products | length != 1 }}</span>
             {% else %}
             <span class="text-muted">-</span>
             {% endif %}

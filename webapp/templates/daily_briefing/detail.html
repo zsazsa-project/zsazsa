@@ -56,6 +56,11 @@
             </a>
           </div>
           {% endif %}
+          {% if story.correlation %}
+          <div class="scope-row">
+            <span class="pretext">Tells again:</span> {{ story.correlation }}
+          </div>
+          {% endif %}
           {% if story.source_event_uuid %}
           {% set ev = source_meta.get(story.source_event_uuid, {}) %}
           <div class="scope-row">
@@ -118,6 +123,28 @@
       <div class="card-header"><i class="fas fa-note-sticky me-2"></i>Notes</div>
       <div class="card-body">
         <p style="white-space: pre-wrap;">{{ briefing.notes }}</p>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if briefing.also_seen and briefing.review_state == 'draft' %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-eye me-2"></i>Also seen</div>
+      <div class="card-body">
+        <p class="small text-muted">The analyser found these worth a story too, but left them out over the
+          cap of stories. They are not sent with the briefing. Tick one to add it back.</p>
+        <form method="post" action="{{ url_for('daily_briefing.add_stories', id=briefing.uuid) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% for seen in briefing.also_seen %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="selected_events" id="also-seen-{{ loop.index }}"
+                   value="{{ seen.source_event_uuid }}|{{ seen.source_id }}">
+            <label class="form-check-label" for="also-seen-{{ loop.index }}">{{ seen.title }}</label>
+            {% if seen.source_url and seen.source_url.startswith(('https://', 'http://')) %}<a href="{{ seen.source_url }}" class="small ms-1" target="_blank" rel="noopener noreferrer"><i class="fas fa-arrow-up-right-from-square"></i></a>{% endif %}
+          </div>
+          {% endfor %}
+          <button class="btn btn-sm btn-outline-primary mt-2"><i class="fas fa-plus me-1"></i>Add to the briefing</button>
+        </form>
       </div>
     </div>
     {% endif %}

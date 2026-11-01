@@ -12,7 +12,7 @@
       On every scheduled run, the analyser looks for CVEs in the new events, and when you start it from the dashboard.
       {% else %}
       The analyser looks for CVEs when you start it from the dashboard. The scheduled advisories are off{% if is_site_admin %}
-      (<a href="{{ url_for('config_page.index', tab='tab-system') }}">Settings &gt; System</a>){% endif %}.
+      (<a href="{{ url_for('config_page.index', tab='tab-analyser') }}">Settings &gt; Analyser</a>){% endif %}.
       {% endif %}
     </span>
   </span>
@@ -33,7 +33,7 @@
     <div class="flow-row"><i class="fas fa-wand-magic-sparkles"></i><span>An AI summary tags the sectors, countries, actors and ATT&amp;CK techniques.</span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Selecting the events</span>
-      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Open events of yesterday and today. On the schedule, only those that came in or changed since the previous run</span></div>
+      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>What came in or changed since its previous run, on the sources switched on</span></div>
       <div class="flow-row"><i class="fas fa-link-slash"></i><span>Article not fetched or empty <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
       <div class="flow-row"><i class="fas fa-clone"></i><span>Already has an advisory <span class="flow-out flow-out-skip">left out</span></span></div>
     </div>
@@ -45,16 +45,16 @@
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Looking for CVEs</span>
       <div class="flow-row"><i class="fas fa-bug"></i><span>A CVE in the event's vulnerability attributes, or in its title <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>advisory</span></span></div>
       <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>No CVE <span class="flow-out flow-out-skip">left out</span></span></div>
-      <div class="flow-row"><i class="fas fa-clone"></i><span>Every CVE already in a draft or an advisory in review <span class="flow-out flow-out-skip">left out</span></span></div>
+      <div class="flow-row"><i class="fas fa-clone"></i><span>A CVE an advisory of the last months names <span class="flow-out flow-out-skip">left out</span>, unless it is on the CISA KEV list now or its CVSS rose, and the advisory was not rejected</span></div>
     </div>
     <div class="flow-row"><i class="fas fa-server"></i><span>
       Asset inventory
-      {% if assets_enabled %}<span class="flow-out flow-out-keep">on</span>: only a CVE in a product you run makes an advisory.
-      {% else %}<span class="flow-out flow-out-skip">off</span>: every CVE makes an advisory.{% endif %}
+      {% if assets_enabled %}<span class="flow-out flow-out-keep">on</span>: a CVE has to be in a product you run, or of a vendor or technology of a focus point, PIR or GIR.
+      {% else %}<span class="flow-out flow-out-skip">off</span>: a CVE has to be of a vendor or technology of a focus point, PIR or GIR; with none of those, every CVE makes an advisory.{% endif %}
     </span></div>
     {% if is_site_admin %}
     <div class="flow-links">
-      <a href="{{ url_for('config_page.index', tab='tab-products') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-server me-1"></i>Asset inventory</a>
+      <a href="{{ url_for('config_page.index', tab='tab-connections') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-server me-1"></i>Asset inventory</a>
     </div>
     {% endif %}
   </div>

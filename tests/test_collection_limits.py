@@ -25,7 +25,7 @@ from pymisp import MISPEvent, MISPOrganisation, PyMISP
 
 import config
 from core import db as core_db
-from webapp import analyser_pipeline, collection_cache, create_app, misp_store
+from webapp import collection_cache, create_app, misp_store
 from webapp.routes import config_page, pipeline, products
 
 PARTNER = {"id": "partner", "kind": "misp", "label": "Partner", "url": "https://partner.example.org",
@@ -179,12 +179,6 @@ class OtherLimitedSearches(unittest.TestCase):
     def test_all_products(self):
         with mock.patch.object(misp_store, "_misp", return_value=self.misp):
             products._list_product_events(None, None)
-        self.assertEqual(self.order(), misp_store.NEWEST_FIRST)
-
-    def test_todays_events_for_the_analyser(self):
-        with mock.patch.object(analyser_pipeline, "scraper_enabled", return_value=True), \
-             mock.patch.object(misp_store, "_scraper_misp", return_value=self.misp):
-            analyser_pipeline._incomplete_scraper_events()
         self.assertEqual(self.order(), misp_store.NEWEST_FIRST)
 
     def test_the_pull_estimate_asks_as_the_refresh_does(self):

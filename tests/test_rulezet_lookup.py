@@ -1,9 +1,9 @@
 """The Rulezet client in core.rulezet_lookup.
 
 Rulezet is optional enrichment, so what matters is that nothing it answers can
-break a form: an empty RULEZET_URL makes no request at all, and a Rulezet that
-is down, slow or answers with something unexpected is an empty result rather
-than an exception. No network access: requests is patched throughout.
+break a form: an empty RULEZET_URL, or RULEZET_ENABLED off, makes no request at
+all, and a Rulezet that is down, slow or answers with something unexpected is
+an empty result rather than an exception. No network access: requests is patched throughout.
 
     python -m unittest tests.test_rulezet_lookup
 """
@@ -118,6 +118,14 @@ class GetRule(unittest.TestCase):
     def test_without_a_url_configured_nothing_is_asked(self):
         with mock.patch.object(rulezet_lookup._cfg, "RULEZET_URL", ""), \
              mock.patch.object(requests, "get") as get:
+            self.assertIsNone(rulezet_lookup.get_rule("740025"))
+            get.assert_not_called()
+
+    def test_switched_off_nothing_is_asked_though_a_url_is_set(self):
+        """Settings > Connections switches it off and keeps the address."""
+        with mock.patch.object(rulezet_lookup._cfg, "RULEZET_ENABLED", False, create=True), \
+             mock.patch.object(requests, "get") as get:
+            self.assertFalse(rulezet_lookup.enabled())
             self.assertIsNone(rulezet_lookup.get_rule("740025"))
             get.assert_not_called()
 

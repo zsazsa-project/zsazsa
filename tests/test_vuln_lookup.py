@@ -74,6 +74,17 @@ class Accepted(unittest.TestCase):
                                side_effect=RuntimeError("circl is down")):
             self.assertEqual(vuln_lookup.fetch_cve_info("CVE-2024-1234"), {})
 
+    def test_a_lookup_that_could_not_be_made_is_told_from_an_unknown_cve(self):
+        """The advisories declined a CVE as below the severity asked for when
+        the database was only down."""
+        for answer, expected in ((mock.Mock(status_code=404), {}), (mock.Mock(status_code=503), None),
+                                 (RuntimeError("circl is down"), None)):
+            with self.subTest(answer=answer), \
+                 mock.patch.object(vuln_lookup.requests, "get",
+                                   **({"side_effect": answer} if isinstance(answer, Exception)
+                                      else {"return_value": answer})):
+                self.assertEqual(vuln_lookup.lookup_cve("CVE-2024-1234"), expected)
+
 
 class ThePatternDoesBothJobs(unittest.TestCase):
     """collection_cache and the advisory wizard pull IDs out of event titles

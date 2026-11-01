@@ -80,8 +80,13 @@ _req_cache_lock = threading.Lock()
 _REQ_TTL = 300  # 5 minutes
 
 
-def get_requirements() -> tuple:
-    """Return active (pirs, girs) with a 5-minute in-memory cache."""
+def get_requirements(strict: bool = False) -> tuple:
+    """Return active (pirs, girs) with a 5-minute in-memory cache.
+
+    A MISP that cannot be read is never cached as having none. ``strict``
+    raises then, for the analyser, which would otherwise judge every event
+    against what it read before, or against no requirement at all.
+    """
     now = time.time()
     data, ts = _req_cache["data"], _req_cache["ts"]
     if data is not None and (now - ts) <= _REQ_TTL:
@@ -96,11 +101,13 @@ def get_requirements() -> tuple:
             return _req_cache["data"]
         try:
             from webapp import misp_store
-            pirs = [p for p in (misp_store.list_pirs() or []) if getattr(p, "status", None) == "Active"]
-            girs = [g for g in (misp_store.list_girs() or []) if getattr(g, "status", None) == "Active"]
+            pirs = [p for p in misp_store.list_pirs(strict=True) if getattr(p, "status", None) == "Active"]
+            girs = [g for g in misp_store.list_girs(strict=True) if getattr(g, "status", None) == "Active"]
             _req_cache["data"] = (pirs, girs)
             _req_cache["ts"] = now
         except Exception as exc:
+            if strict:
+                raise
             logger.warning("Could not load PIRs/GIRs for matching: %s", exc)
             if _req_cache["data"] is not None:
                 return _req_cache["data"]  # return stale on error

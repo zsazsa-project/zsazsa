@@ -4,7 +4,10 @@ An unattended alert used to reach every channel on the instance: the analyser
 asked whether any stakeholder was on automated mode, got a yes back, and
 broadcast on the strength of it. It now delivers to the subscribers themselves,
 through the same dispatcher an analyst pressing Publish goes through, with TLP
-clearance deciding as it does everywhere else.
+clearance deciding as it does everywhere else. The alert is approved and
+published as an analyst's would be, before anything is sent. What went wrong,
+MISP not publishing it or a channel not reached, is handed back for the run to
+log on the alert's source event.
 
     python -m unittest tests.test_flash_intel_auto_publish
 """
@@ -12,8 +15,6 @@ clearance deciding as it does everywhere else.
 import unittest
 from types import SimpleNamespace
 from unittest import mock
-
-from pymisp import PyMISP
 
 import config
 from analyser.products import flash_intel
@@ -28,14 +29,6 @@ def _stakeholder(name, clearance="amber", mode="automated", products=(_PRODUCT,)
         tlp_clearance=clearance,
         products=list(products),
         product_modes={_PRODUCT: mode} if mode else {},
-    )
-
-
-def _draft_object():
-    """The zsazsa-flash-intel object on the product event, as auto-publish finds it."""
-    return SimpleNamespace(
-        name="zsazsa-flash-intel",
-        attributes=[SimpleNamespace(object_relation="review-state", value="pending-review")],
     )
 
 
@@ -89,64 +82,65 @@ class AutomatedSubscribers(unittest.TestCase):
     def test_the_source_classification_limits_automated_delivery(self):
         with mock.patch.object(misp_store, "list_stakeholders", return_value=[
                 _stakeholder("Amber"), _stakeholder("Red", clearance="red")]):
-            self.assertEqual([s.name for s in flash_intel._automated_subscribers("red")], ["Red"])
-
-    def test_nobody_on_automated_mode_leaves_nothing_to_publish_to(self):
-        with mock.patch.object(misp_store, "list_stakeholders",
-                               return_value=[_stakeholder("Manual", mode="after-approval")]):
-            self.assertEqual(flash_intel._automated_subscribers(), [])
-
-    def test_an_unreachable_misp_does_not_stop_the_run(self):
-        with mock.patch.object(misp_store, "list_stakeholders", side_effect=OSError("MISP down")):
-            self.assertEqual(flash_intel._automated_subscribers(), [])
+            self.assertEqual([s.name for s in misp_store.stakeholders_on_automated_mode(_PRODUCT, "red")], ["Red"])
 
 
 class AutoPublishDelivery(unittest.TestCase):
-    def publish(self, recipients, objects=None, tlp="amber"):
-        product_event = SimpleNamespace(uuid="u" * 36, id=42, tags=[SimpleNamespace(name=f"tlp:{tlp}")])
-        # Auto-publish re-fetches the event to reach the draft object it just wrote.
-        misp_webapp = mock.create_autospec(PyMISP, instance=True)
-        misp_webapp.get_event.return_value = SimpleNamespace(
-            objects=[_draft_object()] if objects is None else objects)
-        summary = {"recipients": len(recipients), "sent_types": ["email"], "failed_types": []}
-        with mock.patch("notifier.dispatcher.send_flash_intel", return_value=summary) as send, \
-             mock.patch.object(flash_intel.tagger, "set_workflow_state"):
-            flash_intel._auto_publish(misp_webapp, product_event, "FIA-00042", "# Alert", recipients, tlp=tlp)
-        return send, misp_webapp
+    def publish(self, recipients, tlp="amber", stakeholders_fail=False, published=True, failed_types=()):
+        fia = SimpleNamespace(fia_id="FIA-00042", tlp=tlp, id="u" * 36)
+        summary = {"recipients": len(recipients), "sent_types": ["email"], "failed_types": list(failed_types)}
+        calls = []
+        lookup = (mock.patch.object(misp_store, "stakeholders_on_automated_mode", side_effect=OSError("MISP down"))
+                  if stakeholders_fail else
+                  mock.patch.object(misp_store, "stakeholders_on_automated_mode", return_value=recipients))
+        with lookup as asked, \
+             mock.patch.object(misp_store, "publish_fia",
+                               side_effect=lambda uuid: calls.append("publish") or published) as publish, \
+             mock.patch.object(misp_store, "get_fia", return_value=fia), \
+             mock.patch.object(misp_store, "render_fia_markdown", return_value="# Alert"), \
+             mock.patch("notifier.dispatcher.send_flash_intel",
+                        side_effect=lambda *a: calls.append("send") or summary) as send:
+            problem = flash_intel._publish_to_automated_subscribers("u" * 36, "FIA-00042", tlp)
+        return SimpleNamespace(send=send, publish=publish, asked=asked, calls=calls, fia=fia, problem=problem)
 
     def test_the_alert_goes_to_the_subscribers_not_to_every_channel(self):
         recipients = [_stakeholder("Acme")]
-        send, _misp = self.publish(recipients)
-        self.assertIs(send.call_args.args[2], recipients)
+        self.assertIs(self.publish(recipients).send.call_args.args[2], recipients)
 
-    def test_the_dispatched_alert_carries_its_id_and_classification(self):
-        send, _misp = self.publish([_stakeholder("Acme")])
-        fia = send.call_args.args[0]
-        self.assertEqual(fia.fia_id, "FIA-00042")
-        self.assertEqual(fia.tlp, "amber")
-        # Mattermost builds the "Open in MISP" link from this.
-        self.assertEqual(fia.id, 42)
+    def test_the_subscribers_are_those_cleared_for_its_classification(self):
+        self.assertEqual(self.publish([_stakeholder("Acme", clearance="red")], tlp="red").asked.call_args.args,
+                         (_PRODUCT, "red"))
 
-    def test_the_event_is_published_before_anything_is_sent(self):
-        _send, misp_webapp = self.publish([_stakeholder("Acme")])
-        misp_webapp.publish.assert_called_once_with("u" * 36, alert=False)
+    def test_the_alert_is_approved_and_published_before_anything_is_sent(self):
+        done = self.publish([_stakeholder("Acme")])
+        done.publish.assert_called_once_with("u" * 36)
+        self.assertEqual(done.calls, ["publish", "send"])
+        self.assertIs(done.send.call_args.args[0], done.fia)
 
-    def test_delivery_uses_the_generated_products_classification(self):
-        send, _misp = self.publish([_stakeholder("Acme", clearance="red")], tlp="red")
-        self.assertEqual(send.call_args.args[0].tlp, "red")
+    def test_nobody_on_automated_mode_leaves_it_a_draft(self):
+        done = self.publish([])
+        done.publish.assert_not_called()
+        done.send.assert_not_called()
 
-    def test_the_draft_is_marked_approved(self):
-        _send, misp_webapp = self.publish([_stakeholder("Acme")])
-        approved = misp_webapp.update_attribute.call_args.args[0]
-        self.assertEqual(approved.value, "approved")
+    def test_an_unreachable_misp_does_not_stop_the_run(self):
+        with self.assertLogs(flash_intel.logger, "WARNING"):
+            done = self.publish([_stakeholder("Acme")], stakeholders_fail=True)
+        done.publish.assert_not_called()
+        self.assertIn("not sent", done.problem)
 
-    def test_an_alert_still_goes_out_when_the_draft_object_did_not_come_back(self):
-        """The object is written moments earlier, so a MISP that has not caught up
-        must not cost the alert its delivery."""
-        send, misp_webapp = self.publish([_stakeholder("Acme")], objects=[])
-        misp_webapp.update_attribute.assert_not_called()
-        misp_webapp.publish.assert_called_once()
-        send.assert_called_once()
+    def test_one_sent_without_a_problem_says_none(self):
+        self.assertEqual(self.publish([_stakeholder("Acme")]).problem, "")
+
+    def test_one_misp_did_not_publish_is_sent_and_says_so(self):
+        """As from the alert's page: it is approved by then. The run said the
+        alert was made and nothing more."""
+        done = self.publish([_stakeholder("Acme")], published=False)
+        self.assertEqual(done.calls, ["publish", "send"])
+        self.assertEqual(done.problem, "MISP did not publish it")
+
+    def test_a_channel_that_could_not_be_reached_is_said(self):
+        done = self.publish([_stakeholder("Acme")], failed_types=["mattermost"])
+        self.assertIn("could not reach mattermost", done.problem)
 
 
 if __name__ == "__main__":

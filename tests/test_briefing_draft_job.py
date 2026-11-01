@@ -34,7 +34,7 @@ def _briefing(**over):
                                  threat_actor_types=[])],
         geographic_scope=["Belgium"], sectors=["Energy"], threat_actors=[],
         mitre_attack_techniques=["T1190"], threat_types=[], technology=[],
-        vendor=[], incident=[], campaign=[],
+        vendor=[], incident=[], campaign=[], also_seen=[],
     )
     base.update(over)
     return SimpleNamespace(**base)

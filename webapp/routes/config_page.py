@@ -13,6 +13,7 @@ import requests
 import config as _config
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
 from markupsafe import escape
+from analyser import relevance, settings as analyser_settings
 from core import ai_connector, asset_inventory, flowintel_client
 from core.atomic_write import write_atomically
 from webapp import audit, misp_session, misp_store, newsletter_parsers
@@ -209,6 +210,7 @@ def _read() -> dict:
     focus_points_geographies = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_GEOGRAPHIES", []) or []) if str(p).strip()]
     focus_points_sectors = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_SECTORS", []) or []) if str(p).strip()]
     focus_points_technologies = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_TECHNOLOGIES", []) or []) if str(p).strip()]
+    focus_points_vendors = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_VENDORS", []) or []) if str(p).strip()]
     focus_points_threat_types = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_THREAT_TYPES", []) or []) if str(p).strip()]
     focus_points_threat_actors = [str(p).strip() for p in (getattr(_config, "FOCUS_POINTS_THREAT_ACTORS", []) or []) if str(p).strip()]
     raw_tat = getattr(_config, "THREAT_ACTOR_TYPES", []) or []
@@ -247,6 +249,7 @@ def _read() -> dict:
         "SMTP_SENDER_NAME": getattr(_config, "SMTP_SENDER_NAME", ""),
         "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
         "FLOWINTEL_CASE_TEMPLATE_PRODUCTS": FLOWINTEL_CASE_TEMPLATE_PRODUCTS,
+        "RULEZET_ENABLED": getattr(_config, "RULEZET_ENABLED", True),
         "RULEZET_URL": getattr(_config, "RULEZET_URL", ""),
         "MISP_SERVERS": getattr(_config, "MISP_SERVERS", []),
         "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []),
@@ -255,6 +258,7 @@ def _read() -> dict:
         "FOCUS_POINTS_GEOGRAPHIES": focus_points_geographies,
         "FOCUS_POINTS_SECTORS": focus_points_sectors,
         "FOCUS_POINTS_TECHNOLOGIES": focus_points_technologies,
+        "FOCUS_POINTS_VENDORS": focus_points_vendors,
         "FOCUS_POINTS_THREAT_TYPES": focus_points_threat_types,
         "FOCUS_POINTS_THREAT_ACTORS": focus_points_threat_actors,
         "THREAT_ACTOR_TYPES": threat_actor_types,
@@ -281,12 +285,11 @@ def _read() -> dict:
         "TAG_COLLECTION_DISMISSED": getattr(_config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"'),
         "RECOMMENDED_ACTIONS_IMMEDIATE": getattr(_config, "RECOMMENDED_ACTIONS_IMMEDIATE", []),
         "RECOMMENDED_ACTIONS_NEAR_TERM": getattr(_config, "RECOMMENDED_ACTIONS_NEAR_TERM", []),
-        "POLL_WINDOW_HOURS": _config.POLL_WINDOW_HOURS,
         "ANALYSER_FLASH_INTEL": getattr(_config, "ANALYSER_FLASH_INTEL", True),
-        "ANALYSER_FLASH_INTEL_REQUIREMENTS": getattr(_config, "ANALYSER_FLASH_INTEL_REQUIREMENTS", False),
         "ANALYSER_VULNERABILITY_ADVISORIES": getattr(_config, "ANALYSER_VULNERABILITY_ADVISORIES", False),
         "ANALYSER_DAILY_BRIEFING": getattr(_config, "ANALYSER_DAILY_BRIEFING", False),
         "ANALYSER_DAILY_BRIEFING_HOUR": getattr(_config, "ANALYSER_DAILY_BRIEFING_HOUR", 21),
+        **{setting.key: analyser_settings.get(setting.key) for setting in analyser_settings.ALL},
         "MISP_SCRAPER_ENABLED": getattr(_config, "MISP_SCRAPER_ENABLED", True),
         "SCRAPER_MARKER_TAG": _config.SCRAPER_MARKER_TAG,
         "MISP_SCRAPER_LIMIT": getattr(_config, "MISP_SCRAPER_LIMIT", 500),
@@ -354,7 +357,7 @@ def _form_str(name: str) -> str:
     return raw.strip() if raw is not None else str(getattr(_config, name, "") or "")
 
 
-def _form_bool(name: str) -> bool:
+def _form_bool(name: str, default: bool = False) -> bool:
     """A checkbox, keeping what is configured when the form did not send it.
 
     The stakes are one-sided here: an absent field reading as False turns off
@@ -364,7 +367,7 @@ def _form_bool(name: str) -> bool:
     comes first in the form and wins.
     """
     raw = request.form.get(name)
-    return raw == "true" if raw is not None else bool(getattr(_config, name, False))
+    return raw == "true" if raw is not None else bool(getattr(_config, name, default))
 
 
 def _form_lines(name: str) -> list | None:
@@ -452,6 +455,7 @@ _SMTP_FROM_MISSING = "Enter the From address: no mail goes out through the SMTP 
 
 def _write(values):
     shutil.copy2(str(_CONFIG_FILE), str(_BACKUP_FILE))
+    workflow_lines = "\n".join(f"{setting.key} = {values[setting.key]!r}" for setting in analyser_settings.ALL)
     products = values["PRODUCT_TYPES"]
     products_repr = "[\n" + "".join(f"    {p!r},\n" for p in products) + "]"
     briefing_title_exclusions = values.get("DAILY_BRIEFING_TITLE_EXCLUSIONS", [])
@@ -462,6 +466,8 @@ def _write(values):
     fp_sectors_repr = "[\n" + "".join(f"    {p!r},\n" for p in fp_sectors) + "]"
     fp_technologies = values.get("FOCUS_POINTS_TECHNOLOGIES", [])
     fp_technologies_repr = "[\n" + "".join(f"    {p!r},\n" for p in fp_technologies) + "]"
+    fp_vendors = values.get("FOCUS_POINTS_VENDORS", [])
+    fp_vendors_repr = "[\n" + "".join(f"    {p!r},\n" for p in fp_vendors) + "]"
     fp_threat_types = values.get("FOCUS_POINTS_THREAT_TYPES", [])
     fp_threat_types_repr = "[\n" + "".join(f"    {p!r},\n" for p in fp_threat_types) + "]"
     fp_threat_actors = values.get("FOCUS_POINTS_THREAT_ACTORS", [])
@@ -486,7 +492,8 @@ def _write(values):
         lines = []
         for s in servers:
             lines.append("    {")
-            for k in ("id", "label", "url", "api_key", "verify_tls", "enabled", "allow_reports", "tags", "tags_and", "tags_not",
+            for k in ("id", "label", "url", "api_key", "verify_tls", "enabled", "allow_reports", "analyse",
+                      "tags", "tags_and", "tags_not",
                       "org_filter_type", "org_filter", "since_days", "limit"):
                 if k in s:
                     lines.append(f"        {k!r}: {s[k]!r},")
@@ -609,8 +616,10 @@ FLOWINTEL_INSTANCES = {flowintel_instances_repr}
 # buttons on the Vulnerability advisory, Threat actor profile and Daily briefing
 # forms. It also validates the draft rule of a Detection engineering request:
 # without Rulezet a request cannot be marked Active.
-# Leave empty to disable the integration. Point at a local dev instance
-# (e.g. 'http://127.0.0.1:7009') or the public 'https://rulezet.org'.
+# RULEZET_ENABLED switches it off without forgetting the address. Point the
+# URL at a local dev instance (e.g. 'http://127.0.0.1:7009') or the public
+# 'https://rulezet.org'.
+RULEZET_ENABLED = {bool(values.get('RULEZET_ENABLED', True))}
 RULEZET_URL = {values.get('RULEZET_URL', '')!r}
 
 # Additional MISP servers queried by the data-collection page.
@@ -654,6 +663,7 @@ ASSET_INVENTORY_REFRESH_MINUTES = {int(values.get('ASSET_INVENTORY_REFRESH_MINUT
 # Organisation-wide focus points used for AI-assisted briefing and relevance logic.
 FOCUS_POINTS_GEOGRAPHIES = {fp_geographies_repr}
 FOCUS_POINTS_SECTORS = {fp_sectors_repr}
+FOCUS_POINTS_VENDORS = {fp_vendors_repr}
 FOCUS_POINTS_TECHNOLOGIES = {fp_technologies_repr}
 FOCUS_POINTS_THREAT_TYPES = {fp_threat_types_repr}
 FOCUS_POINTS_THREAT_ACTORS = {fp_threat_actors_repr}
@@ -684,11 +694,9 @@ RECOMMENDED_ACTIONS_IMMEDIATE = {values.get('RECOMMENDED_ACTIONS_IMMEDIATE', [])
 RECOMMENDED_ACTIONS_NEAR_TERM = {values.get('RECOMMENDED_ACTIONS_NEAR_TERM', [])!r}
 
 # Analyser
-POLL_WINDOW_HOURS = {int(values['POLL_WINDOW_HOURS'])}
 # What each scheduled run makes. The daily briefing is made once a day, by the
 # first run from this hour (UTC) on.
 ANALYSER_FLASH_INTEL = {bool(values.get('ANALYSER_FLASH_INTEL', True))}
-ANALYSER_FLASH_INTEL_REQUIREMENTS = {bool(values.get('ANALYSER_FLASH_INTEL_REQUIREMENTS'))}
 ANALYSER_VULNERABILITY_ADVISORIES = {bool(values.get('ANALYSER_VULNERABILITY_ADVISORIES'))}
 ANALYSER_DAILY_BRIEFING = {bool(values.get('ANALYSER_DAILY_BRIEFING'))}
 ANALYSER_DAILY_BRIEFING_HOUR = {int(values.get('ANALYSER_DAILY_BRIEFING_HOUR', 21))}
@@ -699,6 +707,9 @@ EVENT_LOG_RETENTION_DAYS = {int(values.get('EVENT_LOG_RETENTION_DAYS') or 90)}
 PIPELINE_RUN_LOG_RETENTION_DAYS = {int(values.get('PIPELINE_RUN_LOG_RETENTION_DAYS') or 90)}
 # 0 keeps the audit log for good.
 AUDIT_LOG_RETENTION_DAYS = {int(values.get('AUDIT_LOG_RETENTION_DAYS', 365))}
+
+# The analyser's workflow (analyser.settings has what each one does).
+{workflow_lines}
 
 # Manual sources pushing to the misp-scraper queue (Redis pub/sub the scraper subscribes to)
 SCRAPER_REDIS_HOST = {values.get('SCRAPER_REDIS_HOST', '127.0.0.1')!r}
@@ -761,8 +772,31 @@ THEME = {values.get('THEME', 'overmind')!r}
     write_atomically(_CONFIG_FILE, content)
 
 
+def _focus_point_choices() -> tuple[dict, dict]:
+    """The names each focus point list can be picked from, by its galaxy, and
+    the names in each list that its galaxy does not have, by setting. A list
+    whose galaxy cannot be read has neither, rather than every name marked."""
+    try:
+        choices = {
+            "FOCUS_POINTS_GEOGRAPHIES": misp_store.galaxy_geography(),
+            "FOCUS_POINTS_SECTORS": misp_store.galaxy_sectors(),
+            "FOCUS_POINTS_THREAT_ACTORS": misp_store.galaxy_threat_actors(),
+            # A threat type is matched by the technique's name, without its id.
+            "FOCUS_POINTS_THREAT_TYPES": sorted({value.rpartition(" - ")[0] or value
+                                                 for value in misp_store.galaxy_mitre_attack_patterns()}),
+        }
+        missing = {}
+        for point in relevance.focus_points(synonyms=False):
+            if not point["found"] and choices.get(point["setting"]):
+                missing.setdefault(point["setting"], []).append(point["name"])
+    except Exception as exc:
+        logger.warning("Could not read the galaxies of the focus points: %s", exc)
+        return {}, {}
+    return choices, missing
+
+
 _CONFIG_TABS = (
-    "tab-connections", "tab-products", "tab-system", "tab-prompts",
+    "tab-connections", "tab-products", "tab-analyser", "tab-system", "tab-prompts",
     "tab-ai", "tab-context", "tab-notifications", "tab-styling",
 )
 
@@ -795,6 +829,7 @@ def index():
         fp_geographies = lines("FOCUS_POINTS_GEOGRAPHIES")
         fp_sectors = lines("FOCUS_POINTS_SECTORS")
         fp_technologies = lines("FOCUS_POINTS_TECHNOLOGIES")
+        fp_vendors = lines("FOCUS_POINTS_VENDORS")
         fp_threat_types = lines("FOCUS_POINTS_THREAT_TYPES")
         fp_threat_actors = lines("FOCUS_POINTS_THREAT_ACTORS")
         tat_posted = request.form.get("THREAT_ACTOR_TYPES")
@@ -869,12 +904,14 @@ def index():
             "SMTP_FROM": _form_str("SMTP_FROM"),
             "SMTP_SENDER_NAME": _form_str("SMTP_SENDER_NAME"),
             "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
+            "RULEZET_ENABLED": _form_bool("RULEZET_ENABLED", default=True),
             "RULEZET_URL": _form_str("RULEZET_URL"),
             "PRODUCT_TYPES": products,
             "DAILY_BRIEFING_TITLE_EXCLUSIONS": exclusions,
             "FOCUS_POINTS_GEOGRAPHIES": fp_geographies,
             "FOCUS_POINTS_SECTORS": fp_sectors,
             "FOCUS_POINTS_TECHNOLOGIES": fp_technologies,
+            "FOCUS_POINTS_VENDORS": fp_vendors,
             "FOCUS_POINTS_THREAT_TYPES": fp_threat_types,
             "FOCUS_POINTS_THREAT_ACTORS": fp_threat_actors,
             "THREAT_ACTOR_TYPES": threat_actor_types,
@@ -898,12 +935,12 @@ def index():
             "TAG_COLLECTION_DISMISSED": _form_tag("TAG_COLLECTION_DISMISSED"),
             "RECOMMENDED_ACTIONS_IMMEDIATE": lines("RECOMMENDED_ACTIONS_IMMEDIATE"),
             "RECOMMENDED_ACTIONS_NEAR_TERM": lines("RECOMMENDED_ACTIONS_NEAR_TERM"),
-            "POLL_WINDOW_HOURS": _form_int("POLL_WINDOW_HOURS", 24),
             "ANALYSER_FLASH_INTEL": _form_bool("ANALYSER_FLASH_INTEL"),
-            "ANALYSER_FLASH_INTEL_REQUIREMENTS": _form_bool("ANALYSER_FLASH_INTEL_REQUIREMENTS"),
             "ANALYSER_VULNERABILITY_ADVISORIES": _form_bool("ANALYSER_VULNERABILITY_ADVISORIES"),
             "ANALYSER_DAILY_BRIEFING": _form_bool("ANALYSER_DAILY_BRIEFING"),
             "ANALYSER_DAILY_BRIEFING_HOUR": min(23, max(0, _form_int("ANALYSER_DAILY_BRIEFING_HOUR", 21))),
+            **{setting.key: analyser_settings.parse(setting, request.form.get(setting.key))
+               for setting in analyser_settings.ALL},
             "SCRAPER_MARKER_TAG": _form_tag("SCRAPER_MARKER_TAG"),
             "EVENT_LOG_RETENTION_DAYS": max(1, _form_int("EVENT_LOG_RETENTION_DAYS", 90)),
             "PIPELINE_RUN_LOG_RETENTION_DAYS": max(1, _form_int("PIPELINE_RUN_LOG_RETENTION_DAYS", 90)),
@@ -951,6 +988,11 @@ def index():
         if "SMTP_FROM" in request.form and values["SMTP_HOST"] and not values["SMTP_FROM"]:
             flash(_SMTP_FROM_MISSING, "warning")
             return redirect(refused)
+        # Only the settings form posts them: a stored conflict does not hold
+        # up the saves made elsewhere on the page.
+        if "ANALYSER_PULL" in request.form and analyser_settings.conflict(values):
+            flash(analyser_settings.conflict(values), "warning")
+            return redirect(refused)
         try:
             _write(values)
             importlib.reload(_config)
@@ -978,8 +1020,11 @@ def index():
         asset_count, asset_error = len(asset_inventory.read(cfg["ASSET_INVENTORY_FILE"])), ""
     except asset_inventory.InventoryError as exc:
         asset_count, asset_error = 0, str(exc)
+    focus_choices, focus_missing = _focus_point_choices()
     return render_template("config_page.html", cfg=cfg, active_tab=active_tab, migrations=MIGRATIONS,
-                           key_shortcomings=key_shortcomings, asset_count=asset_count, asset_error=asset_error)
+                           key_shortcomings=key_shortcomings, asset_count=asset_count, asset_error=asset_error,
+                           analyser_settings=analyser_settings, focus_choices=focus_choices,
+                           focus_missing=focus_missing, focus_lists=setup_wizard.FOCUS_LISTS)
 
 
 @bp.route("/config/run-migration", methods=["POST"])
@@ -1103,6 +1148,7 @@ def save_server_config():
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
         enabled = _parse_bool(data.get("enabled", True), default=True)
         allow_reports = _parse_bool(data.get("allow_reports", False), default=False)
+        analyse = _parse_bool(data.get("analyse", True), default=True)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     # Only organisation UUIDs ever match, and the page shows the value back.
@@ -1124,6 +1170,7 @@ def save_server_config():
         "verify_tls": verify_tls,
         "enabled": enabled,
         "allow_reports": allow_reports,
+        "analyse": analyse,
         "tags": (data.get("tags") or "").strip(),
         "tags_and": (data.get("tags_and") or "").strip(),
         "tags_not": (data.get("tags_not") or "").strip(),

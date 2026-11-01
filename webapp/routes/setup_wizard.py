@@ -33,7 +33,8 @@ STEP_NAMES = [name for name, _, _ in STEPS]
 FOCUS_LISTS = [
     ("FOCUS_POINTS_GEOGRAPHIES", "Geographies", "Belgium", "fa-earth-europe"),
     ("FOCUS_POINTS_SECTORS", "Sectors", "Energy", "fa-industry"),
-    ("FOCUS_POINTS_TECHNOLOGIES", "Technologies", "Fortinet", "fa-microchip"),
+    ("FOCUS_POINTS_VENDORS", "Vendors", "Fortinet", "fa-building"),
+    ("FOCUS_POINTS_TECHNOLOGIES", "Technologies", "Microsoft 365", "fa-microchip"),
     ("FOCUS_POINTS_THREAT_TYPES", "Threat types", "Ransomware", "fa-virus"),
     ("FOCUS_POINTS_THREAT_ACTORS", "Threat actors", "APT29", "fa-user-secret"),
 ]

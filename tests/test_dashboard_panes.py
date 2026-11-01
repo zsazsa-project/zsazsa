@@ -224,17 +224,20 @@ class CountProductsToReview(unittest.TestCase):
 class PendingScraperEvents(unittest.TestCase):
     """MISP counts the events that have both the scraper marker and the
     incomplete state. Read from the newest few hundred marked events and
-    sorted here, the older pending ones were never counted."""
+    sorted here, the older pending ones were never counted. Of those, the ones
+    with a relevance verdict are not waiting for the analyser any more."""
 
-    def pending(self, answer):
+    def pending(self, answer, judged=(), read=True):
+        """``read`` whether Settings > Analyser has the analyser read the scraper."""
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.search.return_value = answer
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         with mock.patch.object(config, "DB_FILE", str(Path(tmp.name) / "test.db"), create=True), \
-             mock.patch.object(dashboard, "load_last_run", return_value=None), \
-             mock.patch.object(dashboard, "load_last_action", return_value=None), \
+             mock.patch.object(dashboard.event_state, "judged", return_value=set(judged)), \
+             mock.patch.object(dashboard, "last_completed_at", return_value=None), \
              mock.patch.object(dashboard, "scraper_enabled", return_value=True), \
+             mock.patch.object(config, "ANALYSER_READ_SCRAPER", read, create=True), \
              mock.patch.object(misp_store, "_scraper_misp", return_value=misp):
             return dashboard._pipeline_status()["pending"], misp
 
@@ -244,6 +247,18 @@ class PendingScraperEvents(unittest.TestCase):
         misp.build_complex_query.assert_called_once_with(
             and_parameters=[config.SCRAPER_MARKER_TAG, 'workflow:state="incomplete"'])
         self.assertEqual(misp.search.call_args.kwargs["tags"], misp.build_complex_query.return_value)
+
+    def test_an_event_with_a_verdict_is_not_waiting_for_the_analyser(self):
+        """It stays open until the briefing closes it, but has been judged."""
+        count, _misp = self.pending([{"Event": {"id": str(n), "uuid": f"{n}" * 36}} for n in range(3)],
+                                    judged={"1" * 36})
+        self.assertEqual(count, 2)
+
+    def test_none_is_counted_when_the_analyser_does_not_read_the_scraper(self):
+        """None of them would ever be judged, and the count would only grow."""
+        count, misp = self.pending([{"Event": {"id": "1"}}], read=False)
+        self.assertIsNone(count)
+        misp.search.assert_not_called()
 
     def test_a_refused_search_shows_no_count_rather_than_none_pending(self):
         with self.assertLogs(dashboard.logger, "WARNING"):

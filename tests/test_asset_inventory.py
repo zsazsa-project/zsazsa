@@ -7,7 +7,7 @@ so case, punctuation, company forms, initials and a product name that starts
 with its supplier's do not stand in the way of a match; another edition or
 another supplier does. A CVE whose record names no product cannot be checked,
 so it makes a draft that says so, unless another CVE of the event is in the
-inventory. A file that cannot be read fails the run rather than letting every
+inventory; one whose lookup failed waits for the next run instead. A file that cannot be read fails the run rather than letting every
 advisory through or none.
 
 The CSV files are temporary, and MISP, the CVE lookup and the model are stubbed.
@@ -24,6 +24,7 @@ from unittest import mock
 
 import config
 from core import asset_inventory, vuln_lookup
+from analyser import sources
 from webapp import analyser_pipeline
 
 INVENTORY = '''"Supplier","Product","Version"
@@ -128,11 +129,12 @@ class AdvisoryRun(Inventory):
             mock.patch.object(config, "ASSET_INVENTORY_ENABLED", enabled, create=True),
             mock.patch.object(analyser_pipeline.collection_cache, "event_cves",
                               side_effect=lambda e: cves_by_title[e.info]),
-            mock.patch.object(analyser_pipeline, "fetch_cve_info", side_effect=lambda cve: self.RECORDS.get(cve, {})),
+            mock.patch.object(analyser_pipeline, "lookup_cve", side_effect=lambda cve: self.RECORDS.get(cve, {})),
             mock.patch.object(analyser_pipeline.llm, "draft_vea_sections", return_value={}),
             mock.patch.object(analyser_pipeline.misp_store, "create_vea",
                               side_effect=lambda data: self.created.append(data) or ("u" * 36, "VEA-00001")),
             mock.patch.object(analyser_pipeline.misp_store, "list_veas", return_value=[]),
+            mock.patch.object(analyser_pipeline.misp_store, "vea_source_uuids", return_value=set()),
             mock.patch.object(analyser_pipeline.misp_store, "subscriber_audience", return_value="Vulnerability management"),
             mock.patch.object(analyser_pipeline, "_log",
                               side_effect=lambda e, outcome, detail=None: self.logged.append((e.info, detail))),
@@ -140,10 +142,15 @@ class AdvisoryRun(Inventory):
         with contextlib.ExitStack() as stack:
             for patch in patches:
                 stack.enter_context(patch)
+            scraper = sources.Source("scraper", "scraper", "MISP scraper", None, True)
             self.candidates = stack.enter_context(mock.patch.object(
                 analyser_pipeline, "_common_candidate_events",
-                return_value=(None, events, {}, {}, {e.uuid: [] for e in events})))
-            return analyser_pipeline.run_vea_action()
+                return_value=SimpleNamespace(sources={e.uuid: scraper for e in events}, events=events, excluded=[],
+                                             summaries={}, reports={e.uuid: [] for e in events},
+                                             stats={"event_decisions": []})))
+            stack.enter_context(mock.patch.object(analyser_pipeline, "_scope_terms", return_value=[]))
+            stack.enter_context(mock.patch.object(analyser_pipeline.event_state, "save_outcome"))
+            return analyser_pipeline.run_vea_action(mock.create_autospec(sources.Reading, instance=True))
 
     def test_only_a_cve_in_a_product_we_run_makes_an_advisory(self):
         result = self.run_vea({"Ivanti bug": ["CVE-2026-0001"], "Two bugs": ["CVE-2026-0001", "CVE-2026-0002"]})
@@ -152,16 +159,17 @@ class AdvisoryRun(Inventory):
         self.assertEqual(self.created[0]["audience"], "Vulnerability management")
         self.assertEqual([(v["title"], v["cve_id"].split("\n"), v["affected_product"], v["exposure"])
                           for v in self.created],
-                         [("Two bugs", ["CVE-2026-0001", "CVE-2026-0002"], "Fortinet FortiOS",
+                         [("Two bugs", ["CVE-2026-0002"], "Fortinet FortiOS",
                            "In the asset inventory: Fortinet FortiOS")])
-        self.assertIn(("Ivanti bug", "not in the asset inventory: CVE-2026-0001"), self.logged)
+        self.assertIn(("Ivanti bug", "No CVE to advise on: CVE-2026-0001 out of scope"), self.logged)
 
     def test_a_record_without_products_makes_a_draft_that_says_so(self):
-        """A reserved CVE, or a lookup that failed. The title is not guessed
-        from: "Head office breached" would be taken for Microsoft Office."""
+        """A reserved CVE, which names no product yet; one whose lookup failed
+        waits for the next run (tests.test_analyser_drafts). The title is not
+        guessed from: "Head office breached" would be taken for Microsoft Office."""
         self.run_vea({"Head office breached": ["CVE-2026-0003"]})
         self.assertEqual([(v["cve_id"], v["exposure"]) for v in self.created], [(
-            "CVE-2026-0003", "Not checked against the asset inventory: the CVE record names no product.")])
+            "CVE-2026-0003", analyser_pipeline._NOT_CHECKED)])
 
     def test_a_cve_in_the_inventory_comes_before_one_that_cannot_be_checked(self):
         self.run_vea({"Two bugs": ["CVE-2026-0003", "CVE-2026-0002"]})

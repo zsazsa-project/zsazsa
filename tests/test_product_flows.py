@@ -26,7 +26,7 @@ from webapp.routes import daily_briefing, flash_intel, vea
 # What each flow is rendered with when a test does not care.
 FLOWS = {
     "daily_briefing/_flow.html": {"briefing_hour": 21},
-    "flash_intel/_flow.html": {"schedule_focus": True, "schedule_requirements": True},
+    "flash_intel/_flow.html": {"schedule_focus": True},
     "vea/_flow.html": {"schedule_advisories": True, "assets_enabled": False},
     "indicator_feed/_flow.html": {},
     "threat_actor_profile/_flow.html": {},
@@ -96,20 +96,16 @@ class Flows(unittest.TestCase):
         self.assertIn("Its daily schedule is off", off)
         self.assertNotIn("every day", off)
 
-    def test_the_alerts_name_the_checks_that_are_scheduled(self):
-        for focus, requirements, said in ((True, True, "your focus points and your PIRs and GIRs."),
-                                          (True, False, "against your focus points."),
-                                          (False, True, "against your PIRs and GIRs."),
-                                          (False, False, "The scheduled alerts are off")):
-            with self.subTest(focus=focus, requirements=requirements):
-                line = self.analyser_line(self.render("flash_intel/_flow.html", schedule_focus=focus,
-                                                      schedule_requirements=requirements))
-                self.assertIn(said, line)
+    def test_the_alerts_say_whether_they_are_scheduled(self):
+        for on, said in ((True, "against your focus points and your PIRs and GIRs."),
+                         (False, "The scheduled alerts are off")):
+            with self.subTest(on=on):
+                self.assertIn(said, self.analyser_line(self.render("flash_intel/_flow.html", schedule_focus=on)))
 
     def test_the_advisories_say_whether_they_are_scheduled_and_the_inventory_is_on(self):
         on = self.render("vea/_flow.html", schedule_advisories=True, assets_enabled=True)
         self.assertIn("On every scheduled run", self.analyser_line(on))
-        self.assertIn("only a CVE in a product you run", on.get_text(" ", strip=True))
+        self.assertIn("a CVE has to be in a product you run", on.get_text(" ", strip=True))
         off = self.render("vea/_flow.html", schedule_advisories=False, assets_enabled=False)
         self.assertIn("The scheduled advisories are off", self.analyser_line(off))
         self.assertIn("every CVE makes an advisory", off.get_text(" ", strip=True))
@@ -117,14 +113,17 @@ class Flows(unittest.TestCase):
     def test_only_a_site_admin_is_sent_to_the_settings(self):
         with self.app.test_request_context("/"):
             products = url_for("config_page.index", tab="tab-products")
-            system = url_for("config_page.index", tab="tab-system")
-        for template, context in (("daily_briefing/_flow.html", {"briefing_hour": None}),
-                                  ("flash_intel/_flow.html", {"schedule_focus": False, "schedule_requirements": False}),
-                                  ("vea/_flow.html", {"schedule_advisories": False, "assets_enabled": False})):
+            connections = url_for("config_page.index", tab="tab-connections")
+            analyser = url_for("config_page.index", tab="tab-analyser")
+        # The advisories link to the asset database, which is on Connections.
+        for template, context, tab in (("daily_briefing/_flow.html", {"briefing_hour": None}, products),
+                                       ("flash_intel/_flow.html", {"schedule_focus": False}, products),
+                                       ("vea/_flow.html", {"schedule_advisories": False, "assets_enabled": False},
+                                        connections)):
             for admin in (True, False):
                 with self.subTest(template, admin=admin):
                     page = self.render(template, is_site_admin=admin, **context)
-                    self.assertEqual(sorted(self.settings_links(page)), sorted([products, system]) if admin else [])
+                    self.assertEqual(set(self.settings_links(page)), {tab, analyser} if admin else set())
         with self.app.test_request_context("/"):
             sources = url_for("collection_sources.index")
         for admin in (True, False):
@@ -135,10 +134,10 @@ class Flows(unittest.TestCase):
     def test_the_lists_pass_their_schedule(self):
         listed = {name: mock.Mock(return_value=[]) for name in ("list_briefings", "list_fias", "list_veas")}
         settings = dict(ANALYSER_DAILY_BRIEFING=True, ANALYSER_DAILY_BRIEFING_HOUR=18, ANALYSER_FLASH_INTEL=False,
-                        ANALYSER_FLASH_INTEL_REQUIREMENTS=True, ANALYSER_VULNERABILITY_ADVISORIES=True)
+                        ANALYSER_VULNERABILITY_ADVISORIES=True)
         for module, route, passed in (
                 (daily_briefing, daily_briefing.list_briefings, {"briefing_hour": 18}),
-                (flash_intel, flash_intel.review, {"schedule_focus": False, "schedule_requirements": True}),
+                (flash_intel, flash_intel.review, {"schedule_focus": False}),
                 (vea, vea.review, {"schedule_advisories": True, "assets_enabled": True})):
             with self.subTest(module.__name__), \
                  mock.patch.multiple(config, create=True, **settings), \

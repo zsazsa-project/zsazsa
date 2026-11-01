@@ -9,7 +9,9 @@ and an edit neither tagged a source it added nor untagged one it dropped. Now a
 source the product no longer has loses the tag, unless another product of the
 same type still has it, and a source it gains is tagged. The workflow state of
 the event is left as it is, except that a story an analyst deleted from a
-briefing rejects its event, so the next briefing does not propose it again.
+briefing rejects its event, so the next briefing does not propose it again. An
+event on another organisation's MISP server is not tagged or rejected there:
+that decision is kept in zsazsa instead.
 
 MISP is a specced stand-in, and the collection cache is stubbed.
 
@@ -92,6 +94,7 @@ class Untag(unittest.TestCase):
         with mock.patch.object(misp_store, "_scraper_misp", return_value=self.scraper), \
              mock.patch.object(misp_store, "_misp", return_value=self.webapp), \
              mock.patch.object(misp_store, "scraper_enabled", return_value=True), \
+             mock.patch.object(misp_store.event_state, "close") as self.closed, \
              mock.patch("webapp.collection_cache.patch_event_tags") as self.cache:
             misp_store._untag_product_source(A, "vea", source_id, reject=reject)
 
@@ -110,9 +113,17 @@ class Untag(unittest.TestCase):
         self.scraper.get_event.assert_not_called()
 
     def test_another_server_s_event_is_not_ours_to_change(self):
-        self.untag("misp-intern", reject=True)
+        self.untag("misp-intern")
         self.scraper.get_event.assert_not_called()
         self.webapp.get_event.assert_not_called()
+        self.closed.assert_not_called()
+
+    def test_another_server_s_event_turned_down_is_closed_in_zsazsa(self):
+        """Or the next briefing would propose it again."""
+        self.untag("misp-intern", reject=True)
+        self.closed.assert_called_once_with("misp-intern", A, "Removed by an analyst from a vea")
+        self.webapp.tag.assert_not_called()
+        self.scraper.tag.assert_not_called()
 
     def test_an_event_turned_down_is_rejected(self):
         self.untag(reject=True)

@@ -5,10 +5,14 @@ exclusions, and the overlap check that drops a second write-up of the same
 incident. The collection page shows the analyst what the first of those will
 drop before the run happens, so both have to read the setting the same way.
 
-The relevance check is asked about every event, with the focus points and the
-active PIRs and GIRs. An event a requirement matched on keywords used to skip
-it and was always briefed, which on a single word such as a country let in
-stories that had nothing to do with the requirement.
+Every event is judged by the relevance verdict, the same one the alerts use
+(tests.test_relevance pins it). An event a requirement matched on keywords used
+to skip that check and was always briefed, which on a single word such as a
+country let in stories that had nothing to do with the requirement. The run
+says why each story is in, a story keeps the source it was read from, and the
+briefing is never classified below its sources. Nothing is rejected for
+missing the briefing by the briefing itself: the closing step decides, with
+the other products (tests.test_analyser_drafts).
 
     python -m unittest tests.test_briefing_candidates
 """
@@ -18,6 +22,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from analyser.sources import Reading, Source
 from webapp import analyser_pipeline
 from webapp.routes import data_collection
 
@@ -79,74 +84,77 @@ class DuplicateStories(unittest.TestCase):
         self.assertEqual(dropped, {3})
 
 
-class RelevanceReview(unittest.TestCase):
+class Stories(unittest.TestCase):
     def brief(self, manual=False):
         """Brief "Matched", which a PIR matched on keywords, "Off topic" and
-        "On topic". The model keeps only "On topic"."""
+        "On topic". The verdicts want only "On topic"."""
         pipeline = analyser_pipeline
-        self.events = events = [SimpleNamespace(uuid=c * 36, info=title, tags=[], galaxies=[])
+        self.events = events = [SimpleNamespace(uuid=c * 36, info=title, tags=[], galaxies=[], date=None)
                                 for c, title in (("a", "Matched"), ("b", "Off topic"), ("c", "On topic"))]
         if manual:
             events[2].tags = [SimpleNamespace(name=pipeline.misp_store.TAG_MANUAL_ENTRY),
                               SimpleNamespace(name="tlp:red")]
         reports = [SimpleNamespace(name="Article", content="An article")]
-        pir = SimpleNamespace(uuid="p", question="Which actors phish Belgian banks?", sectors=["Bank"],
-                              out_of_scope=["Caribbean financial services"])
         self.created = []
+        sources = {e.uuid: Source("scraper", "scraper", "MISP scraper", f"MISP of {e.info}", True) for e in events}
+        if manual:
+            sources[events[2].uuid] = Source("manual", "manual", "Manual entries", "MISP of On topic", True)
+        found = SimpleNamespace(sources=sources, events=events, excluded=[], summaries={},
+                                reports={e.uuid: reports for e in events}, stats={"event_decisions": []})
+        on_topic = {"relevant": True, "grounds": [{"focus_point": "Energy", "quote": "a grid"}],
+                    "major_development": False, "reason": "About Belgian banks."}
+        judge = mock.Mock(**{
+            "verdict.side_effect": lambda event, *rest: {"briefing": on_topic if event.info == "On topic" else
+                                                         {"relevant": False, "grounds": [], "reason": "Off",
+                                                          "major_development": False},
+                                                         "alert": {"relevant": False}},
+            "wants.side_effect": lambda verdict, product, event: (verdict[product]["relevant"],
+                                                           verdict[product].get("reason", "")),
+            "pir_priority.return_value": 3,
+        })
         patches = [
-            mock.patch.object(pipeline, "_common_candidate_events", return_value=(
-                {e.uuid: f"MISP of {e.info}" for e in events}, events, {}, {"event_decisions": []},
-                {e.uuid: reports for e in events})),
-            mock.patch.object(pipeline, "daily_briefing_title_exclusions", return_value=[]),
-            mock.patch.object(pipeline.req_matching, "get_requirements", return_value=([pir], [])),
-            mock.patch.object(pipeline.config, "FOCUS_POINTS_SECTORS", ["Energy"], create=True),
+            mock.patch.object(pipeline, "_common_candidate_events", return_value=found),
+            mock.patch.object(pipeline, "Judge", return_value=judge),
+            mock.patch.object(pipeline.misp_store, "briefing_source_uuids", return_value=set()),
+            mock.patch.object(pipeline.misp_store, "briefing_also_seen_uuids", return_value=set()),
+            mock.patch.object(pipeline.event_state, "load", return_value={"verdict": None, "outcomes": {}}),
+            mock.patch.object(pipeline, "todays_draft", return_value=None),
+            mock.patch.object(pipeline, "focus_points", return_value={}),
             mock.patch.object(pipeline.llm, "draft_briefing_story", return_value=("A story", "")),
             mock.patch.object(pipeline.llm, "detect_story_overlaps", return_value={"overlaps": []}),
             mock.patch.object(pipeline.llm, "draft_briefing_summary", return_value="The day"),
             mock.patch.object(pipeline, "galaxy_names_with_commas", return_value=frozenset()),
-            mock.patch.object(pipeline, "_add_briefing_rejection_note"),
             mock.patch.object(pipeline, "_log"),
-            mock.patch.object(pipeline, "log_event"),
-            mock.patch.object(pipeline.tagger, "get_source_feed", return_value="feed"),
+            mock.patch.object(pipeline, "_close_declined", return_value=0),
+            mock.patch.object(pipeline.similarity, "recent_stories", return_value=[]),
             mock.patch.object(pipeline.misp_store, "extract_source_url", return_value=""),
-            mock.patch.object(pipeline.misp_store, "briefing_scope_summary", return_value=""),
+            mock.patch.object(pipeline.misp_store, "briefing_scope_summary", return_value=[]),
             mock.patch.object(pipeline.misp_store, "create_briefing",
                               side_effect=lambda data: self.created.append(data) or "u" * 36),
         ]
         with contextlib.ExitStack() as stack:
             for patch in patches:
                 stack.enter_context(patch)
-            self.asked = stack.enter_context(mock.patch.object(
-                pipeline.llm, "review_briefing_relevance",
-                side_effect=lambda **kw: ({"include": True, "reason": "About Belgian banks."}
-                                          if kw["event_title"] == "On topic" else {"include": False, "reason": "Off"})))
-            self.rejected = stack.enter_context(mock.patch.object(pipeline.tagger, "set_workflow_state",
-                                                                  return_value=True))
-            return pipeline.run_daily_briefing_action()
+            self.rejected = stack.enter_context(mock.patch.object(pipeline.event_state, "reject"))
+            self.judge = judge
+            reading = mock.create_autospec(Reading, instance=True)
+            reading.rescan_hours = None
+            return pipeline.run_daily_briefing_action(reading)
 
-    def test_every_event_is_asked_about(self):
+    def test_every_event_is_judged(self):
         result = self.brief()
-        self.assertEqual([c.kwargs["event_title"] for c in self.asked.call_args_list],
+        self.assertEqual([c.args[0].info for c in self.judge.verdict.call_args_list],
                          ["Matched", "Off topic", "On topic"])
         self.assertEqual([s["title"] for s in self.created[0]["stories"]], ["On topic"])
-        self.assertEqual([c.args[:2] for c in self.rejected.call_args_list],
-                         [("MISP of Matched", self.events[0]), ("MISP of Off topic", self.events[1])])
-        self.assertEqual(result["rejected_by_relevance"], 2)
-
-    def test_the_model_is_told_what_the_organisation_follows(self):
-        self.brief()
-        asked = self.asked.call_args.kwargs
-        self.assertEqual(asked["focus_points"]["sectors"], ["Energy"])
-        self.assertEqual(asked["requirements"], [{"requirement": "Which actors phish Belgian banks?",
-                                                  "sectors": ["Bank"],
-                                                  "out_of_scope": ["Caribbean financial services"]}])
+        self.assertEqual(result["declined_by_relevance"], 2)
+        self.rejected.assert_not_called()
 
     def test_the_run_says_why_a_story_is_in(self):
         result = self.brief()
         included = {d["title"]: d["reason"] for d in result["event_decisions"] if d["outcome"] == "included"}
-        self.assertEqual(included, {"On topic": "About Belgian banks."})
+        self.assertEqual(included, {"On topic": "About Belgian banks. Grounds: Energy."})
 
-    def test_a_manual_story_keeps_its_source_server(self):
+    def test_a_manual_story_keeps_its_source_server_and_classification(self):
         self.brief(manual=True)
         self.assertEqual(self.created[0]["stories"][0]["source_id"], "webapp")
         self.assertEqual(self.created[0]["tlp"], "red")

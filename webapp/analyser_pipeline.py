@@ -1,34 +1,38 @@
-"""Dashboard-triggered collection analyser actions.
+"""The analyser actions, started from the dashboard and by the schedule.
 
-This module provides three manual analyser actions used from the dashboard:
-- daily briefing draft generation
-- flash intel draft generation (for PIR/GIR matched events)
-- vulnerability advisory draft generation (for CVE-matched events)
+This module provides three analyser actions:
+- daily briefing draft generation, for the events the relevance verdict wants
+  for the briefing, which then closes the events no product wants;
+- flash intel draft generation, for the events it wants for an alert;
+- vulnerability advisory draft generation, for the CVEs of an event in scope.
+
+Each reads its events through analyser.sources: what changed on every source
+since the action's previous completed run. The verdict is analyser.relevance,
+the comparison with earlier products analyser.similarity.
 """
 
 import logging
 import re
-import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import config
-from analyser import llm, tagger
-from analyser.reader import read_event_reports, save_last_action
+from analyser import event_state, llm, relevance, run_lock, settings, similarity, tagger
+from analyser.products import flash_intel
+from analyser.reader import read_event_reports
+from analyser.relevance import Judge
+from analyser.sources import Reading
 from core import asset_inventory
 from core.db import log_event, log_pipeline_run_end, log_pipeline_run_start
-from core.vuln_lookup import CVE_RE, fetch_cve_info
+from core.vuln_lookup import CVE_RE, lookup_cve
 from pymisp import MISPEventReport
 from webapp import audit, collection_cache, job_store, matching as req_matching, misp_store
-from webapp.collection_cache import AI_SUMMARY_PREFIX
-from webapp.utils import scraper_enabled
+from webapp.collection_cache import AI_SUMMARY_PREFIX, is_ai_summary_report
 
 logger = logging.getLogger(__name__)
 
 _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
-_BRIEFING_REJECTION_PREFIX = "zsazsa:daily-briefing-rejection"
-# How alike two briefing stories have to be, on the 0..1 score
-# detect_story_overlaps gives, before the later one is dropped as duplicate.
-_OVERLAP_DROP_SCORE = 0.65
+_REJECTION_PREFIX = "zsazsa:analyser-rejection"
 
 _SECTOR_LINE_RE = re.compile(r'\*\*Targeted sector:\*\*\s*(.+)', re.IGNORECASE)
 _GEO_LINE_RE = re.compile(r'\*\*Geographic scope:\*\*\s*(.+)', re.IGNORECASE)
@@ -139,7 +143,8 @@ def _log(event, outcome, detail=None):
 
 
 def daily_briefing_title_exclusions() -> list[str]:
-    """The configured exclusion patterns, lower-cased for matching.
+    """The configured exclusion patterns, lower-cased for matching. They keep
+    an event out of the briefing and the alerts.
 
     Shared with the data collection page, which marks the events this run would
     drop and offers to set them aside, so both work off one reading of the
@@ -158,7 +163,9 @@ def title_excluded(title: str, patterns: list[str]) -> bool:
     return any(p in haystack for p in patterns)
 
 
-def _event_or_report_title_excluded(event, reports, patterns: list[str]) -> bool:
+def event_or_report_title_excluded(event, reports, patterns: list[str]) -> bool:
+    """Whether the title of an event, or of one of its reports, matches a
+    title exclusion pattern."""
     if not patterns:
         return False
     if title_excluded(getattr(event, "info", "") or "", patterns):
@@ -170,79 +177,18 @@ def _event_or_report_title_excluded(event, reports, patterns: list[str]) -> bool
 
 
 def _emit(progress, step: str, state: str, message: str = "") -> None:
+    """Report a step to the job. It is also where a run finds that it lost the
+    analyser lock, which a long model call can make it do, so a write that
+    follows one comes after a report of its own."""
     if progress is None:
         return
     try:
         progress(step=step, state=state, message=message)
+    except run_lock.Lost:
+        raise
     except Exception:
         # Progress reporting should never break pipeline execution.
         pass
-
-
-def _refresh_scraper_cache() -> None:
-    if not scraper_enabled():
-        return
-    # Run a blocking refresh so the action always works from current scraper state.
-    collection_cache.refresh_source({"id": "scraper", "kind": "scraper"})
-
-
-def _incomplete_scraper_events(days=2, since=None):
-    """The scraper's events of the last ``days`` days, today included, that are
-    still incomplete or ongoing, and with ``since`` only those changed since
-    that Unix time."""
-    # These candidates come from the scraper only. Without one the pipeline runs
-    # and reports no candidates, rather than failing the whole action.
-    if not scraper_enabled():
-        return None, []
-    misp = misp_store._scraper_misp()
-    return misp, _incomplete_events(misp, config.SCRAPER_MARKER_TAG, days, since)
-
-
-def _incomplete_manual_entries(days=2, since=None):
-    """The manual collection entries of the same window that have a report.
-
-    They are kept on the webapp MISP. One without a report has nothing for the
-    model to read, so it is left for the analyst rather than rejected.
-    """
-    misp = misp_store._misp()
-    entries = _incomplete_events(misp, misp_store.TAG_MANUAL_ENTRY, days, since)
-    return misp, [e for e in entries if misp_store.live_reports(e)]
-
-
-def _incomplete_events(misp, marker_tag, days, since):
-    today = datetime.now(timezone.utc).date()
-    first_day = today - timedelta(days=days - 1)
-    changed = {"timestamp": since} if since else {}
-    events = misp.search(
-        tags=[marker_tag],
-        date_from=first_day.isoformat(),
-        date_to=today.isoformat(),
-        limit=getattr(config, "MISP_SCRAPER_LIMIT", 500),
-        page=1,
-        pythonify=True,
-        order=misp_store.NEWEST_FIRST,
-        **changed,
-    )
-    if isinstance(events, dict):
-        # Raised rather than read as no events, as the analyser's reader does:
-        # the schedule reads from where its last completed run started, so a
-        # run that completed on an error answer would skip these events for good.
-        raise RuntimeError(f"MISP search failed: {events.get('errors') or events}")
-    if not events:
-        return []
-
-    eligible = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
-    filtered = []
-    for event in events:
-        tags = {getattr(t, "name", "") for t in (getattr(event, "tags", []) or [])}
-        if tags & eligible:
-            filtered.append(event)
-    return filtered
-
-
-def _event_has_product_tag(event, product_label: str) -> bool:
-    tag_name = f'zsazsa:product="{product_label}"'
-    return any(getattr(t, "name", "") == tag_name for t in (getattr(event, "tags", []) or []))
 
 
 def _event_http_error(event) -> bool:
@@ -252,42 +198,63 @@ def _event_http_error(event) -> bool:
     return False
 
 
+def _content(report) -> str:
+    return (getattr(report, "content", "") or "").strip()
 
-def _first_non_empty_report_content(reports) -> str:
+
+def _changed_at(report) -> float:
+    stamp = getattr(report, "timestamp", None)
+    return stamp.timestamp() if isinstance(stamp, datetime) else 0
+
+
+def _article_report(reports):
+    """The report with the article: the first with content that zsazsa did
+    not write itself, as it writes an AI summary or a rejection note."""
     for report in reports:
-        content = (getattr(report, "content", "") or "").strip()
-        if content:
-            return content
-    return ""
+        name = getattr(report, "name", "") or ""
+        if _content(report) and not is_ai_summary_report(name) and not name.startswith(_REJECTION_PREFIX):
+            return report
+    return None
+
+
+def _article_text(reports) -> str:
+    report = _article_report(reports)
+    return _content(report) if report else ""
+
+
+def _summary_report(reports):
+    """The newest AI summary of the event, or None when there is none or the
+    article changed after it was written: it would tell the old story."""
+    summary = max((r for r in reports if (getattr(r, "name", "") or "").startswith(AI_SUMMARY_PREFIX)),
+                  key=_changed_at, default=None)
+    article = _article_report(reports)
+    if summary is None or (article is not None and _changed_at(article) > _changed_at(summary)):
+        return None
+    return summary
 
 
 def _extract_ai_summary(reports) -> str:
-    for report in reports:
-        name = (getattr(report, "name", "") or "")
-        if name.startswith(AI_SUMMARY_PREFIX):
-            return (getattr(report, "content", "") or "").strip()
-    return ""
+    summary = _summary_report(reports)
+    return _content(summary) if summary else ""
 
 
-def _add_briefing_rejection_note(misp, event, reason: str, report_title: str = "") -> None:
+def _add_rejection_note(misp, event, reasons: list[str]) -> None:
+    """A report on the event saying why the analyser rejected it."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     note = MISPEventReport()
-    note.name = f"{_BRIEFING_REJECTION_PREFIX} {ts}"
-    lines = [
-        "Decision: rejected for daily briefing relevance",
+    note.name = f"{_REJECTION_PREFIX} {ts}"
+    note.content = "\n".join([
+        "Decision: rejected by the analyser, as no product wants it",
         f"Time (UTC): {ts}",
         f"Event: {(event.info or '').strip()}",
-    ]
-    if report_title:
-        lines.append(f"Report title: {report_title}")
-    if reason:
-        lines.append(f"Reason: {reason}")
-    note.content = "\n".join(lines)
+        *(f"- {reason}" for reason in reasons),
+    ])
     note.distribution = 5
     try:
-        misp.add_event_report(event.id, note)
+        misp_store._check(misp.add_event_report(event.id, note), "add the rejection note")
     except Exception as exc:
-        logger.warning("Could not add daily briefing rejection note for %s: %s", event.uuid, exc)
+        # The event is rejected all the same; only the note saying why is missing.
+        logger.warning("Could not add the rejection note to %s: %s", event.uuid, exc)
 
 
 def _build_galaxy_lookup() -> dict:
@@ -346,29 +313,44 @@ def _apply_misp_context_tags(misp, event, context: dict, lookup: dict) -> int:
     return applied
 
 
-def _ensure_ai_summary(misp, event, reports, galaxy_lookup: dict) -> tuple[str, bool]:
-    existing = _extract_ai_summary(reports)
-    if existing:
-        return existing, False
+def _ensure_ai_summary(source, event, reports, galaxy_lookup: dict, progress=None) -> tuple[str, bool]:
+    """The event's AI summary, written now when it has none and its source
+    takes reports. Returns (summary, whether it was written now). One written
+    before the article changed is written again, and the old one deleted.
 
-    content = _first_non_empty_report_content(reports)
+    On another MISP server it is written as the data collection page writes
+    one: for our organisation alone, with the event published again so that it
+    stays in that server's search, and without galaxy tags, as the event's tags
+    are that server's.
+    """
+    existing = _extract_ai_summary(reports)
+    if existing or not source.may_add_reports:
+        return existing, False
+    misp = source.client
+
+    content = _article_text(reports)
     if not content:
         return "", False
 
     event_tags = [getattr(t, "name", "") for t in (getattr(event, "tags", []) or [])]
     summary = llm.summarise_report(content, event_info=event.info or "", tags=event_tags)
-    if not summary or summary.upper().startswith("QUALITY:"):
+    if not summary:
+        # A model out of tokens answers with nothing; the next run asks again.
+        raise RuntimeError("The model returned an empty summary")
+    if summary.upper().startswith("QUALITY:"):
         return "", False
 
-    report = MISPEventReport()
-    report.name = f"{AI_SUMMARY_PREFIX} {(event.info or event.uuid)[:80]}"
-    report.content = summary
-    report.distribution = 5
-    misp.add_event_report(event.id, report)
-    try:
-        collection_cache.mark_ai_summary(event.uuid, "scraper")
-    except Exception as exc:
-        logger.warning("mark_ai_summary failed for %s: %s", event.uuid, exc)
+    _emit(progress, "generate-summaries", "in_progress", f"Writing the AI summary of {(event.info or event.uuid)[:80]}")
+    misp_store.add_ai_summary_report(misp, event.id, event.info or event.uuid, summary,
+                                     distribution=5 if source.own else 0)
+    _delete_outdated_summaries(misp, event, reports)
+    if not source.own and not misp_store.publish_event(misp, event, f"{event.uuid} again after its summary"):
+        # Unpublished, it drops out of the server's search: neither the
+        # analyser nor the collection page reads it again until it is published.
+        _log(event, "error", "Its summary was written, but MISP did not publish the event again; publish it in MISP")
+    collection_cache.mark_ai_summary(event.uuid, _cached_under(source, event))
+    if not source.own:
+        return summary, True
 
     if galaxy_lookup:
         context = parse_misp_context(summary, galaxy_names_with_commas())
@@ -379,38 +361,48 @@ def _ensure_ai_summary(misp, event, reports, galaxy_lookup: dict) -> tuple[str, 
     return summary, True
 
 
-def _extract_admiralty(event, prefix: str) -> str:
-    for tag in getattr(event, "tags", []) or []:
-        name = (getattr(tag, "name", "") or "")
-        if name.startswith(prefix):
-            return name.split("=", 1)[1].strip('"')
-    return ""
+def _delete_outdated_summaries(misp, event, reports) -> None:
+    """Delete the summaries written before the article changed, now that a
+    new one is there. Deleted softly, as MISP keeps them that way."""
+    for report in reports:
+        if (getattr(report, "name", "") or "").startswith(AI_SUMMARY_PREFIX):
+            try:
+                misp_store._check(misp.delete_event_report(report.id), "delete the outdated summary")
+            except Exception as exc:
+                logger.warning("Could not delete the outdated summary of %s: %s", event.uuid, exc)
 
 
-def _common_candidate_events(progress=None, title_exclusions=None, days=2, since=None) -> tuple:
-    _emit(progress, "refresh-cache", "in_progress", "Refreshing scraper cache...")
-    _refresh_scraper_cache()
-    _emit(progress, "refresh-cache", "completed", "Scraper cache refreshed.")
+def _cached_under(source, event) -> str:
+    """The source id the collection cache keeps an event under. A manual entry
+    is kept under its collection source, which its zsazsa:source tag names."""
+    if source.kind == "manual":
+        for tag in event.tags:
+            if tag.name.startswith('zsazsa:source="'):
+                return "manual-" + tag.name.split('"')[1]
+    return source.id
 
-    period = "today" if days == 1 else f"the last {days} days"
-    _emit(progress, "collect-events", "in_progress",
-          f"Collecting the incomplete scraper events and manual entries of {period}...")
-    misp, events = _incomplete_scraper_events(days, since)
-    # The MISP each event is on, which is where its reports are read and its
-    # summary and workflow state written.
-    clients = dict.fromkeys((e.uuid for e in events), misp)
-    # Read with the scraper's: without one the analyser does not run at all.
-    if misp is not None:
-        webapp_misp, entries = _incomplete_manual_entries(days, since)
-        clients.update(dict.fromkeys((e.uuid for e in entries), webapp_misp))
-        # A manual entry synced to the scraper is there too, under the same
-        # uuid. The entry itself is the one kept.
-        events = list({e.uuid: e for e in events + entries}.values())
-    _emit(progress, "collect-events", "completed", f"Loaded {len(events)} incomplete event(s) of {period}.")
+
+def _common_candidate_events(reading: Reading, progress=None, title_exclusions=None) -> SimpleNamespace:
+    """The events an action works on, read from every source, with the hard
+    negatives rejected, the title exclusions set apart when given, and an AI
+    summary for each where its source takes one.
+
+    Returns a namespace of ``sources`` (each event's uuid to the source it was
+    read from, which is where its reports are read and its summary and
+    workflow state written), ``events`` (the ones to work on), ``excluded``
+    (those the title exclusions set apart), and the ``summaries``, ``reports``
+    and ``stats`` of the run, whose ``event_decisions`` the action adds to.
+    """
+    _emit(progress, "collect-events", "in_progress", "Reading the new and changed events of every source...")
+    pairs = reading.read()
+    sources = {event.uuid: source for event, source in pairs}
+    events = [event for event, _source in pairs]
+    per_source = (", ".join(f"{label} {n}" for label, n in reading.counts.items())
+                  or ("no source could be read" if reading.errors else "no source is switched on"))
+    _emit(progress, "collect-events", "completed", f"Read {len(events)} event(s): {per_source}.")
 
     hard_rejected = 0
-    excluded_by_title = 0
-    kept = []
+    kept, excluded = [], []
     reports_cache: dict[str, list] = {}
     event_decisions: list[dict] = []
 
@@ -420,25 +412,33 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=2, since
     _emit(progress, "filter-events", "in_progress", filter_msg + "...")
 
     for event in events:
-        reports = read_event_reports(clients[event.uuid], event)
+        source = sources[event.uuid]
+        reports = read_event_reports(source.client, event)
         reports_cache[event.uuid] = reports
-        first_report = _first_non_empty_report_content(reports)
+        first_report = _article_text(reports)
 
         is_http_error = _event_http_error(event)
         if is_http_error or not first_report:
-            hard_rejected += 1
             reason = "HTTP error fetching article" if is_http_error else "No report content"
-            event_decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "rejected", "reason": reason})
             try:
-                tagger.set_workflow_state(clients[event.uuid], event, "rejected")
+                rejected = event_state.reject(event, source, reason)
             except Exception as exc:
                 logger.warning("Could not mark %s as rejected: %s", event.uuid, exc)
+                rejected = False
+            reading.wrote(event.uuid)
+            if rejected:
+                hard_rejected += 1
+                event_decisions.append(_decision(event, source, "rejected", reason))
+            else:
+                # Still open in MISP: the next run tries again.
+                reading.retry(event.uuid)
+                event_decisions.append(_decision(event, source, "left open", f"{reason}; MISP refused the rejection"))
             _log(event, "http_error" if is_http_error else "no_content")
             continue
 
-        if title_exclusions and _event_or_report_title_excluded(event, reports, title_exclusions):
-            excluded_by_title += 1
-            event_decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "excluded", "reason": "Title exclusion filter"})
+        if title_exclusions and event_or_report_title_excluded(event, reports, title_exclusions):
+            excluded.append(event)
+            event_decisions.append(_decision(event, source, "excluded", "Title exclusion filter"))
             _log(event, "not_relevant", "excluded by title filter")
             continue
 
@@ -446,7 +446,7 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=2, since
 
     filter_detail = f"kept {len(kept)}, rejected {hard_rejected}"
     if title_exclusions:
-        filter_detail += f", excluded by title {excluded_by_title}"
+        filter_detail += f", excluded by title {len(excluded)}"
     _emit(progress, "filter-events", "completed", f"Filtering complete: {filter_detail}.")
 
     summaries = {}
@@ -458,56 +458,134 @@ def _common_candidate_events(progress=None, title_exclusions=None, days=2, since
     # Each missing summary is a model call, which on a local model can take
     # minutes, so the job says which one it is on. A slow run then looks alive,
     # and one that died shows how far it got.
-    missing = sum(not _extract_ai_summary(reports_cache[e.uuid]) for e in kept)
+    to_write = {e.uuid for e in kept
+                if sources[e.uuid].may_add_reports and not _extract_ai_summary(reports_cache[e.uuid])}
+    missing = len(to_write)
     _emit(progress, "generate-summaries", "in_progress",
           f"{missing} of {len(kept)} event(s) need an AI summary.")
 
     written = 0
     for event in kept:
         reports = reports_cache[event.uuid]
-        if not _extract_ai_summary(reports):
+        if event.uuid in to_write:
             written += 1
             _emit(progress, "generate-summaries", "in_progress",
                   f"AI summary {written} of {missing}: {(event.info or event.uuid)[:80]}")
         try:
-            summary, created = _ensure_ai_summary(clients[event.uuid], event, reports, galaxy_lookup)
+            summary, created = _ensure_ai_summary(sources[event.uuid], event, reports, galaxy_lookup, progress)
+            if created:
+                reading.wrote(event.uuid)
+        except run_lock.Lost:
+            raise
         except Exception as exc:
             # One event the model or MISP fails on should not end the run for
-            # the others. It goes on with its article, and the next scheduled
-            # run reads it again for the summary.
+            # the others. It goes on with its article, and the next run reads it
+            # again for the summary.
             logger.warning("AI summary failed for %s: %s", event.uuid, exc)
             summary, created = "", False
             summary_failed += 1
+            reading.retry(event.uuid)
+            reading.wrote(event.uuid)
         if created:
             summary_created += 1
         summaries[event.uuid] = summary
 
     _emit(progress, "generate-summaries", "completed", f"AI summary pass complete: created {summary_created} new summary report(s).")
 
-    return clients, kept, summaries, {
-        "total_incomplete_today": len(events),
+    stats = {
+        "events_read": len(events),
+        "events_read_by_source": dict(reading.counts),
         "hard_rejected": hard_rejected,
-        "excluded_by_title": excluded_by_title,
+        "excluded_by_title": len(excluded),
         "summary_created": summary_created,
         "summary_failed": summary_failed,
-        "since": since,
         "event_decisions": event_decisions,
-    }, reports_cache
+    }
+    if reading.errors:
+        # Shown on the job: a source that could not be read is read again by
+        # the next run, but someone should know it is down.
+        stats["errors"] = list(reading.errors)
+    return SimpleNamespace(sources=sources, events=kept, excluded=excluded, summaries=summaries,
+                           reports=reports_cache, stats=stats)
 
 
-def _duplicate_story_indexes(overlaps) -> set:
+def _decision(event, source, outcome: str, reason: str) -> dict:
+    """An entry of a run's event_decisions, which the Pipeline page lists."""
+    return {"uuid": event.uuid, "title": (event.info or "").strip(), "source": source.label, "outcome": outcome,
+            "reason": reason}
+
+
+def _decide(found, event, outcome: str, reason: str) -> None:
+    found.stats["event_decisions"].append(_decision(event, found.sources[event.uuid], outcome, reason))
+
+
+def _article(found, event) -> str:
+    return _article_text(found.reports.get(event.uuid, []))
+
+
+def _evidence(found, event) -> str:
+    return relevance.evidence(event, _article(found, event), found.summaries.get(event.uuid, ""))
+
+
+def _earlier_outcome(found, event, product: str, reading: Reading) -> str:
+    """What became of an event for "flash-intel" or "daily-briefing" in an
+    earlier run, such as the product it repeats, while the event is as it was
+    then. One whose article changed is compared again: it may report more now.
+    So is every event of a rescan, which is for deciding again under the
+    settings of now, or after the product it repeated was deleted."""
+    if reading.rescan_hours:
+        return ""
+    state = event_state.load(found.sources[event.uuid].id, event.uuid)
+    return event_state.outcome(state, product, _evidence(found, event))
+
+
+def _judged(found, events, judge: Judge, product: str, progress=None) -> list[tuple]:
+    """The events a product wants, as (event, verdict, why), judging those
+    whose verdict is missing or out of date. ``product`` is "alert" or
+    "briefing". One an analyst pushed is wanted even before the model answered."""
+    label = "alerts" if product == "alert" else "the briefing"
+    wanted = []
+    for position, event in enumerate(events, start=1):
+        # One model call for each event not judged yet, as for the summaries.
+        _emit(progress, "judge-relevance", "in_progress",
+              f"Relevance {position} of {len(events)}: {(event.info or event.uuid)[:80]}")
+        verdict = judge.verdict(event, found.sources[event.uuid], _article(found, event),
+                                found.summaries.get(event.uuid, ""))
+        if verdict is None and not relevance.pushed(event, product):
+            _decide(found, event, "left open", "The model's answer could not be read")
+            _log(event, "error", "The model's relevance answer could not be read; left open")
+            continue
+        verdict = verdict or relevance.unjudged()
+        ok, reason = judge.wants(verdict, product, event)
+        if not ok:
+            _decide(found, event, "declined", reason)
+            _log(event, "not_relevant", reason)
+            continue
+        wanted.append((event, verdict, reason))
+    _emit(progress, "judge-relevance", "completed", f"{len(wanted)} of {len(events)} event(s) are for {label}.")
+    return wanted
+
+
+def _grounds_text(grounds: list) -> str:
+    return ", ".join(g.get("focus_point") or g["id"] for g in grounds)
+
+
+def _duplicate_story_indexes(overlaps, keep=frozenset()) -> set:
     """1-based indexes of the stories to drop as duplicate coverage.
 
     `overlaps` is (a, b, score) for pairs that scored at or above the drop
     threshold. Of a pair the later story goes, closest pairs are settled first,
     and a story already dropped does not take another with it: two write-ups of
-    one incident should cost the briefing one story, not both.
+    one incident should cost the briefing one story, not both. A story in
+    ``keep`` stays: of a pair the other one goes, and of two such, neither.
     """
     to_drop = set()
     for a, b, _score in sorted(overlaps, key=lambda pair: pair[2], reverse=True):
         if a in to_drop or b in to_drop:
             continue
-        to_drop.add(max(a, b))
+        droppable = [index for index in (a, b) if index not in keep]
+        if droppable:
+            to_drop.add(max(droppable))
     return to_drop
 
 
@@ -515,220 +593,349 @@ def focus_points() -> dict:
     return llm.configured_focus_points()
 
 
-def open_alerts() -> list[dict]:
-    """The flash intel alerts still in draft or in review, as stories for
-    covering_alert."""
-    return [{"id": fia.fia_id, "title": fia.title, "content": fia.summary}
-            for fia in misp_store.list_fias()
-            if fia.review_state in (misp_store.FIA_REVIEW_DRAFT, misp_store.FIA_REVIEW_PENDING)]
+def _declined_by_alerts_and_briefing(event, excluded: bool, verdict, judge: Judge, running: str,
+                                     repeats: dict) -> list[str] | None:
+    """Why the alerts and the briefing declined an event, or None when one of
+    them wants it or has no current verdict to go by. ``running`` is the
+    product of this run, which is not switched off whatever the schedule says:
+    it can be started from the dashboard alone. ``repeats`` is the story each
+    found the event tells again, which declines it unless an analyst pushed it."""
+    reasons = []
+    for product, switch, default in (("alert", "ANALYSER_FLASH_INTEL", True),
+                                     ("briefing", "ANALYSER_DAILY_BRIEFING", False)):
+        if product != running and not getattr(config, switch, default):
+            reasons.append(f"{product}: switched off")
+        elif excluded:
+            reasons.append(f"{product}: excluded by title")
+        elif verdict is None or verdict.get("version") != judge.version:
+            return None
+        else:
+            wanted, why = judge.wants(verdict, product, event)
+            if wanted and repeats.get(product) and not relevance.pushed(event, product):
+                wanted, why = False, repeats[product]
+            if wanted:
+                return None
+            reasons.append(f"{product}: {why}")
+    return reasons
 
 
-def covering_alert(title: str, content: str, alerts: list[dict]) -> str:
-    """The id of the open alert that already tells this story, or "".
+def _declined_by_advisories(found, event, state: dict, check) -> tuple[str, str]:
+    """Whether the advisories decline an event, as ("declined", why), ("unseen",
+    "") for one with a CVE their steps have not seen yet or that could not be
+    looked up, or ("open", why) for one with a CVE that would get an advisory.
 
-    The scraper reads one article again as a new event when its title changes,
-    and several sites write up the same incident.
+    Their outcome names every CVE they looked at, so one added to the event
+    since keeps it open. It is not taken as it is: the CVE records, the
+    advisories that cover them and the settings can have changed since, so
+    the CVEs are decided again as an advisory would decide them (``check``,
+    from _advisory_check).
     """
-    if not alerts:
-        return ""
-    found = llm.detect_story_overlaps([{"title": title, "content": content}] + alerts)
-    for pair in found.get("overlaps", []):
-        if pair["score"] >= _OVERLAP_DROP_SCORE and 1 in (pair["a"], pair["b"]):
-            other = pair["b"] if pair["a"] == 1 else pair["a"]
-            if other - 2 < len(alerts):
-                return alerts[other - 2]["id"]
-    return ""
+    if not getattr(config, "ANALYSER_VULNERABILITY_ADVISORIES", False):
+        return "declined", "advisory: switched off"
+    cves = collection_cache.event_cves(event)[:settings.get("ANALYSER_ADVISORY_MAX_CVES")]
+    if not cves:
+        return "declined", "advisory: no CVE"
+    outcome = (state["outcomes"].get("vea") or {}).get("outcome", "")
+    if not outcome or not set(cves) <= {cve.upper() for cve in CVE_RE.findall(outcome)}:
+        return "unseen", ""
+    if check is None:
+        return "open", "The asset inventory could not be read to check its CVEs again"
+    advise, declined, unknown = _cves_to_advise(event, cves, found.summaries.get(event.uuid, ""), check)
+    if unknown:
+        return "unseen", ""
+    if advise:
+        return "open", (f"{', '.join(cve for cve, *_rest in advise)} would get an advisory now; run the "
+                        "advisories again over the hours it was read in")
+    return "declined", f"advisory: {_no_advisory(declined, cves, collection_cache.event_cves(event))}"
 
 
-def requirement_matches(events) -> dict:
-    """{uuid: matches, best first} for the events that match an active PIR or GIR."""
-    match_events = []
-    for event in events:
-        galaxies = []
-        for galaxy in getattr(event, "galaxies", []) or []:
-            for cluster in getattr(galaxy, "clusters", []) or []:
-                value = getattr(cluster, "value", "") or ""
-                if value:
-                    galaxies.append(value)
-        match_events.append({
-            "uuid": event.uuid,
-            "info": event.info or "",
-            "tags": [getattr(t, "name", "") for t in (getattr(event, "tags", []) or [])],
-            "galaxy_names": galaxies,
-        })
-    pirs, girs = req_matching.get_requirements()
-    return req_matching.match_events(match_events, pirs, girs)
+def _close_declined(found, judge: Judge | None, reading: Reading, running: str, progress=None) -> int:
+    """Reject the events this run read that no product wants, and return how many.
 
-
-def run_daily_briefing_action(progress=None, days=2, since=None) -> dict:
-    exclusions = daily_briefing_title_exclusions()
-    clients, events, summaries, stats, reports_cache = _common_candidate_events(
-        progress=progress, title_exclusions=exclusions or None, days=days, since=since,
-    )
-    decisions = list(stats.get("event_decisions", []))
-
-    already_briefed = [e for e in events if _event_has_product_tag(e, "daily-briefing")]
-    for e in already_briefed:
-        decisions.append({"uuid": e.uuid, "title": (e.info or "").strip(), "outcome": "excluded", "reason": "Already included in a previous briefing"})
-    events = [e for e in events if not _event_has_product_tag(e, "daily-briefing")]
-
-    rejected_by_relevance = 0
-    _emit(progress, "review-relevance", "in_progress", "Reviewing daily briefing relevance of candidate stories...")
-    focus = llm.configured_focus_points()
-    pirs, girs = req_matching.get_requirements() if events else ([], [])
-    requirements = [req_matching.requirement_scope(r) for r in pirs + girs]
-    kept = []
-    included_because = {}
-    for position, event in enumerate(events, start=1):
-        # One model call per event, as for the summaries.
-        _emit(progress, "review-relevance", "in_progress",
-              f"Relevance {position} of {len(events)}: {(event.info or event.uuid)[:80]}")
-        reports = reports_cache.get(event.uuid, [])
-        first_report = _first_non_empty_report_content(reports)
-        report_title = (getattr(reports[0], "name", "") or "") if reports else ""
+    An event is closed when the alerts, the briefing and the advisories have
+    each declined it: switched off, excluded by title, a verdict that does not
+    want it or a story it tells again, or for the advisories no CVE or one
+    their steps turned down. One
+    that a product was made from, or whose verdict is still to come, stays
+    open. So does one with a CVE the advisory steps have not seen yet, which
+    the next run of this action reads again, to close it then, and one with a
+    CVE that the advisory settings of now would give an advisory.
+    """
+    candidates = found.events + found.excluded
+    if not candidates:
+        return 0
+    _emit(progress, "close-events", "in_progress", "Closing the events no product wants...")
+    in_products = (misp_store.flash_intel_source_uuids() | misp_store.briefing_source_uuids()
+                   | misp_store.vea_source_uuids())
+    check = None
+    if getattr(config, "ANALYSER_VULNERABILITY_ADVISORIES", False):
         try:
-            decision = llm.review_briefing_relevance(
-                event_title=event.info or "",
-                report_title=report_title,
-                content=first_report,
-                focus_points=focus,
-                requirements=requirements,
+            check = _advisory_check()
+        except asset_inventory.InventoryError as exc:
+            logger.warning("The advisory outcomes are not checked again: %s", exc)
+    closed = 0
+    for event in candidates:
+        if event.uuid in in_products:
+            continue
+        source = found.sources[event.uuid]
+        state = event_state.load(source.id, event.uuid)
+        evidence = _evidence(found, event)
+        repeats = {"alert": event_state.outcome(state, "flash-intel", evidence),
+                   "briefing": event_state.outcome(state, "daily-briefing", evidence)}
+        reasons = _declined_by_alerts_and_briefing(event, event in found.excluded, state["verdict"], judge, running,
+                                                   repeats)
+        if reasons is None:
+            continue
+        advisory, why = _declined_by_advisories(found, event, state, check)
+        if advisory == "unseen":
+            reading.retry(event.uuid)
+            continue
+        if advisory == "open":
+            _decide(found, event, "left open", why)
+            continue
+        reasons.append(why)
+        rejected = event_state.reject(event, source, "; ".join(reasons))
+        reading.wrote(event.uuid)
+        if rejected:
+            closed += 1
+            if source.own:
+                _add_rejection_note(source.client, event, reasons)
+            _decide(found, event, "closed", "; ".join(reasons))
+        else:
+            # Still open in MISP: the next run closes it.
+            reading.retry(event.uuid)
+    _emit(progress, "close-events", "completed", f"Closed {closed} event(s) no product wants.")
+    return closed
+
+
+def _story(found, event, focus: dict, names_with_commas, correlation: str = "") -> dict:
+    """A briefing story drafted from an event. ``correlation`` names the
+    earlier story it is an update of."""
+    summary = (found.summaries.get(event.uuid) or "").strip()
+    source_text = summary or _article(found, event)
+    context = parse_misp_context(summary, names_with_commas) if summary else {}
+    story_text = source_text
+    actor_type = ""
+    # Empty unless the model wrote this story, so a story that fell back to
+    # the summary or the article text is not shown as an AI draft.
+    drafted_by = ""
+    if source_text:
+        try:
+            drafted, actor_type = llm.draft_briefing_story(
+                source_text, focus_points=focus, threat_actor_types=getattr(config, "THREAT_ACTOR_TYPES", []) or [],
             )
+            if drafted:
+                story_text = drafted
+                drafted_by = "ai"
         except Exception as exc:
-            logger.warning("Briefing relevance check failed for %s: %s", event.uuid, exc)
-            decision = None
-        if decision is None:
-            # Neither kept nor rejected: a later briefing can see it only
-            # while it remains within the event-date window.
-            logger.warning("No relevance answer for %s; left out of this briefing", event.uuid)
-            decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "left open",
-                              "reason": "The model's answer could not be read"})
-            continue
-        reason = (decision.get("reason") or "").strip()
-        if not decision.get("include"):
-            rejected_by_relevance += 1
-            decisions.append({"uuid": event.uuid, "title": (event.info or "").strip(), "outcome": "rejected", "reason": reason or "Failed relevance check"})
-            marked = False
-            try:
-                marked = tagger.set_workflow_state(clients[event.uuid], event, "rejected")
-            except Exception as exc:
-                logger.warning("Could not mark %s as rejected after relevance review: %s", event.uuid, exc)
-            # An event that keeps its incomplete state comes back on the next
-            # run, is reviewed again and collects a second rejection note, so
-            # only write one once the event has actually been moved on.
-            if marked:
-                _add_briefing_rejection_note(clients[event.uuid], event, reason=reason, report_title=report_title)
-            _log(event, "not_relevant", reason or "rejected by briefing relevance check")
-            continue
-        included_because[event.uuid] = reason
-        kept.append(event)
-    events = kept
-    _emit(progress, "review-relevance", "completed", f"Relevance review complete: kept {len(events)}, rejected {rejected_by_relevance}.")
+            logger.warning("draft_briefing_story failed for %s: %s", event.uuid, exc)
+    return {
+        "title": event.info or "",
+        "content": story_text,
+        "drafted_by": drafted_by,
+        "source_url": misp_store.extract_source_url(event),
+        "source_event_uuid": event.uuid,
+        "source_id": found.sources[event.uuid].hint,
+        "correlation": correlation,
+        "threat_actor_types": [actor_type] if actor_type else [],
+        "sectors": context.get("sectors", []),
+        "geographic_scope": context.get("geographies", []),
+        "techniques": context.get("attack_techniques", []),
+        "threat_actors": context.get("threat_actors", []),
+        "vendor": context.get("vendor", []),
+    }
 
-    _emit(progress, "build-briefing", "in_progress", "Building daily briefing stories from eligible events...")
-    stories = []
-    feed_by_uuid = {}
-    threat_actor_types_cfg = getattr(config, "THREAT_ACTOR_TYPES", []) or []
-    names_with_commas = galaxy_names_with_commas() if events else frozenset()
-    for position, event in enumerate(events, start=1):
-        _emit(progress, "build-briefing", "in_progress",
-              f"Story {position} of {len(events)}: {(event.info or event.uuid)[:80]}")
-        summary = (summaries.get(event.uuid) or "").strip()
-        article = _first_non_empty_report_content(reports_cache.get(event.uuid, []))
-        source_text = summary or article
-        context = parse_misp_context(summary, names_with_commas) if summary else {}
 
-        story_text = source_text
-        actor_type = ""
-        # Empty unless the model wrote this story, so a story that fell back to
-        # the summary or the article text is not shown as an AI draft.
-        drafted_by = ""
-        if source_text:
-            try:
-                drafted, actor_type = llm.draft_briefing_story(
-                    source_text, focus_points=focus, threat_actor_types=threat_actor_types_cfg,
-                )
-                if drafted:
-                    story_text = drafted
-                    drafted_by = "ai"
-            except Exception as exc:
-                logger.warning("draft_briefing_story failed for %s: %s", event.uuid, exc)
+def _overlapping(stories: list[dict], first_new: int, pushed=frozenset()) -> tuple[set, set]:
+    """The 1-based indexes of the stories from ``first_new`` on that tell the
+    story of another, as (to drop, to mark). The ones before ``first_new`` are
+    in the draft already, and those in ``pushed`` an analyst asked for: neither
+    is dropped, and one of those that tells the story of a story that stays is
+    marked instead."""
+    if len(stories) < 2 or first_new > len(stories):
+        return set(), set()
+    overlap = llm.detect_story_overlaps(stories)
+    # detect_story_overlaps has already dropped whatever it could not read;
+    # all that is left to decide here is how close is too close.
+    pairs = [(o["a"], o["b"], o["score"]) for o in overlap.get("overlaps", [])
+             if o["score"] >= settings.get("ANALYSER_OVERLAP_SCORE") and max(o["a"], o["b"]) >= first_new]
+    to_drop = _duplicate_story_indexes(pairs, keep=set(range(1, first_new)) | set(pushed))
+    marked = {max(a, b) for a, b, _score in pairs if a not in to_drop and b not in to_drop}
+    return to_drop, marked
 
-        stories.append({
-            "title": event.info or "",
-            "content": story_text,
-            "drafted_by": drafted_by,
-            "source_url": misp_store.extract_source_url(event),
-            "source_event_uuid": event.uuid,
-            "source_id": misp_store.analyser_source_id(event),
-            "correlation": "",
-            "threat_actor_types": [actor_type] if actor_type else [],
-            "sectors": context.get("sectors", []),
-            "geographic_scope": context.get("geographies", []),
-            "techniques": context.get("attack_techniques", []),
-            "threat_actors": context.get("threat_actors", []),
-            "vendor": context.get("vendor", []),
-        })
-        feed_by_uuid[event.uuid] = tagger.get_source_feed(event)
-    _emit(progress, "build-briefing", "completed", f"Prepared {len(stories)} story candidate(s).")
 
-    overlap_pairs = 0
+def _ranked(wanted: list[tuple], judge: Judge) -> list[tuple]:
+    """The events for the briefing, best first: those an analyst pushed, then
+    alert-worthy ones, then by the highest priority of the PIRs they answer,
+    then by their overall score, and those in only as a major development last."""
+    def key(found):
+        event, verdict, _why = found
+        return (not relevance.pushed(event, "briefing"), verdict["briefing"]["major_development"],
+                not judge.wants(verdict, "alert", event)[0], judge.pir_priority(verdict),
+                -(relevance.overall(verdict, event) or 0))
+    return sorted(wanted, key=key)
+
+
+def _also_seen(found, events: list) -> list[dict]:
+    """The events over the cap, as the briefing lists them under Also seen."""
+    return [{"title": event.info or "", "source_url": misp_store.extract_source_url(event),
+             "source_event_uuid": event.uuid, "source_id": found.sources[event.uuid].hint} for event in events]
+
+
+def todays_briefings() -> list:
+    """The briefings dated today, in any state."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    return [b for b in misp_store.list_briefings(strict=True) if b.date == today]
+
+
+def todays_draft():
+    """Today's briefing while it is a draft, which a run adds its stories to."""
+    return next((b for b in todays_briefings() if b.review_state == misp_store.BRIEFING_REVIEW_DRAFT), None)
+
+
+def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
+    found = _common_candidate_events(reading, progress, title_exclusions=daily_briefing_title_exclusions() or None)
+
+    # Read from the products rather than from a tag on the event: an event on
+    # another MISP server has no product tag. One left out over the cap is
+    # under Also seen until its briefing is deleted to be made again.
+    briefed = misp_store.briefing_source_uuids() if found.events else set()
+    listed = misp_store.briefing_also_seen_uuids() if found.events else set()
+    alerted = (misp_store.flash_intel_source_uuids()
+               if found.events and not settings.get("ANALYSER_BRIEFING_WITH_ALERTS") else set())
+    events = []
+    for event in found.events:
+        outcome = _earlier_outcome(found, event, "daily-briefing", reading)
+        pushed = relevance.pushed(event, "briefing")
+        if event.uuid in briefed:
+            _decide(found, event, "excluded", "Already included in a previous briefing")
+        elif event.uuid in alerted:
+            _decide(found, event, "excluded", "Has a flash intel alert")
+        elif event.uuid in listed and not pushed:
+            _decide(found, event, "excluded", "Listed under Also seen in a briefing")
+        elif outcome and not pushed:
+            _decide(found, event, "excluded", outcome)
+        else:
+            events.append(event)
+
+    judge = Judge(reading) if found.events else None
+    _emit(progress, "judge-relevance", "in_progress", f"Judging {len(events)} event(s) for the briefing...")
+    wanted = _judged(found, events, judge, "briefing", progress)
+    declined_by_relevance = len(events) - len(wanted)
+
+    draft = todays_draft() if wanted else None
+    existing = [{k: v for k, v in vars(s).items() if k != "_report_id"} for s in draft.stories] if draft else []
+    ranked = _ranked(wanted, judge)
+    events_by_uuid = {event.uuid: event for event, _verdict, _why in ranked}
+
+    # Duplicates and the cap are settled on the summaries, before the stories
+    # are drafted, so that no model call goes on a story that is left out.
     dropped = 0
-    if len(stories) >= 2:
+    # The earlier story each one tells again, for its correlation field.
+    updates = {}
+    if ranked:
         _emit(progress, "check-overlap", "in_progress", "Checking overlap between stories and removing duplicates...")
+        candidates = [{"title": event.info or "", "content": found.summaries.get(event.uuid) or _article(found, event),
+                       "source_url": misp_store.extract_source_url(event)} for event, _verdict, _why in ranked]
+        first_new = len(existing) + 1
+        # The analyst asked for these: they stay, with the overlap marked.
+        pushed = {i for i, (event, _verdict, _why) in enumerate(ranked, start=first_new)
+                  if relevance.pushed(event, "briefing")}
         try:
-            overlap = llm.detect_story_overlaps(stories)
-            # detect_story_overlaps has already dropped whatever it could not
-            # read; all that is left to decide here is how close is too close.
-            candidates = [(o["a"], o["b"], o["score"]) for o in overlap.get("overlaps", [])
-                          if o["score"] >= _OVERLAP_DROP_SCORE]
-            overlap_pairs = len(candidates)
-            to_drop = _duplicate_story_indexes(candidates)
-            if to_drop:
-                for i, s in enumerate(stories, start=1):
-                    if i in to_drop:
-                        decisions.append({"uuid": s.get("source_event_uuid", ""), "title": s.get("title", ""), "outcome": "dropped", "reason": "Duplicate coverage of another story"})
-                stories = [s for i, s in enumerate(stories, start=1) if i not in to_drop]
-                dropped = len(to_drop)
+            to_drop, marked = _overlapping(existing + candidates, first_new, pushed)
         except Exception as exc:
             logger.warning("Daily briefing overlap check failed: %s", exc)
-        _emit(progress, "check-overlap", "completed", f"Overlap check complete: {overlap_pairs} pair(s), dropped {dropped} duplicate story(s).")
-    else:
-        _emit(progress, "check-overlap", "completed", "Not enough stories for overlap checking.")
+            to_drop, marked = set(), set()
+        for index in sorted(to_drop):
+            event = ranked[index - first_new][0]
+            # Kept, so that the next runs do not propose it again, and the
+            # closing step counts it as declined.
+            event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing",
+                                     "Duplicate coverage of another story", _evidence(found, event))
+            _decide(found, event, "dropped", "Duplicate coverage of another story")
+        for index in marked & pushed:
+            updates[ranked[index - first_new][0].uuid] = "Overlaps with another story of this briefing"
+        ranked = [pair for i, pair in enumerate(ranked, start=first_new) if i not in to_drop]
+        dropped = len(to_drop)
+        _emit(progress, "check-overlap", "completed", f"Overlap check complete: dropped {dropped} duplicate story(s).")
 
-    for s in stories:
-        decisions.append({"uuid": s.get("source_event_uuid", ""), "title": s.get("title", ""), "outcome": "included",
-                          "reason": included_because.get(s.get("source_event_uuid", ""), "")})
+    # Compared with the briefings of the last weeks only as long as there is
+    # room: each comparison is a model call.
+    room = max(0, settings.get("ANALYSER_BRIEFING_MAX_STORIES") - len(existing))
+    earlier = similarity.recent_stories(but=draft) if ranked else []
+    kept, over_cap = [], []
+    for event, verdict, why in ranked:
+        # One an analyst pushed goes past the cap, and an earlier story only
+        # marks it: the analyst asked for it.
+        is_pushed = relevance.pushed(event, "briefing")
+        if len(kept) >= room and not is_pushed:
+            over_cap.append(event)
+            continue
+        try:
+            same = similarity.same_story(
+                similarity.event_story(event, found.summaries.get(event.uuid, ""), _article(found, event)), earlier)
+        except Exception as exc:
+            logger.warning("Comparing %s with the earlier briefings failed: %s", event.uuid, exc)
+            same = None
+            updates[event.uuid] = "Not compared with the earlier briefings, as the comparison failed"
+        if similarity.repeats(same) and not is_pushed:
+            told = f"The same story as one in {same['story']['id']}"
+            event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing", told,
+                                     _evidence(found, event))
+            _decide(found, event, "dropped", told)
+            continue
+        if same:
+            told = "Update of" if same["new_facts"] else "The same story as"
+            updates[event.uuid] = f"{told} \"{same['story']['title']}\" in {same['story']['id']}: {same['reason']}"
+        kept.append((event, verdict, why))
+    ranked = kept
+    cap = settings.get("ANALYSER_BRIEFING_MAX_STORIES")
+    for event in over_cap:
+        _decide(found, event, "over the cap", f"Listed under Also seen: the briefing has {cap} stories")
 
-    if not stories:
+    _emit(progress, "build-briefing", "in_progress", "Building daily briefing stories from eligible events...")
+    focus = focus_points()
+    names_with_commas = galaxy_names_with_commas() if ranked else frozenset()
+    stories = []
+    for position, (event, verdict, why) in enumerate(ranked, start=1):
+        _emit(progress, "build-briefing", "in_progress",
+              f"Story {position} of {len(ranked)}: {(event.info or event.uuid)[:80]}")
+        stories.append(_story(found, event, focus, names_with_commas, updates.get(event.uuid, "")))
+        grounds = _grounds_text(verdict["briefing"]["grounds"])
+        if verdict["briefing"]["major_development"]:
+            grounds = "a major development"
+        _decide(found, event, "included", f"{why} Grounds: {grounds}." if grounds else why)
+    _emit(progress, "build-briefing", "completed", f"Prepared {len(stories)} story candidate(s).")
+
+    result = {"ok": True, "action": "daily-briefing", **found.stats, "declined_by_relevance": declined_by_relevance,
+              "overlap_dropped": dropped, "over_the_cap": len(over_cap)}
+    if not stories and not over_cap:
         _emit(progress, "write-summary", "completed", "No stories to summarise.")
         _emit(progress, "create-drafts", "completed", "No daily briefing draft created (no eligible stories).")
-        return {
-            "ok": True,
-            "action": "daily-briefing",
-            "created": 0,
-            "message": "No eligible events to include in a daily briefing draft.",
-            **stats,
-            "rejected_by_relevance": rejected_by_relevance,
-            "overlap_pairs": overlap_pairs,
-            "overlap_dropped": dropped,
-            "event_decisions": decisions,
-        }
+        result.update(created=0, message="No eligible events to include in a daily briefing draft.")
+        result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
+        return result
 
-    raw_vendors = [v.strip() for s in stories for v in s.get("vendor", []) if v.strip()]
-    vendor_values = _deduplicate_vendors(raw_vendors)
+    if not stories:
+        # Today's draft is full: only its Also seen list changes.
+        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
+        data.update(stories=existing, also_seen=draft.also_seen + _also_seen(found, over_cap))
+        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
+        result.update(created=0, briefing_uuid=draft.uuid, message="Today's daily briefing draft is full.")
+        result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
+        return result
 
+    all_stories = existing + stories
     now = datetime.now(timezone.utc)
-
     # Written from the stories that survived the overlap check, so the summary
-    # describes the draft as it will actually be created. A draft is worth more
-    # without a summary than not at all, so a failure here only costs the
-    # paragraph and the analyst can write or redraft it on the form.
+    # describes the draft as it will actually be. A draft is worth more without
+    # a summary than not at all, so a failure here only costs the paragraph and
+    # the analyst can write or redraft it on the form.
     _emit(progress, "write-summary", "in_progress", "Writing the briefing summary across the stories...")
     briefing_summary = ""
     try:
         briefing_summary = llm.draft_briefing_summary(
-            stories, misp_store.briefing_scope_summary(stories), now.date().isoformat(),
+            all_stories, misp_store.briefing_scope_summary(all_stories), now.date().isoformat(),
         )
     except Exception as exc:
         logger.warning("draft_briefing_summary failed: %s", exc)
@@ -736,261 +943,346 @@ def run_daily_briefing_action(progress=None, days=2, since=None) -> dict:
           "Briefing summary written." if briefing_summary
           else "No briefing summary written; the draft opens without one.")
 
-    included_uuids = {s["source_event_uuid"] for s in stories}
-    data = {
-        "date": now.date().isoformat(),
-        "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
-        "author": "analyser",
-        "tlp": misp_store.source_events_tlp((e for e in events if e.uuid in included_uuids), "clear"),
-        "escalations": "",
-        "notes": "",
-        "summary": briefing_summary,
-        "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
-        "vendor": vendor_values,
-        "stories": stories,
-    }
-    _emit(progress, "create-drafts", "in_progress", "Creating daily briefing draft...")
-    briefing_uuid = misp_store.create_briefing(data)
-    _emit(progress, "create-drafts", "completed", f"Daily briefing draft created ({briefing_uuid}).")
+    # Never below what the draft already is.
+    tlp = misp_store.source_events_tlp([events_by_uuid[s["source_event_uuid"]] for s in stories],
+                                       draft.tlp if draft else "clear")
+    _emit(progress, "create-drafts", "in_progress", "Writing the daily briefing draft...")
+    if draft:
+        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
+        data.update(
+            stories=all_stories, story_count=len(all_stories),
+            tlp=tlp,
+            vendor=_deduplicate_vendors(list(draft.vendor) + [v.strip() for s in stories
+                                                             for v in s.get("vendor", []) if v.strip()]),
+            also_seen=draft.also_seen + _also_seen(found, over_cap),
+            summary=briefing_summary or draft.summary,
+            # A summary kept from before the new stories no longer covers them.
+            summary_stale=bool(draft.summary) and not briefing_summary,
+        )
+        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
+        briefing_uuid = draft.uuid
+        message = f"Added {len(stories)} stories to today's daily briefing draft."
+    else:
+        briefing_uuid = misp_store.create_briefing({
+            "date": now.date().isoformat(),
+            "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
+            "author": "analyser",
+            "tlp": tlp,
+            "escalations": "",
+            "notes": "",
+            "also_seen": _also_seen(found, over_cap),
+            "summary": briefing_summary,
+            "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
+            "vendor": _deduplicate_vendors([v.strip() for s in stories for v in s.get("vendor", []) if v.strip()]),
+            "stories": stories,
+        })
+        message = f"Daily briefing draft created with {len(stories)} stories."
+    _emit(progress, "create-drafts", "completed", f"Daily briefing draft written ({briefing_uuid}).")
 
     for s in stories:
-        uuid = s["source_event_uuid"]
-        log_event(
-            event_uuid=uuid,
-            event_info=s.get("title", ""),
-            source_feed=feed_by_uuid.get(uuid, "unknown"),
-            outcome="product_created",
-            detail="daily-briefing",
-        )
+        # Tagged as a source of the briefing.
+        reading.wrote(s["source_event_uuid"])
+        _log(events_by_uuid[s["source_event_uuid"]], "product_created", "daily-briefing")
 
-    return {
-        "ok": True,
-        "action": "daily-briefing",
-        "created": 1,
-        "briefing_uuid": briefing_uuid,
-        "stories_included": len(stories),
-        "message": f"Daily briefing draft created with {len(stories)} stories.",
-        **stats,
-        "rejected_by_relevance": rejected_by_relevance,
-        "overlap_pairs": overlap_pairs,
-        "overlap_dropped": dropped,
-        "event_decisions": decisions,
-    }
+    result.update(created=0 if draft else 1, briefing_uuid=briefing_uuid, stories_included=len(stories),
+                  message=message)
+    result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
+    return result
 
 
-def run_flash_intel_action(progress=None, days=2, since=None) -> dict:
-    _clients, events, summaries, stats, reports_cache = _common_candidate_events(
-        progress=progress, days=days, since=since)
+def run_flash_intel_action(reading: Reading, progress=None) -> dict:
+    # The title exclusions keep an event out of the alerts as they keep it out
+    # of the briefing; only the advisories go by its CVEs alone.
+    found = _common_candidate_events(reading, progress, title_exclusions=daily_briefing_title_exclusions() or None)
     # One alert per event, whichever run made it and whatever became of it.
-    alerted = misp_store.flash_intel_source_uuids()
-    events = [e for e in events if e.uuid not in alerted]
+    alerted = misp_store.flash_intel_source_uuids() if found.events else set()
+    # One linked to an alert it repeats is left out, unless an analyst pushed it.
+    events = [e for e in found.events if e.uuid not in alerted
+              and (not _earlier_outcome(found, e, "flash-intel", reading) or relevance.pushed(e, "alert"))]
+    judge = Judge(reading) if found.events else None
 
-    _emit(progress, "match-requirements", "in_progress", "Matching eligible events against active PIR/GIR scope...")
-    match_map = requirement_matches(events)
-    matched_count = sum(1 for event in events if match_map.get(event.uuid))
-    _emit(progress, "match-requirements", "completed", f"Requirement matching complete: {matched_count} event(s) matched.")
+    _emit(progress, "judge-relevance", "in_progress", f"Judging {len(events)} event(s) for alerts...")
+    wanted = _judged(found, events, judge, "alert", progress)
 
-    # The audience is the requirement's: its owner and the stakeholders it is
-    # distributed to. One whose stakeholders have no role takes everyone the
-    # alert can reach, as an alert from the focus points does.
-    pirs, girs = req_matching.get_requirements()
-    requirements = {r.uuid: r for r in pirs + girs}
-    stakeholders = misp_store.list_stakeholders() if matched_count else []
-    reachable = misp_store.subscriber_audience("Flash intel alert", "amber") if matched_count else ""
-    alerts = open_alerts() if matched_count else []
-
-    created = 0
-    _emit(progress, "create-drafts", "in_progress", "Creating flash intel draft(s) for matched events...")
-    for event in events:
-        matches = match_map.get(event.uuid, [])
-        if not matches:
-            _log(event, "not_relevant", "no PIR/GIR match")
+    _emit(progress, "create-drafts", "in_progress", "Drafting flash intel alerts...")
+    earlier = similarity.recent_alerts() if wanted else []
+    created = []
+    for event, verdict, why in wanted:
+        source = found.sources[event.uuid]
+        article, summary = _article(found, event), found.summaries.get(event.uuid, "")
+        update_of = ""
+        try:
+            same = similarity.same_story(similarity.event_story(event, summary, article), earlier)
+        except Exception as exc:
+            # Drafted rather than lost, with a word for the analyst.
+            logger.warning("Comparing %s with the earlier alerts failed: %s", event.uuid, exc)
+            same, update_of = None, "Not compared with the earlier alerts, as the comparison failed"
+        if similarity.repeats(same) and not relevance.pushed(event, "alert"):
+            told = f"The same story as {same['story']['id']}" + (", rejected" if same["story"]["rejected"] else "")
+            # Linked to the alert it repeats, so the next runs do not propose it again.
+            event_state.save_outcome(source.id, event.uuid, "flash-intel", told, _evidence(found, event))
+            _decide(found, event, "dropped", told)
+            _log(event, "not_relevant", f"{told}.")
             continue
-        _emit(progress, "create-drafts", "in_progress", f"Checking {(event.info or event.uuid)[:80]}...")
-        article = _first_non_empty_report_content(reports_cache.get(event.uuid, []))
-        summary = (summaries.get(event.uuid) or "").strip()
-        reliability = _extract_admiralty(event, "admiralty-scale:source-reliability=") or "f"
-        # A keyword match is only a lead: one country or the word espionage
-        # matched a requirement about something else entirely.
-        top, answer, unreadable = None, None, False
-        for match in matches:
-            requirement = requirements.get(match.get("uuid"))
-            if requirement is None:
-                continue
-            answer = llm.check_relevance(article or summary, req_matching.requirement_scope(requirement), reliability)
-            if answer is None:
-                unreadable = True
-                continue
-            if answer.get("relevant") and answer.get("matched_focus_points"):
-                top = match
-                break
-        if top is None and unreadable:
-            _log(event, "error", "The model's answer could not be read; left open")
+        if same:
+            update_of = (f"{'Update of' if same['new_facts'] else 'The same story as'} {same['story']['id']}: "
+                         f"{same['reason']}")
+        title = (event.info or event.uuid)[:80]
+        _emit(progress, "create-drafts", "in_progress", f"Drafting an alert on {title}...")
+        fia_id = problem = ""
+        try:
+            data = flash_intel.draft_alert(event, source, verdict, judge, article, summary, why, update_of=update_of)
+            if data:
+                _emit(progress, "create-drafts", "in_progress", f"Filing the alert on {title}...")
+                fia_id, problem = flash_intel.file_alert(data, event, source, verdict)
+        except run_lock.Lost:
+            raise
+        except Exception as exc:
+            # One event the model or MISP fails on should not end the run for
+            # the others, nor keep them waiting every hour after.
+            logger.warning("Flash intel draft failed for %s: %s", event.uuid, exc)
+        if not fia_id:
+            reading.retry(event.uuid)
+            _decide(found, event, "left open", "No alert could be drafted; the next run tries again")
+            _log(event, "error", "No flash intel alert could be drafted; left open for the next run")
             continue
-        if top is None:
-            ids = ", ".join(m.get("id", "") for m in matches[:3])
-            reason = (answer or {}).get("reason", "")
-            _log(event, "not_relevant", f"{ids} matched on keywords, but the model found it not relevant: {reason}".strip())
-            continue
-        covered_by = covering_alert(event.info or "", article or summary, alerts)
-        if covered_by:
-            _log(event, "not_relevant", f"The same story as {covered_by}.")
-            continue
+        # Tagged as the alert's source.
+        reading.wrote(event.uuid)
+        if problem:
+            _log(event, "error", f"{fia_id} was made, but {problem}")
+        earlier.append(similarity.event_story(event, summary, article) | {"id": fia_id})
+        created.append(event.uuid)
+        _decide(found, event, "included", why)
+        _log(event, "product_created", f"flash-intel {fia_id}; grounds: {_grounds_text(verdict['alert']['grounds'])}")
+    _emit(progress, "create-drafts", "completed", f"Created {len(created)} flash intel draft(s).")
 
-        linked_pir_uuid = top.get("uuid", "") if top.get("type") == "pir" else ""
-        requirement = requirements.get(top.get("uuid"))
-        audience = misp_store.requirement_audience(requirement, stakeholders) if requirement else ""
-        tlp = misp_store.source_events_tlp([event], "amber")
-        fallback_audience = reachable if tlp == "amber" else misp_store.subscriber_audience("Flash intel alert", tlp)
-
-        data = {
-            "title": event.info or "Untitled",
-            "audience": audience or fallback_audience,
-            "tlp": tlp,
-            "summary": summary,
-            "action_required": "Review and decide whether publication is required.",
-            "what_happened": [],
-            "source_description": f"Auto-created from source event {event.uuid}; top match: {top.get('id', 'n/a')}",
-            "source_reliability": _extract_admiralty(event, "admiralty-scale:source-reliability="),
-            "information_credibility": _extract_admiralty(event, "admiralty-scale:information-credibility="),
-            "likely_impact": "",
-            "affected_assets": "",
-            "actor_context": "",
-            "geographic_scope": [],
-            "sectors": [],
-            "threat_actors": [],
-            "threat_types": [],
-            "technology": [],
-            "vendor": [],
-            "incident": [],
-            "campaign": [],
-            "actions_immediate": [],
-            "actions_near_term": [],
-            "mitre_techniques": [],
-            "hunting_hypotheses": [],
-            # Rules come from a Rulezet search an analyst runs, not from the model.
-            "detection_rules": [],
-            "external_references": [],
-            "feedback_deadline": "",
-            "author": "analyser",
-            "source_event_uuids": [event.uuid],
-            "source_event_hints": {event.uuid: misp_store.analyser_source_id(event)},
-            "context_tags": [f"match:{top['id']}"] if top.get("id") else [],
-            "linked_pir_uuid": linked_pir_uuid,
-            "analyser_reason": f"Matches {top.get('id', '')} on {', '.join(top.get('matched_terms') or [])}. "
-                               f"{answer.get('reason', '')}".strip(),
-            "review_state": misp_store.FIA_REVIEW_DRAFT,
-        }
-        _uuid, fia_id = misp_store.create_fia(data)
-        alerts.append({"id": fia_id, "title": data["title"], "content": summary})
-        created += 1
-        _log(event, "product_created", f"flash-intel; matched: {top.get('id', 'n/a')}")
-    _emit(progress, "create-drafts", "completed", f"Created {created} flash intel draft(s).")
-
-    return {
+    result = {
         "ok": True,
         "action": "flash-intel",
-        "created": created,
-        "message": f"Created {created} flash intel draft(s) from PIR/GIR matched events.",
-        **stats,
+        "created": len(created),
+        "source_event_uuids": created,
+        "message": f"Created {len(created)} flash intel draft(s).",
+        **found.stats,
     }
+    # With the daily briefing on, it closes the events of the day, as the last
+    # product to deal with them; without it, nothing else would.
+    if not getattr(config, "ANALYSER_DAILY_BRIEFING", False):
+        result["closed"] = _close_declined(found, judge, reading, "alert", progress)
+    return result
 
 
-_NOT_CHECKED = "Not checked against the asset inventory: the CVE record names no product."
+_NOT_CHECKED = "Not checked: the CVE record names no product, and neither does the article."
 
 
-def _cve_in_inventory(cves, progress):
-    """The CVE an event's advisory is about with the asset inventory on, as
-    (cve, its record, what "Our exposure" says), or None for no advisory.
-
-    The first CVE in a product of the inventory. Failing that, the first whose
-    record names no product, as one still reserved does or one whose lookup
-    failed: that cannot be checked, so the draft says so and the analyst
-    decides. An event listing a month of patches stops after ten, to spare the
-    lookups.
-    """
-    not_checked = None
-    for cve in cves[:10]:
-        _emit(progress, "create-drafts", "in_progress", f"Checking {cve} against the asset inventory...")
-        enrichment = fetch_cve_info(cve)
-        affected = enrichment.get("affected") or []
-        for vendor, product in affected:
-            asset = asset_inventory.find(vendor, product)
-            if asset:
-                return cve, enrichment, f"In the asset inventory: {asset.supplier} {asset.product} {asset.version}".strip()
-        if not affected and not_checked is None:
-            not_checked = (cve, enrichment, _NOT_CHECKED)
-    return not_checked
+def _cvss(value) -> float | None:
+    """A CVSS score from a record or an advisory, "9.8 CRITICAL" included."""
+    found = re.match(r"\s*(\d+(?:\.\d+)?)", str(value or ""))
+    return float(found.group(1)) if found else None
 
 
-def _advised_cves() -> dict:
-    """{CVE: the advisory that covers it}, from the drafts, the advisories in
-    review and the rejected ones. An approved advisory says nothing about a new
-    article; a rejected one says the CVE is not worth one."""
+def _covered(vea, cvss, cisa_kev) -> SimpleNamespace:
+    """A CVE as an advisory covers it, with what it was then. None for a
+    value not known."""
+    return SimpleNamespace(vea_id=vea.vea_id, review_state=vea.review_state, cvss=cvss, cisa_kev=cisa_kev)
+
+
+def _advisory_coverage() -> dict:
+    """{CVE: the newest advisory of the lookback naming it, with its CVSS
+    score and KEV status then}, in any state.
+
+    An advisory has the score and KEV status of its main CVE, and from the
+    analyser, of each of its CVEs. Another CVE of one an analyst wrote is
+    covered without them, so its change is not measured."""
+    oldest = datetime.now(timezone.utc).date() - timedelta(days=settings.get("ANALYSER_ADVISORY_DAYS"))
     covered = {}
-    for vea in misp_store.list_veas():
-        if vea.review_state in (misp_store.VEA_REVIEW_DRAFT, misp_store.VEA_REVIEW_PENDING):
-            label = vea.vea_id
-        elif vea.review_state == misp_store.VEA_REVIEW_REJECTED:
-            label = f"{vea.vea_id} (rejected)"
-        else:
+    for vea in sorted(misp_store.list_veas(strict=True), key=lambda v: v.created_at or datetime.min, reverse=True):
+        if vea.created_at and vea.created_at.date() < oldest:
             continue
-        for cve in CVE_RE.findall(vea.cve_id or ""):
-            covered.setdefault(cve.upper(), label)
+        cves = [cve.upper() for cve in CVE_RE.findall(vea.cve_id or "")]
+        baselines = getattr(vea, "cve_baselines", None) or {}
+        for position, cve in enumerate(cves):
+            if cve in covered:
+                continue
+            if cve in baselines:
+                then = baselines[cve]
+                covered[cve] = _covered(vea, then.get("cvss"), then.get("cisa_kev"))
+            elif position == 0:
+                covered[cve] = _covered(vea, vea.cvss, vea.cisa_kev)
+            else:
+                covered[cve] = _covered(vea, None, None)
     return covered
 
 
-def run_vea_action(progress=None, days=2, since=None) -> dict:
-    # With the asset inventory on, a CVE only makes an advisory when it is in a
-    # product we run. Reading it first fails the run on a bad file before the
-    # summaries take their model calls.
+def _material_change(earlier, record: dict) -> str:
+    """How a CVE changed since an advisory covered it, or "" for not enough
+    to be worth a new one."""
+    if record.get("cisa_kev") == "Yes" and earlier.cisa_kev is not None and earlier.cisa_kev != "Yes":
+        return "it is on the CISA KEV list now"
+    now, then = _cvss(record.get("cvss_score")), _cvss(earlier.cvss)
+    if now is not None and then is not None and now - then >= settings.get("ANALYSER_ADVISORY_CVSS_RISE"):
+        return f"its CVSS score rose from {then} to {now}"
+    return ""
+
+
+def _scope_terms() -> list[tuple[str, str]]:
+    """The vendor and technology names an advisory's CVE has to concern, as
+    (name, where it is from): the focus points, and the vendor and technology
+    scope of every active PIR, except a "Won't have", and GIR."""
+    terms = [(name, f"the focus point {name}") for key in ("FOCUS_POINTS_VENDORS", "FOCUS_POINTS_TECHNOLOGIES")
+             for name in (getattr(config, key, []) or []) if str(name).strip()]
+    pirs, girs = req_matching.get_requirements(strict=True)
+    for requirement in [r for r in pirs if r.priority != "Won't have"] + list(girs):
+        rid = getattr(requirement, "pir_id", "") or getattr(requirement, "gir_id", "")
+        for name in [*(getattr(requirement, "vendor", None) or []), *(getattr(requirement, "technology", None) or [])]:
+            terms.append((name, f"{rid} ({name})"))
+    return terms
+
+
+def _advisory_check() -> SimpleNamespace:
+    """What the advisory steps decide on now: whether the asset inventory is
+    on, the scope terms and the advisories that cover a CVE. ``records`` keeps
+    the CVEs looked up, each once a run."""
     checking_assets = asset_inventory.enabled()
     if checking_assets:
+        # Read now, so that a file that cannot be read fails here rather than
+        # half-way through the events.
         asset_inventory.assets()
-    _clients, events, summaries, stats, reports_cache = _common_candidate_events(
-        progress=progress, days=days, since=since)
-    events = [e for e in events if not _event_has_product_tag(e, "vea")]
+    return SimpleNamespace(checking_assets=checking_assets, terms=_scope_terms(), coverage=_advisory_coverage(),
+                           records={})
+
+
+def _in_scope(record: dict, text: str, terms: list, checking_assets: bool) -> str | None:
+    """What "Our exposure" says of a CVE that concerns the organisation, or
+    None when it does not.
+
+    Its record's vendors and products are matched against the asset
+    inventory, when it is on, and the scope terms. A record that names no
+    product yet, as a new one often does, is matched on the event's title and
+    summary instead, and failing that passes, flagged as not checked. With no
+    scope to match against at all, every CVE passes, as nothing says otherwise.
+    """
+    if not checking_assets and not terms:
+        return ""
+    affected = record.get("affected") or []
+    for vendor, product in affected:
+        if checking_assets:
+            asset = asset_inventory.find(vendor, product)
+            if asset:
+                return f"In the asset inventory: {asset.supplier} {asset.product} {asset.version}".strip()
+        for name, where in terms:
+            if asset_inventory.names(name, vendor, product):
+                return f"{vendor} {product} is in the scope of {where}.".strip()
+    if affected:
+        return None
+    for name, where in terms:
+        if req_matching.term_in_text(name, text):
+            return f"The article names {name}, in the scope of {where}."
+    return _NOT_CHECKED
+
+
+def _severe_enough(record: dict) -> bool:
+    if settings.get("ANALYSER_ADVISORY_KEV_ONLY") and record.get("cisa_kev") != "Yes":
+        return False
+    score = _cvss(record.get("cvss_score"))
+    return score is None or score >= settings.get("ANALYSER_ADVISORY_CVSS_FLOOR")
+
+
+def _cves_to_advise(event, cves, summary, check, progress=None):
+    """The CVEs of an event an advisory is for, as (cve, record, exposure,
+    update of an earlier advisory or ""), why the others are not, and those
+    whose record could not be looked up, which are still to be decided.
+    ``check`` is what the advisory steps decide on (_advisory_check)."""
+    advise, declined, unknown = [], [], []
+    text = f"{event.info or ''}\n{summary}"
+    for cve in cves:
+        if cve not in check.records:
+            _emit(progress, "create-drafts", "in_progress", f"Looking up {cve}...")
+            check.records[cve] = lookup_cve(cve)
+        record = check.records[cve]
+        if record is None:
+            unknown.append(cve)
+            continue
+        earlier = check.coverage.get(cve)
+        if earlier is not None:
+            change = _material_change(earlier, record) if settings.get("ANALYSER_ADVISORY_UPDATES") else ""
+            if not change:
+                declined.append(f"{cve} in {earlier.vea_id}")
+                continue
+            if (earlier.review_state == misp_store.VEA_REVIEW_REJECTED
+                    and settings.get("ANALYSER_ADVISORY_REJECTED_BLOCKS")):
+                declined.append(f"{cve} in {earlier.vea_id}, rejected")
+                continue
+        exposure = _in_scope(record, text, check.terms, check.checking_assets)
+        if exposure is None:
+            declined.append(f"{cve} out of scope")
+            continue
+        if not _severe_enough(record):
+            declined.append(f"{cve} below the severity asked for")
+            continue
+        update = f"Update of {earlier.vea_id}: {change}." if earlier is not None else ""
+        advise.append((cve, record, exposure, update))
+    # One that could not be checked is never the advisory's main CVE while
+    # another is known to concern us.
+    advise.sort(key=lambda found: found[2] == _NOT_CHECKED)
+    return advise, declined, unknown
+
+
+def _no_advisory(declined: list, looked_up: list, cves: list) -> str:
+    """Why an event gets no advisory, the CVEs past the limit named as not
+    looked up: they never keep the event open."""
+    skipped = len(cves) - len(looked_up)
+    if skipped:
+        declined = [*declined, f"{skipped} more not looked up, past the limit of {len(looked_up)}"]
+    return f"No CVE to advise on: {', '.join(declined)}"
+
+
+def run_vea_action(reading: Reading, progress=None) -> dict:
+    # With the asset inventory on, reading it first fails the run on a bad file
+    # before the summaries take their model calls.
+    if asset_inventory.enabled():
+        asset_inventory.assets()
+    found = _common_candidate_events(reading, progress)
+    # One advisory per event, read from the advisories: an event on another
+    # MISP server has no product tag.
+    advised_before = misp_store.vea_source_uuids() if found.events else set()
+    events = [e for e in found.events if e.uuid not in advised_before]
 
     _emit(progress, "detect-cves", "in_progress", "Detecting CVE matches in eligible events...")
-    cve_match_count = 0
-    cve_map = {}
-    for event in events:
-        cves = collection_cache.event_cves(event)
-        cve_map[event.uuid] = cves
-        if cves:
-            cve_match_count += 1
+    cve_map = {e.uuid: collection_cache.event_cves(e) for e in events}
+    cve_match_count = sum(1 for cves in cve_map.values() if cves)
     _emit(progress, "detect-cves", "completed", f"CVE detection complete: {cve_match_count} event(s) with CVE match.")
     # Everyone an advisory can reach, for the analyst to narrow down.
     audience = misp_store.subscriber_audience("Vulnerability advisory", "amber") if cve_match_count else ""
-    # A CVE that a draft, an advisory in review or a rejected one already covers
-    # gets no new one. The scraper reads an article again as a new event when
-    # its title changes, as an "(Updated October 25)" does.
-    covered = _advised_cves() if cve_match_count else {}
+    # The scraper reads an article again as a new event when its title
+    # changes, as an "(Updated October 25)" does, and several sites write up
+    # one CVE: an advisory of the lookback covers it, unless it changed since.
+    check = _advisory_check() if cve_match_count else None
 
     advised = []
     _emit(progress, "create-drafts", "in_progress", "Creating vulnerability advisory draft(s) for CVE-matched events...")
+    most = settings.get("ANALYSER_ADVISORY_MAX_CVES")
     for event in events:
-        cves = cve_map.get(event.uuid, [])
+        cves = cve_map[event.uuid][:most]
         if not cves:
             _log(event, "not_relevant", "no CVE found")
             continue
-        if all(cve in covered for cve in cves):
-            _log(event, "not_relevant", "already in an advisory: "
-                 + ", ".join(f"{cve} in {covered[cve]}" for cve in cves))
+        source = found.sources[event.uuid]
+        summary = found.summaries.get(event.uuid) or ""
+        advise, declined, unknown = _cves_to_advise(event, cves, summary, check, progress)
+        if unknown:
+            # Not decided, also for the CVEs that could be looked up: the
+            # event gets one advisory, and the next run makes it with them all.
+            reading.retry(event.uuid)
+            _log(event, "error", f"{', '.join(unknown)} could not be looked up; left for the next run")
             continue
-        cves = [cve for cve in cves if cve not in covered]
-
-        exposure = ""
-        if checking_assets:
-            found = _cve_in_inventory(cves, progress)
-            if found is None:
-                _log(event, "not_relevant", f"not in the asset inventory: {', '.join(cves[:10])}")
-                continue
-            primary_cve, enrichment, exposure = found
-        else:
-            primary_cve = cves[0]
-            _emit(progress, "create-drafts", "in_progress", f"Enriching {primary_cve} from vulnerability database...")
-            enrichment = fetch_cve_info(primary_cve)
+        if not advise:
+            reason = _no_advisory(declined, cves, cve_map[event.uuid])
+            # The closing step waits for this before it closes the event.
+            event_state.save_outcome(source.id, event.uuid, "vea", reason)
+            _log(event, "not_relevant", reason)
+            continue
+        primary_cve, enrichment, exposure, update = advise[0]
+        cves = [cve for cve, *_rest in advise]
 
         product_lines = []
         if enrichment.get("products"):
@@ -1001,13 +1293,13 @@ def run_vea_action(progress=None, days=2, since=None) -> dict:
             product_lines.append("Description: " + enrichment["description"])
         product_info = "\n".join(product_lines)
 
-        article = _first_non_empty_report_content(reports_cache.get(event.uuid, []))
+        article = _article(found, event)
         drafted = {}
         try:
             drafted = llm.draft_vea_sections(
                 cve_id=primary_cve,
                 product_info=product_info,
-                article_content=article or (summaries.get(event.uuid) or ""),
+                article_content=article or summary,
             )
         except Exception as exc:
             logger.warning("draft_vea_sections failed for %s: %s", event.uuid, exc)
@@ -1021,7 +1313,7 @@ def run_vea_action(progress=None, days=2, since=None) -> dict:
         tlp = misp_store.source_events_tlp([event], "amber")
         data = {
             "cve_id": "\n".join(cves),
-            "summary": (drafted.get("summary") or summaries.get(event.uuid) or "").strip(),
+            "summary": (drafted.get("summary") or summary).strip(),
             "cvss": cvss or drafted.get("cvss", ""),
             "cwe": enrichment.get("cwes", [""])[0] if enrichment.get("cwes") else drafted.get("cwe", ""),
             "title": event.info or "",
@@ -1038,8 +1330,8 @@ def run_vea_action(progress=None, days=2, since=None) -> dict:
             "threat_actor_interest": drafted.get("threat_actor_interest", ""),
             "cisa_kev": enrichment.get("cisa_kev") or drafted.get("cisa_kev", ""),
             "source_description": f"Auto-created from source event {event.uuid}",
-            "source_reliability": _extract_admiralty(event, "admiralty-scale:source-reliability="),
-            "information_credibility": _extract_admiralty(event, "admiralty-scale:information-credibility="),
+            "source_reliability": tagger.tag_value(event, "admiralty-scale:source-reliability="),
+            "information_credibility": tagger.tag_value(event, "admiralty-scale:information-credibility="),
             "worst_case": drafted.get("worst_case", ""),
             "most_likely": drafted.get("most_likely", ""),
             "immediate_actions": drafted.get("immediate_actions") or [],
@@ -1052,12 +1344,29 @@ def run_vea_action(progress=None, days=2, since=None) -> dict:
             "context_tags": [f"cve:{c}" for c in cves],
             "review_state": misp_store.VEA_REVIEW_DRAFT,
             "source_event_uuid": event.uuid,
-            "source_event_hints": {event.uuid: misp_store.analyser_source_id(event)},
+            "source_event_hints": {event.uuid: source.hint},
             "linked_pir_uuid": "",
-            "analyser_reason": f"The event names {', '.join(cves)}. {exposure}".strip(),
+            "analyser_reason": " ".join(part for part in (
+                update, f"The event names {', '.join(cves)}.", exposure) if part),
+            # What a later change of each CVE is measured against.
+            "cve_baselines": {cve: {"cvss": record.get("cvss_score") or "", "cisa_kev": record.get("cisa_kev") or ""}
+                              for cve, record, *_rest in advise},
         }
-        _uuid, vea_id = misp_store.create_vea(data)
-        covered.update(dict.fromkeys(cves, vea_id))
+        _emit(progress, "create-drafts", "in_progress", f"Writing the advisory on {(event.info or event.uuid)[:80]}...")
+        try:
+            _uuid, vea_id = misp_store.create_vea(data)
+        except Exception as exc:
+            # One that MISP refuses should not hold up the others, now or on
+            # every run after.
+            logger.warning("Vulnerability advisory failed for %s: %s", event.uuid, exc)
+            reading.retry(event.uuid)
+            _log(event, "error", f"No advisory could be written: {exc}; left for the next run")
+            continue
+        reading.wrote(event.uuid)
+        # The next event on these CVEs in this run is covered by this one.
+        new = SimpleNamespace(vea_id=vea_id, review_state=misp_store.VEA_REVIEW_DRAFT)
+        check.coverage.update({cve: _covered(new, then["cvss"], then["cisa_kev"])
+                               for cve, then in data["cve_baselines"].items()})
         advised.append(event.uuid)
         _log(event, "product_created", f"vea; CVEs: {', '.join(cves)}")
     created = len(advised)
@@ -1069,7 +1378,7 @@ def run_vea_action(progress=None, days=2, since=None) -> dict:
         "created": created,
         "source_event_uuids": advised,
         "message": f"Created {created} vulnerability advisory draft(s) from CVE-matched events.",
-        **stats,
+        **found.stats,
     }
 
 
@@ -1082,24 +1391,26 @@ ACTION_LABELS = {
 
 def action_steps(action: str) -> list[dict]:
     common = [
-        {"id": "refresh-cache", "label": "Refresh scraper cache", "state": "pending"},
-        {"id": "collect-events", "label": "Load the incomplete events", "state": "pending"},
+        {"id": "collect-events", "label": "Read the new and changed events", "state": "pending"},
         {"id": "filter-events", "label": "Filter hard negatives", "state": "pending"},
         {"id": "generate-summaries", "label": "Generate missing LLM summaries", "state": "pending"},
     ]
     if action == "daily-briefing":
         common.extend([
-            {"id": "review-relevance", "label": "Review relevance and usefulness", "state": "pending"},
-            {"id": "build-briefing", "label": "Build briefing story set", "state": "pending"},
+            {"id": "judge-relevance", "label": "Judge relevance for the briefing", "state": "pending"},
             {"id": "check-overlap", "label": "Check overlap and remove duplicates", "state": "pending"},
+            {"id": "build-briefing", "label": "Build briefing story set", "state": "pending"},
             {"id": "write-summary", "label": "Write the briefing summary", "state": "pending"},
-            {"id": "create-drafts", "label": "Create daily briefing draft", "state": "pending"},
+            {"id": "create-drafts", "label": "Write the daily briefing draft", "state": "pending"},
+            {"id": "close-events", "label": "Close the events no product wants", "state": "pending"},
         ])
     elif action == "flash-intel":
         common.extend([
-            {"id": "match-requirements", "label": "Match events to PIR/GIR", "state": "pending"},
+            {"id": "judge-relevance", "label": "Judge relevance for alerts", "state": "pending"},
             {"id": "create-drafts", "label": "Create flash intel draft(s)", "state": "pending"},
         ])
+        if not getattr(config, "ANALYSER_DAILY_BRIEFING", False):
+            common.append({"id": "close-events", "label": "Close the events no product wants", "state": "pending"})
     elif action == "vea":
         common.extend([
             {"id": "detect-cves", "label": "Detect CVE matches", "state": "pending"},
@@ -1108,14 +1419,19 @@ def action_steps(action: str) -> list[dict]:
     return common
 
 
-def run_action(job_id: str, user: str, triggered_by: str = "dashboard", days: int = 2,
-               since: int | None = None) -> dict | None:
+def run_action(job_id: str, user: str, triggered_by: str = "dashboard", lock_token: str = "",
+               rescan_hours: int | None = None) -> dict | None:
     """Run the analyser action of a job made with action_steps(), and return its
     result, or None when it did not complete. ``user`` goes on the audit
     entries: the analyst, read from the request before this thread began, or
-    "analyser" for the schedule. ``days`` is how many days of scraper events it
-    reads, today included: yesterday's too by default, or an event that came in
-    late in the day would be missed. ``since`` keeps those changed since then."""
+    "analyser" for the schedule.
+
+    The action reads what changed on each source since its previous completed
+    run, whoever started that one, or with ``rescan_hours`` that many hours
+    back. Its watermarks move only when it completes. ``lock_token`` is the
+    analyser lock (analyser.run_lock) the caller holds, kept fresh while the
+    run goes, and checked at each step it reports.
+    """
     job = job_store.get_job(job_id)
     if not job:
         return None
@@ -1132,20 +1448,26 @@ def run_action(job_id: str, user: str, triggered_by: str = "dashboard", days: in
         return None
 
     run_id = log_pipeline_run_start(action, triggered_by=triggered_by)
-    audit.record("run-start", "pipeline", entity_label=action, details=f"triggered by {triggered_by}", user=user)
+    details = f"triggered by {triggered_by}" + (f", reading the last {rescan_hours} hours again" if rescan_hours else "")
+    audit.record("run-start", "pipeline", entity_label=action, details=details, user=user)
     job_store.update_job(job_id, status="running", message="Running...")
     job_store.append_log(job_id, f"Started action '{action}'.")
 
     def _progress(*, step: str, state: str, message: str = ""):
         job_store.set_step(job_id, step=step, state=state, message=message)
+        if not run_lock.refresh(lock_token):
+            # Another run took the lock over; this one must not write beside it.
+            raise run_lock.Lost("The analyser lock was taken over by another run")
 
+    reading = Reading(action, rescan_hours=rescan_hours)
     try:
-        result = handler(progress=_progress, days=days, since=since)
-        # Freshness only. Not save_last_run: that is the analyser's watermark
-        # for which scraper events it has already seen, and these actions read a
-        # different set (the day's incomplete events), so moving it forward here
-        # would make the next analyser run skip everything published in between.
-        save_last_action(int(time.time()))
+        # Which events have a product, the earlier products and the
+        # requirements are asked of MISP by several steps; once is enough.
+        with run_lock.kept_fresh(lock_token), misp_store.records_kept():
+            result = handler(reading, progress=_progress)
+        # Events left for the next run keep the scheduled briefing's day open.
+        result["retried"] = len(reading.retried)
+        reading.commit()
         log_pipeline_run_end(run_id, "completed", result)
         audit.record("run-complete", "pipeline", entity_label=action,
                      details=(result or {}).get("message") or "", user=user)

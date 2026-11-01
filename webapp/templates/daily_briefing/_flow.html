@@ -12,7 +12,7 @@
       The analyser makes a draft every day from {{ '%02d' | format(briefing_hour) }}:00 UTC, and when you start it from the dashboard.
       {% else %}
       The analyser makes a draft when you start it from the dashboard. Its daily schedule is off{% if is_site_admin %}
-      (<a href="{{ url_for('config_page.index', tab='tab-system') }}">Settings &gt; System</a>){% endif %}.
+      (<a href="{{ url_for('config_page.index', tab='tab-analyser') }}">Settings &gt; Analyser</a>){% endif %}.
       {% endif %}
     </span>
   </span>
@@ -33,7 +33,7 @@
     <div class="flow-row"><i class="fas fa-wand-magic-sparkles"></i><span>An AI summary tags the sectors, countries, actors and ATT&amp;CK techniques.</span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Selecting the events</span>
-      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Yesterday's and today's events still open</span></div>
+      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>What came in or changed since its previous run, on the sources switched on</span></div>
       <div class="flow-row"><i class="fas fa-link-slash"></i><span>Article not fetched or empty <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
       <div class="flow-row"><i class="fas fa-filter"></i><span>Excluded title <span class="flow-out flow-out-skip">left out</span></span></div>
       <div class="flow-row"><i class="fas fa-clone"></i><span>Already in a briefing <span class="flow-out flow-out-skip">left out</span></span></div>
@@ -47,12 +47,12 @@
 
   <div class="flow-step flow-next-auto flow-is-auto" style="--step-color:var(--accent-green);">
     {{ step_head(3, 'fa-bullseye', 'Align with needs', 50, 'What is relevant') }}
-    <div class="flow-row"><i class="fas fa-star"></i><span>Matches the scope of an active PIR or GIR <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>always in</span></span></div>
     <div class="flow-who flow-auto">
-      <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Every other event</span>
-      <div class="flow-row"><i class="fas fa-shield-halved"></i><span>Does it contain threat information relevant to us? An incident, a campaign, an exploited CVE or attacker techniques, not marketing or company news.</span></div>
-      <div class="flow-row"><i class="fas fa-circle-check"></i><span>Relevant threat information <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>kept</span></span></div>
-      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>No relevant threat information <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span> with the reason in a report on the event</span></div>
+      <span class="flow-who-title"><i class="fas fa-robot me-1"></i>One verdict per event</span>
+      <div class="flow-row"><i class="fas fa-shield-halved"></i><span>The AI reads the article against your focus points and active PIRs and GIRs, quoting it for each. Threat information, not marketing or company news.</span></div>
+      <div class="flow-row"><i class="fas fa-circle-check"></i><span>Worth a story <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>kept</span></span></div>
+      <div class="flow-row"><i class="fas fa-user-check"></i><span>Your relevance score pushes it in or keeps it out.</span></div>
+      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>No product wants it <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span> when the briefing runs, with the reasons in a report on the event</span></div>
     </div>
     <div class="flow-links">
       <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-star me-1"></i>PIRs</a>
@@ -65,14 +65,15 @@
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Analyser</span>
       <div class="flow-row"><i class="fas fa-newspaper"></i><span>A story per event, written with your focus points in mind</span></div>
-      <div class="flow-row"><i class="fas fa-object-group"></i><span>Stories about the same news removed</span></div>
+      <div class="flow-row"><i class="fas fa-object-group"></i><span>Stories about the same news, or told in an earlier briefing, left out</span></div>
+      <div class="flow-row"><i class="fas fa-layer-group"></i><span>The best stories up to the cap, the rest listed under Also seen</span></div>
       <div class="flow-row"><i class="fas fa-align-left"></i><span>A summary of the day</span></div>
     </div>
     <div class="flow-who flow-hand">
       <span class="flow-who-title"><i class="fas fa-user me-1"></i>By hand</span>
       <div class="flow-row"><i class="fas fa-hand-pointer"></i><span>Pick events from any source on Data collection, and write the stories with AI help.</span></div>
     </div>
-    <div class="flow-row"><i class="fas fa-file-lines"></i><span>One briefing in <span class="flow-state" style="--state-color:var(--neutral-500);">draft</span>. Its events are tagged, so they stay out of the next one.</span></div>
+    <div class="flow-row"><i class="fas fa-file-lines"></i><span>One briefing in <span class="flow-state" style="--state-color:var(--neutral-500);">draft</span>, which a later run that day adds to. Its events are tagged, so they stay out of the next one.</span></div>
   </div>
 
   <div class="flow-step" style="--step-color:var(--neutral-700);">

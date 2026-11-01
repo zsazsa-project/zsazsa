@@ -20,6 +20,16 @@ def get_source_feed(event) -> str:
     )
 
 
+def tag_value(event, prefix: str) -> str:
+    """The value of an event's first tag that starts with ``prefix``, such as
+    'admiralty-scale:source-reliability=', without its quotes, or ""."""
+    for tag in getattr(event, "tags", []) or []:
+        name = getattr(tag, "name", "") or ""
+        if name.startswith(prefix):
+            return name.split("=", 1)[1].strip('"')
+    return ""
+
+
 def _failed(reply) -> str:
     """The error MISP reported for a tag call, or "" when it went through.
 
@@ -37,18 +47,23 @@ def set_workflow_state(misp, event, state: str) -> bool:
     Both halves matter. An event that keeps its old state alongside the new one
     still answers the analyser's "incomplete" search, so it is picked up and
     processed again on every run, producing a second product each time.
+
+    The new state goes on first. Refused, it leaves the event as it was; the
+    other way round, the event would be left with no state at all, which no
+    search of the analyser finds again.
     """
+    wanted = f'{_WORKFLOW_PREFIX}"{state}"'
+    error = _failed(misp.tag(event, wanted, local=True))
+    if error:
+        logger.error("Could not set workflow state %s on %s: %s", state, event.uuid, error)
+        return False
     ok = True
     for tag in event.tags:
-        if tag.name.startswith(_WORKFLOW_PREFIX):
+        if tag.name.startswith(_WORKFLOW_PREFIX) and tag.name != wanted:
             error = _failed(misp.untag(event, tag.name))
             if error:
                 logger.error("Could not remove %s from %s: %s", tag.name, event.uuid, error)
                 ok = False
-    error = _failed(misp.tag(event, f'{_WORKFLOW_PREFIX}"{state}"', local=True))
-    if error:
-        logger.error("Could not set workflow state %s on %s: %s", state, event.uuid, error)
-        ok = False
     return ok
 
 

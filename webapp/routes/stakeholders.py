@@ -4,7 +4,7 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from notifier import dispatcher
 from webapp import audit, misp_session, misp_store, org_store
-from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS
+from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS, subscribed_products
 from webapp.utils import matching, product_detail_url
 
 bp = Blueprint("stakeholders", __name__)
@@ -178,6 +178,9 @@ def _sort_stakeholders(items, sort, direction):
 @bp.route("/", endpoint="list")
 def list_stakeholders():
     all_stakeholders = misp_store.list_stakeholders()
+    # Counted, filtered and shown without a product type no longer offered,
+    # as the edit form does.
+    products = {s.uuid: subscribed_products(s) for s in all_stakeholders}
     org_map = org_store.org_map()
     # Organisation options for the filter: distinct organisations actually in use,
     # labelled via org_map and sorted by display name.
@@ -187,7 +190,7 @@ def list_stakeholders():
     )
     org_options = [(v, org_map.get(v, v)) for v in org_values]
     role_options = sorted({s.role for s in all_stakeholders if s.role}, key=str.lower)
-    product_options = sorted({p for s in all_stakeholders for p in s.products}, key=str.lower)
+    product_options = sorted({p for s in all_stakeholders for p in products[s.uuid]}, key=str.lower)
 
     type_filter = (request.args.get("type") or "").strip()
     org_filter = (request.args.get("organization") or "").strip()
@@ -201,7 +204,7 @@ def list_stakeholders():
     if role_filter:
         tests["role"] = lambda s: s.role == role_filter
     if product_filter:
-        tests["product"] = lambda s: product_filter in s.products
+        tests["product"] = lambda s: product_filter in products[s.uuid]
     stakeholders = _sort_stakeholders(matching(all_stakeholders, tests), request.args.get("sort"), request.args.get("dir"))
     by_product = matching(all_stakeholders, tests, skip="product")
     pirs, girs = misp_store.list_pirs(), misp_store.list_girs()
@@ -211,8 +214,8 @@ def list_stakeholders():
         stakeholders=stakeholders,
         type_counts=Counter(s.stakeholder_type for s in matching(all_stakeholders, tests, skip="type")),
         role_counts=Counter(s.role or "Unspecified" for s in matching(all_stakeholders, tests, skip="role")).most_common(),
-        subscription_counts=Counter(p for s in by_product for p in s.products).most_common(),
-        unsubscribed=sum(1 for s in by_product if not s.products),
+        subscription_counts=Counter(p for s in by_product for p in products[s.uuid]).most_common(),
+        unsubscribed=sum(1 for s in by_product if not products[s.uuid]),
         owned_records=misp_store.records_owned_by_stakeholders(pirs, girs),
         requirement_counts={s.uuid: (misp_store.active_requirement_counts(s, pirs),
                                      misp_store.active_requirement_counts(s, girs)) for s in stakeholders},

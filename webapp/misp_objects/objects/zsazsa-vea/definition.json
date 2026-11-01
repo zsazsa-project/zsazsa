@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Vulnerability Exploitation Advisory (VEA) managed by the zsazsa CTI program",
   "uuid": "b2c3d4e5-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
-  "version": 3,
+  "version": 4,
   "attributes": {
     "vea-id": {
       "misp-attribute": "text",
@@ -243,6 +243,12 @@
       "misp-attribute": "text",
       "ui-priority": 39,
       "description": "Why the analyser made this advisory: the CVEs of its event, and the asset they are in",
+      "disable_correlation": true
+    },
+    "cve-baselines": {
+      "misp-attribute": "text",
+      "ui-priority": 40,
+      "description": "JSON object of the CVSS score and CISA KEV status of each CVE when the analyser made the draft, which a later change is measured against",
       "disable_correlation": true
     }
   }

@@ -1,25 +1,27 @@
-"""What the scheduled analyser makes, as Settings > System switches it on.
+"""What the scheduled analyser makes, as Settings > Analyser switches it on.
 
-The flash intel alerts from focus points are what it always made, and stay on
-by default; switched off, the run reads no scraper events and leaves the
-watermark where it is, so switching them on again picks up from there. The
-dashboard's three options run each only when switched on. The alerts from PIRs
-and GIRs and the advisories go before the check against the focus points, which
-rejects every event that matches no focus point and would take it out of both;
-that check reads its events after them. The briefing, which rejects too, goes
-last. They read yesterday's events as well as today's, as a run from the
-dashboard does, or an event that came in
-after the last run of a day would never be read; the hourly ones only those that
-came in or changed since their last scheduled run that went through, so an event
-is not checked and logged again every hour, unless a summary failed in it. The
-briefing comes once a day, from its hour on, and a day only counts as briefed
-when the run went through. An event gets one flash intel alert at most,
-whichever run made it: the alerts themselves say which events they came from.
-Manual collection entries with a report are read alongside the scraper's events,
-from the webapp MISP they are kept on, and are summarised and tagged there.
+The flash intel alerts are what it always made, and stay on by default; the
+advisories and the daily briefing run only when switched on. They go in that
+order: the advisories, then the alerts, and the briefing last, which closes the
+events no product wants and so needs the others' outcomes first. The briefing
+comes once a day, from its hour on; a day only counts as briefed when the run
+went through, read every source and left no event for the next run. A draft
+made from the dashboard earlier that day gets the events since added to it, and
+the day's events are closed; a day whose briefing is published gets no more.
 
-The state file, the database and the log are temporary; every MISP and model
-call is stubbed.
+Every action reads what changed on each source since its own previous completed
+run, from the schedule or from the dashboard alike (tests.test_analyser_reader
+pins how), and only a completed run moves those watermarks. One analyser run
+goes at a time: a scheduled run that finds another one holding the lock skips
+its hour, and the next run reads what it would have. The feed caches are
+refreshed either way.
+
+Each event is checked, summarised and tagged on the MISP it was read from, and
+a run that lost its lock while the model wrote a summary does not write it. The
+title exclusions keep an event out of the alerts as they keep it out of the
+briefing, but not out of the advisories.
+
+The database and the log are temporary; every MISP and model call is stubbed.
 
     python -m unittest tests.test_scheduled_analyser
 """
@@ -29,7 +31,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest import mock
 
@@ -38,9 +40,11 @@ from pymisp import PyMISP
 import config
 import run_analyser
 from analyser import reader
+from analyser.sources import Reading, Source
+from core import db
+from webapp import misp_store
 
-SWITCHES = {"ANALYSER_FLASH_INTEL": True, "ANALYSER_FLASH_INTEL_REQUIREMENTS": False,
-            "ANALYSER_VULNERABILITY_ADVISORIES": False, "ANALYSER_DAILY_BRIEFING": False,
+SWITCHES = {"ANALYSER_FLASH_INTEL": True, "ANALYSER_VULNERABILITY_ADVISORIES": False, "ANALYSER_DAILY_BRIEFING": False,
             "ANALYSER_DAILY_BRIEFING_HOUR": 21}
 EVENING = datetime(2026, 10, 24, 21, 15, tzinfo=timezone.utc)
 
@@ -50,56 +54,65 @@ def _switches(**on):
 
 
 class Due(unittest.TestCase):
-    def due(self, now=EVENING, briefed=None, **on):
-        with _switches(**on), mock.patch.object(run_analyser, "load_last_briefing", return_value=briefed):
+    def due(self, now=EVENING, briefed=None, today=(), **on):
+        """``today`` the states of the briefings dated today, or the error reading them."""
+        listed = today if isinstance(today, Exception) else [SimpleNamespace(review_state=s) for s in today]
+        with _switches(**on), mock.patch.object(run_analyser, "load_last_briefing", return_value=briefed), \
+             mock.patch.object(run_analyser.analyser_pipeline, "todays_briefings",
+                               **({"side_effect": listed} if isinstance(listed, Exception) else {"return_value": listed})), \
+             mock.patch.object(run_analyser, "save_last_briefing") as self.briefed:
             return run_analyser.scheduled_actions(now)
 
-    def test_out_of_the_box_nothing_of_the_dashboard_runs(self):
-        self.assertEqual(self.due(), [])
+    def test_out_of_the_box_only_the_alerts_run(self):
+        self.assertEqual(self.due(), ["flash-intel"])
 
     def test_everything_switched_on_runs_with_the_briefing_last(self):
-        self.assertEqual(self.due(ANALYSER_FLASH_INTEL_REQUIREMENTS=True, ANALYSER_VULNERABILITY_ADVISORIES=True,
-                                  ANALYSER_DAILY_BRIEFING=True),
-                         ["flash-intel", "vea", "daily-briefing"])
+        self.assertEqual(self.due(ANALYSER_VULNERABILITY_ADVISORIES=True, ANALYSER_DAILY_BRIEFING=True),
+                         ["vea", "flash-intel", "daily-briefing"])
 
     def test_the_briefing_waits_for_its_hour_and_comes_once_a_day(self):
-        self.assertEqual(self.due(EVENING.replace(hour=20), ANALYSER_DAILY_BRIEFING=True), [])
-        self.assertEqual(self.due(briefed="2026-10-24", ANALYSER_DAILY_BRIEFING=True), [])
-        self.assertEqual(self.due(briefed="2026-10-23", ANALYSER_DAILY_BRIEFING=True), ["daily-briefing"])
+        self.assertEqual(self.due(EVENING.replace(hour=20), ANALYSER_DAILY_BRIEFING=True), ["flash-intel"])
+        self.assertEqual(self.due(briefed="2026-10-24", ANALYSER_DAILY_BRIEFING=True), ["flash-intel"])
+        self.assertEqual(self.due(briefed="2026-10-23", ANALYSER_DAILY_BRIEFING=True),
+                         ["flash-intel", "daily-briefing"])
+
+    def test_briefings_that_cannot_be_read_hold_up_only_the_briefing(self):
+        with self.assertLogs("run_analyser", "WARNING"):
+            self.assertEqual(self.due(today=RuntimeError("MISP down"), ANALYSER_DAILY_BRIEFING=True),
+                             ["flash-intel"])
+        self.briefed.assert_not_called()
+
+    def test_a_draft_made_from_the_dashboard_gets_the_events_since(self):
+        """It held up the scheduled briefing, and with it the day's closing."""
+        self.assertEqual(self.due(today=["draft"], ANALYSER_DAILY_BRIEFING=True), ["flash-intel", "daily-briefing"])
+        self.briefed.assert_not_called()
+
+    def test_a_day_whose_briefing_is_published_gets_none(self):
+        self.assertEqual(self.due(today=["rejected", "published"], ANALYSER_DAILY_BRIEFING=True), ["flash-intel"])
+        self.briefed.assert_called_once_with("2026-10-24")
+
+    def test_one_whose_briefing_was_rejected_gets_a_new_draft(self):
+        self.assertEqual(self.due(today=["rejected"], ANALYSER_DAILY_BRIEFING=True), ["flash-intel", "daily-briefing"])
 
 
 class RunScheduled(unittest.TestCase):
-    def run_them(self, actions, result, last_run=None):
+    def run_them(self, actions, result):
         jobs = []
-        with mock.patch.object(run_analyser, "get_latest_pipeline_run", return_value=last_run) as self.latest, \
-             mock.patch.object(run_analyser.job_store, "create_job",
+        with mock.patch.object(run_analyser.job_store, "create_job",
                                side_effect=lambda action, **kw: jobs.append((action, kw["label"])) or {"id": action}), \
              mock.patch.object(run_analyser.analyser_pipeline, "run_action", return_value=result) as run, \
              mock.patch.object(run_analyser, "save_last_briefing") as briefed:
-            self.results = run_analyser.run_scheduled_actions(actions, EVENING)
+            self.results = run_analyser.run_scheduled_actions(actions, EVENING, "token")
         return jobs, run, briefed
 
     def test_each_runs_as_a_job_the_way_the_dashboard_starts_one(self):
+        """And keeps the lock the run holds fresh while it goes."""
         jobs, run, _briefed = self.run_them(["flash-intel", "vea"], {"message": "Created 1 draft."})
         self.assertEqual(jobs, [("flash-intel", "Scheduled flash intel alert"),
                                 ("vea", "Scheduled vulnerability advisory")])
         self.assertEqual(run.call_args_list, [
-            mock.call("flash-intel", "analyser", triggered_by="schedule", since=None),
-            mock.call("vea", "analyser", triggered_by="schedule", since=None)])
-
-    def test_the_hourly_ones_read_only_what_changed_since_they_last_went_through(self):
-        _jobs, run, _briefed = self.run_them(["vea", "daily-briefing"], {"message": "Done."},
-                                             last_run={"started_at": "2026-10-24T20:15:00", "result": None})
-        self.latest.assert_called_once_with("vea", triggered_by="schedule", status="completed")
-        since = int(datetime(2026, 10, 24, 20, 15, tzinfo=timezone.utc).timestamp())
-        self.assertEqual([c.kwargs["since"] for c in run.call_args_list], [since, None])
-
-    def test_after_a_failed_summary_the_next_one_reads_the_same_events_again(self):
-        """Nothing changes an event whose summary failed, so a run reading from
-        when the last one started never read it again."""
-        _jobs, run, _briefed = self.run_them(["flash-intel"], {"message": "Done."}, last_run={
-            "started_at": "2026-10-24T20:15:00", "result": {"summary_failed": 1, "since": 1761333300}})
-        self.assertEqual(run.call_args.kwargs["since"], 1761333300)
+            mock.call("flash-intel", "analyser", triggered_by="schedule", lock_token="token"),
+            mock.call("vea", "analyser", triggered_by="schedule", lock_token="token")])
 
     def test_the_day_is_briefed_only_when_the_briefing_went_through(self):
         _jobs, _run, briefed = self.run_them(["daily-briefing"], {"message": "Daily briefing draft created."})
@@ -108,33 +121,73 @@ class RunScheduled(unittest.TestCase):
         _jobs, _run, briefed = self.run_them(["daily-briefing"], None)
         briefed.assert_not_called()
 
+    def test_a_source_that_could_not_be_read_keeps_the_day_open(self):
+        """The next run adds that source's events to the draft once it is back."""
+        result = {"message": "Daily briefing draft created.", "errors": ["MISP scraper: unavailable"]}
+        _jobs, _run, briefed = self.run_them(["daily-briefing"], result)
+        briefed.assert_not_called()
+        self.assertEqual(self.results, {"daily-briefing": result})
+
+    def test_an_event_left_for_the_next_run_keeps_the_day_open(self):
+        """As when the model could not be reached for its relevance: once it
+        is judged, the next run adds it to the draft."""
+        result = {"message": "Daily briefing draft created.", "retried": 1}
+        _jobs, _run, briefed = self.run_them(["daily-briefing"], result)
+        briefed.assert_not_called()
+        _jobs, _run, briefed = self.run_them(["daily-briefing"], dict(result, retried=0))
+        briefed.assert_called_once_with("2026-10-24")
+
 
 class RunAction(unittest.TestCase):
     """The dashboard's runner, which the schedule uses too."""
 
-    def run_action(self, outcome):
+    def run_action(self, outcome, **kwargs):
         pipeline = run_analyser.analyser_pipeline
         with mock.patch.object(pipeline, "run_vea_action", **outcome) as self.handler, \
+             mock.patch.object(pipeline, "Reading", autospec=True) as self.reading, \
+             mock.patch.object(pipeline.run_lock, "refresh") as self.refresh, \
              mock.patch.object(pipeline.job_store, "get_job", return_value={"action": "vea"}), \
              mock.patch.multiple(pipeline.job_store, update_job=mock.DEFAULT, append_log=mock.DEFAULT,
                                  set_step=mock.DEFAULT, complete_open_steps=mock.DEFAULT), \
              mock.patch.object(pipeline.audit, "record"), \
-             mock.patch.object(pipeline, "save_last_action"), \
              mock.patch.object(pipeline, "log_pipeline_run_start", return_value=1) as started, \
              mock.patch.object(pipeline, "log_pipeline_run_end"):
-            result = pipeline.run_action("job-1", "analyser")
+            self.reading.return_value.retried = getattr(self, "retried", set())
+            result = pipeline.run_action("job-1", "analyser", **kwargs)
         return result, started
 
     def test_it_says_who_ran_it_and_returns_what_it_made(self):
         result, started = self.run_action({"return_value": {"message": "Created 2 drafts."}})
-        self.assertEqual(result, {"message": "Created 2 drafts."})
+        self.assertEqual(result, {"message": "Created 2 drafts.", "retried": 0})
         started.assert_called_once_with("vea", triggered_by="dashboard")
 
-    def test_a_dashboard_run_reads_yesterday_as_well(self):
-        """Like the schedule, so an event from late yesterday is not missed."""
+    def test_it_says_how_many_events_the_next_run_reads_again(self):
+        self.retried = {"a" * 36, "b" * 36}
+        result, _started = self.run_action({"return_value": {"message": "Done."}})
+        self.assertEqual(result["retried"], 2)
+
+    def test_a_dashboard_run_reads_from_the_same_watermarks_as_the_schedule(self):
         self.run_action({"return_value": {"message": "Done."}})
-        self.assertEqual(self.handler.call_args.kwargs["days"], 2)
-        self.assertIsNone(self.handler.call_args.kwargs["since"])
+        self.reading.assert_called_once_with("vea", rescan_hours=None)
+        self.assertIs(self.handler.call_args.args[0], self.reading.return_value)
+
+    def test_a_rescan_reads_back_as_far_as_it_is_asked(self):
+        self.run_action({"return_value": {"message": "Done."}}, rescan_hours=24)
+        self.reading.assert_called_once_with("vea", rescan_hours=24)
+
+    def test_only_a_run_that_completed_moves_its_watermarks(self):
+        self.run_action({"return_value": {"message": "Done."}})
+        self.reading.return_value.commit.assert_called_once_with()
+        with self.assertLogs("webapp.analyser_pipeline", level="ERROR"):
+            self.run_action({"side_effect": RuntimeError("MISP down")})
+        self.reading.return_value.commit.assert_not_called()
+
+    def test_its_progress_keeps_the_lock_fresh(self):
+        def handler(reading, progress):
+            progress(step="collect-events", state="completed", message="Read 3 event(s).")
+            return {"message": "Done."}
+        self.run_action({"side_effect": handler}, lock_token="token")
+        self.refresh.assert_called_once_with("token")
 
     def test_a_failed_action_returns_nothing(self):
         with self.assertLogs("webapp.analyser_pipeline", level="ERROR"):
@@ -143,69 +196,14 @@ class RunAction(unittest.TestCase):
 
 
 class Candidates(unittest.TestCase):
-    def test_the_window_is_the_event_date_not_the_last_edit(self):
-        pipeline = run_analyser.analyser_pipeline
-        misp = mock.create_autospec(PyMISP, instance=True)
-        today = datetime.now(timezone.utc).date()
-        dated = [(today - timedelta(days=3), "old"),
-                 (today - timedelta(days=1), "yesterday"), (today, "today"),
-                 (today + timedelta(days=1), "future")]
+    SCRAPER = Source("scraper", "scraper", "MISP scraper", "scraper", True)
+    MANUAL = Source("manual", "manual", "Manual entries", "webapp", True)
 
-        def search(**filters):
-            return [SimpleNamespace(uuid=uuid, tags=[SimpleNamespace(name='workflow:state="incomplete"')])
-                    for day, uuid in dated
-                    if filters.get("date_from", "") <= day.isoformat() <= filters.get("date_to", "9999-12-31")]
-
-        misp.search.side_effect = search
-        events = pipeline._incomplete_events(misp, "marker", days=2, since=1761336900)
-        self.assertEqual([e.uuid for e in events], ["yesterday", "today"])
-        self.assertEqual(misp.search.call_args.kwargs["timestamp"], 1761336900)
-
-    def test_yesterday_is_read_as_well(self):
-        misp = mock.create_autospec(PyMISP, instance=True)
-        misp.search.return_value = []
-        today = datetime.now(timezone.utc).date()
-        pipeline = run_analyser.analyser_pipeline
-        with mock.patch.object(pipeline, "scraper_enabled", return_value=True), \
-             mock.patch.object(pipeline.misp_store, "_scraper_misp", return_value=misp):
-            pipeline._incomplete_scraper_events()
-            self.assertEqual(misp.search.call_args.kwargs["date_from"], (today - timedelta(days=1)).isoformat())
-            self.assertEqual(misp.search.call_args.kwargs["date_to"], today.isoformat())
-            self.assertNotIn("timestamp", misp.search.call_args.kwargs)
-            pipeline._incomplete_scraper_events(days=2, since=1761336900)
-            self.assertEqual(misp.search.call_args.kwargs["timestamp"], 1761336900)
-
-    def test_an_error_answer_fails_the_run(self):
-        """A run that completed on one moved the next run's window past its events."""
-        misp = mock.create_autospec(PyMISP, instance=True)
-        misp.search.return_value = {"errors": (500, "Internal error")}
-        pipeline = run_analyser.analyser_pipeline
-        with mock.patch.object(pipeline, "scraper_enabled", return_value=True), \
-             mock.patch.object(pipeline.misp_store, "_scraper_misp", return_value=misp), \
-             self.assertRaises(RuntimeError):
-            pipeline._incomplete_scraper_events(days=2, since=1761336900)
-
-    def test_manual_entries_with_a_report_are_read_from_the_webapp_misp(self):
-        webapp = mock.create_autospec(PyMISP, instance=True)
-        incomplete = [SimpleNamespace(name='workflow:state="incomplete"')]
-        webapp.search.return_value = [SimpleNamespace(uuid="m1", tags=incomplete, event_reports=["Report"]),
-                                      SimpleNamespace(uuid="m2", tags=incomplete, event_reports=[])]
-        pipeline = run_analyser.analyser_pipeline
-        with mock.patch.object(pipeline.misp_store, "_misp", return_value=webapp):
-            misp, entries = pipeline._incomplete_manual_entries(days=2)
-        self.assertIs(misp, webapp)
-        self.assertEqual([e.uuid for e in entries], ["m1"])
-        self.assertEqual(webapp.search.call_args.kwargs["tags"], [pipeline.misp_store.TAG_MANUAL_ENTRY])
-
-    def test_a_manual_entry_whose_report_was_deleted_is_not_read(self):
-        webapp = mock.create_autospec(PyMISP, instance=True)
-        deleted = SimpleNamespace(name="Report", deleted=True)
-        webapp.search.return_value = [SimpleNamespace(uuid="m1", tags=[SimpleNamespace(name='workflow:state="incomplete"')],
-                                                      event_reports=[deleted])]
-        pipeline = run_analyser.analyser_pipeline
-        with mock.patch.object(pipeline.misp_store, "_misp", return_value=webapp):
-            _misp, entries = pipeline._incomplete_manual_entries(days=2)
-        self.assertEqual(entries, [])
+    def reading(self, pairs):
+        reading = mock.create_autospec(Reading, instance=True)
+        reading.read.return_value = pairs
+        reading.counts, reading.errors = {}, []
+        return reading
 
     def test_each_event_is_read_and_summarised_on_the_misp_it_is_on(self):
         pipeline = run_analyser.analyser_pipeline
@@ -213,37 +211,18 @@ class Candidates(unittest.TestCase):
         entered = SimpleNamespace(uuid="m" * 36, info="Entered", tags=[])
         article = [SimpleNamespace(name="Article", content="An article")]
         used = []
-        with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
-             mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [scraped])), \
-             mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=("webapp", [entered])), \
-             mock.patch.object(pipeline, "read_event_reports",
+        with mock.patch.object(pipeline, "read_event_reports",
                                side_effect=lambda misp, e: used.append((e.info, misp)) or article), \
              mock.patch.object(pipeline, "_event_http_error", return_value=False), \
              mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
              mock.patch.object(pipeline, "_ensure_ai_summary",
-                               side_effect=lambda misp, e, r, g: used.append((e.info, misp)) or ("", True)):
-            clients, kept, *_ = pipeline._common_candidate_events()
-        self.assertEqual([e.info for e in kept], ["Scraped", "Entered"])
-        self.assertEqual(clients, {scraped.uuid: "scraper", entered.uuid: "webapp"})
+                               side_effect=lambda source, e, r, g, p: used.append((e.info, source.client)) or ("", True)):
+            found = pipeline._common_candidate_events(
+                self.reading([(scraped, self.SCRAPER), (entered, self.MANUAL)]))
+        self.assertEqual([e.info for e in found.events], ["Scraped", "Entered"])
+        self.assertEqual(found.sources, {scraped.uuid: self.SCRAPER, entered.uuid: self.MANUAL})
         # Their reports first, then their summaries.
         self.assertEqual(used, [("Scraped", "scraper"), ("Entered", "webapp")] * 2)
-
-    def test_a_manual_entry_synced_to_the_scraper_is_processed_once(self):
-        pipeline = run_analyser.analyser_pipeline
-        scraped = SimpleNamespace(uuid="a" * 36, id="42", info="Synced entry", tags=[])
-        entered = SimpleNamespace(uuid=scraped.uuid, id="91", info="Original entry", tags=[])
-        reports = [SimpleNamespace(name="Article", content="An article")]
-        with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
-             mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [scraped])), \
-             mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=("webapp", [entered])), \
-             mock.patch.object(pipeline, "read_event_reports", return_value=reports) as read, \
-             mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
-             mock.patch.object(pipeline, "_ensure_ai_summary", return_value=("", False)) as summarise:
-            clients, kept, *_ = pipeline._common_candidate_events()
-        self.assertEqual(kept, [entered])
-        self.assertEqual(clients, {entered.uuid: "webapp"})
-        read.assert_called_once_with("webapp", entered)
-        summarise.assert_called_once_with("webapp", entered, reports, {})
 
     def test_a_report_read_failure_does_not_reject_a_manual_entry(self):
         pipeline = run_analyser.analyser_pipeline
@@ -255,224 +234,268 @@ class Candidates(unittest.TestCase):
                     webapp.get_event_reports.side_effect = reply
                 else:
                     webapp.get_event_reports.return_value = reply
-                with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
-                     mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=("scraper", [])), \
-                     mock.patch.object(pipeline, "_incomplete_manual_entries", return_value=(webapp, [entered])), \
-                     mock.patch.object(pipeline, "_log"), \
+                manual = Source("manual", "manual", "Manual entries", webapp, True)
+                with mock.patch.object(pipeline, "_log"), \
                      mock.patch.object(pipeline.tagger, "set_workflow_state") as state, \
                      self.assertRaisesRegex((RuntimeError, ConnectionError), "Report access refused"):
-                    pipeline._common_candidate_events()
+                    pipeline._common_candidate_events(self.reading([(entered, manual)]))
                 state.assert_not_called()
 
-    def test_the_run_on_requirements_skips_an_event_with_an_alert(self):
+    def test_another_server_s_event_without_an_article_is_closed_in_zsazsa(self):
+        """Its workflow state is not zsazsa's to change."""
         pipeline = run_analyser.analyser_pipeline
-        events = [SimpleNamespace(uuid="a" * 36, info="Alerted", tags=[], galaxies=[]),
-                  SimpleNamespace(uuid="b" * 36, info="New", tags=[], galaxies=[])]
-        with mock.patch.object(pipeline, "_common_candidate_events", return_value=(None, events, {}, {}, {})), \
-             mock.patch.object(pipeline.misp_store, "flash_intel_source_uuids", return_value={"a" * 36}), \
-             mock.patch.object(pipeline.req_matching, "get_requirements", return_value=([], [])), \
-             mock.patch.object(pipeline.req_matching, "match_events", return_value={}) as match, \
-             mock.patch.object(pipeline, "_log"):
-            pipeline.run_flash_intel_action(days=2)
-        self.assertEqual([e["uuid"] for e in match.call_args.args[0]], ["b" * 36])
+        event = SimpleNamespace(uuid="r" * 36, id="7", info="Partner event", tags=[])
+        partner = Source("partner", "misp", "Partner", "partner MISP", False)
+        with mock.patch.object(pipeline, "read_event_reports", return_value=[SimpleNamespace(name="Empty", content="")]), \
+             mock.patch.object(pipeline, "_log"), \
+             mock.patch.object(pipeline.tagger, "set_workflow_state") as state, \
+             mock.patch.object(pipeline.event_state, "close") as closed:
+            found = pipeline._common_candidate_events(self.reading([(event, partner)]))
+        self.assertEqual(found.events, [])
+        state.assert_not_called()
+        closed.assert_called_once_with("partner", event.uuid, "No report content")
+
+    def test_a_source_that_cannot_take_a_report_gets_no_summary_written(self):
+        pipeline = run_analyser.analyser_pipeline
+        event = SimpleNamespace(uuid="r" * 36, id="7", info="Partner event", tags=[])
+        partner = Source("partner", "misp", "Partner", mock.create_autospec(PyMISP, instance=True), False)
+        with mock.patch.object(pipeline.llm, "summarise_report") as summarise:
+            summary, written = pipeline._ensure_ai_summary(
+                partner, event, [SimpleNamespace(name="Article", content="An article")], {})
+        self.assertEqual((summary, written), ("", False))
+        summarise.assert_not_called()
+        partner.client.add_event_report.assert_not_called()
+
+    def write_summary(self, source, event):
+        pipeline = run_analyser.analyser_pipeline
+        with mock.patch.object(pipeline.llm, "summarise_report", return_value="What happened"), \
+             mock.patch.object(pipeline.collection_cache, "mark_ai_summary") as cached, \
+             mock.patch.object(pipeline, "_apply_misp_context_tags", return_value=0) as tagged, \
+             mock.patch.object(pipeline, "parse_misp_context", return_value={}), \
+             mock.patch.object(pipeline, "galaxy_names_with_commas", return_value=[]):
+            written = pipeline._ensure_ai_summary(source, event, [SimpleNamespace(name="Article", content="An article")],
+                                                  {"Energy": "sector"})
+        return written, cached, tagged
+
+    def test_a_summary_on_another_server_is_for_our_organisation_and_the_event_published_again(self):
+        """As the data collection page writes one. Unpublished, the event would
+        drop out of the server's search; its tags are that server's."""
+        event = SimpleNamespace(uuid="r" * 36, id="7", info="Partner event", tags=[])
+        partner = Source("partner", "misp", "Partner", mock.create_autospec(PyMISP, instance=True), True)
+        partner.client.add_event_report.return_value = {}
+        partner.client.publish.return_value = {}
+        written, cached, tagged = self.write_summary(partner, event)
+        self.assertEqual(written, ("What happened", True))
+        self.assertEqual(partner.client.add_event_report.call_args.args[1].distribution, 0)
+        partner.client.publish.assert_called_once_with(event, alert=False)
+        tagged.assert_not_called()
+        cached.assert_called_once_with(event.uuid, "partner")
+
+    def test_a_partner_event_misp_did_not_publish_again_is_logged_as_an_error(self):
+        """Unpublished, it is out of the server's search for good; the run
+        said the summary was written and nothing more."""
+        event = SimpleNamespace(uuid="r" * 36, id="7", info="Partner event", tags=[])
+        partner = Source("partner", "misp", "Partner", mock.create_autospec(PyMISP, instance=True), True)
+        partner.client.add_event_report.return_value = {}
+        partner.client.publish.return_value = {"errors": "Publishing refused"}
+        pipeline = run_analyser.analyser_pipeline
+        with mock.patch.object(pipeline, "_log") as logged, self.assertLogs("webapp.misp_store", level="WARNING"):
+            written, cached, _tagged = self.write_summary(partner, event)
+        self.assertEqual(written, ("What happened", True))
+        self.assertEqual(logged.call_args.args[:2], (event, "error"))
+        cached.assert_called_once()
+
+    def test_a_run_that_lost_its_lock_during_the_model_call_writes_no_summary(self):
+        """Its process was suspended long enough for another run to take the
+        lock, which writes the summary itself."""
+        pipeline = run_analyser.analyser_pipeline
+        event = SimpleNamespace(uuid="m" * 36, id="91", info="Entry", tags=[])
+        webapp = mock.create_autospec(PyMISP, instance=True)
+
+        def progress(step, state, message=""):
+            if message.startswith("Writing"):
+                raise pipeline.run_lock.Lost("taken over")
+        with mock.patch.object(pipeline.llm, "summarise_report", return_value="What happened"), \
+             self.assertRaises(pipeline.run_lock.Lost):
+            pipeline._ensure_ai_summary(Source("manual", "manual", "Manual entries", webapp, True), event,
+                                        [SimpleNamespace(name="Article", content="An article")], {}, progress)
+        webapp.add_event_report.assert_not_called()
+
+    def test_the_article_is_never_a_report_zsazsa_wrote(self):
+        """A summary listed first was read as the article, and a quote from
+        it grounded the verdict; so was the note of a rejection."""
+        pipeline = run_analyser.analyser_pipeline
+        reports = [SimpleNamespace(name=f"{pipeline.AI_SUMMARY_PREFIX} An event", content="What a model wrote"),
+                   SimpleNamespace(name="zsazsa:analyser-rejection 2026-10-30 10:00:00Z", content="Rejected"),
+                   SimpleNamespace(name="Article", content="What the source wrote")]
+        self.assertEqual(pipeline._article_text(reports), "What the source wrote")
+
+    def test_a_summary_older_than_its_article_is_written_again(self):
+        """The article was updated to say the flaw is exploited; the draft
+        came from the summary of the old one, which said it was not."""
+        pipeline = run_analyser.analyser_pipeline
+        event = SimpleNamespace(uuid="m" * 36, id="91", info="Entry", tags=[])
+        old = SimpleNamespace(id="5", name=f"{pipeline.AI_SUMMARY_PREFIX} Entry", content="Not exploited",
+                              timestamp=datetime(2026, 10, 30, 9, tzinfo=timezone.utc))
+        article = SimpleNamespace(id="4", name="Article", content="Exploited now",
+                                  timestamp=datetime(2026, 10, 30, 11, tzinfo=timezone.utc))
+        self.assertEqual(pipeline._extract_ai_summary([article, old]), "")
+        webapp = mock.create_autospec(PyMISP, instance=True)
+        webapp.add_event_report.return_value = webapp.delete_event_report.return_value = {}
+        manual = Source("manual", "manual", "Manual entries", webapp, True)
+        with mock.patch.object(pipeline.llm, "summarise_report", return_value="Exploited") as summarise, \
+             mock.patch.object(pipeline.collection_cache, "mark_ai_summary"), \
+             mock.patch.object(pipeline, "_apply_misp_context_tags", return_value=0):
+            self.assertEqual(pipeline._ensure_ai_summary(manual, event, [article, old], {}), ("Exploited", True))
+        self.assertEqual(summarise.call_args.args[0], "Exploited now")
+        webapp.delete_event_report.assert_called_once_with("5")
+        # One written after the article stands.
+        old.timestamp = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
+        self.assertEqual(pipeline._extract_ai_summary([article, old]), "Not exploited")
+
+    def test_a_manual_entry_s_summary_is_marked_on_its_collection_source(self):
+        """The collection cache keeps a manual entry under its own source, not
+        under "manual"."""
+        event = SimpleNamespace(uuid="m" * 36, id="91", info="Entry",
+                                tags=[SimpleNamespace(name='zsazsa:source="threat-reports"')])
+        webapp = mock.create_autospec(PyMISP, instance=True)
+        webapp.add_event_report.return_value = {}
+        written, cached, tagged = self.write_summary(Source("manual", "manual", "Manual entries", webapp, True), event)
+        self.assertEqual(webapp.add_event_report.call_args.args[1].distribution, 5)
+        webapp.publish.assert_not_called()
+        tagged.assert_called_once()
+        cached.assert_called_once_with(event.uuid, "manual-threat-reports")
+
+    def test_an_event_the_title_exclusions_name_is_set_apart_not_rejected(self):
+        """An advisory still goes by its CVEs alone, and the closing step
+        decides on it with the other products."""
+        pipeline = run_analyser.analyser_pipeline
+        events = [SimpleNamespace(uuid="a" * 36, info="Weekly Recap: 98 zero-days", tags=[]),
+                  SimpleNamespace(uuid="b" * 36, info="New", tags=[])]
+        with mock.patch.object(pipeline, "read_event_reports", return_value=[SimpleNamespace(name="A", content="A")]), \
+             mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
+             mock.patch.object(pipeline, "_ensure_ai_summary", return_value=("", False)), \
+             mock.patch.object(pipeline, "_log"), \
+             mock.patch.object(pipeline.event_state, "reject") as rejected:
+            found = pipeline._common_candidate_events(self.reading([(e, self.SCRAPER) for e in events]),
+                                                      title_exclusions=["weekly recap"])
+        self.assertEqual([e.info for e in found.events], ["New"])
+        self.assertEqual([e.info for e in found.excluded], ["Weekly Recap: 98 zero-days"])
+        self.assertEqual(found.stats["excluded_by_title"], 1)
+        rejected.assert_not_called()
+
+    def test_the_title_exclusions_apply_to_the_alerts_and_the_briefing_not_the_advisories(self):
+        """A roundup of the week's patches still names CVEs worth an advisory."""
+        pipeline = run_analyser.analyser_pipeline
+        empty = SimpleNamespace(sources={}, events=[], excluded=[], summaries={}, reports={},
+                                stats={"event_decisions": []})
+        for action in (pipeline.run_flash_intel_action, pipeline.run_daily_briefing_action, pipeline.run_vea_action):
+            with self.subTest(action=action.__name__), \
+                 mock.patch.object(pipeline, "_common_candidate_events", return_value=empty) as read, \
+                 mock.patch.object(pipeline, "daily_briefing_title_exclusions", return_value=["weekly recap"]):
+                action(mock.sentinel.reading)
+            expected = None if action is pipeline.run_vea_action else ["weekly recap"]
+            self.assertEqual(read.call_args.kwargs.get("title_exclusions"), expected)
 
 
 class FlashIntelSources(unittest.TestCase):
     def test_every_alert_counts_whatever_became_of_it(self):
         alerts = [SimpleNamespace(source_event_uuids=["a" * 36], review_state="rejected"),
                   SimpleNamespace(source_event_uuids=["b" * 36, "c" * 36], review_state="pending-review")]
-        with mock.patch.object(run_analyser.misp_store, "list_fias", return_value=alerts):
-            self.assertEqual(run_analyser.misp_store.flash_intel_source_uuids(), {"a" * 36, "b" * 36, "c" * 36})
+        with mock.patch.object(misp_store, "list_fias", return_value=alerts):
+            self.assertEqual(misp_store.flash_intel_source_uuids(), {"a" * 36, "b" * 36, "c" * 36})
 
 
 class LatestRun(unittest.TestCase):
-    def test_only_a_scheduled_run_that_went_through_counts(self):
-        """A dashboard run does not move the schedule's starting point, and a
-        failed run did not get through its own."""
+    def test_runs_are_found_by_how_they_started_and_ended(self):
+        """For the pipeline page, which says when the mail collector last went through."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         with mock.patch.object(config, "DB_FILE", os.path.join(tmp.name, "test.db")):
-            run_analyser.init_db()
+            db.init_db()
             run_analyser.audit.init()
             for triggered_by, status in (("schedule", "completed"), ("dashboard", "completed"),
                                          ("schedule", "failed")):
-                run_id = run_analyser.log_pipeline_run_start("vea", triggered_by=triggered_by)
-                run_analyser.log_pipeline_run_end(run_id, status)
-            latest = run_analyser.get_latest_pipeline_run("vea", triggered_by="schedule", status="completed")
+                run_id = db.log_pipeline_run_start("vea", triggered_by=triggered_by)
+                db.log_pipeline_run_end(run_id, status)
+            latest = db.get_latest_pipeline_run("vea", triggered_by="schedule", status="completed")
             self.assertEqual((latest["id"], latest["triggered_by"], latest["status"]), (1, "schedule", "completed"))
-            self.assertEqual(run_analyser.get_latest_pipeline_run("vea")["id"], 3)
+            self.assertEqual(db.get_latest_pipeline_run("vea")["id"], 3)
 
 
 class BriefingDay(unittest.TestCase):
-    def test_it_is_kept_next_to_the_watermark(self):
+    def test_it_is_kept_in_the_state_file_with_what_else_is_there(self):
         handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        handle.write(json.dumps({"analyser_last_run": 1000}))
+        handle.write(json.dumps({"something_else": 1000}))
         handle.close()
         self.addCleanup(os.unlink, handle.name)
         with mock.patch.object(config, "STATE_FILE", handle.name):
             self.assertIsNone(reader.load_last_briefing())
             reader.save_last_briefing("2026-10-24")
             self.assertEqual(reader.load_last_briefing(), "2026-10-24")
-            self.assertEqual(reader.load_last_run(), 1000)
+        with open(handle.name) as f:
+            self.assertEqual(json.load(f), {"something_else": 1000, "analyser_last_briefing": "2026-10-24"})
 
 
 class Main(unittest.TestCase):
-    def run_main(self, events=(), alerted=(), due=(), matched=(), advised=(), manual=(), on_webapp=(), synced=(),
-                 search_error=False, created=(), **on):
-        """`created` are the events the check against the focus points makes an alert for."""
-        self.order, self.seen_alerts = [], []
-        self.misp = mock.create_autospec(PyMISP, instance=True)
-        self.webapp = mock.create_autospec(PyMISP, instance=True)
-
-        def found_on(webapp):
-            """An advised event is on the scraper, or on the webapp MISP when in on_webapp."""
-            if search_error:
-                return lambda **kwargs: {"errors": ["Search refused"]}
-            return lambda uuid, pythonify, **filters: ([SimpleNamespace(uuid=uuid, info="Advised")]
-                                                      if (uuid in on_webapp) == webapp or uuid in synced else [])
-        self.misp.search.side_effect = found_on(False)
-        self.webapp.search.side_effect = found_on(True)
-        results = {"vea": {"source_event_uuids": list(advised)}} if advised else {}
+    def run_main(self, due=(), busy=None, failure=None):
+        self.order = []
         with contextlib.ExitStack() as stack:
             for patch in (
-                _switches(**on),
                 mock.patch.object(run_analyser, "scheduled_actions", return_value=list(due)),
                 mock.patch.object(run_analyser, "setup_logging"),
                 mock.patch.object(run_analyser, "init_db"),
                 mock.patch.object(run_analyser.audit, "init"),
                 mock.patch.object(run_analyser, "log_pipeline_run_start", return_value=1),
-                mock.patch.object(run_analyser, "log_pipeline_run_end"),
-                mock.patch.object(run_analyser, "scraper_enabled", return_value=True),
-                mock.patch.object(run_analyser, "get_misp", return_value=self.misp),
-                mock.patch.object(run_analyser, "get_misp_webapp", return_value=self.webapp),
-                mock.patch.object(run_analyser, "get_new_manual_entries", return_value=list(manual)),
-                mock.patch.object(run_analyser.misp_store, "flash_intel_source_uuids", return_value=set(alerted)),
-                mock.patch.object(run_analyser.analyser_pipeline, "open_alerts",
-                                  return_value=[{"id": "FIA-00500", "title": "Open", "content": "An alert"}]),
-                mock.patch.object(run_analyser.analyser_pipeline, "requirement_matches",
-                                  return_value={uuid: [{"id": "PIR-0003"}] for uuid in matched}),
-                mock.patch.object(run_analyser, "log_event"),
-                mock.patch.object(run_analyser.job_store, "create_job", return_value={"id": "job-1"}),
-                mock.patch.object(run_analyser.job_store, "update_job"),
-                mock.patch.object(run_analyser.feed_cache, "refresh_due", return_value=0),
             ):
                 stack.enter_context(patch)
-            read = stack.enter_context(mock.patch.object(
-                run_analyser, "get_new_scraper_events",
-                side_effect=lambda misp: self.order.append("focus points: read") or list(events)))
+            self.ended = stack.enter_context(mock.patch.object(run_analyser, "log_pipeline_run_end"))
+            self.feeds = stack.enter_context(mock.patch.object(
+                run_analyser.feed_cache, "refresh_due", side_effect=lambda: self.order.append("feeds") or 2))
+            self.acquire = stack.enter_context(mock.patch.object(
+                run_analyser.run_lock, "acquire", return_value=(None, busy) if busy else ("token", None)))
+            self.release = stack.enter_context(mock.patch.object(run_analyser.run_lock, "release"))
 
-            def check(misp, misp_webapp, event, focus_points, keep_open_for="", open_alerts=()):
-                self.order.append("focus points: check")
-                self.seen_alerts.append([a["id"] for a in open_alerts])
-                if event.uuid in created:
-                    return {"outcome": "product_created", "fia_id": f"FIA-{event.uuid[:5]}", "content": "Made"}
-                return {"outcome": "not_relevant"}
-            self.process = stack.enter_context(mock.patch.object(run_analyser, "process_flash_intel",
-                                                                 side_effect=check))
-            watermark = stack.enter_context(mock.patch.object(run_analyser, "save_last_run"))
-            scheduled = stack.enter_context(mock.patch.object(
-                run_analyser, "run_scheduled_actions",
-                side_effect=lambda actions, now: self.order.extend(actions) or results))
+            def run(actions, now, token):
+                if failure:
+                    raise failure
+                self.order.extend(actions)
+                return {action: {"message": f"{action} done"} for action in actions}
+            self.scheduled = stack.enter_context(mock.patch.object(run_analyser, "run_scheduled_actions",
+                                                                   side_effect=run))
             run_analyser.main()
-        return read, watermark, scheduled
 
-    def test_the_alerts_from_focus_points_run_as_before(self):
-        read, watermark, _scheduled = self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="New")])
-        read.assert_called_once()
-        watermark.assert_called_once()
-        self.assertEqual(self.order, ["focus points: read", "focus points: check"])
+    def test_the_due_actions_run_then_the_feed_caches(self):
+        self.run_main(due=["vea", "flash-intel"])
+        self.assertEqual(self.order, ["vea", "flash-intel", "feeds"])
+        # The message is what the Pipeline page shows of the run.
+        self.ended.assert_called_once_with(1, "completed", {
+            "message": "Vulnerability advisory: vea done; Flash intel alert: flash-intel done",
+            "feed_caches_refreshed": 2})
 
-    def test_the_check_against_focus_points_rejects_only_after_alerts_and_advisories(self):
-        """It rejects every event that matches no focus point, which took a
-        CVE in a product we run, or an event a PIR matches, out of the run."""
-        self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="New")],
-                      due=["flash-intel", "vea", "daily-briefing"])
-        self.assertEqual(self.order, ["flash-intel", "vea", "focus points: read", "focus points: check",
-                                      "daily-briefing"])
+    def test_the_run_holds_the_lock_and_gives_it_back(self):
+        self.run_main(due=["vea"])
+        self.acquire.assert_called_once_with("analyser", "Scheduled analyser run", "schedule")
+        self.assertEqual(self.scheduled.call_args.args[2], "token")
+        self.release.assert_called_once_with("token")
 
-    def test_an_event_an_alert_was_made_from_gets_no_second_one(self):
-        events = [SimpleNamespace(uuid="a" * 36, info="Alerted"), SimpleNamespace(uuid="b" * 36, info="New")]
-        self.run_main(events=events, alerted={"a" * 36})
-        self.assertEqual([c.args[2].uuid for c in self.process.call_args_list], ["b" * 36])
+    def test_a_run_that_finds_the_analyser_busy_skips_its_hour(self):
+        """The watermarks give its events to the next run. The feed caches are
+        not the analyser's, and are refreshed all the same."""
+        busy = {"action": "vea", "label": "Vulnerability advisory", "started_by": "a@example.org", "started_at": 0}
+        with self.assertLogs("run_analyser", level="INFO") as logs:
+            self.run_main(due=["vea"], busy=busy)
+        self.assertEqual(self.order, ["feeds"])
+        self.scheduled.assert_not_called()
+        self.release.assert_not_called()
+        self.assertIn("Vulnerability advisory", logs.output[-1])
 
-    def test_an_alert_made_in_the_run_is_open_for_the_events_after_it(self):
-        events = [SimpleNamespace(uuid="a" * 36, info="First"), SimpleNamespace(uuid="b" * 36, info="Second")]
-        self.run_main(events=events, created={"a" * 36})
-        self.assertEqual(self.seen_alerts, [["FIA-00500"], ["FIA-00500", "FIA-aaaaa"]])
-
-    def test_an_event_a_requirement_matches_is_kept_open(self):
-        events = [SimpleNamespace(uuid="a" * 36, info="Matched"), SimpleNamespace(uuid="b" * 36, info="Other")]
-        self.run_main(events=events, matched={"a" * 36})
-        self.assertEqual([c.kwargs["keep_open_for"] for c in self.process.call_args_list],
-                         ["its PIR/GIR match", ""])
-
-    def test_with_the_daily_briefing_on_no_event_is_rejected_for_the_focus_points(self):
-        """The briefing asks its own, wider question of every event of the day:
-        an article outside the focus points may still contain relevant threat information."""
-        events = [SimpleNamespace(uuid="a" * 36, info="Matched"), SimpleNamespace(uuid="b" * 36, info="Other")]
-        self.run_main(events=events, matched={"a" * 36}, ANALYSER_DAILY_BRIEFING=True)
-        self.assertEqual([c.kwargs["keep_open_for"] for c in self.process.call_args_list],
-                         ["the daily briefing", "the daily briefing"])
-
-    def test_the_watermark_is_where_the_events_were_read(self):
-        """After the alerts and advisories, whose summaries change the events:
-        taken at the start of the run, it had every new event read, and sent to
-        the model, a second time on the next run."""
-        clock = mock.Mock(side_effect=lambda: 1000 + len(self.order))
-        with mock.patch.object(run_analyser.time, "time", clock):
-            _read, watermark, _scheduled = self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="New")],
-                                                         due=["flash-intel", "vea"])
-        watermark.assert_called_once_with(1002)
-
-    def test_an_event_that_got_an_advisory_is_checked_for_an_alert_too(self):
-        """An advisory moves its event on to ongoing, which the check reads past,
-        and a CVE in a product we run exploited in one of our sectors deserves
-        both. It is never rejected for the focus points: it is in an advisory."""
-        self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="New")], due=["vea"],
-                      advised=["a" * 36, "b" * 36, "c" * 36], alerted=["c" * 36])
-        self.misp.search.assert_called_once_with(uuid="b" * 36, pythonify=True)
-        self.assertEqual([(c.args[2].uuid, c.kwargs["keep_open_for"]) for c in self.process.call_args_list],
-                         [("a" * 36, "its advisory"), ("b" * 36, "its advisory")])
-
-    def test_a_manual_entry_is_checked_on_the_webapp_misp(self):
-        self.run_main(events=[SimpleNamespace(uuid="a" * 36, info="Scraped")],
-                      manual=[SimpleNamespace(uuid="m" * 36, info="Entered")])
-        self.assertEqual([(c.args[0], c.args[2].info) for c in self.process.call_args_list],
-                         [(self.misp, "Scraped"), (self.webapp, "Entered")])
-
-    def test_a_manual_entry_synced_to_the_scraper_is_checked_once(self):
-        scraped = SimpleNamespace(uuid="a" * 36, id="42", info="Synced entry")
-        entered = SimpleNamespace(uuid=scraped.uuid, id="91", info="Original entry")
-        self.run_main(events=[scraped], manual=[entered])
-        self.assertEqual([(c.args[0], c.args[2]) for c in self.process.call_args_list],
-                         [(self.webapp, entered)])
-
-    def test_an_advised_manual_entry_is_fetched_from_the_webapp_misp(self):
-        self.run_main(due=["vea"], advised=["m" * 36], on_webapp={"m" * 36})
-        self.assertEqual([(c.args[0], c.args[2].uuid) for c in self.process.call_args_list],
-                         [(self.webapp, "m" * 36)])
-
-    def test_an_advised_manual_entry_uses_its_original_not_a_synced_copy(self):
-        uuid = "m" * 36
-        self.run_main(due=["vea"], advised=[uuid], on_webapp={uuid}, synced={uuid})
-        self.assertEqual([(c.args[0], c.args[2].uuid) for c in self.process.call_args_list],
-                         [(self.webapp, uuid)])
-        self.webapp.search.assert_called_once_with(uuid=uuid, pythonify=True,
-                                                  tags=[run_analyser.misp_store.TAG_MANUAL_ENTRY])
-        self.misp.search.assert_not_called()
-
-    def test_an_advised_event_search_error_is_not_treated_as_not_found(self):
-        with self.assertLogs("run_analyser", level="ERROR"), \
-             self.assertRaisesRegex(RuntimeError, "Search refused"):
-            self.run_main(due=["vea"], advised=["m" * 36], search_error=True)
-        self.process.assert_not_called()
-
-    def test_switched_off_the_scraper_queue_is_left_where_it_is(self):
-        """Moving the watermark over events nobody read would skip them for good."""
-        read, watermark, _scheduled = self.run_main(due=["vea"], ANALYSER_FLASH_INTEL=False)
-        read.assert_not_called()
-        watermark.assert_not_called()
-        self.assertEqual(self.order, ["vea"])
+    def test_a_run_that_fails_says_so_and_gives_the_lock_back(self):
+        """Its run row would otherwise say "running" long after the process is gone."""
+        with self.assertRaises(RuntimeError):
+            self.run_main(due=["vea"], failure=RuntimeError("MISP down"))
+        self.ended.assert_called_once_with(1, "failed")
+        self.release.assert_called_once_with("token")
 
 
 if __name__ == "__main__":

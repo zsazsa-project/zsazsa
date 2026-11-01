@@ -29,6 +29,17 @@ def cti_products():
     """
     return list(config.PRODUCT_TYPES)
 
+
+def subscribed_products(stakeholder) -> list:
+    """The product types a stakeholder is subscribed to that are still offered.
+
+    One removed under Settings > Products stays stored on the stakeholder until
+    it is saved again, and the edit form, which offers only these, drops it
+    then. Shown anywhere else, it would be a subscription to nothing.
+    """
+    offered = set(cti_products())
+    return [p for p in stakeholder.products if p in offered]
+
 TLP_LEVELS = ["clear", "green", "amber", "amber+strict", "red"]
 
 MOSCOW_PRIORITIES = ["Must have", "Should have", "Could have", "Won't have"]

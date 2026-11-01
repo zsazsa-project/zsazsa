@@ -46,7 +46,8 @@ def _stored_vea(**changes):
         feedback_deadline=date(2026, 11, 1), review_state=misp_store.VEA_REVIEW_PENDING,
         rejection_reason="An earlier reason.", source_event_uuids=[SOURCE_UUID],
         source_event_hints={SOURCE_UUID: "scraper"}, linked_pir_uuid="p" * 36,
-        context_tags=["tlp:red"], analyser_reason="The event names CVE-2026-31431.", creator="koen",
+        context_tags=["tlp:red"], analyser_reason="The event names CVE-2026-31431.",
+        cve_baselines={"CVE-2026-31431": {"cvss": "7.8", "cisa_kev": "Yes"}}, creator="koen",
         approved_by="an.earlier.reviewer@example.org",
     )
     fields.update(changes)

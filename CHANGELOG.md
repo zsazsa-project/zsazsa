@@ -15,19 +15,35 @@
 - The AI-connector MISP module can summarise events from such a server, from a robot icon or the summary dropdown.
 - The dashboard shows how many products wait for a review or are drafts.
 - On the manual entry form, the AI summary ticks the scope items it names. The form also has a MITRE ATT&CK picker.
-- The scheduled analyser can also make flash intel alerts from PIRs and GIRs, vulnerability advisories and the daily briefing. Switch them on under Settings > System > Analyser.
-- An asset database for vulnerability advisories, under Settings > Products. The analyser only makes an advisory for a CVE in a product listed in a CSV file of your assets.
+- The scheduled analyser can also make vulnerability advisories and the daily briefing. Switch them on under Settings > Analyser.
 - The alert and advisory lists show under the title why the analyser made a draft: the requirement, focus points or CVE it matched.
 - The lists of daily briefings, flash intel alerts, vulnerability advisories, indicator feeds, threat actor profiles and detection engineering requests have a "How ... is made" line under their filters. It opens each step from collection to delivery, and who does it: an analyst or the analyser.
 - PIRs can link to active GIRs, with clickable relationships on detail pages and beneath list titles.
 - The audit log under Reporting > Logs is pruned after `AUDIT_LOG_RETENTION_DAYS`, 365 by default. 0 keeps it for good, which the Logs page then says.
 - On the flash intel and advisory lists, drafts and those waiting for review can be ticked, then approved and published, rejected or deleted together from the top of the table.
 - Stories in a daily briefing can be ticked in its Contents list and deleted together with "Delete stories". Shift-click ticks a range.
+- An analyst's `cti-evaluation` relevance score pushes an event to an alert (very high) or the briefing (high), or keeps it out of both (low or lower), whatever the AI says. Their other scores replace the model's.
+- Settings has an Analyser tab with all the analyser's settings, in the order it works. The other tabs but Prompts have the same layout, with an overview and a menu of their sections, and the address bar follows the tab. The asset database moved to Connections, Rulezet has its own switch, `RULEZET_ENABLED`, the product types are edited as a list, and the Styling tab previews a product's PDF.
+- Under Settings > Analyser, the analyser can be kept off the scraper, the manual entries or the MISP communities. The articles sent from newsletters go with the scraper.
+- The focus points have a vendors list, and the geographies, sectors, threat types and threat actors offer the names of their MISP galaxy, marking a name the galaxy does not have.
+- "Start analyser" can read the last hours again, for after a change to the focus points, a requirement or a prompt.
 
 ### Changed
 
 - An indicator feed's results table says how many unique values its rows hold when that is fewer, which is what the plain text list at the feed URL returns.
-- Dashboard and scheduled analyser actions both read yesterday's and today's events.
+- The analyser reads what changed on each source since its previous completed run, instead of yesterday's and today's events, and reads an event again only once it changed. A source that cannot be reached is read again by the next run. The collection cache is no longer refreshed first.
+- The analyser also reads the events with a report on the additional MISP servers, through each server's filters and at most its "Max events" a run. Each server has an "Analyse its events" switch. What the analyser decides about those events is kept in zsazsa, not on the server.
+- One analyser run goes at a time. The dashboard shows the run that is going and holds its Start buttons, and a scheduled run that finds one going skips its hour.
+- The title exclusions keep events out of the flash intel alerts as well as the daily briefing. They still do not apply to vulnerability advisories.
+- One AI call judges each event for the alerts and the briefing at once, replacing the three relevance checks. Each ground it names has to be quoted from the article or its title. It also scores the article on `cti-evaluation` and reads its publication date: an alert needs an article at most three days old, a briefing story one at most a week. The verdict is reused until the focus points, the requirements, the prompt, the model or the article change.
+- Focus points go to the AI with their type from the MISP galaxy they are in, and a threat actor with its synonyms.
+- Settings > Analyser refuses a relevance score that pulls an event out as high as one that pushes it in.
+- A vendor's vulnerability notice that reports no exploitation goes to the advisories only, not to an alert or the briefing.
+- The alerts from focus points and from PIRs and GIRs are one option. An alert names every PIR and GIR in its grounds and is for all their stakeholders. A "Could have" PIR gives a briefing story but no alert, and a "Won't have" one is not considered. Alerts are drafted with the Build with AI prompt.
+- The analyser no longer rejects an event as soon as one product turns it down. The daily briefing, or the alerts while the briefing is off, rejects the events every product declined, with the reasons in a report on the event.
+- A story that an alert or briefing story of the last 30 days already tells, in any state, gets no second one. One that adds facts becomes an update naming the earlier product. A new AI feature, "Compare with earlier products", does the comparison, in place of the check against the open alerts.
+- The daily briefing keeps at most 15 stories, the best first, and lists the rest under "Also seen" on the draft, from where an analyst adds one back. A later run on the same day adds to that day's draft.
+- A CVE named by an advisory of the last 90 days gets no new one, unless it has since gone on the CISA KEV list or its CVSS score rose by 1.0 or more. A CVE also has to concern you: in the asset database, or a vendor or technology of the focus points or of an active PIR or GIR.
 - The analyser also reads the manual collection entries that have a report, not counting a deleted one. It writes their AI summary and moves their workflow state on the webapp MISP they are kept on.
 - Rejection in flash intel and advisory previews opens a compact form beneath the button. QA checks show a spinner and a reminder to keep the page open for the result.
 - Product edit forms share the same draft action styling and no longer offer "Publish & notify". Draft products have a distinct "Preview and approve" action. Detection requests keep "Approve first" until approved, and only then show the normal Preview action. The new threat actor profile form no longer has a Recipients button.
@@ -44,7 +60,6 @@
 - On the data collection page, the actions of an event wait while an AI summary is being written for it, and come back when the summary ends.
 - While the analyser writes AI summaries for a daily briefing, flash intel alerts or advisories, the job says which one it is on.
 - Daily briefings require threat information relevant to focus points or active PIRs/GIRs, or a major threat development. Keyword matches alone no longer qualify.
-- PIR/GIR alerts require AI confirmation against the requirement's question and scope, and explain the confirmed match.
 - Flash intel alerts are deduplicated against drafts, alerts in review and alerts created in the same run.
 - Flash intel relevance checks exclude recaps, round-ups and keyword-only requirement matches.
 - In Background jobs, Abandoned and All remove a stalled job that no worker is on, such as a run cut off by a restart. Before, it stayed listed for four hours.
@@ -64,13 +79,15 @@
 - The flash intel alerts and vulnerability advisories the analyser drafts have an audience, so they can be published once reviewed. An alert from a PIR or GIR is for the requirement's owner and the stakeholders it is distributed to, any other draft for everyone who can receive it.
 - Summary failures no longer stop analyser runs. Failed or unreadable briefing relevance checks leave events open but out of that briefing.
 - Advisories are not duplicated for CVEs covered by drafts, advisories in review or rejected advisories.
-- The focus point prompt tells the model that the publisher of an article is not a match. Unit 42 posts matched "Palo Alto".
+- The relevance prompt tells the model that the publisher of an article is not a match. Unit 42 posts matched "Palo Alto".
 - An analyser option whose search of the scraper MISP gets an error answer now fails and says why, instead of reporting no events.
-- With the scheduled daily briefing on, the hourly check against the focus points no longer rejects an event that matches no focus point. The event gets no alert and stays open, and the briefing judges it. With the briefing off, it is rejected as before, unless it matches an active PIR or GIR.
 
 ### Fixed
 
-- A story deleted from a daily briefing came back in the next day's briefing, as its source event was left open. Saving the briefing now rejects that event, and deleting a rejected briefing rejects the events of its stories. A draft briefing deleted as a whole still gives its events back, so it can be made again.
+- A feature on the AI tab whose settings were never saved went to OpenAI, whatever the default provider. It goes to the default provider now, as the AI tab says.
+- A `cti-evaluation` score set on the data collection page left the earlier value of that score on the event. On another MISP server, which unpublishes an event that gets a tag, it also took the event off the page.
+- A workflow state MISP refused left the event with none, and no analyser search found it again.
+- A story deleted from a daily briefing came back in the next day's briefing, as its source event was left open. Saving the briefing now rejects that event, and deleting a rejected briefing rejects the events of its stories. A draft briefing deleted as a whole still gives its events back, so it can be made again. An event on another MISP server is not changed there: the decision is kept in zsazsa.
 - Saving a daily briefing deleted and wrote back every story report, this is slow. Only the reports that changed are written now.
 - Unreadable AI relevance answers leave events open and are logged as errors. Relevance checks have a larger token budget.
 - Focus-point alerts also filter by MISP event date, excluding recently edited old events. All analyser searches exclude future-dated events.
@@ -95,6 +112,13 @@
 - The labelled lines of an AI summary ran together into one paragraph in MISP.
 - AI summaries never tagged MITRE ATT&CK techniques, because zsazsa looked them up in the mitre-malware galaxy.
 - Publishing a threat actor profile also publishes the underlying MISP event.
+- A product type removed under Settings > Products still showed on the stakeholder list and pages.
+- With a MISP key that has sync permission, the analyser took every event for a closed one, as MISP left out the local tags that hold the workflow state.
+- A flash intel alert or vulnerability advisory whose object or report MISP refused was left behind as an empty event, which counted as the product of its source event.
+- The MISP report of a new flash intel alert or vulnerability advisory had none of its content until the product was saved again.
+- The analyser could file an alert from an AI answer with nothing in it, such as a refusal, and send it on automated mode.
+- A failure to publish or deliver an alert on automated mode was not reported. It is logged on the event now.
+- One vulnerability advisory MISP refused stopped the advisory run, on every run.
 - Deleting an alert, advisory, detection request or briefing left the `zsazsa:product` tag on its source events, which then never got another advisory or briefing story. The tag now comes off unless another product of that type uses the event, and editing the sources updates the tags too.
 
 ### Security
@@ -104,8 +128,19 @@
 
 ### Upgrading
 
+- A feature on the AI tab you never saved now uses the default provider (Settings > AI). With a local default, check that the local model serves the features it now gets.
+- The analyser now reads the events of every additional MISP server, unless its "Analyse its events" is switched off. Each event costs a model call, and the first runs go through each server's whole "Events from last (days)" window. Check each server's filters, or switch it off, before updating.
+- The analyser keeps its watermarks, its lock and its decisions in three new tables, created when zsazsa starts. Its first run of each action reads the last hour, or the last day for the briefing. `analyser_last_run` and `pipeline_last_action` in `data/state.json` are no longer read.
+- `ANALYSER_FLASH_INTEL_REQUIREMENTS` and `POLL_WINDOW_HOURS` are gone, and saving Settings drops them. If only the alerts from PIRs and GIRs were on, switch on "Flash intel alerts" under Settings > Analyser.
+- `analyser_relevance.md` and `analyser_major_development.md` replace the prompts `flash_intel_relevance.md` and `daily_briefing_relevance.md`. Make your changes to the old ones again on the Prompts tab, also with Docker. On the AI tab, "Judge article relevance" uses the settings of "Check article relevance" until it is saved, and "Review daily briefing relevance" is gone.
+- `story_similarity.md` is a new prompt, for the comparison with earlier products. On the AI tab, "Compare with earlier products" starts with the default provider.
+- `FOCUS_POINTS_VENDORS` is new and empty. Vendors listed under the technologies keep working there.
+- The dashboard's Pending count no longer counts the scraper events that have a verdict but stay `incomplete` until the briefing closes them.
+- Every event read after the update costs one model call for its verdict.
+- The `zsazsa-daily-briefing` object template is now version 7 with an `also-seen` attribute. Nothing needs doing; existing briefings list nothing under "Also seen".
+- The `zsazsa-flash-intel` object template is now version 6 with a `linked-requirement-uuids` attribute. Nothing needs doing: an existing alert reads as linked to its one PIR.
 - Review the TLP of existing analyser products made from manual entries. New products respect the source classification; existing products are not rewritten.
-- The next analyser run reads the manual entries that are still `incomplete` and have a report. With the scheduled daily briefing off, the check against the focus points rejects one that matches no focus point and no PIR or GIR, as it does a scraper event. Set an entry to `complete` before updating to keep it out.
+- The next analyser run reads the manual entries that are still `incomplete` and have a report. One that no product wants is rejected, as a scraper event is. Set an entry to `complete` before updating to keep it out.
 - Threat actor profiles and indicator feeds made before this release have no TLP tag on their MISP event, and a product other than a flash intel alert whose TLP was changed still has its old tag. Saving the product again sets the right one.
 - The `zsazsa-pir` object template is now version 8 with a `linked-gir-uuids` attribute. Nothing needs doing; existing PIRs are linked to no GIR.
 - The `zsazsa-daily-briefing` object template is now version 6 with a `rejection-reason` attribute. Nothing needs doing; existing briefings keep their state and have no rejection reason until rejected.
@@ -115,12 +150,14 @@
 - The `AI_CONNECTOR_*` settings are new and need nothing: the module stays disabled until set up on the AI tab.
 - An advisory whose review state changed before this release lost its summary, CVSS, CWE and context tags. MISP keeps them as deleted attributes of its object: show the deleted attributes on the event in MISP and restore them.
 - The collection cache gets two new columns. They are added when zsazsa starts, so nothing needs doing.
-- The new `ANALYSER_*` settings need nothing. By default the scheduled analyser only makes flash intel alerts from focus points, as before.
+- The new `ANALYSER_*` settings need nothing. By default the scheduled analyser only makes flash intel alerts, as before.
 - The first run after the upgrade removes audit log entries older than a year, and with them the delivery badge of products sent before then. The scheduled analyser runs on the new code without a restart, so to keep them, add `AUDIT_LOG_RETENTION_DAYS = 0`, or the number of days you want, to `config/__init__.py` before updating.
+- The analyser's settings moved from the System tab to the Analyser tab, with their values. `ANALYSER_READ_SCRAPER`, `ANALYSER_READ_MANUAL` and `ANALYSER_READ_MISP_SERVERS` are new and on.
+- `RULEZET_ENABLED` is new and on, so Rulezet stays as it was.
 - The `ASSET_INVENTORY_*` settings are new and need nothing: the asset database is off until switched on.
 - The `zsazsa-flash-intel` (version 5) and `zsazsa-vea` (version 3) templates have a new `analyser-reason` attribute. Nothing needs doing; older drafts show no reason.
-- Docker users must update `flash_intel_relevance.md` and `daily_briefing_relevance.md` in `docker/volumes/prompts`, or apply their changes on the Prompts tab. Custom briefing prompts receive the scope rule automatically.
-- Rejected advisories suppress new drafts for the same CVEs. Delete the rejected advisory to allow another.
+- The `zsazsa-vea` object template is now version 4 with a `cve-baselines` attribute. Nothing needs doing; for an existing advisory only its main CVE's change is measured.
+- A rejected advisory keeps its CVEs out of new drafts for the 90 days of the coverage lookback. Delete it to allow another sooner.
 - Threat actor profiles published before this release, and published products that got feedback, have an unpublished MISP event. Publish them in MISP if they should be.
 - Source events of products deleted before this release keep their `zsazsa:product` tag. Remove it in MISP where it is in the way.
 - `PIPELINE_RUN_LOG_RETENTION_DAYS` now defaults to 90 days. A value already saved under Settings stays as it is.

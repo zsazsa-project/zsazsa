@@ -235,7 +235,7 @@
           <i class="fas fa-eye" style="font-size:.75rem;"></i>
         </button>
         <button type="button" class="action-pill action-pill-danger" id="bulk-reject-btn"
-                title="Set aside every event matching a daily briefing title exclusion pattern: workflow:state=rejected on your own MISP, the dismiss tag for events from another MISP server">
+                title="Set aside every event matching a title exclusion pattern, which keeps it out of the alerts and the briefing: workflow:state=rejected on your own MISP, the dismiss tag for events from another MISP server">
           <i class="fas fa-ban" style="font-size:.75rem;"></i>
           Set aside <span id="bulk-reject-count">{{ briefing_pending_reject_uuids | length }}</span> event{{ 's' if briefing_pending_reject_uuids | length != 1 }} matching exclusions
         </button>

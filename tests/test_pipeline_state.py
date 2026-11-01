@@ -1,12 +1,14 @@
-"""The analyser watermark, and runs nothing ever closed.
+"""When the analyser last ran, and runs nothing ever closed.
 
-Two things that look like display details and are not. The watermark decides
-which scraper events the next analyser run will see, so anything that moves it
-without processing those events drops them for good. And a run row is only
-closed by the process that opened it, so the page reading them has to allow for
-one that never came back. Before each summary it writes, a run says which one it
-is on, so a slow run looks alive and one that died shows how far it got. The end
-of a run prunes the logs, the audit log too unless its retention is 0.
+Two things that look like display details and are not. The dashboard says when
+the analyser last completed a run, scheduled or started there, from the
+watermarks those runs move (analyser.sources, whose own tests pin what moves
+them). And a run row is only closed by the process that opened it, so the page
+reading them has to allow for one that never came back. Before each summary it
+writes, a run says which one it is on, so a slow run looks alive and one that
+died shows how far it got. The end of a run prunes the logs, the audit log too
+unless its retention is 0. The day of the last briefing is kept in the state
+file, which is written whole or not at all.
 
     python -m unittest tests.test_pipeline_state
 """
@@ -21,7 +23,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import config
-from analyser import reader
+from analyser import reader, sources
 from core import db
 from webapp import analyser_pipeline, audit
 from webapp.routes import dashboard
@@ -29,60 +31,46 @@ from webapp.routes.dashboard import _pipeline_status
 from webapp.routes.pipeline import _mark_interrupted_runs
 
 
-class Watermark(unittest.TestCase):
+class LastRun(unittest.TestCase):
     def setUp(self):
-        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        handle.write(json.dumps({"analyser_last_run": 1000}))
-        handle.close()
-        self.state = handle.name
-        self.addCleanup(os.unlink, self.state)
-        patcher = mock.patch.object(config, "STATE_FILE", self.state)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(config, "DB_FILE", os.path.join(tmp.name, "test.db"))
         patcher.start()
         self.addCleanup(patcher.stop)
+        db.init_db()
         # _pipeline_status also counts pending events on the scraper MISP, which
         # is a live call and nothing to do with the timestamps tested here.
         misp = mock.patch.object(dashboard.misp_store, "_scraper_misp")
         misp.start()
         self.addCleanup(misp.stop)
 
-    def stored(self):
-        with open(self.state) as f:
-            return json.load(f)
-
-    def test_a_dashboard_action_does_not_move_the_watermark(self):
-        """It reads today's incomplete events, not the analyser's queue, so
-        advancing the watermark would skip whatever came in between."""
-        reader.save_last_action(2000)
-        self.assertEqual(reader.load_last_run(), 1000)
-        self.assertEqual(reader.load_last_action(), 2000)
-
-    def test_an_analyser_run_moves_the_watermark_only(self):
-        reader.save_last_action(2000)
-        reader.save_last_run(3000)
-        self.assertEqual(self.stored(), {"analyser_last_run": 3000, "pipeline_last_action": 2000})
-
     def test_freshness_follows_whichever_ran_last(self):
         now = int(time.time())
-        reader.save_last_run(now - 7200)
+        sources._save_watermark("focus-points", "scraper", now - 7300, {}, now - 7200)
         self.assertEqual(_pipeline_status()["minutes_since"], 120)
-        reader.save_last_action(now - 300)
+        sources._save_watermark("vea", "partner", now - 400, {}, now - 300)
         self.assertEqual(_pipeline_status()["minutes_since"], 5)
 
-    def test_no_state_yet(self):
-        with mock.patch.object(config, "STATE_FILE", "/nonexistent/state.json"):
-            status = _pipeline_status()
+    def test_no_run_yet(self):
+        status = _pipeline_status()
         self.assertIsNone(status["minutes_since"])
         self.assertTrue(status["stale"])
 
-    def test_a_failed_write_leaves_the_previous_state_alone(self):
-        """The analyser and the web app write this file from separate
-        processes, so a half-written one is a state both of them can lose."""
-        reader.save_last_action(2000)
-        with mock.patch("core.atomic_write.os.replace", side_effect=OSError("disk full")):
-            with self.assertRaises(OSError):
-                reader.save_last_run(3000)
 
-        self.assertEqual(self.stored(), {"analyser_last_run": 1000, "pipeline_last_action": 2000})
+class BriefingDay(unittest.TestCase):
+    def test_a_failed_write_leaves_the_previous_state_alone(self):
+        """The analyser writes this file and the web app reads it, from separate
+        processes, so a half-written one is a state both of them can lose."""
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        handle.write(json.dumps({"analyser_last_briefing": "2026-10-30"}))
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        with mock.patch.object(config, "STATE_FILE", handle.name), \
+             mock.patch("core.atomic_write.os.replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                reader.save_last_briefing("2026-10-31")
+            self.assertEqual(reader.load_last_briefing(), "2026-10-30")
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -128,14 +116,17 @@ class SummaryProgress(unittest.TestCase):
                    "c" * 36: [SimpleNamespace(name="Article", content="An article")]}
         said = []
         pipeline = analyser_pipeline
-        with mock.patch.object(pipeline, "_refresh_scraper_cache"), \
-             mock.patch.object(pipeline, "_incomplete_scraper_events", return_value=(None, events)), \
-             mock.patch.object(pipeline, "read_event_reports", side_effect=lambda misp, e: reports[e.uuid]), \
+        reading = mock.create_autospec(sources.Reading, instance=True)
+        scraper = sources.Source("scraper", "scraper", "MISP scraper", None, True)
+        reading.read.return_value = [(e, scraper) for e in events]
+        reading.counts, reading.errors = {"MISP scraper": 3}, []
+        with mock.patch.object(pipeline, "read_event_reports", side_effect=lambda misp, e: reports[e.uuid]), \
              mock.patch.object(pipeline, "_event_http_error", return_value=False), \
              mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
              mock.patch.object(pipeline, "_ensure_ai_summary",
-                               side_effect=lambda misp, e, r, g: said.append(f"ensure: {e.info}") or ("", e.info != "Event b")):
+                               side_effect=lambda source, e, r, g, p: said.append(f"ensure: {e.info}") or ("", e.info != "Event b")):
             pipeline._common_candidate_events(
+                reading,
                 progress=lambda step, state, message="": said.append(message) if step == "generate-summaries" else None)
         self.assertEqual(said[:7], ["2 of 3 event(s) need an AI summary.",
                                     "AI summary 1 of 2: Event a", "ensure: Event a",

@@ -12,8 +12,9 @@ from requests.exceptions import RequestException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import config
-from core import pymisp_compat
+from core import pymisp_compat, rulezet_lookup
 from webapp import audit, misp_session, org_store, sso_users, collection_cache, indicator_meta_store
+from webapp.models import subscribed_products
 from webapp.utils import fill_product_tag_defaults, human_size, md_to_html, md_to_html_inline
 from webapp.version import APP_VERSION
 
@@ -104,10 +105,11 @@ def create_app():
             "ui_theme": getattr(config, "THEME", "overmind"),
             "current_user_email": misp_session.current_user_email(),
             "is_site_admin": misp_session.current_user_is_admin(),
-            # Read per request, not at startup: the configuration page can set
-            # or clear RULEZET_URL without a restart. The "Search Rulezet"
-            # buttons stay disabled while it is empty.
-            "rulezet_enabled": bool(getattr(config, "RULEZET_URL", "")),
+            # Read per request, not at startup: the configuration page can
+            # switch Rulezet off or clear RULEZET_URL without a restart. The
+            # "Search Rulezet" buttons stay disabled while it is off.
+            "rulezet_enabled": rulezet_lookup.enabled(),
+            "subscribed_products": subscribed_products,
         }
 
     @app.template_filter("md_inline")

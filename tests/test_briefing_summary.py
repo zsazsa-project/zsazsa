@@ -253,6 +253,22 @@ class StoryOrigin(unittest.TestCase):
         self.assertEqual(self._written({"content": "text"})["drafted_by"], "")
 
 
+class StoryCorrelation(unittest.TestCase):
+    """The earlier story the analyser found a story tells again was written on
+    the draft, and lost as the briefing was stored."""
+
+    def test_it_is_stored_and_survives_a_save_of_the_form(self):
+        from werkzeug.datastructures import MultiDict
+        from webapp.routes import daily_briefing
+
+        told = 'Update of "Earlier" in the briefing of 2026-10-29: a new victim.'
+        stored = json.loads(misp_store._briefing_story_report(1, {"title": "A", "correlation": told}).content)
+        self.assertEqual(stored["correlation"], told)
+        posted = daily_briefing._parse_stories_from_form(MultiDict({"story_1_title": "A",
+                                                                    "story_1_correlation": told}))
+        self.assertEqual(posted[0]["correlation"], told)
+
+
 class BriefingEmailDetectionRules(unittest.TestCase):
     """The detection rules picked from Rulezet are saved with the briefing; the
     stakeholders reading the email are the ones who would deploy them."""
@@ -280,6 +296,7 @@ def _stored_briefing():
         date="2026-08-08", title="Daily briefing", author="koen", tlp="green",
         review_state="draft", rejection_reason="Needs verification.", story_count=3,
         escalations="One escalation.", notes="A note.", detection_rules="rule-1",
+        also_seen=[{"title": "Left out", "source_event_uuid": "e" * 36, "source_id": "scraper"}],
         summary="Four of six stories concern EU logistics.", summary_stale=True,
         geographic_scope=["Belgium"], sectors=["Transport"], threat_actors=["Luna Moth"],
         mitre_attack_techniques=["T1566"], threat_types=["Ransomware"],

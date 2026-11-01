@@ -20,6 +20,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from pymisp import MISPEvent, PyMISP
 
 import config
+from analyser import event_state, relevance, tagger
 from core import ai_connector
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
@@ -1178,6 +1179,7 @@ def cti_tag(uuid):
         return jsonify({"ok": False, "error": err_msg}), 502
 
     tag_name = f'{_CTI_EVAL_NAMESPACE}:{predicate}="{value}"'
+    # The new value goes on first: refused, the event keeps the one it had.
     try:
         r = misp.tag(uuid, tag_name, local=False)
         if isinstance(r, dict) and "errors" in r:
@@ -1186,11 +1188,76 @@ def cti_tag(uuid):
         logger.warning("cti_tag failed for %s (%s): %s", uuid, tag_name, exc)
         return jsonify({"ok": False, "error": "Could not apply tag."}), 502
 
+    audit.record("tag", "misp-event", entity_id=uuid, details=tag_name)
+    # The score is set from here on: what fails after it is a warning.
+    warnings = []
+    try:
+        _drop_other_values(misp, uuid, predicate, tag_name)
+    except Exception as exc:
+        logger.warning("Could not remove the earlier %s of %s: %s", predicate, uuid, exc)
+        warnings.append(f"its earlier {predicate} could not be removed; remove it in MISP")
+    # MISP unpublishes an event that gets a global tag, and another server's
+    # events are read published only, by this page and by the analyser alike.
+    if _is_remote_source(source_id) and not misp_store.publish_event(misp, uuid, f"{uuid} again after its score"):
+        warnings.append("the event could not be published again; publish it in MISP to keep it on this page "
+                        "and in the analysis")
+    try:
+        event_state.scored_by_analyst(_analysed_source(source_id), uuid)
+    except Exception as exc:
+        logger.warning("Could not record the score of %s for the analyser: %s", uuid, exc)
+        warnings.append("a run of the analyser going now may not see it")
+    if predicate == "relevance" and relevance.pushes(value):
+        try:
+            _reopen_for_the_analyser(uuid, source_id, misp)
+        except Exception as exc:
+            logger.warning("Could not reopen %s for the analyser: %s", uuid, exc)
+            warnings.append("the event could not be opened again for the analyser; score it again to retry")
+
     # Refresh this event in local cache so the new CTI-evaluation tag appears immediately.
     _refresh_cached_event(uuid, source_id, misp, context="cti_tag")
+    reply = {"ok": True, "tag": tag_name}
+    if warnings:
+        reply["warning"] = f"{predicate.capitalize()} is set, but " + "; ".join(warnings) + "."
+    return jsonify(reply)
 
-    audit.record("tag", "misp-event", entity_id=uuid, details=tag_name)
-    return jsonify({"ok": True, "tag": tag_name})
+
+def _drop_other_values(misp, uuid, predicate, tag_name):
+    """Take an earlier value of the same score off the event. The taxonomy
+    allows one, and MISP does not enforce it: with "low" and "very-high" both
+    there, what the analyser read depended on the order of the tags."""
+    event = misp.get_event(uuid, pythonify=True)
+    if isinstance(event, dict):
+        raise RuntimeError(event.get("errors") or event)
+    prefix = f'{_CTI_EVAL_NAMESPACE}:{predicate}="'
+    for tag in event.tags:
+        if tag.name.startswith(prefix) and tag.name != tag_name:
+            reply = misp.untag(uuid, tag.name)
+            if isinstance(reply, dict) and "errors" in reply:
+                raise RuntimeError(reply["errors"])
+
+
+def _analysed_source(source_id):
+    """The analyser's id for a source of this page: every manual source is
+    one, the manual entries on zsazsa's MISP."""
+    return "manual" if source_id.startswith("manual-") else source_id
+
+
+def _reopen_for_the_analyser(uuid, source_id, misp):
+    """Open an event the analyser closed again, after an analyst's relevance
+    score pushed it into the alerts or the briefing: the analyser does not read
+    a rejected event, and would never see the push. On another MISP server the
+    event is reopened in zsazsa, as that is where it was closed."""
+    if _is_remote_source(source_id):
+        event_state.reopen(source_id, uuid)
+    else:
+        event = misp.get_event(uuid, pythonify=True)
+        if isinstance(event, dict):
+            raise RuntimeError(event.get("errors") or event)
+        if 'workflow:state="rejected"' not in {t.name for t in event.tags}:
+            return
+        if not tagger.set_workflow_state(misp, event, "incomplete"):
+            raise RuntimeError("MISP refused the workflow state")
+    audit.record("reopen", "misp-event", entity_id=uuid, details="pushed into the analysis by its relevance score")
 
 
 _SCOPE_TAG_ALLOWED_PREFIXES = (

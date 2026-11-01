@@ -71,9 +71,10 @@
           <dd><span class="tlp-badge tlp-{{ stakeholder.tlp_clearance | slug }}">TLP:{{ stakeholder.tlp_clearance | upper }}</span></dd>
         </dl>
         <div class="fw-semibold mb-2 text-muted small text-uppercase tracking-wide">Products subscribed</div>
-        {% if stakeholder.products %}
+        {% set products = subscribed_products(stakeholder) %}
+        {% if products %}
         <div class="d-flex flex-wrap gap-2">
-          {% for p in stakeholder.products %}
+          {% for p in products %}
           {% set mode = stakeholder.product_modes.get(p) if stakeholder.product_modes else None %}
           {# Only an automated subscription says anything: the mode picker is
              hidden, so after-approval is what a stakeholder carries by default

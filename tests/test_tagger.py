@@ -29,8 +29,8 @@ class SourceFeed(unittest.TestCase):
 
 class WorkflowState(unittest.TestCase):
     """PyMISP answers a refused tag with a dict instead of raising. An event
-    left carrying its old state is picked up and processed again on every run,
-    so the caller has to be able to see that happen."""
+    left with its old state is picked up and processed again on every run, so
+    the caller has to be able to see that happen."""
 
     class Misp:
         def __init__(self, untag_error="", tag_error=""):
@@ -51,19 +51,29 @@ class WorkflowState(unittest.TestCase):
             SimpleNamespace(name='workflow:state="incomplete"'),
         ])
 
-    def test_the_old_state_is_removed_and_the_new_one_set(self):
+    def test_the_new_state_is_set_and_the_old_one_removed(self):
         misp = self.Misp()
         self.assertTrue(tagger.set_workflow_state(misp, self.event(), "rejected"))
-        self.assertEqual(misp.calls, [("untag", 'workflow:state="incomplete"'),
-                                      ("tag", 'workflow:state="rejected"')])
+        self.assertEqual(misp.calls, [("tag", 'workflow:state="rejected"'),
+                                      ("untag", 'workflow:state="incomplete"')])
 
     def test_a_refused_untag_is_reported(self):
         misp = self.Misp(untag_error="Tag is locked")
         self.assertFalse(tagger.set_workflow_state(misp, self.event(), "rejected"))
 
-    def test_a_refused_tag_is_reported(self):
+    def test_a_refused_tag_is_reported_and_keeps_the_old_state(self):
+        # Removed first, the event would have no state left, and no search of
+        # the analyser would find it again to retry.
         misp = self.Misp(tag_error="no permission")
         self.assertFalse(tagger.set_workflow_state(misp, self.event(), "ongoing"))
+        self.assertEqual(misp.calls, [("tag", 'workflow:state="ongoing"')])
+
+    def test_the_state_it_already_has_is_not_removed(self):
+        event = self.event()
+        event.tags.append(SimpleNamespace(name='workflow:state="rejected"'))
+        misp = self.Misp()
+        tagger.set_workflow_state(misp, event, "rejected")
+        self.assertNotIn(("untag", 'workflow:state="rejected"'), misp.calls)
 
     def test_add_tag_reports_a_refusal(self):
         self.assertTrue(tagger.add_tag(self.Misp(), object(), "osint:source-type=\"blog-post\""))
