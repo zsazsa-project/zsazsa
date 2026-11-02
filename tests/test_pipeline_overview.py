@@ -71,6 +71,17 @@ class Overview(_TempLog):
                          {"Article not fetched": "http_error", "Error": "error"})
 
 
+class RunHistory(_TempLog):
+    def test_older_runs_are_there_to_ask_for(self):
+        """Only the newest twenty were shown, a few hours of an hourly schedule,
+        and nothing led to the ones before."""
+        for action in ("vea", "flash-intel", "daily-briefing"):
+            core_db.log_pipeline_run_end(core_db.log_pipeline_run_start(action, "schedule"), "completed")
+        runs, older = pipeline._run_history(2)
+        self.assertEqual(([r["action"] for r in runs], older), (["daily-briefing", "flash-intel"], True))
+        self.assertFalse(pipeline._run_history(3)[1])
+
+
 class ProblemsOfTheWeek(_TempLog):
     def test_counted_as_the_activity_it_opens_filters_them(self):
         """Counted by calendar day, the entry could say more problems than the

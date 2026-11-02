@@ -401,6 +401,19 @@ def _indicator_stats():
 _RUN_INTERRUPTED_AFTER_S = 1800
 
 
+# Runs shown at first, and added with each "Show older runs". A scheduled hour
+# logs a row for the run and one for each action it made, so twenty covered
+# only a few hours.
+_RUNS_PAGE = 50
+_RUNS_MOST = 1000
+
+
+def _run_history(shown: int) -> tuple[list, bool]:
+    """The newest ``shown`` runs, and whether there are older ones."""
+    runs = _mark_interrupted_runs(get_recent_pipeline_runs(shown + 1))
+    return runs[:shown], len(runs) > shown
+
+
 def _mark_interrupted_runs(runs: list) -> list:
     """Flag run-log rows left on "running" by a process that never came back.
 
@@ -570,7 +583,8 @@ def index():
     source_counts = misp_store.data_collection_source_counts()
     pipeline = _pipeline_stats()
     overview = _overview()
-    recent_runs = _mark_interrupted_runs(get_recent_pipeline_runs(20))
+    runs_shown = min(_RUNS_MOST, max(_RUNS_PAGE, request.args.get("runs", _RUNS_PAGE, type=int)))
+    recent_runs, older_runs = _run_history(runs_shown)
     for run in recent_runs:
         run["label"] = _RUN_ACTIONS.get(run["action"], run["action"])
         run["state"] = "interrupted" if run.get("interrupted") else run["status"]
@@ -593,6 +607,8 @@ def index():
         attention=_attention(scraper_misp, webapp_misp, source_health, imap_mailboxes, recent_runs,
                              indicator_stats, pipeline["problems_7d"] if pipeline else 0),
         recent_runs=recent_runs,
+        older_runs_url=(url_for("pipeline.index", runs=runs_shown + _RUNS_PAGE, _anchor="runs")
+                        if older_runs and runs_shown < _RUNS_MOST else ""),
         imap_mailboxes=imap_mailboxes,
         newsletter_sources=newsletter_sources,
         scraper_misp=scraper_misp,
