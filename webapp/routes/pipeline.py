@@ -313,9 +313,11 @@ def _activity_page(args, offset, limit):
     # are hidden unless asked for, as the card did before it was paged. Only a
     # scraper event can be checked there; an entry written before the source
     # was recorded is taken for one, as nearly all of them were.
+    cached = _cached_sources([r["event_uuid"] for r in rows if r["event_uuid"]])
     hidden_orphaned = 0
     if rows and scraper_enabled() and args.get("include_orphaned") != "1":
-        on_scraper = [r["event_uuid"] for r in rows if r["event_uuid"] and r["source_id"] in (None, "scraper")]
+        on_scraper = [r["event_uuid"] for r in rows
+                      if r["event_uuid"] and _on_scraper(r["source_id"], r["event_uuid"], cached)]
         try:
             existing = misp_store.scraper_existing_uuids(on_scraper)
             kept = [r for r in rows if r["event_uuid"] not in on_scraper or r["event_uuid"] in existing]
@@ -324,7 +326,7 @@ def _activity_page(args, offset, limit):
         except Exception as exc:
             logger.warning("activity MISP existence check failed: %s", exc)
 
-    _add_links_and_icons(rows)
+    _add_links_and_icons(rows, cached)
     return {"rows": rows, "total": total, "has_more": has_more, "hidden_orphaned": hidden_orphaned}
 
 
@@ -356,14 +358,29 @@ def _outcome_icon(outcome: str, detail: str) -> tuple[str, str]:
     return _OUTCOMES.get(outcome, ("fa-circle-info", outcome or "Unknown"))
 
 
-def _add_links_and_icons(rows: list[dict]) -> None:
+def _cached_sources(uuids: list) -> dict:
+    """{uuid: the source the collection cache holds the event under}, asked
+    in parts, as a purge can ask for thousands."""
+    found = {}
+    for i in range(0, len(uuids), 500):
+        found.update({e["uuid"]: e["source_id"] for e in collection_cache.get_events_by_uuids(uuids[i:i + 500])})
+    return found
+
+
+def _on_scraper(source_id, uuid: str, cached: dict) -> bool:
+    """Whether an entry's event is the scraper's, the only MISP the orphan
+    check can ask. One logged before the source was kept goes by the cache,
+    and is taken for the scraper's once the cache no longer has it: another
+    server's event was hidden, and purged, for not being on the scraper."""
+    return (source_id or cached.get(uuid)) in (None, "scraper")
+
+
+def _add_links_and_icons(rows: list[dict], cached: dict) -> None:
     """Give each activity row the link to its event in the MISP it was read
     from, the icon of its outcome, and the source Data collection lists the
-    event under, which its Push and Review by hand act on. An entry written
-    before the source was recorded goes by the collection cache, and has no
-    link once the event has left it."""
-    uuids = [r["event_uuid"] for r in rows if r["event_uuid"]]
-    cached = {e["uuid"]: e["source_id"] for e in collection_cache.get_events_by_uuids(uuids)} if uuids else {}
+    event under, which its Push and Review by hand act on. ``cached`` is
+    _cached_sources() of the rows: an entry written before the source was
+    recorded goes by it, and has no link once the event has left the cache."""
     for row in rows:
         source_id = row.pop("source_id") or cached.get(row["event_uuid"])
         row["misp_url"] = (misp_store.source_event_urls([row["event_uuid"]], {row["event_uuid"]: source_id})[0]
@@ -412,6 +429,25 @@ def _run_history(shown: int) -> tuple[list, bool]:
     """The newest ``shown`` runs, and whether there are older ones."""
     runs = _mark_interrupted_runs(get_recent_pipeline_runs(shown + 1))
     return runs[:shown], len(runs) > shown
+
+
+def _logged(uuids: set) -> set:
+    """The events among these that the activity has an entry for: a run's
+    decision links to them there, and some decisions log none, as an event
+    already in a briefing."""
+    uuids, found = list(uuids), set()
+    if not uuids or not os.path.exists(config.DB_FILE):
+        return found
+    try:
+        with row_connection() as db:
+            for i in range(0, len(uuids), 500):
+                part = uuids[i:i + 500]
+                found.update(r[0] for r in db.execute(
+                    f"SELECT DISTINCT event_uuid FROM event_log WHERE event_uuid IN ({','.join('?' * len(part))})",
+                    part))
+    except sqlite3.Error as exc:
+        logger.warning("could not read the analyser history: %s", exc)
+    return found
 
 
 def _mark_interrupted_runs(runs: list) -> list:
@@ -504,19 +540,23 @@ def _source_health(scraper_conn=None):
     return results
 
 
-# The entries the scraper can say are orphaned: its own, and those from before
-# the source was kept, as nearly all of them were. The activity hides the same.
+# The entries the scraper may be asked about: its own, and those from before
+# the source was kept, which _on_scraper() then sorts out by the cache.
 _ON_SCRAPER = "(source_id IS NULL OR source_id = 'scraper')"
 
 
 def _purge_orphaned_rows():
+    """Delete the entries whose event is no longer on the scraper, as the
+    activity hides them. Returns (deleted, events checked)."""
     if not os.path.exists(config.DB_FILE):
         return 0, 0
     with row_connection() as db:
-        candidates = [r[0] for r in db.execute(
-            "SELECT DISTINCT event_uuid FROM event_log"
+        logged = db.execute(
+            "SELECT DISTINCT event_uuid, source_id FROM event_log"
             f" WHERE event_uuid IS NOT NULL AND event_uuid != '' AND {_ON_SCRAPER}"
-        ).fetchall()]
+        ).fetchall()
+    cached = _cached_sources([r["event_uuid"] for r in logged if r["source_id"] is None])
+    candidates = sorted({r["event_uuid"] for r in logged if _on_scraper(r["source_id"], r["event_uuid"], cached)})
     if not candidates:
         return 0, 0
     # Asked before anything is deleted, and outside the transaction: it raises
@@ -585,6 +625,8 @@ def index():
     overview = _overview()
     runs_shown = min(_RUNS_MOST, max(_RUNS_PAGE, request.args.get("runs", _RUNS_PAGE, type=int)))
     recent_runs, older_runs = _run_history(runs_shown)
+    decided = {d["uuid"] for run in recent_runs
+               for d in ((run.get("result") or {}).get("event_decisions") or []) if d.get("uuid")}
     for run in recent_runs:
         run["label"] = _RUN_ACTIONS.get(run["action"], run["action"])
         run["state"] = "interrupted" if run.get("interrupted") else run["status"]
@@ -607,6 +649,7 @@ def index():
         attention=_attention(scraper_misp, webapp_misp, source_health, imap_mailboxes, recent_runs,
                              indicator_stats, pipeline["problems_7d"] if pipeline else 0),
         recent_runs=recent_runs,
+        logged_uuids=_logged(decided),
         older_runs_url=(url_for("pipeline.index", runs=runs_shown + _RUNS_PAGE, _anchor="runs")
                         if older_runs and runs_shown < _RUNS_MOST else ""),
         imap_mailboxes=imap_mailboxes,

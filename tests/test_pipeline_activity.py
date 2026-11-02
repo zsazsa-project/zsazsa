@@ -81,6 +81,19 @@ class Activity(unittest.TestCase):
             left = {r[0] for r in db.execute("SELECT event_uuid FROM event_log")}
         self.assertEqual(left, {SCRAPED, MANUAL, PARTNER})
 
+    def test_an_older_entry_of_another_server_is_not_taken_for_an_orphan(self):
+        """Logged before the source was kept, a partner server's event was
+        looked for on the scraper, hidden, and purged."""
+        core_db.log_event(PARTNER, "A partner's event", "Feed", "not_relevant", "no CVE found")
+        self.cache.return_value = [{"uuid": PARTNER, "source_id": "circl"}]
+        self.assertEqual(self.page()[PARTNER]["misp_url"], f"https://misp.circl.example/events/view/{PARTNER}")
+        self.assertEqual(pipeline._purge_orphaned_rows(), (0, 0))
+        self.on_scraper.assert_called_once_with([])
+
+    def test_a_decision_links_to_the_activity_only_when_it_has_entries(self):
+        core_db.log_event(SCRAPED, "An event", "Feed", "not_relevant", "no CVE found", source_id="scraper")
+        self.assertEqual(pipeline._logged({SCRAPED, MANUAL}), {SCRAPED})
+
     def test_a_product_s_source_is_the_one_it_was_picked_from(self):
         """An event synced to two servers is cached under both, and the log
         took whichever row came last."""

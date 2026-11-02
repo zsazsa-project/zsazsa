@@ -124,7 +124,7 @@
 - The analyser could file an alert from an AI answer with nothing in it, such as a refusal, and send it on automated mode.
 - A failure to publish or deliver an alert on automated mode was not reported. It is logged on the event now.
 - One vulnerability advisory MISP refused stopped the advisory run, on every run.
-- The Pipeline activity hid the manual entries and the other MISP servers' events as orphaned, as it looked for every event on the scraper.
+- The Pipeline activity hid the manual entries and the other MISP servers' events as orphaned, as it looked for every event on the scraper, and Purge orphaned deleted them. An entry from before the source was recorded now goes by the collection cache.
 - Deleting an alert, advisory, detection request or briefing left the `zsazsa:product` tag on its source events, which then never got another advisory or briefing story. The tag now comes off unless another product of that type uses the event, and editing the sources updates the tags too.
 
 ### Security

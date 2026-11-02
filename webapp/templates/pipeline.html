@@ -500,7 +500,7 @@
                       <tr>
                         <td class="text-muted" style="word-break:break-word;">{{ d.title or d.uuid or '-' }}{% if d.source %} <span class="small">({{ d.source }})</span>{% endif %}
                           {# Its entries there have the link to the event, and Push and Review by hand. #}
-                          {% if d.uuid %}<a href="#activity" class="small text-nowrap ms-1" data-pipeline-tab="activity" data-search="{{ d.uuid }}"
+                          {% if d.uuid in logged_uuids %}<a href="#activity" class="small text-nowrap ms-1" data-pipeline-tab="activity" data-search="{{ d.uuid }}"
                              title="Its entries in the activity: the event in MISP, what the analyser wrote, Push and Review by hand"><i class="fas fa-clock-rotate-left me-1"></i>Activity</a>{% endif %}</td>
                         <td style="color:{{ outcome_fg }};font-weight:600;">{{ d.outcome }}</td>
                         <td class="text-muted">{{ d.reason or '' }}</td>
