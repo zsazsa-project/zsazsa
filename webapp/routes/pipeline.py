@@ -173,7 +173,7 @@ def _attention(scraper_misp, webapp_misp, source_health, imap_mailboxes, recent_
         if started < cutoff or not (run["status"] == "failed" or run.get("interrupted")):
             continue
         what = "was interrupted" if run.get("interrupted") else "failed"
-        add("warning", "fa-circle-play", f"{run['label']} {what} at {run['started_at'][:16]}",
+        add("warning", "fa-circle-play", f"{run['label']} {what} at {run['started_at'][:16].replace('T', ' ')}",
             (run.get("result") or {}).get("message") or "The log has the reason.", "runs")
 
     if problems_7d:

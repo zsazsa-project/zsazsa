@@ -2085,14 +2085,18 @@ a.stats-count:hover { box-shadow: var(--shadow-hover-lift); }
 .pipeline-attention { display: flex; gap: .75rem; align-items: flex-start; padding: .65rem 1rem; border-top: 1px solid var(--border-faint); font-size: .84rem; }
 .pipeline-attention:first-child { border-top: 0; }
 
-/* Outcomes per day: one column a day, stacked from the baseline, made first. */
-.pipeline-days { display: flex; align-items: flex-end; gap: 6px; height: 130px; border-bottom: 1px solid var(--neutral-400); }
-.pipeline-day { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-.pipeline-day-bar { width: 100%; display: flex; flex-direction: column; gap: 2px; border-radius: 4px 4px 0 0; overflow: hidden; }
-.pipeline-day-bar > span { display: block; min-height: 2px; }
-.pipeline-day:hover .pipeline-day-bar { opacity: .8; }
-.pipeline-day-labels { display: flex; gap: 6px; margin-top: .25rem; font-size: .66rem; color: var(--text-muted); }
-.pipeline-day-labels > span { flex: 1; text-align: center; white-space: nowrap; }
+/* A column a day, on the Pipeline overview, stacked by outcome from the
+   baseline, and on the audit log, with its busiest day marked. */
+.day-chart { display: flex; align-items: flex-end; gap: var(--day-gap, 6px); height: 130px; border-bottom: 1px solid var(--neutral-400); }
+.day-chart-col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end;
+                 text-decoration: none; }
+.day-chart-bar { display: flex; flex-direction: column; gap: 2px; border-radius: 4px 4px 0 0; overflow: hidden; }
+.day-chart-bar > span { display: block; min-height: 2px; }
+.day-chart-col:hover .day-chart-bar { opacity: .8; }
+.day-chart-labels { display: flex; gap: var(--day-gap, 6px); margin-top: .25rem; font-size: .66rem; color: var(--text-muted); }
+.day-chart-labels > span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; }
+.day-chart-mark { font-size: .66rem; font-weight: 700; text-align: center; white-space: nowrap; color: var(--text-primary); }
+.day-chart-col.faded { opacity: .35; }
 .pipeline-made { background: var(--accent-green); }
 .pipeline-declined { background: var(--neutral-500); }
 .pipeline-problem { background: var(--accent-red); }
@@ -2121,6 +2125,19 @@ tr[aria-expanded="true"] .run-caret { transform: rotate(90deg); }
 .run-decisions-link { font-size: inherit; font-weight: 600; padding: 0; margin-left: .5rem; vertical-align: baseline;
                       text-decoration: none; white-space: nowrap; }
 tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoration: underline; }
+
+/* ─── Audit log ───────────────────────────────────────────────────────────── */
+.logs-bar { min-height: 2px; background: var(--accent-blue); }
+.day-chart-col.peak .logs-bar { background: var(--accent-orange); }
+.logs-chosen { background: var(--surface-hover); font-weight: 600; }
+.card-header .list-filters .filter { margin-bottom: 0; min-width: 11rem; }
+.logs-table { font-size: .8rem; }
+.logs-table.zsazsa-table tbody td { padding: .3rem .5rem; vertical-align: top; }
+.logs-table .badge { font-size: .68rem; }
+.logs-day th { background: var(--surface-muted) !important; font-size: .76rem; font-weight: 600; text-transform: none;
+               letter-spacing: 0; color: var(--text-primary); position: sticky; top: 0; }
+.logs-item { max-width: 22rem; overflow-wrap: anywhere; }
+.logs-details { max-width: 30rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* A choice of the activity filters, with the count it would show. */
 .pipeline-facet { display: flex; justify-content: space-between; gap: .5rem; width: 100%; border: 0; background: none; border-radius: 6px;

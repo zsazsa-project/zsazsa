@@ -226,10 +226,10 @@
               </span>
             </div>
             {% if not busiest %}<p class="text-muted small mb-1">Nothing analysed in the last 14 days.</p>{% endif %}
-            <div class="pipeline-days" aria-hidden="true">
+            <div class="day-chart" aria-hidden="true">
               {% for d in overview.days %}
-              <div class="pipeline-day" title="{{ d.date }}: {{ d.made }} product{{ 's' if d.made != 1 }} made, {{ d.declined }} declined, {{ d.problem }} problem{{ 's' if d.problem != 1 }}">
-                <div class="pipeline-day-bar" style="height:{{ (d.total / busiest * 100) if busiest else 0 }}%;">
+              <div class="day-chart-col" title="{{ d.date }}: {{ d.made }} product{{ 's' if d.made != 1 }} made, {{ d.declined }} declined, {{ d.problem }} problem{{ 's' if d.problem != 1 }}">
+                <div class="day-chart-bar" style="height:{{ (d.total / busiest * 100) if busiest else 0 }}%;">
                   {% if d.problem %}<span class="pipeline-problem" style="flex:{{ d.problem }};"></span>{% endif %}
                   {% if d.declined %}<span class="pipeline-declined" style="flex:{{ d.declined }};"></span>{% endif %}
                   {% if d.made %}<span class="pipeline-made" style="flex:{{ d.made }};"></span>{% endif %}
@@ -237,7 +237,7 @@
               </div>
               {% endfor %}
             </div>
-            <div class="pipeline-day-labels" aria-hidden="true">
+            <div class="day-chart-labels" aria-hidden="true">
               {% for d in overview.days %}<span>{{ d.label }}</span>{% endfor %}
             </div>
             <table class="visually-hidden">

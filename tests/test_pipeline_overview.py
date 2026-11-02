@@ -101,7 +101,8 @@ class Attention(unittest.TestCase):
         return {**row, **state}
 
     def logged_run(self, action, minutes_ago, status, **extra):
-        started = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%d %H:%M:%S")
+        # As the run log stores it.
+        started = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%S")
         return {"action": action, "label": pipeline._RUN_ACTIONS.get(action, action),
                 "started_at": started, "status": status, "result": None, **extra}
 
@@ -137,6 +138,7 @@ class Attention(unittest.TestCase):
         found = self.attention(runs=runs)
         self.assertEqual([i["title"].split(" at ")[0] for i in found], ["Flash intel alert failed", "Vulnerability advisory was interrupted"])
         self.assertEqual(found[0]["text"], "429 rate limit")
+        self.assertEqual(found[0]["title"], f"Flash intel alert failed at {runs[2]['started_at'][:16].replace('T', ' ')}")
 
     def test_a_failure_older_than_a_week_is_left_out(self):
         self.assertEqual(self.attention(runs=[self.logged_run("vea", 8 * 24 * 60, "failed")]), [])
