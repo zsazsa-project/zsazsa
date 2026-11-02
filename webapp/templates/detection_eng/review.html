@@ -239,7 +239,7 @@
                 <a href="{{ url_for('detection_eng.wizard_edit', id=d.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('detection_eng.delete', id=d.uuid) }}"
+                <form method="post" action="{{ url_for('detection_eng.delete', id=d.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
                       data-submit-confirm="Delete {{ d.der_id }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

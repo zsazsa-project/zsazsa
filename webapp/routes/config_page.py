@@ -990,8 +990,9 @@ def index():
             return redirect(refused)
         # Only the settings form posts them: a stored conflict does not hold
         # up the saves made elsewhere on the page.
-        if "ANALYSER_PULL" in request.form and analyser_settings.conflict(values):
-            flash(analyser_settings.conflict(values), "warning")
+        conflict = analyser_settings.conflict(values) if "ANALYSER_PULL" in request.form else ""
+        if conflict:
+            flash(conflict, "warning")
             return redirect(refused)
         try:
             _write(values)

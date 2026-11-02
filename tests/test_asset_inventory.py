@@ -137,7 +137,7 @@ class AdvisoryRun(Inventory):
             mock.patch.object(analyser_pipeline.misp_store, "vea_source_uuids", return_value=set()),
             mock.patch.object(analyser_pipeline.misp_store, "subscriber_audience", return_value="Vulnerability management"),
             mock.patch.object(analyser_pipeline, "_log",
-                              side_effect=lambda e, outcome, detail=None: self.logged.append((e.info, detail))),
+                              side_effect=lambda e, source, outcome, detail=None: self.logged.append((e.info, detail))),
         ]
         with contextlib.ExitStack() as stack:
             for patch in patches:

@@ -60,7 +60,8 @@ def init_db() -> None:
                 event_info   TEXT,
                 source_feed  TEXT,
                 outcome      TEXT,
-                detail       TEXT
+                detail       TEXT,
+                source_id    TEXT
             )
         """)
         conn.execute("""
@@ -147,6 +148,9 @@ def init_db() -> None:
             ("source_feed", "TEXT"),
             ("outcome", "TEXT"),
             ("detail", "TEXT"),
+            # The source the event was read from, as misp_store.source_event_urls
+            # takes it, so the Pipeline page links to the MISP it is on.
+            ("source_id", "TEXT"),
         ])
         # When an analyst last scored the event, which a run that read it
         # before must not take for its own write.
@@ -199,12 +203,14 @@ def log_llm_usage(feature: str, model: str, input_tokens: int, output_tokens: in
         logger.error("DB write failed for llm_usage: %s", e)
 
 
-def log_event(event_uuid: str, event_info: str, source_feed: str, outcome: str, detail: str | None = None) -> None:
+def log_event(event_uuid: str, event_info: str, source_feed: str, outcome: str, detail: str | None = None,
+              source_id: str | None = None) -> None:
     try:
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO event_log (event_uuid, event_info, source_feed, outcome, detail) VALUES (?, ?, ?, ?, ?)",
-                (event_uuid, event_info, source_feed, outcome, detail),
+                "INSERT INTO event_log (event_uuid, event_info, source_feed, outcome, detail, source_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (event_uuid, event_info, source_feed, outcome, detail, source_id),
             )
     except sqlite3.Error as e:
         logger.error("DB write failed for %s: %s", event_uuid, e)

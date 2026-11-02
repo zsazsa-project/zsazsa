@@ -11,7 +11,8 @@ score that pushes an event into the analysis opens it again when the analyser
 had rejected it, in zsazsa for a partner server's event. A score replaces the
 earlier value of the same score, a partner server's event is published again
 after it, as MISP unpublishes it, and what fails after the score is set is a
-warning on a reply that says the score is set.
+warning on a reply that says the score is set. Review by hand flags an event for
+follow-up before it opens it again, so that the analyser leaves it open.
 
 MISP is an autospec of PyMISP; the collection cache and the sources are patched,
 and the database is temporary.
@@ -90,7 +91,7 @@ class AnEventTheCollectionDoesNotList(_Page):
     def test_no_action_writes_to_it(self):
         for path, body in (("cti-tag", {"predicate": "relevance", "value": "high"}),
                            ("scope-tag", {"tag": 'misp-galaxy:country="belgium"'}),
-                           ("flag", {}), ("reject", {}), ("dismiss", {})):
+                           ("flag", {}), ("reject", {}), ("dismiss", {}), ("review-by-hand", {})):
             with self.subTest(path):
                 self.assertEqual(self.post(path, **body).status_code, 404)
         self.misp.tag.assert_not_called()
@@ -210,6 +211,42 @@ class AnEventTheCollectionLists(_Page):
                              json={"source": PARTNER["id"], "predicate": "relevance", "value": "high"})
         reopened.assert_called_once_with("partner", UUID)
         state.assert_not_called()
+
+    def test_review_by_hand_flags_it_for_follow_up_and_opens_it_again(self):
+        self.misp.tag.return_value = {}
+        self.misp.get_event.return_value = _event(misp_store.TAG_MANUAL_ENTRY, 'workflow:state="rejected"')
+        with mock.patch.object(data_collection.tagger, "set_workflow_state", return_value=True) as state:
+            reply = self.post("review-by-hand")
+        self.assertEqual(reply.get_json(), {"ok": True})
+        self.misp.tag.assert_called_once_with(UUID, 'zsazsa:collection="follow-up"', local=True)
+        data_collection.collection_cache.flag_event.assert_called_once_with(UUID)
+        self.assertEqual(state.call_args.args[2], "incomplete")
+        self.assertIn(mock.call("reopen", "misp-event", entity_id=UUID, details="for review by hand"),
+                      data_collection.audit.record.call_args_list)
+
+    def test_review_by_hand_does_not_open_it_again_without_the_flag(self):
+        """Open and not flagged, the next run would close it again."""
+        self.misp.tag.return_value = {"errors": "Refused"}
+        self.misp.get_event.return_value = _event(misp_store.TAG_MANUAL_ENTRY, 'workflow:state="rejected"')
+        with mock.patch.object(data_collection.tagger, "set_workflow_state") as state:
+            reply = self.post("review-by-hand")
+        self.assertEqual(reply.status_code, 502)
+        state.assert_not_called()
+
+    def test_review_by_hand_of_a_flagged_event_only_opens_it_again(self):
+        self.misp.get_event.return_value = _event(misp_store.TAG_MANUAL_ENTRY, 'workflow:state="rejected"')
+        with mock.patch.object(data_collection.collection_cache, "is_flagged", return_value=True), \
+             mock.patch.object(data_collection.tagger, "set_workflow_state", return_value=True) as state:
+            self.post("review-by-hand")
+        self.misp.tag.assert_not_called()
+        state.assert_called_once()
+
+    def test_review_by_hand_of_another_server_s_event_opens_it_again_in_zsazsa(self):
+        self.misp.tag.return_value = {}
+        with mock.patch.object(data_collection, "_misp_for_source", return_value=(self.misp, "")), \
+             mock.patch.object(data_collection.event_state, "reopen") as reopened:
+            self.client.post(f"/collection/{UUID}/review-by-hand", json={"source": PARTNER["id"]})
+        reopened.assert_called_once_with("partner", UUID)
 
     def test_a_partner_event_is_dismissed_not_rejected(self):
         """Its workflow state belongs to the other server, as a bulk reject has it."""

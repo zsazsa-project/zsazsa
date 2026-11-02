@@ -132,13 +132,14 @@ def parse_misp_context(text: str, names_with_commas=frozenset()) -> dict:
     return result
 
 
-def _log(event, outcome, detail=None):
+def _log(event, source, outcome, detail=None):
     log_event(
         event_uuid=event.uuid,
         event_info=getattr(event, "info", ""),
         source_feed=tagger.get_source_feed(event),
         outcome=outcome,
         detail=detail,
+        source_id=source.hint,
     )
 
 
@@ -347,7 +348,7 @@ def _ensure_ai_summary(source, event, reports, galaxy_lookup: dict, progress=Non
     if not source.own and not misp_store.publish_event(misp, event, f"{event.uuid} again after its summary"):
         # Unpublished, it drops out of the server's search: neither the
         # analyser nor the collection page reads it again until it is published.
-        _log(event, "error", "Its summary was written, but MISP did not publish the event again; publish it in MISP")
+        _log(event, source, "error", "Its summary was written, but MISP did not publish the event again; publish it in MISP")
     collection_cache.mark_ai_summary(event.uuid, _cached_under(source, event))
     if not source.own:
         return summary, True
@@ -378,7 +379,7 @@ def _cached_under(source, event) -> str:
     if source.kind == "manual":
         for tag in event.tags:
             if tag.name.startswith('zsazsa:source="'):
-                return "manual-" + tag.name.split('"')[1]
+                return collection_cache.manual_source_id(tag.name.split('"')[1])
     return source.id
 
 
@@ -405,6 +406,8 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
     kept, excluded = [], []
     reports_cache: dict[str, list] = {}
     event_decisions: list[dict] = []
+    # An analyst follows these up: the analyser leaves them open, whatever it finds.
+    followed = collection_cache.get_flagged_uuids() if events else set()
 
     filter_msg = "Filtering hard negatives (HTTP errors / empty reports)"
     if title_exclusions:
@@ -420,6 +423,9 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
         is_http_error = _event_http_error(event)
         if is_http_error or not first_report:
             reason = "HTTP error fetching article" if is_http_error else "No report content"
+            if event.uuid in followed:
+                event_decisions.append(_decision(event, source, "left open", f"{reason}; an analyst follows it up"))
+                continue
             try:
                 rejected = event_state.reject(event, source, reason)
             except Exception as exc:
@@ -433,13 +439,13 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
                 # Still open in MISP: the next run tries again.
                 reading.retry(event.uuid)
                 event_decisions.append(_decision(event, source, "left open", f"{reason}; MISP refused the rejection"))
-            _log(event, "http_error" if is_http_error else "no_content")
+            _log(event, source, "http_error" if is_http_error else "no_content")
             continue
 
         if title_exclusions and event_or_report_title_excluded(event, reports, title_exclusions):
             excluded.append(event)
             event_decisions.append(_decision(event, source, "excluded", "Title exclusion filter"))
-            _log(event, "not_relevant", "excluded by title filter")
+            _log(event, source, "not_relevant", "excluded by title filter")
             continue
 
         kept.append(event)
@@ -553,13 +559,13 @@ def _judged(found, events, judge: Judge, product: str, progress=None) -> list[tu
                                 found.summaries.get(event.uuid, ""))
         if verdict is None and not relevance.pushed(event, product):
             _decide(found, event, "left open", "The model's answer could not be read")
-            _log(event, "error", "The model's relevance answer could not be read; left open")
+            _log(event, found.sources[event.uuid], "error", "The model's relevance answer could not be read; left open")
             continue
         verdict = verdict or relevance.unjudged()
         ok, reason = judge.wants(verdict, product, event)
         if not ok:
             _decide(found, event, "declined", reason)
-            _log(event, "not_relevant", reason)
+            _log(event, found.sources[event.uuid], "not_relevant", reason)
             continue
         wanted.append((event, verdict, reason))
     _emit(progress, "judge-relevance", "completed", f"{len(wanted)} of {len(events)} event(s) are for {label}.")
@@ -655,11 +661,11 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
     An event is closed when the alerts, the briefing and the advisories have
     each declined it: switched off, excluded by title, a verdict that does not
     want it or a story it tells again, or for the advisories no CVE or one
-    their steps turned down. One
-    that a product was made from, or whose verdict is still to come, stays
-    open. So does one with a CVE the advisory steps have not seen yet, which
-    the next run of this action reads again, to close it then, and one with a
-    CVE that the advisory settings of now would give an advisory.
+    their steps turned down. One that a product was made from, whose verdict
+    is still to come or that an analyst flagged for follow-up stays open. So
+    does one with a CVE the advisory steps have not seen yet, which the next
+    run of this action reads again, to close it then, and one with a CVE that
+    the advisory settings of now would give an advisory.
     """
     candidates = found.events + found.excluded
     if not candidates:
@@ -667,6 +673,7 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
     _emit(progress, "close-events", "in_progress", "Closing the events no product wants...")
     in_products = (misp_store.flash_intel_source_uuids() | misp_store.briefing_source_uuids()
                    | misp_store.vea_source_uuids())
+    followed = collection_cache.get_flagged_uuids()
     check = None
     if getattr(config, "ANALYSER_VULNERABILITY_ADVISORIES", False):
         try:
@@ -676,6 +683,9 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
     closed = 0
     for event in candidates:
         if event.uuid in in_products:
+            continue
+        if event.uuid in followed:
+            _decide(found, event, "left open", "An analyst follows it up")
             continue
         source = found.sources[event.uuid]
         state = event_state.load(source.id, event.uuid)
@@ -704,6 +714,7 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
         else:
             # Still open in MISP: the next run closes it.
             reading.retry(event.uuid)
+            _decide(found, event, "left open", f"{'; '.join(reasons)}; MISP refused the rejection")
     _emit(progress, "close-events", "completed", f"Closed {closed} event(s) no product wants.")
     return closed
 
@@ -806,14 +817,14 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
     events = []
     for event in found.events:
         outcome = _earlier_outcome(found, event, "daily-briefing", reading)
-        pushed = relevance.pushed(event, "briefing")
+        is_pushed = relevance.pushed(event, "briefing")
         if event.uuid in briefed:
             _decide(found, event, "excluded", "Already included in a previous briefing")
         elif event.uuid in alerted:
             _decide(found, event, "excluded", "Has a flash intel alert")
-        elif event.uuid in listed and not pushed:
+        elif event.uuid in listed and not is_pushed:
             _decide(found, event, "excluded", "Listed under Also seen in a briefing")
-        elif outcome and not pushed:
+        elif outcome and not is_pushed:
             _decide(found, event, "excluded", outcome)
         else:
             events.append(event)
@@ -853,6 +864,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
             event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing",
                                      "Duplicate coverage of another story", _evidence(found, event))
             _decide(found, event, "dropped", "Duplicate coverage of another story")
+            _log(event, found.sources[event.uuid], "not_relevant", "Duplicate coverage of another story")
         for index in marked & pushed:
             updates[ranked[index - first_new][0].uuid] = "Overlaps with another story of this briefing"
         ranked = [pair for i, pair in enumerate(ranked, start=first_new) if i not in to_drop]
@@ -883,6 +895,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
             event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing", told,
                                      _evidence(found, event))
             _decide(found, event, "dropped", told)
+            _log(event, found.sources[event.uuid], "not_relevant", f"{told}.")
             continue
         if same:
             told = "Update of" if same["new_facts"] else "The same story as"
@@ -980,9 +993,10 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
     _emit(progress, "create-drafts", "completed", f"Daily briefing draft written ({briefing_uuid}).")
 
     for s in stories:
+        uuid = s["source_event_uuid"]
         # Tagged as a source of the briefing.
-        reading.wrote(s["source_event_uuid"])
-        _log(events_by_uuid[s["source_event_uuid"]], "product_created", "daily-briefing")
+        reading.wrote(uuid)
+        _log(events_by_uuid[uuid], found.sources[uuid], "product_created", "daily-briefing")
 
     result.update(created=0 if draft else 1, briefing_uuid=briefing_uuid, stories_included=len(stories),
                   message=message)
@@ -1022,7 +1036,7 @@ def run_flash_intel_action(reading: Reading, progress=None) -> dict:
             # Linked to the alert it repeats, so the next runs do not propose it again.
             event_state.save_outcome(source.id, event.uuid, "flash-intel", told, _evidence(found, event))
             _decide(found, event, "dropped", told)
-            _log(event, "not_relevant", f"{told}.")
+            _log(event, source, "not_relevant", f"{told}.")
             continue
         if same:
             update_of = (f"{'Update of' if same['new_facts'] else 'The same story as'} {same['story']['id']}: "
@@ -1044,16 +1058,16 @@ def run_flash_intel_action(reading: Reading, progress=None) -> dict:
         if not fia_id:
             reading.retry(event.uuid)
             _decide(found, event, "left open", "No alert could be drafted; the next run tries again")
-            _log(event, "error", "No flash intel alert could be drafted; left open for the next run")
+            _log(event, source, "error", "No flash intel alert could be drafted; left open for the next run")
             continue
         # Tagged as the alert's source.
         reading.wrote(event.uuid)
         if problem:
-            _log(event, "error", f"{fia_id} was made, but {problem}")
+            _log(event, source, "error", f"{fia_id} was made, but {problem}")
         earlier.append(similarity.event_story(event, summary, article) | {"id": fia_id})
         created.append(event.uuid)
         _decide(found, event, "included", why)
-        _log(event, "product_created", f"flash-intel {fia_id}; grounds: {_grounds_text(verdict['alert']['grounds'])}")
+        _log(event, source, "product_created", f"flash-intel {fia_id}; grounds: {_grounds_text(verdict['alert']['grounds'])}")
     _emit(progress, "create-drafts", "completed", f"Created {len(created)} flash intel draft(s).")
 
     result = {
@@ -1245,7 +1259,12 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
     # One advisory per event, read from the advisories: an event on another
     # MISP server has no product tag.
     advised_before = misp_store.vea_source_uuids() if found.events else set()
-    events = [e for e in found.events if e.uuid not in advised_before]
+    events = []
+    for event in found.events:
+        if event.uuid in advised_before:
+            _decide(found, event, "excluded", "Has a vulnerability advisory already")
+        else:
+            events.append(event)
 
     _emit(progress, "detect-cves", "in_progress", "Detecting CVE matches in eligible events...")
     cve_map = {e.uuid: collection_cache.event_cves(e) for e in events}
@@ -1264,7 +1283,8 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
     for event in events:
         cves = cve_map[event.uuid][:most]
         if not cves:
-            _log(event, "not_relevant", "no CVE found")
+            _decide(found, event, "declined", "No CVE found")
+            _log(event, found.sources[event.uuid], "not_relevant", "no CVE found")
             continue
         source = found.sources[event.uuid]
         summary = found.summaries.get(event.uuid) or ""
@@ -1273,13 +1293,15 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
             # Not decided, also for the CVEs that could be looked up: the
             # event gets one advisory, and the next run makes it with them all.
             reading.retry(event.uuid)
-            _log(event, "error", f"{', '.join(unknown)} could not be looked up; left for the next run")
+            _decide(found, event, "left open", f"{', '.join(unknown)} could not be looked up; the next run tries again")
+            _log(event, source, "error", f"{', '.join(unknown)} could not be looked up; left for the next run")
             continue
         if not advise:
             reason = _no_advisory(declined, cves, cve_map[event.uuid])
             # The closing step waits for this before it closes the event.
             event_state.save_outcome(source.id, event.uuid, "vea", reason)
-            _log(event, "not_relevant", reason)
+            _decide(found, event, "declined", reason)
+            _log(event, source, "not_relevant", reason)
             continue
         primary_cve, enrichment, exposure, update = advise[0]
         cves = [cve for cve, *_rest in advise]
@@ -1360,7 +1382,8 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
             # every run after.
             logger.warning("Vulnerability advisory failed for %s: %s", event.uuid, exc)
             reading.retry(event.uuid)
-            _log(event, "error", f"No advisory could be written: {exc}; left for the next run")
+            _decide(found, event, "left open", "No advisory could be written; the next run tries again")
+            _log(event, source, "error", f"No advisory could be written: {exc}; left for the next run")
             continue
         reading.wrote(event.uuid)
         # The next event on these CVEs in this run is covered by this one.
@@ -1368,7 +1391,8 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
         check.coverage.update({cve: _covered(new, then["cvss"], then["cisa_kev"])
                                for cve, then in data["cve_baselines"].items()})
         advised.append(event.uuid)
-        _log(event, "product_created", f"vea; CVEs: {', '.join(cves)}")
+        _decide(found, event, "included", f"{vea_id}: {data['analyser_reason']}")
+        _log(event, source, "product_created", f"vea; CVEs: {', '.join(cves)}")
     created = len(advised)
     _emit(progress, "create-drafts", "completed", f"Created {created} vulnerability advisory draft(s).")
 

@@ -12,6 +12,7 @@ import threading
 import config
 from flask import Blueprint, jsonify, url_for
 
+from analyser.products.flash_intel import parse_fia_draft
 from core.net_safety import resolve_public_url
 from core.rulezet_lookup import (enabled as rulezet_enabled, get_rule, search_rules_by_attack,
                                  search_rules_by_cve, validate_rule)
@@ -865,7 +866,6 @@ def build_fia():
         return jsonify({"fields": {}, "error": "The model returned an empty draft. "
                                                "Check the LLM settings and the analyser log."}), 502
 
-    from analyser.products.flash_intel import parse_fia_draft
     fields = parse_fia_draft(raw)
     # One entry per line in the wizard's text areas.
     for name in ("what_happened", "actions_immediate", "actions_near_term", "mitre_techniques", "hunting_hypotheses"):

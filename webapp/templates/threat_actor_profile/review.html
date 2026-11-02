@@ -123,7 +123,7 @@
                 <a href="{{ url_for('threat_actor_profile.edit', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('threat_actor_profile.delete', id=t.uuid) }}"
+                <form method="post" action="{{ url_for('threat_actor_profile.delete', id=t.uuid) }}" data-busy="Deleting…"
                       class="d-inline" data-submit-confirm="Delete {{ t.tap_id }}?">
                   <button class="btn btn-xs btn-outline-danger" title="Delete">
                     <i class="fas fa-trash"></i>

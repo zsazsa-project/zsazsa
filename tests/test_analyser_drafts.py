@@ -213,7 +213,7 @@ class Alerts(unittest.TestCase):
              mock.patch.object(analyser_pipeline, "_close_declined", return_value=0) as self.closed, \
              mock.patch.object(analyser_pipeline.config, "ANALYSER_DAILY_BRIEFING", briefing_on, create=True), \
              mock.patch.object(analyser_pipeline, "_log",
-                               side_effect=lambda e, outcome, detail=None: self.logged.append((e.uuid, outcome))):
+                               side_effect=lambda e, source, outcome, detail=None: self.logged.append((e.uuid, outcome))):
             return analyser_pipeline.run_flash_intel_action(self.reading, progress)
 
     @staticmethod
@@ -366,7 +366,7 @@ class Advisories(unittest.TestCase):
              mock.patch.object(analyser_pipeline.misp_store, "create_vea", side_effect=create), \
              mock.patch.object(analyser_pipeline.event_state, "save_outcome") as self.outcome, \
              mock.patch.object(analyser_pipeline, "_log",
-                               side_effect=lambda e, outcome, detail=None: self.logged.append((e.info, detail))):
+                               side_effect=lambda e, source, outcome, detail=None: self.logged.append((e.info, detail))):
             return analyser_pipeline.run_vea_action(self.reading, progress)
 
     @staticmethod
@@ -410,6 +410,15 @@ class Advisories(unittest.TestCase):
                 self.run_vea({"Rescored": ["CVE-2026-110936"]}, [self.vea("CVE-2026-110936", cvss="7.4 HIGH")],
                              records={"CVE-2026-110936": {"cvss_score": score}})
                 self.assertEqual(bool(self.created), made)
+
+    def test_each_event_has_its_decision_in_the_run(self):
+        """The advisory runs listed none, so they never opened on the Pipeline page."""
+        result = self.run_vea({"No CVE": [], "Covered": ["CVE-2026-109618"], "New": ["CVE-2026-88771"],
+                               "Unknown": ["CVE-2026-1"]}, [self.vea("CVE-2026-109618")],
+                              records={"CVE-2026-1": None})
+        self.assertEqual([(d["title"], d["outcome"]) for d in result["event_decisions"]],
+                         [("No CVE", "declined"), ("Covered", "declined"), ("New", "included"),
+                          ("Unknown", "left open")])
 
     def test_a_rejected_advisory_blocks_even_a_change(self):
         """An analyst who turned a CVE down got a new draft with every new article about it."""
@@ -565,7 +574,7 @@ class Briefing(unittest.TestCase):
              mock.patch.object(analyser_pipeline, "_close_declined", return_value=0) as self.closed, \
              mock.patch.object(analyser_pipeline.similarity, "recent_stories", return_value=[]) as self.history, \
              mock.patch.object(analyser_pipeline.similarity, "same_story", side_effect=compare) as self.same, \
-             mock.patch.object(analyser_pipeline, "_log"):
+             mock.patch.object(analyser_pipeline, "_log") as self.logged:
             return analyser_pipeline.run_daily_briefing_action(reading)
 
     def titles(self):
@@ -602,6 +611,19 @@ class Briefing(unittest.TestCase):
                    overlaps=[{"a": 1, "b": 2, "score": 0.9, "reason": "Same story"}])
         self.assertEqual(self.outcome.call_args.args[1:4],
                          ("b" * 36, "daily-briefing", "Duplicate coverage of another story"))
+
+    def test_a_story_dropped_is_in_the_pipeline_activity(self):
+        """The alerts logged a story told before; the briefing left it out of
+        the activity, which then showed nothing for the event."""
+        self.brief({c * 36: _verdict(briefing=True) for c in "ab"},
+                   overlaps=[{"a": 1, "b": 2, "score": 0.9, "reason": "Same story"}])
+        self.assertIn(("not_relevant", "Duplicate coverage of another story"),
+                      [call.args[2:] for call in self.logged.call_args_list])
+        earlier = {"story": {"id": "the briefing of 2026-10-30", "title": "Earlier", "rejected": False},
+                   "new_facts": False, "reason": "Same breach"}
+        self.brief({"a" * 36: _verdict(briefing=True)}, same={"a" * 36: earlier})
+        self.assertIn(("not_relevant", "The same story as one in the briefing of 2026-10-30."),
+                      [call.args[2:] for call in self.logged.call_args_list])
 
     def test_an_event_under_also_seen_is_not_proposed_again_until_its_briefing_is_deleted(self):
         """A draft deleted to be made again by a rescan takes its Also seen with it."""
@@ -706,7 +728,7 @@ class Closing(unittest.TestCase):
 
     def close(self, verdict, excluded=False, cves=(), outcomes=None, in_products=(), source=SCRAPER,
               running="briefing", refused=False, records=None, terms=(("Cisco", "the focus point Cisco"),),
-              coverage=None, tags=(), **switches):
+              coverage=None, tags=(), followed=(), **switches):
         """The CVEs are decided again on ``records``, the CVE database's by
         CVE, by default a product out of the scope of ``terms``, and on
         ``coverage``, the advisories that cover them now. ``outcomes`` are
@@ -728,9 +750,16 @@ class Closing(unittest.TestCase):
                                              "outcomes": _outcomes(outcomes or {},
                                                                    relevance.evidence(event, "An article", ""))}), \
              mock.patch.object(analyser_pipeline.collection_cache, "event_cves", return_value=list(cves)), \
+             mock.patch.object(analyser_pipeline.collection_cache, "get_flagged_uuids", return_value=set(followed)), \
              mock.patch.object(analyser_pipeline.event_state, "reject", return_value=not refused) as self.rejected, \
              mock.patch.object(analyser_pipeline, "_add_rejection_note") as self.noted:
+            self.found = found
             return analyser_pipeline._close_declined(found, _Judge({}), self.reading, running)
+
+    def test_an_event_an_analyst_follows_up_is_left_open(self):
+        """Reopened for review by hand, the next run closed it again."""
+        self.assertEqual(self.close(_verdict(), followed=["a" * 36]), 0)
+        self.rejected.assert_not_called()
 
     def test_an_event_every_product_declined_is_rejected_with_why(self):
         self.assertEqual(self.close(_verdict()), 1)
@@ -833,6 +862,9 @@ class Closing(unittest.TestCase):
     def test_one_misp_refused_to_reject_is_closed_by_the_next_run(self):
         self.assertEqual(self.close(_verdict(), refused=True), 0)
         self.reading.retry.assert_called_once_with("a" * 36)
+        [decision] = self.found.stats["event_decisions"]
+        self.assertEqual(decision["outcome"], "left open")
+        self.assertTrue(decision["reason"].endswith("MISP refused the rejection"))
 
     def test_another_server_s_event_gets_no_note(self):
         """It is closed in zsazsa; writing to it is not zsazsa's to do."""
@@ -842,6 +874,10 @@ class Closing(unittest.TestCase):
 
 
 class OneFailedCall(unittest.TestCase):
+    def setUp(self):
+        # Nothing is flagged for follow-up, and this install's cache is left unread.
+        self.enterContext(mock.patch.object(analyser_pipeline.collection_cache, "get_flagged_uuids", return_value=set()))
+
     def test_a_summary_that_fails_leaves_the_other_events_alone(self):
         """On Saturday a dropped connection ended an advisory run at summary 7 of 12."""
         events = [SimpleNamespace(uuid=c * 36, info=f"Event {c}", tags=[]) for c in "abc"]
@@ -895,6 +931,15 @@ class OneFailedCall(unittest.TestCase):
         self.assertEqual(found.stats["hard_rejected"], 0)
         self.assertEqual(found.stats["event_decisions"][0]["outcome"], "left open")
         reading.retry.assert_called_once_with("a" * 36)
+
+    def test_an_event_an_analyst_follows_up_is_not_rejected_for_its_missing_article(self):
+        """Reopened for review by hand, the next run rejected it again."""
+        event = SimpleNamespace(uuid="a" * 36, info="Event a", tags=[], id="1")
+        with mock.patch.object(analyser_pipeline.collection_cache, "get_flagged_uuids", return_value={"a" * 36}):
+            found, _reading = self.common([event], [], http_error=True)
+        self.assertEqual(found.stats["hard_rejected"], 0)
+        self.assertEqual(found.stats["event_decisions"][0]["outcome"], "left open")
+        self.assertIn("an analyst follows it up", found.stats["event_decisions"][0]["reason"])
 
 
 if __name__ == "__main__":

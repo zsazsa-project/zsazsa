@@ -108,6 +108,10 @@ class InterruptedRuns(unittest.TestCase):
 
 
 class SummaryProgress(unittest.TestCase):
+    def setUp(self):
+        # Nothing is flagged for follow-up, and this install's cache is left unread.
+        self.enterContext(mock.patch.object(analyser_pipeline.collection_cache, "get_flagged_uuids", return_value=set()))
+
     def test_each_missing_summary_is_announced_before_it_is_written(self):
         events = [SimpleNamespace(uuid=c * 36, info=f"Event {c}", tags=[]) for c in "abc"]
         reports = {"a" * 36: [SimpleNamespace(name="Article", content="An article")],

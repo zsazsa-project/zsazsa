@@ -187,6 +187,8 @@ Flash intel and advisory previews also offer **QA check against source** and **R
 
 Daily briefings can also be rejected from their preview or detail page, with an optional reason shown in Metadata. Rejected briefings have their own review-state filter and chart segment. **Delete all rejected products** in the briefing overview removes rejected briefings only, after confirmation, regardless of the current filters. Published briefings cannot be rejected.
 
+On the alert, advisory and briefing lists, the drafts, and the alerts and advisories waiting for review, can be ticked and then approved and published, rejected or deleted together from the top of the table.
+
 The QA check runs as a page request, not a background job. Keep the page open to read its result. Leaving the page loses the result even if the server finishes the check; the audit log records the verdict, not the full findings.
 
 ![docs/der1.png](docs/der1.png)
@@ -289,7 +291,9 @@ Rulezet is *optional*. Leave `RULEZET_URL` empty and the search buttons are disa
 
 The work that takes longer runs in the background: an analyser action started from the dashboard, a batch of AI summaries from data collection, a single summary on one event, and the scheduled analyser and mailbox runs. 
 
-A **badge in the top bar** displays the running jobs. A job that stops reporting for half an hour is shown as stalled rather than spinning forever. Scheduled runs are also in the job list. So a cron analyser run is visible while it is running and not only once it appears in the history. The job state is kept in **Redis**.  The **Pipeline page** holds the history logs of the jobs. Entries whose source event has since been rotated out of the scraper MISP are hidden until you switch on *Include orphaned*, and *Purge orphaned* drops those rows for good.
+A **badge in the top bar** displays the running jobs. A job that stops reporting for half an hour is shown as stalled rather than spinning forever. Scheduled runs are also in the job list. So a cron analyser run is visible while it is running and not only once it appears in the history. The job state is kept in **Redis**.
+
+The **Pipeline page** has a tab per question. *Overview* lists what needs a look, such as a source that does not answer, a mailbox that failed its poll, a run that failed or the articles that could not be fetched, each with a button to the tab that has the rest. It also charts the last two weeks of the analyser's outcomes. *Sources* has a card per collection source with its last refresh, and the scraper's card lists its feeds and the mailboxes that feed it. *Analyser runs* is the run history. *Activity* is what became of each event, filtered by outcome, period and feed, with the count of each choice beside it. *Indicators* counts the indicators on the servers. The address bar follows the tab. In the activity, entries whose event has since left the scraper MISP are hidden until you tick *Include deleted events*, and *Purge orphaned* drops those rows for good.
 
 ### Collection source management
 
@@ -349,6 +353,8 @@ The verdict is kept and reused by later runs until the focus points, the require
 
 Your own `cti-evaluation` scores, set on the data collection page, take the model's place. Your relevance score also overrides the verdict: **very high** pushes an event to an alert and the briefing, **high** to the briefing, and **low** or lower keeps it out of both. A pushed event goes past the limits and the briefing's cap, is read whatever its age, and is opened again if the analyser had rejected it.
 
+On the Pipeline page, an event the analyser declined has two buttons in its activity. **Push** sets that relevance score, for the briefing or for an alert and the briefing, and the next run makes the product. **Review by hand** flags it for follow-up and opens it again on Data collection. The analyser never rejects an event flagged for follow-up, so it stays there until an analyst deals with it.
+
 **Read again the last (hours)** under Start analyser reads that many hours back, the events already handled included, for after a change to the focus points, a requirement or a prompt. An event already judged under the current settings costs no model call.
 
 ### Earlier products
@@ -382,7 +388,7 @@ This option goes by CVEs, not by the verdict, and the title exclusions do not ap
 
 ### Closing the events
 
-The briefing's run, or the alerts' run while the briefing is off, rejects the events every product declined: the option is off, the title is excluded, the verdict does not want it or it repeats an earlier story, and the advisories found no CVE to take. The reasons go on the event as a report. An event stays open while it has a product, its verdict is still to come or the advisories have not seen its CVEs yet. The advisories decide its CVEs again at this point, and one that would get an advisory now keeps it open too. An event on another MISP server is closed in zsazsa.
+The briefing's run, or the alerts' run while the briefing is off, rejects the events every product declined: the option is off, the title is excluded, the verdict does not want it or it repeats an earlier story, and the advisories found no CVE to take. The reasons go on the event as a report. An event stays open while it has a product, is flagged for follow-up, its verdict is still to come or the advisories have not seen its CVEs yet. The advisories decide its CVEs again at this point, and one that would get an advisory now keeps it open too. An event on another MISP server is closed in zsazsa.
 
 ### The scheduled analyser
 
@@ -441,7 +447,7 @@ Polling is done by `run_imap_collector.py`. In Docker the `imap-collector` conta
 */15 * * * * cd /var/www/MISP/misp-custom/zsazsa && venv/bin/python run_imap_collector.py
 ```
 
-The Pipeline page (`/pipeline`) shows each mailbox with its last poll and result, and every poll also appears in the run history. Processed messages are flagged with a dedicated IMAP keyword (`zsazsaProcessed`) and marked Seen and Flagged; the keyword, not the read state, is what prevents reprocessing, and nothing is ever deleted from the mailbox.
+The Pipeline page (`/pipeline`) shows each mailbox with its last poll and result under Sources, and every poll also appears in the run history. Processed messages are flagged with a dedicated IMAP keyword (`zsazsaProcessed`) and marked Seen and Flagged; the keyword, not the read state, is what prevents reprocessing, and nothing is ever deleted from the mailbox.
 
 ## Configuration
 

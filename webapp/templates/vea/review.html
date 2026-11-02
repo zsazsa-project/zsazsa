@@ -145,7 +145,7 @@
                 <a href="{{ url_for('vea.wizard_edit', id=v.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('vea.delete', id=v.uuid) }}"
+                <form method="post" action="{{ url_for('vea.delete', id=v.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
                       data-submit-confirm="Delete {{ v.vea_id }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

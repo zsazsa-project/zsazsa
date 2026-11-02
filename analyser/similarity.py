@@ -97,8 +97,8 @@ def same_story(candidate: dict, earlier: list[dict]) -> dict | None:
     if not shortlist:
         return None
     compared = llm.compare_stories(candidate, shortlist)
-    same_story = settings.get("ANALYSER_SAME_STORY_SCORE")
-    matches = [m for m in compared if m["score"] >= same_story]
+    threshold = settings.get("ANALYSER_SAME_STORY_SCORE")
+    matches = [m for m in compared if m["score"] >= threshold]
     if not matches:
         return None
     best = max(matches, key=lambda m: m["score"])

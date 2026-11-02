@@ -296,7 +296,8 @@ def build():
         logger.warning("TLR build failed: %s", exc)
         flash(f"Could not build the report: {exc}", "warning")
         return redirect(url_for("threat_landscape.review"))
-    product_log.log_product_sources([ev["uuid"] for ev in events], "tlr")
+    product_log.log_product_sources([ev["uuid"] for ev in events], "tlr",
+                                    {ev["uuid"]: ev["source_id"] for ev in events})
     audit.record("update", "tlr", entity_id=uuid, entity_label=label, details=f"added {added} event(s)")
     flash(f"{added} event(s) added to {label}. Triage them below.", "success")
     return redirect(url_for("threat_landscape.entries", id=uuid))

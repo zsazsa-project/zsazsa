@@ -199,6 +199,10 @@ class Candidates(unittest.TestCase):
     SCRAPER = Source("scraper", "scraper", "MISP scraper", "scraper", True)
     MANUAL = Source("manual", "manual", "Manual entries", "webapp", True)
 
+    def setUp(self):
+        # Nothing is flagged for follow-up, and this install's cache is left unread.
+        self.enterContext(mock.patch.object(run_analyser.analyser_pipeline.collection_cache, "get_flagged_uuids", return_value=set()))
+
     def reading(self, pairs):
         reading = mock.create_autospec(Reading, instance=True)
         reading.read.return_value = pairs
@@ -302,7 +306,7 @@ class Candidates(unittest.TestCase):
         with mock.patch.object(pipeline, "_log") as logged, self.assertLogs("webapp.misp_store", level="WARNING"):
             written, cached, _tagged = self.write_summary(partner, event)
         self.assertEqual(written, ("What happened", True))
-        self.assertEqual(logged.call_args.args[:2], (event, "error"))
+        self.assertEqual(logged.call_args.args[:3], (event, partner, "error"))
         cached.assert_called_once()
 
     def test_a_run_that_lost_its_lock_during_the_model_call_writes_no_summary(self):

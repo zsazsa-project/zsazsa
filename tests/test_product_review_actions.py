@@ -554,5 +554,30 @@ class TickedDrafts(unittest.TestCase):
                 calls.deliver.assert_not_called()
 
 
+class TickedBriefings(TickedDrafts):
+    """The briefing list does the same, for its drafts: a briefing has no
+    review step, so a published or rejected one is left as it is."""
+
+    LISTS = ((daily_briefing, "/briefing", "briefing", "_start_briefing_delivery"),)
+    STATES = {"a" * 36: "draft", "c" * 36: "published", "d" * 36: "rejected"}
+
+    def test_only_drafts_and_those_in_review_can_be_ticked(self):
+        with mock.patch.object(misp_store, "list_briefings", return_value=list(self.records("briefing").values())):
+            page = BeautifulSoup(self.client.get("/briefing/", headers=self.headers).data, "html.parser")
+        self.assertEqual([box["value"] for box in page.select(".row-select-cb")], ["a" * 36])
+        self.assertEqual(page.select_one("#selection-form")["action"], "/zsazsa/briefing/selected")
+        self.assertEqual(page.select_one("#select-all-cb")["title"], "Select all drafts")
+
+    def test_each_action_leaves_what_is_already_published_or_rejected(self):
+        args = (daily_briefing, "/briefing", "briefing", "_start_briefing_delivery")
+        calls = self.post(*args, "delete")
+        self.assertEqual(calls.delete.call_args_list, [mock.call("a" * 36, expected_state="draft")])
+        calls = self.post(*args, "reject")
+        self.assertEqual([c.args[0] for c in calls.reject.call_args_list], ["a" * 36])
+        calls = self.post(*args, "approve")
+        self.assertEqual([c.args[0] for c in calls.publish.call_args_list], ["a" * 36])
+        self.assertEqual(calls.deliver.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

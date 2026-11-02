@@ -274,6 +274,12 @@ def read_prompt(filename: str) -> str:
     return Path(_resolve_prompt(filename)).read_text()
 
 
+# The scores the model gives, and the source types it can name.
+_MODEL_SCORES = ("relevance", "usefulness", "specificity", "clarity")
+_SOURCE_TYPES = ("blog-post", "technical-report", "news-report", "advisory", "vendor-advisory",
+                 "threat-intel-report")
+
+
 def judge_relevance(system: str, title: str, summary: str, article: str) -> dict | None:
     """The model's verdict on an article: whether it is worth an alert and a
     briefing story, on what grounds, its scores and its publication date. None
@@ -305,11 +311,6 @@ def judge_relevance(system: str, title: str, summary: str, article: str) -> dict
         # It becomes a tag on the event, so only a value the prompt offers.
         "source_type": parsed.get("source_type") if parsed.get("source_type") in _SOURCE_TYPES else "",
     }
-
-
-_MODEL_SCORES = ("relevance", "usefulness", "specificity", "clarity")
-_SOURCE_TYPES = ("blog-post", "technical-report", "news-report", "advisory", "vendor-advisory",
-                 "threat-intel-report")
 
 
 def _product_answer(answer) -> bool:

@@ -212,7 +212,7 @@ def _build_list_context() -> dict:
         org_list=org_list,
         limit=_DEFAULT_LIMIT,
         marker_tag=config.SCRAPER_MARKER_TAG,
-        followup_tag=getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
+        followup_tag=_followup_tag(),
         dismissed_tag=collection_cache.dismissed_tag(),
         total_reports=sum(ev.get("report_count", 0) for ev in events),
         sources=sources,
@@ -1208,7 +1208,7 @@ def cti_tag(uuid):
         warnings.append("a run of the analyser going now may not see it")
     if predicate == "relevance" and relevance.pushes(value):
         try:
-            _reopen_for_the_analyser(uuid, source_id, misp)
+            _reopen(uuid, source_id, misp, "pushed into the analysis by its relevance score")
         except Exception as exc:
             logger.warning("Could not reopen %s for the analyser: %s", uuid, exc)
             warnings.append("the event could not be opened again for the analyser; score it again to retry")
@@ -1242,11 +1242,12 @@ def _analysed_source(source_id):
     return "manual" if source_id.startswith("manual-") else source_id
 
 
-def _reopen_for_the_analyser(uuid, source_id, misp):
-    """Open an event the analyser closed again, after an analyst's relevance
-    score pushed it into the alerts or the briefing: the analyser does not read
-    a rejected event, and would never see the push. On another MISP server the
-    event is reopened in zsazsa, as that is where it was closed."""
+def _reopen(uuid, source_id, misp, why):
+    """Open an event the analyser closed again: after an analyst's relevance
+    score pushed it into the alerts or the briefing, as the analyser does not
+    read a rejected event and would never see the push, or for review by hand.
+    On another MISP server the event is reopened in zsazsa, as that is where it
+    was closed."""
     if _is_remote_source(source_id):
         event_state.reopen(source_id, uuid)
     else:
@@ -1257,7 +1258,59 @@ def _reopen_for_the_analyser(uuid, source_id, misp):
             return
         if not tagger.set_workflow_state(misp, event, "incomplete"):
             raise RuntimeError("MISP refused the workflow state")
-    audit.record("reopen", "misp-event", entity_id=uuid, details="pushed into the analysis by its relevance score")
+    audit.record("reopen", "misp-event", entity_id=uuid, details=why)
+
+
+def _followup_tag() -> str:
+    return getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
+
+
+def _flag_for_followup(misp, uuid) -> str:
+    """Flag an event for follow-up: the local tag in MISP, then the cache the
+    pages and the analyser read the flag from. Returns MISP's error, or ""."""
+    err_text = _misp_response_errors(misp.tag(uuid, _followup_tag(), local=True))
+    if err_text:
+        return err_text
+    collection_cache.flag_event(uuid)
+    audit.record("flag", "misp-event", entity_id=uuid)
+    return ""
+
+
+@bp.route("/<string:uuid>/review-by-hand", methods=["POST"])
+def review_by_hand(uuid):
+    """Flag an event for follow-up and open it again if the analyser closed it,
+    for an analyst to deal with on this page. The analyser does not reject an
+    event flagged for follow-up, so its next run leaves it open.
+
+    POST JSON: {"source": "<source_id>"}
+    """
+    data, err = _json_object()
+    if err:
+        return err
+    source_id = data.get("source") or _SCRAPER_SOURCE_ID
+    if not _is_collected(uuid, source_id):
+        return jsonify({"ok": False, "error": "Event not found"}), 404
+    misp, err_msg = _misp_for_source(source_id)
+    if misp is None:
+        return jsonify({"ok": False, "error": err_msg}), 502
+
+    # The flag goes on first: reopened without it, the next run closes the
+    # event again.
+    if not collection_cache.is_flagged(uuid):
+        try:
+            err_text = _flag_for_followup(misp, uuid)
+        except Exception as exc:
+            logger.warning("review_by_hand could not flag %s: %s", uuid, exc)
+            err_text = "Could not flag the event for follow-up."
+        if err_text:
+            return jsonify({"ok": False, "error": err_text}), 502
+    try:
+        _reopen(uuid, source_id, misp, "for review by hand")
+    except Exception as exc:
+        logger.warning("review_by_hand could not reopen %s: %s", uuid, exc)
+        return jsonify({"ok": False, "error": "The event is flagged for follow-up, but could not be opened again."}), 502
+    _refresh_cached_event(uuid, source_id, misp, context="review by hand")
+    return jsonify({"ok": True})
 
 
 _SCOPE_TAG_ALLOWED_PREFIXES = (
@@ -1534,7 +1587,6 @@ def bulk_flag():
     if not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
 
-    tag = getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
     misp_cache: dict[str, object] = {}
     flagged = already_flagged = errors = 0
 
@@ -1561,14 +1613,12 @@ def bulk_flag():
             continue
 
         try:
-            r = misp.tag(uuid, tag, local=True)
-            if isinstance(r, dict) and "errors" in r:
-                logger.warning("bulk_flag: MISP error for %s: %s", uuid, r["errors"])
+            err_text = _flag_for_followup(misp, uuid)
+            if err_text:
+                logger.warning("bulk_flag: MISP error for %s: %s", uuid, err_text)
                 errors += 1
                 continue
-            collection_cache.flag_event(uuid)
             _refresh_cached_event(uuid, source_id, misp, context="bulk_flag")
-            audit.record("flag", "misp-event", entity_id=uuid)
             flagged += 1
         except Exception as exc:
             logger.warning("bulk_flag: failed to flag %s: %s", uuid, exc)
@@ -1839,15 +1889,13 @@ def flag_for_review(uuid):
     source_id = data.get("source") or _SCRAPER_SOURCE_ID
     if not _is_collected(uuid, source_id):
         return jsonify({"ok": False, "error": "Event not found"}), 404
-    tag = getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
-
     misp, err_msg = _misp_for_source(source_id)
     if misp is None:
         return jsonify({"ok": False, "error": err_msg}), 502
 
     try:
         if collection_cache.is_flagged(uuid):
-            err_text = _misp_response_errors(misp.untag(uuid, tag))
+            err_text = _misp_response_errors(misp.untag(uuid, _followup_tag()))
             if err_text:
                 return jsonify({"ok": False, "error": err_text}), 400
             collection_cache.unflag_event(uuid)
@@ -1855,12 +1903,10 @@ def flag_for_review(uuid):
             audit.record("unflag", "misp-event", entity_id=uuid)
             return jsonify({"ok": True, "flagged": False})
         else:
-            r = misp.tag(uuid, tag, local=True)
-            if isinstance(r, dict) and "errors" in r:
-                return jsonify({"ok": False, "error": str(r["errors"])}), 400
-            collection_cache.flag_event(uuid)
+            err_text = _flag_for_followup(misp, uuid)
+            if err_text:
+                return jsonify({"ok": False, "error": err_text}), 400
             _refresh_cached_event(uuid, source_id, misp, context="flag")
-            audit.record("flag", "misp-event", entity_id=uuid)
             return jsonify({"ok": True, "flagged": True})
     except Exception as exc:
         logger.warning("flag_for_review failed for %s: %s", uuid, exc)

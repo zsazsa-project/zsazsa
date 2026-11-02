@@ -5,16 +5,6 @@
 
 {% block content %}
 <style>
-  .stats-count { background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: var(--card-shadow);
-                 padding: 1rem 1.15rem; height: 100%; position: relative; overflow: hidden; display: block; color: inherit; text-decoration: none; }
-  .stats-count::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--icon-color); }
-  a.stats-count:hover { box-shadow: var(--shadow-hover-lift); }
-  .stats-count .big { font-size: 2rem; font-weight: 700; line-height: 1; }
-  .stats-count .of { font-size: 1rem; font-weight: 400; color: var(--text-muted); }
-  .stats-count .label { font-size: .78rem; color: var(--text-muted); margin-top: .2rem; }
-  .stats-track { height: 6px; border-radius: 3px; background: var(--surface-muted); overflow: hidden; }
-  .stats-track > div { height: 100%; border-radius: 3px; background: var(--icon-color); }
-
   .stats-callout { border-radius: 10px; padding: .75rem 1rem; font-size: .85rem; display: flex; gap: .75rem; align-items: flex-start;
                    background: color-mix(in srgb, var(--icon-color) 9%, var(--card-bg));
                    border: 1px solid color-mix(in srgb, var(--icon-color) 28%, var(--card-bg)); }

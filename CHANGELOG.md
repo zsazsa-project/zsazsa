@@ -20,20 +20,25 @@
 - The lists of daily briefings, flash intel alerts, vulnerability advisories, indicator feeds, threat actor profiles and detection engineering requests have a "How ... is made" line under their filters. It opens each step from collection to delivery, and who does it: an analyst or the analyser.
 - PIRs can link to active GIRs, with clickable relationships on detail pages and beneath list titles.
 - The audit log under Reporting > Logs is pruned after `AUDIT_LOG_RETENTION_DAYS`, 365 by default. 0 keeps it for good, which the Logs page then says.
-- On the flash intel and advisory lists, drafts and those waiting for review can be ticked, then approved and published, rejected or deleted together from the top of the table.
+- On the flash intel and advisory lists, drafts and those waiting for review can be ticked, then approved and published, rejected or deleted together from the top of the table. The daily briefing list does the same for its drafts.
 - Stories in a daily briefing can be ticked in its Contents list and deleted together with "Delete stories". Shift-click ticks a range.
 - An analyst's `cti-evaluation` relevance score pushes an event to an alert (very high) or the briefing (high), or keeps it out of both (low or lower), whatever the AI says. Their other scores replace the model's.
 - Settings has an Analyser tab with all the analyser's settings, in the order it works. The other tabs but Prompts have the same layout, with an overview and a menu of their sections, and the address bar follows the tab. The asset database moved to Connections, Rulezet has its own switch, `RULEZET_ENABLED`, the product types are edited as a list, and the Styling tab previews a product's PDF.
 - Under Settings > Analyser, the analyser can be kept off the scraper, the manual entries or the MISP communities. The articles sent from newsletters go with the scraper.
 - The focus points have a vendors list, and the geographies, sectors, threat types and threat actors offer the names of their MISP galaxy, marking a name the galaxy does not have.
 - "Start analyser" can read the last hours again, for after a change to the focus points, a requirement or a prompt.
+- In the Pipeline activity, an event the analyser declined has a Push button, which sets the relevance score that pushes it to the briefing or to an alert, and a Review by hand button, which flags it for follow-up and opens it again on Data collection.
 
 ### Changed
 
 - An indicator feed's results table says how many unique values its rows hold when that is fewer, which is what the plain text list at the feed URL returns.
 - The analyser reads what changed on each source since its previous completed run, instead of yesterday's and today's events, and reads an event again only once it changed. A source that cannot be reached is read again by the next run. The collection cache is no longer refreshed first.
 - The analyser also reads the events with a report on the additional MISP servers, through each server's filters and at most its "Max events" a run. Each server has an "Analyse its events" switch. What the analyser decides about those events is kept in zsazsa, not on the server.
+- In the Pipeline activity, an event's title links to it in the MISP it was read from. Each outcome has an icon for the kind of reason, and what the analyser wrote is shown under it, in full on the "i". The table is denser.
+- The Pipeline page has tabs. Overview lists what needs a look and charts the outcomes of the last two weeks, and by reason over 30 days. Sources has a card per source, with the scraper's feeds and mailboxes on its card. The activity is filtered from a panel that gives the count beside each outcome, period and feed, "Any problem" among the outcomes. "Include orphaned" is now "Include deleted events".
+- Each analyser run lists what it decided per event on the Pipeline page, the advisory runs too. A story the briefing drops as told before or as duplicate coverage is in the Pipeline activity, as one the alerts drop was.
 - One analyser run goes at a time. The dashboard shows the run that is going and holds its Start buttons, and a scheduled run that finds one going skips its hour.
+- The analyser no longer rejects an event flagged for follow-up, also when its article is missing.
 - The title exclusions keep events out of the flash intel alerts as well as the daily briefing. They still do not apply to vulnerability advisories.
 - One AI call judges each event for the alerts and the briefing at once, replacing the three relevance checks. Each ground it names has to be quoted from the article or its title. It also scores the article on `cti-evaluation` and reads its publication date: an alert needs an article at most three days old, a briefing story one at most a week. The verdict is reused until the focus points, the requirements, the prompt, the model or the article change.
 - Focus points go to the AI with their type from the MISP galaxy they are in, and a threat actor with its synonyms.
@@ -119,6 +124,7 @@
 - The analyser could file an alert from an AI answer with nothing in it, such as a refusal, and send it on automated mode.
 - A failure to publish or deliver an alert on automated mode was not reported. It is logged on the event now.
 - One vulnerability advisory MISP refused stopped the advisory run, on every run.
+- The Pipeline activity hid the manual entries and the other MISP servers' events as orphaned, as it looked for every event on the scraper.
 - Deleting an alert, advisory, detection request or briefing left the `zsazsa:product` tag on its source events, which then never got another advisory or briefing story. The tag now comes off unless another product of that type uses the event, and editing the sources updates the tags too.
 
 ### Security
@@ -154,6 +160,7 @@
 - The first run after the upgrade removes audit log entries older than a year, and with them the delivery badge of products sent before then. The scheduled analyser runs on the new code without a restart, so to keep them, add `AUDIT_LOG_RETENTION_DAYS = 0`, or the number of days you want, to `config/__init__.py` before updating.
 - The analyser's settings moved from the System tab to the Analyser tab, with their values. `ANALYSER_READ_SCRAPER`, `ANALYSER_READ_MANUAL` and `ANALYSER_READ_MISP_SERVERS` are new and on.
 - `RULEZET_ENABLED` is new and on, so Rulezet stays as it was.
+- The `event_log` table gets a `source_id` column, added when zsazsa starts. Older entries link to their event while it is in the collection cache.
 - The `ASSET_INVENTORY_*` settings are new and need nothing: the asset database is off until switched on.
 - The `zsazsa-flash-intel` (version 5) and `zsazsa-vea` (version 3) templates have a new `analyser-reason` attribute. Nothing needs doing; older drafts show no reason.
 - The `zsazsa-vea` object template is now version 4 with a `cve-baselines` attribute. Nothing needs doing; for an existing advisory only its main CVE's change is measured.

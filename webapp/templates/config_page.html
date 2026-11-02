@@ -570,6 +570,8 @@
             if (lines.map(function(line) { return line.toLowerCase(); }).indexOf(name.toLowerCase()) === -1) lines.push(name);
             area.value = lines.join('\n');
             input.value = '';
+            // A change for the Save button and the warning on leaving.
+            area.dispatchEvent(new Event('change', {bubbles: true}));
           });
         });
       </script>

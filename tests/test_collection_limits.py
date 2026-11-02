@@ -139,8 +139,7 @@ class SourceHealth(_TempCache):
         self.assertTrue(row["ok"])
         self.assertEqual(row["newest_event"], "2026-10-12")
         self.assertTrue(row["limit_reached"])
-        self.assertEqual(pipeline._configured_source_volume([row]),
-                         [{"label": "Partner", "cached": 3, "limit_reached": True}])
+        self.assertEqual(row["cached_events"], 3)
 
     def test_the_page_says_so(self):
         self.refresh(PARTNER, [_event(12), _event(11), _event(10)])
@@ -161,8 +160,9 @@ class SourceHealth(_TempCache):
             page = create_app().test_client().get("/pipeline")
         text = BeautifulSoup(page.data, "html.parser").get_text(" ", strip=True)
         self.assertEqual(page.status_code, 200)
-        self.assertIn("limit reached", text)
-        self.assertIn("Newest event: 2026-10-12", text)
+        self.assertIn("Limit reached", text)
+        self.assertIn("Newest event 2026-10-12", text)
+        self.assertIn("Partner filled its limit on the last refresh", text)
         self.assertNotIn("on server", text)
 
 

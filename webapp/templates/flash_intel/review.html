@@ -131,7 +131,7 @@
                 <a href="{{ url_for('flash_intel.wizard_edit', id=f.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('flash_intel.delete', id=f.uuid) }}"
+                <form method="post" action="{{ url_for('flash_intel.delete', id=f.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
                       data-submit-confirm="Delete {{ f.fia_id }}?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
