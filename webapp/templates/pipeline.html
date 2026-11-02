@@ -411,7 +411,7 @@
     <div class="card content-card">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <span><i class="fas fa-play-circle me-2"></i>Analyser run history
-          <span class="text-muted fw-normal small ms-1">a run with <i class="fas fa-caret-right"></i> opens what it decided per event</span></span>
+          <span class="text-muted fw-normal small ms-1">open a run's decisions to see what became of each event it read</span></span>
         {% if recent_runs %}
         <span class="d-flex gap-2">
           <select id="runs-action" class="form-select form-select-sm" aria-label="Action" style="font-size:.78rem;">
@@ -478,6 +478,13 @@
                       {% if run.result.feed_caches_refreshed %} · {{ run.result.feed_caches_refreshed }} feed cache(s){% endif %}
                     {% endif %}
                   {% else %}-{% endif %}
+                  {# The row opens too; this says so, and opens from the keyboard. #}
+                  {% if decisions %}
+                  <button type="button" class="btn btn-link run-decisions-link" data-bs-toggle="collapse"
+                          data-bs-target="#run-decisions-{{ loop.index }}" aria-expanded="false">
+                    <i class="fas fa-list-check me-1"></i>{{ decisions | length }} decision{{ 's' if decisions | length != 1 }}
+                  </button>
+                  {% endif %}
                 </td>
               </tr>
               {% if decisions %}

@@ -2118,6 +2118,9 @@ a.pipeline-outcome:hover { background: var(--surface-hover); color: inherit; }
 .run-caret-cell { width: 1.2rem; padding-right: 0 !important; }
 .run-caret { color: var(--text-muted); transition: transform .15s; }
 tr[aria-expanded="true"] .run-caret { transform: rotate(90deg); }
+.run-decisions-link { font-size: inherit; font-weight: 600; padding: 0; margin-left: .5rem; vertical-align: baseline;
+                      text-decoration: none; white-space: nowrap; }
+tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoration: underline; }
 
 /* A choice of the activity filters, with the count it would show. */
 .pipeline-facet { display: flex; justify-content: space-between; gap: .5rem; width: 100%; border: 0; background: none; border-radius: 6px;
