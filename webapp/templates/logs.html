@@ -157,8 +157,7 @@
           <tr class="logs-day">
             <th colspan="6">
               {{ group.long }}
-              {% set n = group.count or group.entries | length %}
-              <span class="text-muted fw-normal">· {{ n }} entr{{ 'y' if n == 1 else 'ies' }}</span>
+              {% if group.count %}<span class="text-muted fw-normal">· {{ group.count }} entr{{ 'y' if group.count == 1 else 'ies' }}</span>{% endif %}
             </th>
           </tr>
           {% for e in group.entries %}

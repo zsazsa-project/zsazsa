@@ -42,16 +42,16 @@ def index():
     selected = {name: (request.args.get(name) or "").strip() for name in ("action", "type", "user")}
     day = _day((request.args.get("day") or "").strip())
     shown = min(_MOST, max(_PAGE, request.args.get("limit", _PAGE, type=int)))
-    by = {"action": selected["action"] or None, "entity_type": selected["type"] or None,
-          "user": selected["user"] or None}
+    by = {"action": selected["action"], "entity_type": selected["type"], "user": selected["user"]}
 
     today = datetime.now(timezone.utc).date()
     dates = [today - timedelta(days=i) for i in range(_CHART_DAYS - 1, -1, -1)]
     found = audit.activity(dates[0].isoformat(), **by)
     chart = _chart(dates, found["per_day"])
-    entries = [dict(e) for e in audit.get_logs(limit=shown + 1, day=day or None, **by)]
+    entries = audit.get_logs(limit=shown + 1, day=day, **by)
     older = len(entries) > shown
-    # Under a heading per day, newest first, as the entries come.
+    # Under a heading per day, newest first, as the entries come. A day before
+    # the chart's has no count.
     days = [{"date": d, "long": _long(date.fromisoformat(d)), "count": found["per_day"].get(d),
              "entries": list(rows)} for d, rows in groupby(entries[:shown], key=lambda e: e["timestamp"][:10])]
     filters = audit.log_filters()

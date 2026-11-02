@@ -368,6 +368,21 @@ class AuditLog(_App):
         self.assertIn("The busiest day was", text)
         self.assertIn("with 2 entries", text)
 
+    def test_an_empty_log(self):
+        text = self.page()
+        self.assertIn("No log entries yet.", text)
+        self.assertIn("Nothing in the last 90 days", text)
+        self.assertNotIn("The busiest day was", text)
+
+    def test_a_day_before_the_chart_has_no_count(self):
+        """Its heading counted only the entries shown, which a cut-off list
+        made too few."""
+        old = self.write_on(120, 3)
+        heading = self.soup(f"/logs?day={old}").select_one(".logs-day th").get_text(" ", strip=True)
+        self.assertNotIn("entries", heading)
+        self.write_on(1, 2)
+        self.assertIn("2 entries", self.soup("/logs").select_one(".logs-day th").get_text(" ", strip=True))
+
     def test_a_day_that_is_no_date_is_ignored(self):
         self.write_on(1, 2)
         self.assertNotIn("No entries match", self.page("?day=yesterday"))
