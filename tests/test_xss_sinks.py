@@ -167,7 +167,8 @@ class RenderedPages(unittest.TestCase):
             ("/stakeholders/", f"Delete {BREAKOUT}?"),
             ("/stakeholders/sh-1", f"Delete {BREAKOUT}?"),
             ("/products/indicator-feed/", f"Delete FEED-001 ({BREAKOUT})? This cannot be undone."),
-            ("/briefing/", f"Delete briefing {BREAKOUT}?"),
+            ("/briefing/", f"Delete briefing {BREAKOUT}? The analyser may draft it again from its source events. "
+                           "Reject it to keep the story out."),
             ("/community/organisations", f"Sync local details for {BREAKOUT} from MISP?"),
             ("/community/organisations", f"Remove organisation {BREAKOUT}?"),
         ):
@@ -187,6 +188,37 @@ class RenderedPages(unittest.TestCase):
             source = Path(path).read_text()
             body = re.search(r"function %s\(.*?\n  \}\n" % func, source, re.S).group(0)
             self.assertNotIn("innerHTML", body, path)
+
+
+class AlsoSeen(unittest.TestCase):
+    """The events the analyser left out over a briefing's cap: their title and
+    link come from a scraped article."""
+
+    @classmethod
+    def setUpClass(cls):
+        _start(cls)
+        from webapp import create_app, misp_store
+        cls.misp_store = misp_store
+        cls.client = create_app().test_client()
+
+    def test_a_title_is_text_and_only_a_web_link_is_a_link(self):
+        briefing = self.misp_store.get_briefing.return_value
+        seen = [{"title": MARKUP, "source_url": "javascript:alert(1)", "source_event_uuid": EVENT_UUID,
+                 "source_id": "scraper"}]
+        with mock.patch.object(briefing, "also_seen", seen, create=True), \
+             mock.patch.multiple(self.misp_store, list_product_feedback=mock.Mock(return_value=[]),
+                                 stakeholders_cleared_for=mock.Mock(return_value=[]),
+                                 stakeholders_blocked_by_tlp=mock.Mock(return_value=[]),
+                                 briefing_combined_scope_summary=mock.Mock(return_value=[])):
+            reply = self.client.get(f"/briefing/{BRIEFING_UUID}")
+        self.assertEqual(reply.status_code, 200)
+        page = BeautifulSoup(reply.data, "html.parser")
+        card = next(c for c in page.select(".card") if "Also seen" in c.get_text())
+        self.assertIn(MARKUP, card.get_text())
+        self.assertEqual(card.select("script"), [])
+        self.assertEqual([a["href"] for a in card.select("a")], [])
+        self.assertEqual([i["value"] for i in card.select('input[name="selected_events"]')],
+                         [f"{EVENT_UUID}|scraper"])
 
 
 class BriefingDate(unittest.TestCase):

@@ -12,9 +12,10 @@ import threading
 import config
 from flask import Blueprint, jsonify, url_for
 
+from analyser.products.flash_intel import parse_fia_draft
 from core.net_safety import resolve_public_url
-from core.rulezet_lookup import (get_rule, search_rules_by_attack, search_rules_by_cve,
-                                 validate_rule)
+from core.rulezet_lookup import (enabled as rulezet_enabled, get_rule, search_rules_by_attack,
+                                 search_rules_by_cve, validate_rule)
 from core.vuln_lookup import CVE_RE, fetch_cve_info
 from webapp import analyser_pipeline, audit, collection_cache, job_store, misp_session, misp_store
 from webapp.collection_cache import is_ai_summary_report
@@ -123,7 +124,7 @@ def draft_story():
         from analyser import llm
 
         story, suggested_actor_type = llm.draft_briefing_story(
-            content or context_hint, analyser_pipeline.focus_points(), _threat_actor_types())
+            content or context_hint, llm.configured_focus_points(), _threat_actor_types())
         return jsonify({"story": story, "scope": scope, "threat_actor_type": suggested_actor_type, "error": None})
     except Exception as exc:
         logger.warning("draft_story LLM call failed: %s", exc)
@@ -333,7 +334,7 @@ def _run_briefing_draft_job(job_id: str, briefing_uuid: str, with_summary: bool,
         stories = [dict(vars(s)) for s in briefing.stories]
         total = len(stories)
         job_store.update_job(job_id, status="running", message=f"Drafting {total} stories...")
-        focus_points, actor_types = analyser_pipeline.focus_points(), _threat_actor_types()
+        focus_points, actor_types = llm.configured_focus_points(), _threat_actor_types()
         drafted = 0
 
         with job_store.heartbeat(job_id, f"Drafting {total} stories"):
@@ -778,113 +779,6 @@ def fetch_url():
         return jsonify({"title": "", "content": "", "error": "Could not fetch URL content."}), 502
 
 
-def _parse_fia_markdown(text: str) -> dict:
-    """Parse flash_intel_generate.md LLM output into form field values."""
-    def _csv(s):
-        """Split a comma-separated value string into a clean list, drop placeholders."""
-        return [v.strip() for v in (s or '').split(',') if v.strip() and not v.strip().startswith('<')]
-
-    fields = {
-        'title': '', 'summary': '', 'action_required': '',
-        'what_happened': [], 'source_description': '',
-        'likely_impact': '', 'affected_assets': '',
-        'actor_types': [], 'actor_context': '',
-        'geographic_scope': [], 'sectors': [],
-        'threat_types': [], 'technology': [], 'vendor': [], 'incident': [], 'campaign': [],
-        'actions_immediate': [], 'actions_near_term': [],
-        'mitre_techniques': [], 'hunting_hypotheses': [],
-        'source_reliability': '', 'information_credibility': '', 'credibility_justification': '',
-    }
-    section = None
-    for line in text.split('\n'):
-        s = line.strip()
-        if not s or s == '---':
-            continue
-        m = re.match(r'^#\s+Flash intel alert:\s*(.*)', s, re.IGNORECASE)
-        if m:
-            fields['title'] = m.group(1).strip()
-            continue
-        if s.startswith('## '):
-            sl = s[3:].lower()
-            if 'summary' in sl: section = 'summary'
-            elif 'what happened' in sl: section = 'what_happened'
-            elif 'why it matters' in sl: section = 'why_matters'
-            elif sl.strip() == 'scope': section = 'scope'
-            elif 'recommended' in sl: section = 'actions'
-            elif 'detection' in sl: section = 'detection'
-            else: section = None
-            continue
-        if s.startswith('### '):
-            sl = s[4:].lower()
-            if 'immediate' in sl: section = 'actions_immediate'
-            elif 'near' in sl: section = 'actions_near_term'
-            continue
-        if section in ('detection', 'mitre', 'hunting'):
-            if s.startswith('**Relevant MITRE'):
-                section = 'mitre'; continue
-            if s.startswith('**Hunting'):
-                section = 'hunting'; continue
-        if section == 'summary':
-            if s.startswith('**Action required:**'):
-                fields['action_required'] = s[len('**Action required:**'):].strip()
-            elif not s.startswith('**') and not s.startswith('#'):
-                fields['summary'] = (fields['summary'] + '\n' + s).strip() if fields['summary'] else s
-        elif section == 'what_happened':
-            if s.startswith('**Source reliability:**'):
-                val = s[len('**Source reliability:**'):].strip()
-                fields['source_reliability'] = val[:1].upper() if val and val[:1].upper() in 'ABCDEF' else ''
-            elif s.startswith('**Information credibility:**'):
-                val = s[len('**Information credibility:**'):].strip()
-                fields['information_credibility'] = val[:1] if val and val[:1] in '123456' else ''
-            elif s.startswith('**Information credibility justification:**'):
-                fields['credibility_justification'] = s[len('**Information credibility justification:**'):].strip()
-            elif s.startswith('**Source:**'):
-                fields['source_description'] = s[len('**Source:**'):].strip()
-            elif s.startswith('- ') and not s.startswith('- <'):
-                fields['what_happened'].append(s[2:].strip())
-        elif section == 'why_matters':
-            if s.startswith('- **Likely impact:**'):
-                fields['likely_impact'] = s[len('- **Likely impact:**'):].strip()
-            elif s.startswith('- **Affected assets:**'):
-                fields['affected_assets'] = s[len('- **Affected assets:**'):].strip()
-            elif s.startswith('- **Threat actor types:**'):
-                fields['actor_types'] = _csv(s[len('- **Threat actor types:**'):])
-            elif s.startswith('- **Threat actor context:**'):
-                fields['actor_context'] = s[len('- **Threat actor context:**'):].strip()
-        elif section == 'scope':
-            if s.startswith('- **Geographic scope:**'):
-                fields['geographic_scope'] = _csv(s[len('- **Geographic scope:**'):])
-            elif s.startswith('- **Sectors:**'):
-                fields['sectors'] = _csv(s[len('- **Sectors:**'):])
-            elif s.startswith('- **Threat types:**'):
-                fields['threat_types'] = _csv(s[len('- **Threat types:**'):])
-            elif s.startswith('- **Technology:**'):
-                fields['technology'] = _csv(s[len('- **Technology:**'):])
-            elif s.startswith('- **Vendor:**'):
-                fields['vendor'] = _csv(s[len('- **Vendor:**'):])
-            elif s.startswith('- **Incident:**'):
-                fields['incident'] = _csv(s[len('- **Incident:**'):])
-            elif s.startswith('- **Campaign:**'):
-                fields['campaign'] = _csv(s[len('- **Campaign:**'):])
-        elif section == 'actions_immediate':
-            if s.startswith('- ') and not s.startswith('- <'):
-                fields['actions_immediate'].append(s[2:].strip())
-        elif section == 'actions_near_term':
-            if s.startswith('- ') and not s.startswith('- <'):
-                fields['actions_near_term'].append(s[2:].strip())
-        elif section == 'mitre':
-            if s.startswith('- ') and not s.startswith('- <'):
-                fields['mitre_techniques'].append(s[2:].strip())
-        elif section == 'hunting':
-            if s.startswith('- ') and not s.startswith('- <'):
-                fields['hunting_hypotheses'].append(s[2:].strip())
-    # Convert narrative list fields to newline-joined strings (wizard textarea fields)
-    for f in ('what_happened', 'actions_immediate', 'actions_near_term', 'mitre_techniques', 'hunting_hypotheses'):
-        if isinstance(fields[f], list):
-            fields[f] = '\n'.join(fields[f])
-    return fields
-
-
 def _report_content(source_events, raw_only=False):
     """Join the reports of the source events, leaving out the AI summaries if raw_only."""
     parts = []
@@ -972,7 +866,10 @@ def build_fia():
         return jsonify({"fields": {}, "error": "The model returned an empty draft. "
                                                "Check the LLM settings and the analyser log."}), 502
 
-    fields = _parse_fia_markdown(raw)
+    fields = parse_fia_draft(raw)
+    # One entry per line in the wizard's text areas.
+    for name in ("what_happened", "actions_immediate", "actions_near_term", "mitre_techniques", "hunting_hypotheses"):
+        fields[name] = "\n".join(fields[name])
     if worst_reliability: fields['source_reliability'] = worst_reliability
     if worst_credibility: fields['information_credibility'] = worst_credibility
 
@@ -1065,7 +962,7 @@ def rulezet_lookup():
     POST JSON: {"cve_ids": ["CVE-2024-1234", ...]}
     Returns: {"ok": true, "rules": [{...}, ...]}
     """
-    if not getattr(config, "RULEZET_URL", ""):
+    if not rulezet_enabled():
         return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
 
     body, err = _json_object()
@@ -1096,7 +993,7 @@ def rulezet_rule():
     POST JSON: {"rule_id": "740025"}
     Returns: {"ok": true, "rule": {...}}
     """
-    if not getattr(config, "RULEZET_URL", ""):
+    if not rulezet_enabled():
         return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
 
     body, err = _json_object()
@@ -1121,7 +1018,7 @@ def rulezet_attack_lookup():
     POST JSON: {"technique_ids": ["T1071", "T1566.001", ...]}
     Returns: {"ok": true, "rules": [{...}, ...]}
     """
-    if not getattr(config, "RULEZET_URL", ""):
+    if not rulezet_enabled():
         return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
 
     body, err = _json_object()
@@ -1146,7 +1043,7 @@ def rulezet_validate():
     POST JSON: {"format": "sigma", "content": "..."}
     Returns: {"ok": true, "valid": bool, "errors": [...], "warnings": [...]}
     """
-    if not getattr(config, "RULEZET_URL", ""):
+    if not rulezet_enabled():
         return jsonify({"ok": False, "error": "Rulezet integration is not configured."})
 
     body, err = _json_object()

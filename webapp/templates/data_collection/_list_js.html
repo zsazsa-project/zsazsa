@@ -2217,7 +2217,8 @@
           + '<span class="cti-eval-panel-event-name">' + escText(title || '(untitled)') + '</span>'
           + '<button type="button" class="cti-eval-panel-close" title="Close">&times;</button>'
         + '</div>'
-        + '<p class="text-muted small mb-2 mt-1">Rate using the CTI Evaluation taxonomy. Tags are applied directly to the MISP event. Leave any predicate at <em>Not set</em> to skip it.</p>'
+        + '<p class="text-muted small mb-2 mt-1">Rate using the CTI Evaluation taxonomy. Tags are applied directly to the MISP event. Leave any predicate at <em>Not set</em> to skip it. '
+          + 'A relevance score overrules the analyser: high enough, it puts the event in the alerts or the briefing; low enough, it keeps it out.</p>'
         + '<div class="cti-eval-predicates">' + predsHtml + '</div>'
         + '<div class="cti-eval-panel-feedback d-none">'
           + '<div class="cti-eval-panel-ok alert alert-success py-2 small d-none mb-0"></div>'
@@ -2261,7 +2262,7 @@
         }
         submitBtn.disabled = true; submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Applying…';
         feedbackEl.classList.add('d-none');
-        var index = 0; var errors = [];
+        var index = 0; var errors = []; var warnings = [];
         function next() {
           if (index >= pairs.length) {
             submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-tag me-1"></i>Apply tags to MISP';
@@ -2272,6 +2273,12 @@
             } else {
               okEl.textContent = pairs.length + ' tag' + (pairs.length !== 1 ? 's' : '') + ' applied to MISP.';
               okEl.classList.remove('d-none'); errEl.classList.add('d-none');
+              if (warnings.length) {
+                // The tags are set; what else went wrong stays on screen.
+                errEl.textContent = warnings.join(' ');
+                errEl.classList.remove('d-none');
+                return;
+              }
               var refreshPromise = Promise.resolve();
               if (window.zsazsaRefreshCollectionEventRow && uuid && sourceId)
                 refreshPromise = window.zsazsaRefreshCollectionEventRow(uuid, sourceId);
@@ -2285,7 +2292,11 @@
             body:JSON.stringify({predicate:pair.predicate, value:pair.value, source:sourceId}),
           })
           .then(function(r) { return r.json(); })
-          .then(function(data) { if (!data.ok) errors.push(pair.predicate + ': ' + (data.error||'failed')); next(); })
+          .then(function(data) {
+            if (!data.ok) errors.push(pair.predicate + ': ' + (data.error||'failed'));
+            else if (data.warning) warnings.push(data.warning);
+            next();
+          })
           .catch(function() { errors.push(pair.predicate + ': request failed'); next(); });
         }
         next();

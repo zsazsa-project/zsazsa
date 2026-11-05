@@ -93,6 +93,7 @@ class Banner(unittest.TestCase):
                                  MISP_SESSION_REDIRECT_TO_LOGIN=False, MISP_WEBAPP_URL=url,
                                  MISP_WEBAPP_KEY="webapp-key"), \
              mock.patch.object(config_page, "importlib"), \
+             mock.patch.object(config_page, "_focus_point_choices", return_value=({}, {})), \
              mock.patch.object(config_page.misp_session, "refuse_unless_site_admin", return_value=None), \
              mock.patch.object(misp_store, "webapp_key_shortcomings", return_value=shortcomings) as check, \
              mock.patch.object(collection_cache, "start_worker"):

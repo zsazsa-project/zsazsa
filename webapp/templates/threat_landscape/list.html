@@ -195,7 +195,7 @@
                 {% if published %}
                 <span class="btn btn-xs btn-outline-danger btn-ghost" aria-hidden="true"><i class="fas fa-trash"></i></span>
                 {% else %}
-                <form method="post" action="{{ url_for('threat_landscape.delete', id=t.uuid) }}"
+                <form method="post" action="{{ url_for('threat_landscape.delete', id=t.uuid) }}" data-busy="Deleting…"
                       class="d-inline" data-submit-confirm="Delete {{ t.tlr_id }}? Its events go back to the queue.">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-xs btn-outline-danger" title="Delete">

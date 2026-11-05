@@ -9,7 +9,9 @@ and an edit neither tagged a source it added nor untagged one it dropped. Now a
 source the product no longer has loses the tag, unless another product of the
 same type still has it, and a source it gains is tagged. The workflow state of
 the event is left as it is, except that a story an analyst deleted from a
-briefing rejects its event, so the next briefing does not propose it again.
+briefing rejects its event, so the next briefing does not propose it again. An
+event on another organisation's MISP server is not tagged or rejected there:
+that decision is kept in zsazsa instead.
 
 MISP is a specced stand-in, and the collection cache is stubbed.
 
@@ -17,6 +19,7 @@ MISP is a specced stand-in, and the collection cache is stubbed.
 """
 
 import json
+import sqlite3
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -92,6 +95,7 @@ class Untag(unittest.TestCase):
         with mock.patch.object(misp_store, "_scraper_misp", return_value=self.scraper), \
              mock.patch.object(misp_store, "_misp", return_value=self.webapp), \
              mock.patch.object(misp_store, "scraper_enabled", return_value=True), \
+             mock.patch.object(misp_store.event_state, "close") as self.closed, \
              mock.patch("webapp.collection_cache.patch_event_tags") as self.cache:
             misp_store._untag_product_source(A, "vea", source_id, reject=reject)
 
@@ -110,9 +114,17 @@ class Untag(unittest.TestCase):
         self.scraper.get_event.assert_not_called()
 
     def test_another_server_s_event_is_not_ours_to_change(self):
-        self.untag("misp-intern", reject=True)
+        self.untag("misp-intern")
         self.scraper.get_event.assert_not_called()
         self.webapp.get_event.assert_not_called()
+        self.closed.assert_not_called()
+
+    def test_another_server_s_event_turned_down_is_closed_in_zsazsa(self):
+        """Or the next briefing would propose it again."""
+        self.untag("misp-intern", reject=True)
+        self.closed.assert_called_once_with("misp-intern", A, "Removed by an analyst from a vea")
+        self.webapp.tag.assert_not_called()
+        self.scraper.tag.assert_not_called()
 
     def test_an_event_turned_down_is_rejected(self):
         self.untag(reject=True)
@@ -133,6 +145,7 @@ class Deleting(unittest.TestCase):
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
              mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
              mock.patch.object(misp_store, lister, return_value=others), \
+             mock.patch.object(misp_store.event_state, "read_again"), \
              mock.patch.object(misp_store, "_untag_product_source") as untag:
             delete(event.uuid)
         misp.delete_event.assert_called_once_with(event.uuid)
@@ -203,6 +216,67 @@ class Editing(unittest.TestCase):
 
 
 
+class ReadAgain(unittest.TestCase):
+    """A deleted product's events are read again by the action that makes that
+    product: their tags are local, and the watermarks go by what changed. Not
+    those of a rejected product, which an analyst turned down, and not one that
+    another product of the type still has."""
+
+    def flagged(self, delete, event, lister, others=()):
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.delete_event.return_value = {}
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
+             mock.patch.object(misp_store, lister, return_value=list(others)), \
+             mock.patch.object(misp_store, "_untag_product_source"), \
+             mock.patch.object(misp_store.event_state, "read_again") as read_again:
+            delete(event.uuid)
+        return [c.args for c in read_again.call_args_list]
+
+    def alert(self, **fields):
+        return _event(misp_store._fia_obj, source_event_uuids=[A], **fields)
+
+    def test_a_deleted_alert(self):
+        self.assertEqual(self.flagged(misp_store.delete_fia, self.alert(source_event_hints={A: "scraper"}), "list_fias"),
+                         [("scraper", A, "flash-intel")])
+
+    def test_a_deleted_advisory_on_a_manual_entry(self):
+        event = _event(misp_store._vea_obj, source_event_uuids=[A], source_event_hints={A: "manual-news"})
+        self.assertEqual(self.flagged(misp_store.delete_vea, event, "list_veas"), [("manual", A, "vea")])
+
+    def test_a_rejected_alert_stays_turned_down(self):
+        event = self.alert(review_state=misp_store.FIA_REVIEW_REJECTED)
+        self.assertEqual(self.flagged(misp_store.delete_fia, event, "list_fias"), [])
+
+    def test_a_rejected_advisory_stays_turned_down(self):
+        event = _event(misp_store._vea_obj, source_event_uuids=[A], review_state=misp_store.VEA_REVIEW_REJECTED)
+        self.assertEqual(self.flagged(misp_store.delete_vea, event, "list_veas"), [])
+
+    def test_an_event_another_alert_has_is_not_read_again(self):
+        other = SimpleNamespace(source_event_uuids=[A])
+        self.assertEqual(self.flagged(misp_store.delete_fia, self.alert(), "list_fias", [other]), [])
+
+    def test_a_detection_request_has_no_action_to_read_it(self):
+        event = _event(misp_store._der_obj, source_event_uuids=[A])
+        self.assertEqual(self.flagged(misp_store.delete_der, event, "list_ders"), [])
+
+    def test_a_deleted_draft_briefing_with_what_it_listed_under_also_seen(self):
+        event = _briefing_event([A])
+        obj = misp_store._get_obj(event, "zsazsa-daily-briefing")
+        obj.add_attribute("also-seen", value=json.dumps([{"source_event_uuid": B, "source_id": "partner"}]), type="text")
+        self.assertEqual(self.flagged(misp_store.delete_briefing, event, "list_briefings"),
+                         [("scraper", A, "daily-briefing"), ("partner", B, "daily-briefing")])
+
+    def test_a_rejected_briefing_stays_turned_down(self):
+        self.assertEqual(self.flagged(misp_store.delete_briefing, _briefing_event([A], review_state="rejected"),
+                                      "list_briefings"), [])
+
+    def test_a_failed_write_does_not_make_the_delete_look_failed(self):
+        with mock.patch.object(misp_store.event_state, "read_again", side_effect=sqlite3.OperationalError("database is locked")), \
+             self.assertLogs("webapp.misp_store", level="WARNING"):
+            misp_store._retag_product_sources("vea", {A: "scraper"}, {}, set, read_again="vea")
+
+
 class TurnedDown(unittest.TestCase):
     """A story deleted from a briefing came back in the next briefing that read
     its date, since its event was left open. Now the event is rejected, as are
@@ -218,6 +292,7 @@ class TurnedDown(unittest.TestCase):
              mock.patch.object(misp_store, "_sync_object_attributes"), \
              mock.patch.object(misp_store, "_replace_reports"), \
              mock.patch.object(misp_store, "list_briefings", return_value=[]), \
+             mock.patch.object(misp_store.event_state, "read_again"), \
              mock.patch.object(misp_store, "_untag_product_source") as untag:
             change()
         return {c.args[0]: c.kwargs["reject"] for c in untag.call_args_list}

@@ -71,6 +71,15 @@ class ConfigSave(unittest.TestCase):
         self.client.post("/config", data={})
         self.assertEqual(self.saved(), before)
 
+    def test_a_config_from_before_the_switch_keeps_the_alerts_on(self):
+        """The analyser makes alerts unless the config says otherwise, so a form
+        that does not post the new switch, as the setup wizard, must not turn
+        them off."""
+        with mock.patch.dict(vars(config_page._config)):
+            vars(config_page._config).pop("ANALYSER_FLASH_INTEL", None)
+            self.client.post("/config", data={})
+        self.assertIs(self.saved()["ANALYSER_FLASH_INTEL"], True)
+
     def test_a_post_missing_the_credentials_keeps_them(self):
         before = self.saved()
         form = self.full_form()
@@ -154,9 +163,12 @@ class ConfigSave(unittest.TestCase):
         The setup wizard posts its switches to the same form handler."""
         for template, least in (("config_page.html", 3), ("setup_wizard.html", 1)):
             page = Path("webapp/templates", template).read_text()
-            switches = re.findall(r'type="checkbox" name="([A-Z_]+)"[^>]*\s+value="true"', page)
+            # A switch a macro writes has its name as {{ name }}: checked there, it
+            # holds for every switch the macro writes.
+            switches = re.findall(r'type="checkbox" name="([A-Z_]+|\{\{ \w+ \}\})"[^>]*\s+value="true"', page)
             self.assertGreaterEqual(len(switches), least, template)
             for name in switches:
+                name = re.escape(name)
                 self.assertRegex(page, rf'name="{name}"[^>]*value="true"[^>]*>\s*<input type="hidden" name="{name}" value="false">',
                                  f"{template}: {name}")
 
@@ -249,6 +261,15 @@ class ConfigSave(unittest.TestCase):
                     body["allow_reports"] = sent
                 self.assertTrue(self.client.post("/config/sources/save-server", json=body).get_json()["ok"])
                 self.assertIs(self.saved()["MISP_SERVERS"][-1]["allow_reports"], stored)
+
+    def test_a_server_s_events_are_analysed_only_when_switched_on(self):
+        for sent, stored in ((False, False), (True, True), (None, False)):
+            with self.subTest(sent=sent):
+                body = {"label": "Partner", "url": "https://misp.partner.example"}
+                if sent is not None:
+                    body["analyse"] = sent
+                self.assertTrue(self.client.post("/config/sources/save-server", json=body).get_json()["ok"])
+                self.assertIs(self.saved()["MISP_SERVERS"][-1]["analyse"], stored)
 
     def test_a_server_saved_by_an_older_release_is_written_back_as_it_was(self):
         """It has no allow_reports, which was written back as None."""

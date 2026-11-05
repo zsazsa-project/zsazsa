@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, rejection_button, delete_rejected_form with context %}
+{% from "_product_actions.html" import read_again_note, preview_button, approval_form, rejection_button, delete_rejected_form,
+    select_all_th, select_cell, selection_toolbar with context %}
 {% from "_sort_header.html" import sort_th with context %}
 {% from "_macros.html" import ai_job_badge, story_scope %}
 
@@ -51,6 +52,7 @@
     <table class="table table-hover zsazsa-table mb-0">
       <thead>
         <tr>
+          {{ select_all_th("Select all drafts") }}
           {{ sort_th('Date', 'bdate', sort, dir, 'daily_briefing.list_briefings') }}
           {{ sort_th('Title', 'title', sort, dir, 'daily_briefing.list_briefings') }}
           <th>Stories</th>
@@ -58,13 +60,16 @@
           <th>TLP</th>
           {{ sort_th('State', 'state', sort, dir, 'daily_briefing.list_briefings') }}
           {{ sort_th('Published', 'date', sort, dir, 'daily_briefing.list_briefings') }}
-          <th class="text-end">Actions{{ delete_rejected_form(url_for('daily_briefing.delete_rejected'), rejected_count) }}</th>
+          <th class="text-end">
+            {% call selection_toolbar(url_for('daily_briefing.selected'), can_publish) %}{{ delete_rejected_form(url_for('daily_briefing.delete_rejected'), rejected_count) }}{% endcall %}
+          </th>
         </tr>
       </thead>
       <tbody>
         {% for b in briefings %}
         {% set story_count = b.story_count or (b.stories | length) %}
         <tr id="briefing-row-{{ b.uuid }}">
+          {{ select_cell(b.uuid, 'briefing ' ~ (b.date or b.uuid), b.review_state == 'draft') }}
           <td>
             <a href="{{ url_for('daily_briefing.detail', id=b.uuid) }}" class="text-decoration-none fw-semibold">
               {{ b.date or '-' }}
@@ -113,9 +118,9 @@
                 <a href="{{ url_for('daily_briefing.edit', id=b.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('daily_briefing.delete', id=b.uuid) }}"
+                <form method="post" action="{{ url_for('daily_briefing.delete', id=b.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
-                      data-submit-confirm="Delete briefing{{ (' ' + b.date) if b.date else '' }}?">
+                      data-submit-confirm="Delete briefing{{ (' ' + b.date) if b.date else '' }}?{{ read_again_note(b.review_state) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete briefing">
                     <i class="fas fa-trash"></i>
@@ -128,7 +133,7 @@
         </tr>
         {# ── Inline preview row ── #}
         <tr id="briefing-preview-{{ b.uuid }}" style="display:none;">
-          <td colspan="8" class="p-0">
+          <td colspan="9" class="p-0">
             <div class="px-4 py-3" style="background:var(--surface-muted);border-top:1px solid var(--border-light);">
               <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
                 {% if b.review_state == 'draft' %}
@@ -262,6 +267,7 @@
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_selection_js.html" %}
 <script>
 /* Same story-label muting as the briefing detail page. */
 var LEAD_LABEL = /(<p>|<br\s*\/?>)(\s*)([A-Za-z][A-Za-z ]{1,33}:)(?=\s)/g;

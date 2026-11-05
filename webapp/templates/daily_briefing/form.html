@@ -334,6 +334,11 @@
            written by hand. Carried through a save so the rail can still tell
            them apart when the briefing is reopened. #}
         <input type="hidden" name="story_{{ idx }}_drafted_by" class="story-drafted-by" value="{{ story.drafted_by or '' }}">
+        {# The earlier story the analyser found this one tells again. #}
+        <input type="hidden" name="story_{{ idx }}_correlation" value="{{ story.correlation or '' }}">
+        {% if story.correlation %}
+        <div class="small text-muted mb-2"><i class="fas fa-link me-1"></i>{{ story.correlation }}</div>
+        {% endif %}
         {# JSON, like the CTI evaluation below: a comma-joined field turned an
            actor named "UNC3753 (also known as Luna Moth, Chatty Spider)" into
            two actors, and those were what the next save wrote to MISP. #}
@@ -584,7 +589,7 @@
                hover events a native title tooltip needs. The title lives on this
                wrapping span instead, which stays interactive either way. #}
             <span id="btn-rulezet-briefing-lookup-wrap"
-                  {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+                  {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
               <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-briefing-lookup" disabled>
                 <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
                      alt="" style="height:22px;vertical-align:middle;margin-right:6px;">

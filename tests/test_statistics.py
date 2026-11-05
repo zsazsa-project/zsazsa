@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections import Counter
 from types import SimpleNamespace
@@ -341,6 +342,56 @@ class AuditLog(_App):
     def test_a_short_list_does_not(self):
         self.write(3)
         self.assertNotIn("The newest 200", self.page())
+
+    def write_on(self, days_ago, n, user="analyst@example.org", action="update"):
+        day = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        with core_db.row_connection() as db:
+            db.executemany("INSERT INTO audit_log (timestamp, user, action, entity_type) VALUES (?, ?, ?, ?)",
+                           [(f"{day}T10:00:00", user, action, "pir")] * n)
+        return day
+
+    def test_the_busiest_day_stands_out_and_opens_its_entries(self):
+        self.write_on(1, 2)
+        busy = self.write_on(5, 7)
+        page = self.soup("/logs")
+        self.assertIn("The busiest day was", page.get_text(" ", strip=True))
+        tile = page.select_one("a.stats-count[href*='day=']")
+        self.assertIn(f"day={busy}", tile["href"])
+        self.assertEqual(page.select_one(".day-chart-col.peak .day-chart-mark").get_text(strip=True), "7")
+        on_that_day = self.soup(f"/logs?day={busy}")
+        self.assertEqual(len(on_that_day.select(".logs-table tbody tr:not(.logs-day)")), 7)
+
+    def test_the_figures_follow_the_user_filter(self):
+        self.write_on(1, 2, user="one@example.org")
+        self.write_on(2, 5, user="other@example.org")
+        text = self.page("?user=one@example.org")
+        self.assertIn("The busiest day was", text)
+        self.assertIn("with 2 entries", text)
+
+    def test_an_empty_log(self):
+        text = self.page()
+        self.assertIn("No log entries yet.", text)
+        self.assertIn("Nothing in the last 90 days", text)
+        self.assertNotIn("The busiest day was", text)
+
+    def test_a_day_before_the_chart_has_no_count(self):
+        """Its heading counted only the entries shown, which a cut-off list
+        made too few."""
+        old = self.write_on(120, 3)
+        heading = self.soup(f"/logs?day={old}").select_one(".logs-day th").get_text(" ", strip=True)
+        self.assertNotIn("entries", heading)
+        self.write_on(1, 2)
+        self.assertIn("2 entries", self.soup("/logs").select_one(".logs-day th").get_text(" ", strip=True))
+
+    def test_a_day_that_is_no_date_is_ignored(self):
+        self.write_on(1, 2)
+        self.assertNotIn("No entries match", self.page("?day=yesterday"))
+
+    def test_older_entries_are_there_to_ask_for(self):
+        """The newest 200 were all there was; a day's filter was the only way back."""
+        self.write(201)
+        self.assertIn("limit=400", self.soup("/logs").select_one(".card-footer a")["href"])
+        self.assertIsNone(self.soup("/logs?limit=400").select_one(".card-footer a"))
 
 
 class StatisticsPage(_App):

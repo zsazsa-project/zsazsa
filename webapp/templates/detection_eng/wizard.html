@@ -88,7 +88,7 @@
         <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
           <label class="form-label mb-0">Technique(s) this request targets</label>
           <span id="btn-rulezet-der-lookup-wrap"
-                {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+                {% if rulezet_enabled %}title="Select at least one MITRE ATT&amp;CK technique above first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
             <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-der-lookup" disabled>
               <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
                    alt="" style="height:22px;vertical-align:middle;margin-right:6px;">

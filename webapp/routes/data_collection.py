@@ -20,6 +20,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from pymisp import MISPEvent, PyMISP
 
 import config
+from analyser import event_state, relevance, settings, tagger
 from core import ai_connector
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
@@ -211,7 +212,7 @@ def _build_list_context() -> dict:
         org_list=org_list,
         limit=_DEFAULT_LIMIT,
         marker_tag=config.SCRAPER_MARKER_TAG,
-        followup_tag=getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"'),
+        followup_tag=collection_cache.followup_tag(),
         dismissed_tag=collection_cache.dismissed_tag(),
         total_reports=sum(ev.get("report_count", 0) for ev in events),
         sources=sources,
@@ -588,7 +589,6 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
     else:
         applied_tags = []
         try:
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "draft")
         except Exception as exc:
             logger.warning("Could not update workflow state for %s: %s", uuid, exc)
@@ -1070,7 +1070,6 @@ _CTI_EVAL_PREDICATES = [
     "specificity", "usefulness", "format-validity", "conversion-fidelity",
     "source-reliability", "evidence-strength", "confidence",
 ]
-_CTI_EVAL_VALUES = ["very-low", "low", "moderate", "high", "very-high"]
 
 
 def _misp_for_source(source_id):
@@ -1168,7 +1167,7 @@ def cti_tag(uuid):
     value = (data.get("value") or "").strip().lower()
     if predicate not in _CTI_EVAL_PREDICATES:
         return jsonify({"ok": False, "error": f"Unknown predicate: {predicate!r}"}), 400
-    if value not in _CTI_EVAL_VALUES:
+    if value not in settings.LEVELS:
         return jsonify({"ok": False, "error": f"Unknown value: {value!r}"}), 400
     if not _is_collected(uuid, source_id):
         return jsonify({"ok": False, "error": "Event not found"}), 404
@@ -1178,6 +1177,7 @@ def cti_tag(uuid):
         return jsonify({"ok": False, "error": err_msg}), 502
 
     tag_name = f'{_CTI_EVAL_NAMESPACE}:{predicate}="{value}"'
+    # The new value goes on first: refused, the event keeps the one it had.
     try:
         r = misp.tag(uuid, tag_name, local=False)
         if isinstance(r, dict) and "errors" in r:
@@ -1186,11 +1186,113 @@ def cti_tag(uuid):
         logger.warning("cti_tag failed for %s (%s): %s", uuid, tag_name, exc)
         return jsonify({"ok": False, "error": "Could not apply tag."}), 502
 
+    audit.record("tag", "misp-event", entity_id=uuid, details=tag_name)
+    # The score is set from here on: what fails after it is a warning.
+    warnings = []
+    try:
+        _drop_other_values(misp, uuid, predicate, tag_name)
+    except Exception as exc:
+        logger.warning("Could not remove the earlier %s of %s: %s", predicate, uuid, exc)
+        warnings.append(f"its earlier {predicate} could not be removed; remove it in MISP")
+    # MISP unpublishes an event that gets a global tag, and another server's
+    # events are read published only, by this page and by the analyser alike.
+    if _is_remote_source(source_id) and not misp_store.publish_event(misp, uuid, f"{uuid} again after its score"):
+        warnings.append("the event could not be published again; publish it in MISP to keep it on this page "
+                        "and in the analysis")
+    try:
+        event_state.scored_by_analyst(event_state.source_of(source_id), uuid)
+    except Exception as exc:
+        logger.warning("Could not record the score of %s for the analyser: %s", uuid, exc)
+        warnings.append("a run of the analyser going now may not see it")
+    if predicate == "relevance" and relevance.pushes(value):
+        try:
+            _reopen(uuid, source_id, misp, "pushed into the analysis by its relevance score")
+        except Exception as exc:
+            logger.warning("Could not reopen %s for the analyser: %s", uuid, exc)
+            warnings.append("the event could not be opened again for the analyser; score it again to retry")
+
     # Refresh this event in local cache so the new CTI-evaluation tag appears immediately.
     _refresh_cached_event(uuid, source_id, misp, context="cti_tag")
+    reply = {"ok": True, "tag": tag_name}
+    if warnings:
+        reply["warning"] = f"{predicate.capitalize()} is set, but " + "; ".join(warnings) + "."
+    return jsonify(reply)
 
-    audit.record("tag", "misp-event", entity_id=uuid, details=tag_name)
-    return jsonify({"ok": True, "tag": tag_name})
+
+def _drop_other_values(misp, uuid, predicate, tag_name):
+    """Take an earlier value of the same score off the event. The taxonomy
+    allows one, and MISP does not enforce it: with "low" and "very-high" both
+    there, what the analyser read depended on the order of the tags."""
+    event = misp_store._check(misp.get_event(uuid, pythonify=True), "read the event")
+    prefix = f'{_CTI_EVAL_NAMESPACE}:{predicate}="'
+    for tag in event.tags:
+        if tag.name.startswith(prefix) and tag.name != tag_name:
+            misp_store._check(misp.untag(uuid, tag.name), "remove the earlier score")
+
+
+def _reopen(uuid, source_id, misp, why):
+    """Open an event the analyser closed again: after an analyst's relevance
+    score pushed it into the alerts or the briefing, as the analyser does not
+    read a rejected event and would never see the push, or for review by hand.
+    On another MISP server the event is reopened in zsazsa, as that is where it
+    was closed."""
+    if _is_remote_source(source_id):
+        event_state.reopen(source_id, uuid)
+    else:
+        event = misp_store._check(misp.get_event(uuid, pythonify=True), "read the event")
+        if collection_cache.WORKFLOW_REJECTED_TAG not in {t.name for t in event.tags}:
+            return
+        if not tagger.set_workflow_state(misp, event, "incomplete"):
+            raise RuntimeError("MISP refused the workflow state")
+    audit.record("reopen", "misp-event", entity_id=uuid, details=why)
+
+
+def _flag_for_followup(misp, uuid) -> str:
+    """Flag an event for follow-up: the local tag in MISP, then the cache the
+    pages and the analyser read the flag from. Returns MISP's error, or ""."""
+    err_text = _misp_response_errors(misp.tag(uuid, collection_cache.followup_tag(), local=True))
+    if err_text:
+        return err_text
+    collection_cache.flag_event(uuid)
+    audit.record("flag", "misp-event", entity_id=uuid)
+    return ""
+
+
+@bp.route("/<string:uuid>/review-by-hand", methods=["POST"])
+def review_by_hand(uuid):
+    """Flag an event for follow-up and open it again if the analyser closed it,
+    for an analyst to deal with on this page. The analyser does not reject an
+    event flagged for follow-up, so its next run leaves it open.
+
+    POST JSON: {"source": "<source_id>"}
+    """
+    data, err = _json_object()
+    if err:
+        return err
+    source_id = data.get("source") or _SCRAPER_SOURCE_ID
+    if not _is_collected(uuid, source_id):
+        return jsonify({"ok": False, "error": "Event not found"}), 404
+    misp, err_msg = _misp_for_source(source_id)
+    if misp is None:
+        return jsonify({"ok": False, "error": err_msg}), 502
+
+    # The flag goes on first: reopened without it, the next run closes the
+    # event again.
+    if not collection_cache.is_flagged(uuid):
+        try:
+            err_text = _flag_for_followup(misp, uuid)
+        except Exception as exc:
+            logger.warning("review_by_hand could not flag %s: %s", uuid, exc)
+            err_text = "Could not flag the event for follow-up."
+        if err_text:
+            return jsonify({"ok": False, "error": err_text}), 502
+    try:
+        _reopen(uuid, source_id, misp, "for review by hand")
+    except Exception as exc:
+        logger.warning("review_by_hand could not reopen %s: %s", uuid, exc)
+        return jsonify({"ok": False, "error": "The event is flagged for follow-up, but could not be opened again."}), 502
+    _refresh_cached_event(uuid, source_id, misp, context="review by hand")
+    return jsonify({"ok": True})
 
 
 _SCOPE_TAG_ALLOWED_PREFIXES = (
@@ -1424,7 +1526,6 @@ def bulk_reject_excluded():
                 elif changed:
                     dismissed += 1
                 continue
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             rejected += 1
             audit.record("tag", "misp-event", entity_id=uuid, details=collection_cache.WORKFLOW_REJECTED_TAG)
@@ -1467,7 +1568,6 @@ def bulk_flag():
     if not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
 
-    tag = getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
     misp_cache: dict[str, object] = {}
     flagged = already_flagged = errors = 0
 
@@ -1494,14 +1594,12 @@ def bulk_flag():
             continue
 
         try:
-            r = misp.tag(uuid, tag, local=True)
-            if isinstance(r, dict) and "errors" in r:
-                logger.warning("bulk_flag: MISP error for %s: %s", uuid, r["errors"])
+            err_text = _flag_for_followup(misp, uuid)
+            if err_text:
+                logger.warning("bulk_flag: MISP error for %s: %s", uuid, err_text)
                 errors += 1
                 continue
-            collection_cache.flag_event(uuid)
             _refresh_cached_event(uuid, source_id, misp, context="bulk_flag")
-            audit.record("flag", "misp-event", entity_id=uuid)
             flagged += 1
         except Exception as exc:
             logger.warning("bulk_flag: failed to flag %s: %s", uuid, exc)
@@ -1589,7 +1687,6 @@ def bulk_reject():
             continue
 
         try:
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             audit.record(
                 "reject", "misp-event", entity_id=uuid, entity_label=event.info or uuid,
@@ -1772,15 +1869,13 @@ def flag_for_review(uuid):
     source_id = data.get("source") or _SCRAPER_SOURCE_ID
     if not _is_collected(uuid, source_id):
         return jsonify({"ok": False, "error": "Event not found"}), 404
-    tag = getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
-
     misp, err_msg = _misp_for_source(source_id)
     if misp is None:
         return jsonify({"ok": False, "error": err_msg}), 502
 
     try:
         if collection_cache.is_flagged(uuid):
-            err_text = _misp_response_errors(misp.untag(uuid, tag))
+            err_text = _misp_response_errors(misp.untag(uuid, collection_cache.followup_tag()))
             if err_text:
                 return jsonify({"ok": False, "error": err_text}), 400
             collection_cache.unflag_event(uuid)
@@ -1788,12 +1883,10 @@ def flag_for_review(uuid):
             audit.record("unflag", "misp-event", entity_id=uuid)
             return jsonify({"ok": True, "flagged": False})
         else:
-            r = misp.tag(uuid, tag, local=True)
-            if isinstance(r, dict) and "errors" in r:
-                return jsonify({"ok": False, "error": str(r["errors"])}), 400
-            collection_cache.flag_event(uuid)
+            err_text = _flag_for_followup(misp, uuid)
+            if err_text:
+                return jsonify({"ok": False, "error": err_text}), 400
             _refresh_cached_event(uuid, source_id, misp, context="flag")
-            audit.record("flag", "misp-event", entity_id=uuid)
             return jsonify({"ok": True, "flagged": True})
     except Exception as exc:
         logger.warning("flag_for_review failed for %s: %s", uuid, exc)
@@ -1845,7 +1938,6 @@ def reject_event(uuid):
         })
 
     try:
-        from analyser import tagger
         tagger.set_workflow_state(misp, event, "rejected")
         logger.info("reject_event: marked %s rejected (%s)", uuid, event_title)
         audit.record(

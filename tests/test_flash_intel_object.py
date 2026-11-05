@@ -1,15 +1,19 @@
-"""The flash intel draft the analyser files: its object, and the tag on its source.
+"""The flash intel alert the analyser drafts from an event the verdict wants.
 
-MISP refused the zsazsa-flash-intel object because it was built without its
-template, so it had no meta-category, and every draft was filed without the
-fields the wizard edits while the log said it was created. It also answered
-Invalid Target to the source-type tag put on an event report. A model that
-answers "relevant" without naming a focus point the article matches does not
-get a draft: the local model did so on an article about none of them. The
-draft names its source event, which is what keeps that event from a second
-alert, and the source event is tagged as one, as the dashboard's alerts tag it.
-An answer that cannot be read leaves the event alone, and a story an open
-alert already tells gets no second one.
+The model drafts it with the prompt of the Build with AI button, and the draft
+is read into the alert's fields as that button reads it. The alert names its
+source event and the source that event was read from, which is what keeps the
+event from a second alert and lets a later edit find it again. It names every
+PIR and GIR in its grounds, and is addressed to all their stakeholders, or with
+focus points alone to everyone it can reach; its reason quotes the article for
+each ground. It is never classified below its source. The source type goes on
+the source event when that is zsazsa's own; an event on another organisation's
+MISP server is not written to. A draft the model left empty, or one with
+neither a summary nor what happened, as when the model declined, files
+nothing.
+
+The stored alert keeps the list of requirements through an analyst's edit, and
+an alert from before the list reads back with its one PIR.
 
     python -m unittest tests.test_flash_intel_object
 """
@@ -22,212 +26,158 @@ from unittest import mock
 from pymisp import MISPEvent, PyMISP
 
 from analyser.products import flash_intel
+from analyser.sources import Source
 from webapp import misp_store
 
+DRAFT = """# Flash intel alert: Grid operator hit
+## Summary
+Ransomware stopped a grid operator.
+**Action required:** Check the VPN.
+## What happened
+- The operator's VPN was breached.
+**Source:** Vendor blog
+## Recommended actions
+### Immediate
+- Patch the VPN
+"""
 
-class Reports(unittest.TestCase):
-    def test_a_failed_report_request_does_not_reject_the_source(self):
-        event = SimpleNamespace(uuid="m" * 36, id="91", tags=[])
-        for reply in ({"errors": ["Report access refused"]}, ConnectionError("Report access refused")):
-            with self.subTest(reply=reply):
-                misp = mock.create_autospec(PyMISP, instance=True)
-                webapp = mock.create_autospec(PyMISP, instance=True)
-                if isinstance(reply, Exception):
-                    misp.get_event_reports.side_effect = reply
-                else:
-                    misp.get_event_reports.return_value = reply
-                with mock.patch.object(flash_intel.tagger, "get_source_feed", return_value="manual"), \
-                     mock.patch.object(flash_intel.tagger, "set_workflow_state") as state, \
-                     self.assertRaisesRegex((RuntimeError, ConnectionError), "Report access refused"):
-                    flash_intel.process(misp, webapp, event, {})
-                state.assert_not_called()
-                webapp.add_event.assert_not_called()
+PIR = SimpleNamespace(uuid="p" * 36, pir_id="PIR-00002", priority="Must have", owner_uuid="", distribution="")
+GIR = SimpleNamespace(uuid="g" * 36, gir_id="GIR-00001", owner_uuid="", distribution="")
 
-    def test_an_empty_first_report_does_not_hide_the_article(self):
+
+def _event(tlp="tlp:clear"):
+    return SimpleNamespace(uuid="e" * 36, info="Grid operator hit", date="2026-10-30",
+                           tags=[SimpleNamespace(name=tlp),
+                                 SimpleNamespace(name='admiralty-scale:source-reliability="b"')])
+
+
+def _verdict(grounds):
+    return {"alert": {"relevant": True, "grounds": grounds, "reason": "An attack on our sector."},
+            "source_type": "news-report"}
+
+
+class Alert(unittest.TestCase):
+    def make(self, grounds=({"focus_point": "Energy", "quote": "a grid operator"},), source=None, event=None,
+             automated=()):
+        source = source or Source("scraper", "scraper", "MISP scraper", mock.create_autospec(PyMISP, instance=True),
+                                  True)
+        judge = mock.Mock(requirements_of=lambda grounds: [r for r in (PIR, GIR)
+                                                           if r.uuid in {g.get("requirement") for g in grounds}])
+        self.created = {}
+        with mock.patch.object(flash_intel.llm, "generate_fia_draft", return_value=DRAFT) as self.drafted, \
+             mock.patch.object(misp_store, "create_fia",
+                               side_effect=lambda data: self.created.update(data) or ("u" * 36, "FIA-00042")), \
+             mock.patch.object(misp_store, "list_stakeholders", return_value=[]), \
+             mock.patch.object(misp_store, "requirement_audience", return_value="SOC") as self.audience, \
+             mock.patch.object(misp_store, "subscriber_audience", return_value="Everyone"), \
+             mock.patch.object(misp_store, "stakeholders_on_automated_mode", return_value=list(automated)), \
+             mock.patch.object(flash_intel.tagger, "add_tag") as self.tagged:
+            event, verdict = event or _event(), _verdict(list(grounds))
+            data = flash_intel.draft_alert(event, source, verdict, judge, "The article", "The summary",
+                                           "An attack on our sector.")
+            fia_id, _problem = flash_intel.file_alert(data, event, source, verdict)
+        return fia_id
+
+    def test_it_is_drafted_with_the_analyser_s_own_feature_and_its_grounds(self):
+        self.make()
+        kwargs = self.drafted.call_args.kwargs
+        self.assertEqual(kwargs["feature"], "generate_flash_intel")
+        self.assertEqual(kwargs["matched_points"], ["Energy"])
+        self.assertEqual(self.drafted.call_args.args[0], "The article")
+
+    def test_the_draft_fills_the_alert_s_fields(self):
+        self.assertEqual(self.make(), "FIA-00042")
+        self.assertEqual(self.created["summary"], "Ransomware stopped a grid operator.")
+        self.assertEqual(self.created["actions_immediate"], ["Patch the VPN"])
+        self.assertEqual(self.created["what_happened"], ["The operator's VPN was breached."])
+        self.assertEqual(self.created["review_state"], misp_store.FIA_REVIEW_DRAFT)
+        self.assertEqual(self.created["author"], "analyser")
+
+    def test_it_names_its_source_event_and_where_it_was_read(self):
+        for kind, sid, hint in (("scraper", "scraper", "scraper"), ("manual", "manual", "webapp"),
+                                ("misp", "partner", "partner")):
+            with self.subTest(kind=kind):
+                self.make(source=Source(sid, kind, kind, None, kind != "misp"))
+                self.assertEqual(self.created["source_event_uuids"], ["e" * 36])
+                self.assertEqual(self.created["source_event_hints"], {"e" * 36: hint})
+
+    def test_with_requirements_it_names_them_all_and_is_for_their_stakeholders(self):
+        self.make(grounds=[{"requirement": GIR.uuid, "id": "GIR-00001", "quote": "q"},
+                           {"requirement": PIR.uuid, "id": "PIR-00002", "quote": "q"}])
+        self.assertEqual(self.created["linked_requirement_uuids"], [PIR.uuid, GIR.uuid])
+        # The form edits one PIR, so the first one is that.
+        self.assertEqual(self.created["linked_pir_uuid"], PIR.uuid)
+        self.assertEqual(self.created["context_tags"], ["match:GIR-00001", "match:PIR-00002"])
+        self.assertEqual(self.created["audience"], "SOC")
+        self.assertEqual(self.audience.call_args.args[0], [PIR, GIR])
+
+    def test_with_focus_points_alone_it_is_for_everyone_it_can_reach(self):
+        self.make()
+        self.assertEqual(self.created["audience"], "Everyone")
+        self.assertEqual(self.created["linked_requirement_uuids"], [])
+        self.assertEqual(self.created["linked_pir_uuid"], "")
+
+    def test_its_reason_quotes_the_article_for_each_ground(self):
+        self.make()
+        self.assertEqual(self.created["analyser_reason"],
+                         'An attack on our sector. Grounds: Energy: "a grid operator"')
+
+    def test_it_is_never_classified_below_its_source(self):
+        self.make(event=_event("tlp:red"))
+        self.assertEqual(self.created["tlp"], "red")
+        self.make()
+        self.assertEqual(self.created["tlp"], "amber")
+
+    def test_the_source_reliability_is_the_event_s(self):
+        self.make()
+        self.assertEqual(self.created["source_reliability"], "B")
+
+    def test_the_source_type_goes_on_zsazsa_s_own_event_only(self):
+        self.make()
+        self.assertEqual(self.tagged.call_args.args[2], 'osint:source-type="news-report"')
+        self.make(source=Source("partner", "misp", "Partner", mock.create_autospec(PyMISP, instance=True), False))
+        self.tagged.assert_not_called()
+
+
+def _alert_event(data):
+    event = MISPEvent()
+    event.uuid, event.id, event.info, event.date = "u" * 36, "42", "[zsazsa:fia] Alert", "2026-10-30"
+    event.add_object(misp_store._fia_obj(data))
+    return event
+
+
+class StoredAlert(unittest.TestCase):
+    def stored(self, data):
+        return misp_store._fia_ns(_alert_event(data))
+
+    def test_its_requirements_are_read_back(self):
+        fia = self.stored({"linked_requirement_uuids": [PIR.uuid, GIR.uuid], "linked_pir_uuid": PIR.uuid})
+        self.assertEqual(fia.linked_requirement_uuids, [PIR.uuid, GIR.uuid])
+
+    def test_an_alert_from_before_the_list_has_its_one_pir(self):
+        self.assertEqual(self.stored({"linked_pir_uuid": PIR.uuid}).linked_requirement_uuids, [PIR.uuid])
+        self.assertEqual(self.stored({}).linked_requirement_uuids, [])
+
+    def test_a_pir_s_product_list_finds_it_by_any_of_its_requirements(self):
+        self.assertEqual(misp_store.linked_pir_uuids(_alert_event({"linked_requirement_uuids": [GIR.uuid]})),
+                         {GIR.uuid})
+
+    def test_an_analyst_s_edit_keeps_the_list(self):
+        """The form does not post it: only the analyser sets it."""
+        event = _alert_event({"linked_requirement_uuids": [PIR.uuid, GIR.uuid], "title": "Alert"})
         misp = mock.create_autospec(PyMISP, instance=True)
-        reports = [SimpleNamespace(content=""), SimpleNamespace(content="The article")]
-        misp.get_event_reports.return_value = reports
-        content, read = flash_intel._get_reports(misp, SimpleNamespace(id="91"))
-        self.assertEqual(content, "The article")
-        self.assertEqual(read, reports)
-
-
-class Object(unittest.TestCase):
-    reachable = "SOC, CTI"
-
-    def add(self, reply, manual=False, tlp="amber"):
-        misp_webapp = mock.create_autospec(PyMISP, instance=True)
-        misp_webapp.add_object.return_value = reply
-        tags = [SimpleNamespace(name=misp_store.TAG_MANUAL_ENTRY)] if manual else []
-        source = SimpleNamespace(uuid="s" * 36, info="An article", tags=tags)
-        with mock.patch.object(flash_intel.tagger, "get_source_feed", return_value="feed"), \
-             mock.patch("webapp.misp_store.subscriber_audience", return_value=self.reachable) as self.audience:
-            saved = flash_intel._add_flash_intel_object(
-                misp_webapp, MISPEvent(), "FIA-00007", source, "## Summary\nOne line.", ["energy"],
-                "The article is about a power grid operator.", tlp)
-        return saved, misp_webapp.add_object.call_args[0][1]
-
-    def test_it_is_built_from_its_template(self):
-        _saved, obj = self.add({"Object": {}})
-        self.assertEqual(obj.to_dict()["meta-category"], "intelligence")
-        relations = {a.object_relation for a in obj.attributes}
-        self.assertLessEqual({"fia-id", "review-state", "summary", "source-event-uuid"}, relations)
-
-    def test_its_audience_is_everyone_it_can_reach(self):
-        """A draft without one cannot be published, and an analyser draft had none."""
-        _saved, obj = self.add({"Object": {}})
-        self.audience.assert_called_once_with("Flash intel alert", "amber")
-        self.assertEqual({a.object_relation: a.value for a in obj.attributes}["audience"], "SOC, CTI")
-
-    def test_it_says_which_focus_points_the_model_matched_and_why(self):
-        _saved, obj = self.add({"Object": {}})
-        self.assertEqual({a.object_relation: a.value for a in obj.attributes}["analyser-reason"],
-                         "Focus points: energy. The article is about a power grid operator.")
-
-    def test_it_is_a_draft_that_names_its_source(self):
-        """A draft, as everything else the analyser makes is, and its source is
-        what keeps the event from a second alert."""
-        _saved, obj = self.add({"Object": {}})
-        values = {a.object_relation: a.value for a in obj.attributes}
-        self.assertEqual((values["review-state"], values["source-event-uuid"]), ("draft", "s" * 36))
-
-    def test_a_manual_source_keeps_its_server_for_later_edits_and_cleanup(self):
-        _saved, obj = self.add({"Object": {}}, manual=True)
-        self.assertEqual(json.loads(misp_store._obj_attr(obj, "source-event-hints")), {"s" * 36: "webapp"})
-
-    def test_a_scraped_source_is_on_the_scraper(self):
-        _saved, obj = self.add({"Object": {}})
-        self.assertEqual(json.loads(misp_store._obj_attr(obj, "source-event-hints")), {"s" * 36: "scraper"})
-
-    def test_its_classification_and_audience_follow_the_tlp_it_is_given(self):
-        _saved, obj = self.add({"Object": {}}, tlp="red")
-        self.assertEqual(misp_store._obj_attr(obj, "tlp"), "red")
-        self.audience.assert_called_once_with("Flash intel alert", "red")
-
-    def test_a_refused_object_is_reported(self):
-        with self.assertLogs(flash_intel.logger, "ERROR") as logs:
-            saved, _obj = self.add({"errors": "No valid template found"})
-        self.assertFalse(saved)
-        self.assertIn("FIA-00007", logs.output[0])
-
-    def test_a_saved_object_is_not(self):
-        with self.assertNoLogs(flash_intel.logger, "ERROR"):
-            saved, _obj = self.add({"Object": {}})
-        self.assertTrue(saved)
-
-
-class Process(unittest.TestCase):
-    RELEVANT = {"relevant": True, "matched_focus_points": ["energy"], "source_type": "news-report",
-                "reason": "The article is about a power grid operator."}
-
-    def run_process(self, object_saved=True, relevance=RELEVANT, keep_open_for="", tlp="", automated=(),
-                    open_alerts=(), overlaps=()):
-        misp = mock.create_autospec(PyMISP, instance=True)
-        misp_webapp = mock.create_autospec(PyMISP, instance=True)
-        created = MISPEvent()
-        created.id, created.uuid = 7, "p" * 36
-        misp_webapp.add_event.return_value = created
-        tags = [SimpleNamespace(name=f"tlp:{tlp}")] if tlp else []
-        event = mock.MagicMock(uuid="e" * 36, info="An event", tags=tags, date=None)
-        report = mock.MagicMock()
-        with mock.patch.object(flash_intel, "_get_http_error", return_value=None), \
-             mock.patch.object(flash_intel, "_get_reports", return_value=("article", [report])), \
-             mock.patch.object(flash_intel.llm, "check_relevance", return_value=relevance), \
-             mock.patch.object(flash_intel.llm, "generate_flash_intel", return_value="## Summary\nx") as generate, \
-             mock.patch.object(flash_intel, "_add_flash_intel_object", return_value=object_saved) as self.add_object, \
-             mock.patch.object(flash_intel, "_automated_subscribers",
-                               return_value=list(automated)) as self.subscribers, \
-             mock.patch.object(flash_intel, "_auto_publish") as self.publish, \
-             mock.patch.object(flash_intel.llm, "detect_story_overlaps",
-                               return_value={"overlaps": list(overlaps)}) as self.overlap, \
-             mock.patch.object(flash_intel, "tagger") as tagger:
-            result = flash_intel.process(misp, misp_webapp, event, {}, keep_open_for=keep_open_for,
-                                         open_alerts=list(open_alerts))
-        self.generate, self.misp_webapp = generate, misp_webapp
-        return result, tagger, event, report
-
-    def test_the_source_type_goes_on_the_event_not_on_its_report(self):
-        _result, tagger, event, report = self.run_process(True)
-        self.assertIn(mock.call(mock.ANY, event, 'osint:source-type="news-report"'), tagger.add_tag.call_args_list)
-        self.assertFalse(any(report in c.args for c in tagger.add_tag.call_args_list))
-
-    def test_the_source_event_is_marked_as_the_source_of_an_alert(self):
-        _result, tagger, event, _report = self.run_process(True)
-        self.assertIn(mock.call(mock.ANY, event, 'zsazsa:product="flash-intel"'), tagger.add_tag.call_args_list)
-
-    def test_a_restricted_source_sets_the_event_and_delivery_classification(self):
-        self.run_process(tlp="red", automated=["Red-cleared stakeholder"])
-        event = self.misp_webapp.add_event.call_args.args[0]
-        self.assertIn("tlp:red", [t.name for t in event.tags])
-        self.subscribers.assert_called_once_with("red")
-        self.assertEqual(self.publish.call_args.kwargs["tlp"], "red")
-        self.assertEqual(self.add_object.call_args.args[7], "red")
-
-    def test_an_event_kept_open_is_not_rejected_for_the_focus_points(self):
-        """The daily briefing only reads the events nobody rejected."""
-        result, tagger, event, _report = self.run_process(
-            relevance={"relevant": False, "reason": "Off topic", "matched_focus_points": []},
-            keep_open_for="the daily briefing")
-        self.assertEqual((result["outcome"], result["detail"]),
-                         ("not_relevant", "Off topic Kept open for the daily briefing."))
-        tagger.set_workflow_state.assert_not_called()
-        result, tagger, event, _report = self.run_process(
-            relevance={"relevant": False, "reason": "Off topic", "matched_focus_points": []})
-        tagger.set_workflow_state.assert_called_once_with(mock.ANY, event, "rejected")
-
-    def test_the_draft_keeps_the_model_s_reason(self):
-        self.run_process(True)
-        self.assertEqual(self.add_object.call_args.args[5:7], (["energy"], "The article is about a power grid operator."))
-
-    def test_its_event_has_the_draft_workflow_state(self):
-        self.run_process(True)
-        self.assertIn(mock.call("p" * 36, 'workflow:state="draft"', local=True), self.misp_webapp.tag.call_args_list)
-
-    def test_a_draft_without_its_object_says_so(self):
-        result, _tagger, _event, _report = self.run_process(False)
-        self.assertEqual(result["outcome"], "product_created")
-        self.assertIn("draft object not saved", result["detail"])
-
-    def test_a_complete_draft_does_not(self):
-        result, _tagger, _event, _report = self.run_process(True)
-        self.assertEqual(result["detail"], "FIA-00007")
-
-    def test_relevant_without_a_matched_focus_point_gets_no_draft(self):
-        relevance = {"relevant": True, "matched_focus_points": [], "reason": "Cloud account takeover."}
-        result, tagger, event, _report = self.run_process(relevance=relevance)
-        self.assertEqual(result["outcome"], "not_relevant")
-        self.assertIn("no focus point matched", result["detail"])
-        self.assertIn("Cloud account takeover.", result["detail"])
-        tagger.set_workflow_state.assert_called_once_with(mock.ANY, event, "rejected")
-        self.generate.assert_not_called()
-
-    def test_an_answer_that_cannot_be_read_leaves_the_event_alone(self):
-        """It was read as "not relevant", and without the briefing that rejected the event."""
-        result, tagger, _event, _report = self.run_process(relevance=None)
-        self.assertEqual(result["outcome"], "error")
-        tagger.set_workflow_state.assert_not_called()
-        self.generate.assert_not_called()
-
-    def test_a_story_an_open_alert_already_covers_gets_no_second_one(self):
-        """SiriusQT got FIA-00521 and FIA-00550, read twice from the same feed."""
-        open_alerts = [{"id": "FIA-00521", "title": "Inside SiriusQT", "content": "A RAT"}]
-        result, tagger, event, _report = self.run_process(
-            open_alerts=open_alerts, overlaps=[{"a": 1, "b": 2, "score": 0.9, "reason": "Same RAT"}])
-        self.assertEqual((result["outcome"], result["detail"]),
-                         ("not_relevant", "The same story as FIA-00521."))
-        self.assertEqual(self.overlap.call_args.args[0][1:], open_alerts)
-        self.generate.assert_not_called()
-        tagger.set_workflow_state.assert_called_once_with(mock.ANY, event, "rejected")
-
-    def test_a_loose_resemblance_is_not_the_same_story(self):
-        result, _tagger, _event, _report = self.run_process(
-            open_alerts=[{"id": "FIA-00521", "title": "Another RAT", "content": "A RAT"}],
-            overlaps=[{"a": 1, "b": 2, "score": 0.4, "reason": "Both RATs"}])
-        self.assertEqual(result["outcome"], "product_created")
-
-    def test_without_open_alerts_the_overlap_check_is_not_asked(self):
-        self.run_process()
-        self.overlap.assert_not_called()
+        misp.get_event.return_value = event
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
+             mock.patch.object(misp_store, "_sync_object_attributes") as synced, \
+             mock.patch.object(misp_store, "_sync_tlp_tag"), \
+             mock.patch.object(misp_store, "_delete_fia_reports"), \
+             mock.patch.object(misp_store, "_write_fia_report"), \
+             mock.patch.object(misp_store, "_retag_product_sources"), \
+             mock.patch.object(misp_store.misp_session, "current_user_email", return_value="a@example.org"):
+            misp_store.update_fia("u" * 36, {"title": "Alert, edited"})
+        written = synced.call_args.args[3]
+        self.assertEqual(json.loads(misp_store._obj_attr(written, "linked-requirement-uuids")), [PIR.uuid, GIR.uuid])
 
 
 if __name__ == "__main__":

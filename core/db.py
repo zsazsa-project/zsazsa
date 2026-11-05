@@ -60,7 +60,8 @@ def init_db() -> None:
                 event_info   TEXT,
                 source_feed  TEXT,
                 outcome      TEXT,
-                detail       TEXT
+                detail       TEXT,
+                source_id    TEXT
             )
         """)
         conn.execute("""
@@ -92,6 +93,59 @@ def init_db() -> None:
                 value INTEGER NOT NULL
             )
         """)
+        # Where each analyser action reads each source from on its next run,
+        # and the events it already handled there (analyser.sources).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analyser_watermark (
+                action     TEXT NOT NULL,
+                source_id  TEXT NOT NULL,
+                read_from  INTEGER NOT NULL,
+                handled    TEXT NOT NULL DEFAULT '{}',
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (action, source_id)
+            )
+        """)
+        # What the analyser decided about each event it read: its relevance
+        # verdict, the outcome per product, and for an event on another
+        # organisation's MISP server, which zsazsa does not write to, whether
+        # it was closed (analyser.event_state).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analysed_events (
+                source_id  TEXT NOT NULL,
+                event_uuid TEXT NOT NULL,
+                verdict    TEXT,
+                attempts   INTEGER NOT NULL DEFAULT 0,
+                outcomes   TEXT NOT NULL DEFAULT '{}',
+                closed_at  INTEGER,
+                reason     TEXT NOT NULL DEFAULT '',
+                analyst_changed_at INTEGER,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (source_id, event_uuid)
+            )
+        """)
+        # The events an action reads once more, whatever its watermark says: the
+        # source events of a deleted product (analyser.event_state).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analyser_read_again (
+                action     TEXT NOT NULL,
+                source_id  TEXT NOT NULL,
+                event_uuid TEXT NOT NULL,
+                PRIMARY KEY (action, source_id, event_uuid)
+            )
+        """)
+        # The one analyser run allowed at a time (analyser.run_lock).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analyser_lock (
+                name         TEXT PRIMARY KEY,
+                token        TEXT NOT NULL,
+                action       TEXT NOT NULL,
+                label        TEXT NOT NULL,
+                started_by   TEXT NOT NULL,
+                job_id       TEXT NOT NULL DEFAULT '',
+                started_at   INTEGER NOT NULL,
+                refreshed_at INTEGER NOT NULL
+            )
+        """)
         # The pipeline page reads this table newest first, page by page.
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_event_log_processed_at"
@@ -104,7 +158,13 @@ def init_db() -> None:
             ("source_feed", "TEXT"),
             ("outcome", "TEXT"),
             ("detail", "TEXT"),
+            # The source the event was read from, as misp_store.source_event_urls
+            # takes it, so the Pipeline page links to the MISP it is on.
+            ("source_id", "TEXT"),
         ])
+        # When an analyst last scored the event, which a run that read it
+        # before must not take for its own write.
+        _ensure_columns(conn, "analysed_events", [("analyst_changed_at", "INTEGER")])
         _ensure_columns(conn, "llm_usage", [
             ("feature", "TEXT NOT NULL DEFAULT ''"),
             # Rows written before local LLM support all came from OpenAI.
@@ -153,12 +213,14 @@ def log_llm_usage(feature: str, model: str, input_tokens: int, output_tokens: in
         logger.error("DB write failed for llm_usage: %s", e)
 
 
-def log_event(event_uuid: str, event_info: str, source_feed: str, outcome: str, detail: str | None = None) -> None:
+def log_event(event_uuid: str, event_info: str, source_feed: str, outcome: str, detail: str | None = None,
+              source_id: str | None = None) -> None:
     try:
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO event_log (event_uuid, event_info, source_feed, outcome, detail) VALUES (?, ?, ?, ?, ?)",
-                (event_uuid, event_info, source_feed, outcome, detail),
+                "INSERT INTO event_log (event_uuid, event_info, source_feed, outcome, detail, source_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (event_uuid, event_info, source_feed, outcome, detail, source_id),
             )
     except sqlite3.Error as e:
         logger.error("DB write failed for %s: %s", event_uuid, e)

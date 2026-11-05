@@ -1,6 +1,5 @@
 {# How a flash intel alert is made, collapsed under the filters of the alert list.
-   Expects schedule_focus and schedule_requirements: whether the scheduled
-   analyser makes alerts from the focus points and from the PIRs and GIRs. The
+   Expects schedule_focus: whether the scheduled analyser makes alerts. The
    settings links are for site admins, the only users the settings pages let in. #}
 {% from "_flow_macros.html" import flow_card, funnel, step_head, collection_step, channels %}
 {% call flow_card("From everything collected to an alert in the stakeholders' inbox") %}
@@ -8,14 +7,13 @@
   <span class="flow-mode flow-auto">
     <i class="fas fa-robot"></i>
     <span>
-      {% if schedule_focus or schedule_requirements %}
-      On every scheduled run, the analyser checks the new events against
-      {% if schedule_focus and schedule_requirements %}your focus points and your PIRs and GIRs{% elif schedule_focus %}your focus points{% else %}your PIRs and GIRs{% endif %}.
+      {% if schedule_focus %}
+      On every scheduled run, the analyser judges the new events against your focus points and your PIRs and GIRs.
       {% else %}
       The scheduled alerts are off{% if is_site_admin %}
-      (<a href="{{ url_for('config_page.index', tab='tab-system') }}">Settings &gt; System</a>){% endif %}.
+      (<a href="{{ url_for('config_page.index', tab='tab-analyser') }}">Settings &gt; Analyser</a>){% endif %}.
       {% endif %}
-      Started from the dashboard, it checks yesterday's and today's events against your PIRs and GIRs.
+      Started from the dashboard, it does the same with the events that came in since its previous run.
     </span>
   </span>
   <span class="flow-mode flow-hand">
@@ -35,21 +33,27 @@
     <div class="flow-row"><i class="fas fa-wand-magic-sparkles"></i><span>An AI summary tags the sectors, countries, actors and ATT&amp;CK techniques.</span></div>
     <div class="flow-who flow-auto">
       <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Selecting the events</span>
-      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>Open events of yesterday and today. On the schedule, only those that came in or changed since the previous run</span></div>
+      <div class="flow-row"><i class="fas fa-calendar-day"></i><span>What came in or changed since its previous run, on the sources switched on</span></div>
       <div class="flow-row"><i class="fas fa-link-slash"></i><span>Article not fetched or empty <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
+      <div class="flow-row"><i class="fas fa-filter"></i><span>Excluded title <span class="flow-out flow-out-skip">left out</span></span></div>
       <div class="flow-row"><i class="fas fa-clone"></i><span>Already has an alert <span class="flow-out flow-out-skip">left out</span></span></div>
     </div>
+    {% if is_site_admin %}
+    <div class="flow-links">
+      <a href="{{ url_for('config_page.index', tab='tab-products') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-filter me-1"></i>Title exclusions</a>
+    </div>
+    {% endif %}
   </div>
 
   <div class="flow-step flow-next-auto flow-is-auto" style="--step-color:var(--accent-green);">
     {{ step_head(3, 'fa-bullseye', 'Align with needs', 50, 'Matches your needs') }}
-    <div class="flow-row"><i class="fas fa-star"></i><span>Matches the scope of an active PIR or GIR <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>alert</span></span></div>
-    <div class="flow-row"><i class="fas fa-user-group"></i><span class="text-muted">Linked to the best match. Audience is the roles of the requirement's owner and distribution.</span></div>
     <div class="flow-who flow-auto">
-      <span class="flow-who-title"><i class="fas fa-robot me-1"></i>Focus points, on the scheduled runs</span>
-      <div class="flow-row"><i class="fas fa-crosshairs"></i><span>The AI reads the article against your focus points <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>alert</span></span></div>
+      <span class="flow-who-title"><i class="fas fa-robot me-1"></i>One verdict per event</span>
+      <div class="flow-row"><i class="fas fa-crosshairs"></i><span>The AI reads the article against your focus points and active PIRs and GIRs, quoting it for each <span class="flow-out flow-out-keep"><i class="fas fa-check"></i>alert</span></span></div>
+      <div class="flow-row"><i class="fas fa-user-group"></i><span class="text-muted">For the stakeholders of every PIR and GIR among its grounds; a PIR alone gives one only from the priority set under Settings &gt; Analyser. Your relevance score pushes it in or keeps it out.</span></div>
       <div class="flow-row"><i class="fas fa-store-slash"></i><span>A vendor writing about its own products is not a match.</span></div>
-      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>No match <span class="flow-out flow-out-skip">left open</span> or <span class="flow-out flow-out-drop"><i class="fas fa-xmark"></i>rejected</span></span></div>
+      <div class="flow-row"><i class="fas fa-clone"></i><span>The same story as an alert of the last month <span class="flow-out flow-out-skip">left out</span>, or with new facts an update of it</span></div>
+      <div class="flow-row"><i class="fas fa-circle-xmark"></i><span>Not worth an alert <span class="flow-out flow-out-skip">left out</span>, and rejected once no product wants it</span></div>
     </div>
     <div class="flow-links">
       <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-star me-1"></i>PIRs</a>
@@ -87,6 +91,7 @@
       <span class="btn btn-xs btn-outline-danger"><i class="fas fa-xmark me-1"></i>Reject</span>
     </div>
     <div class="flow-row"><i class="fas fa-user-group"></i><span>An alert needs an audience before it is approved.</span></div>
+    <div class="flow-row flow-auto"><i class="fas fa-robot"></i><span class="text-muted">A stakeholder on automated mode gets the analyser's alert at once, published without review.</span></div>
   </div>
 
   <div class="flow-step" style="--step-color:var(--accent-red);">

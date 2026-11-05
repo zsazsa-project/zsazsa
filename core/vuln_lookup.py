@@ -23,6 +23,13 @@ def fetch_cve_info(cve_id: str) -> dict:
     ``products``, for matching against an asset inventory.
     Returns an empty dict on any failure so callers can treat it as optional enrichment.
     """
+    return lookup_cve(cve_id) or {}
+
+
+def lookup_cve(cve_id: str) -> dict | None:
+    """The details fetch_cve_info() gives, {} for a CVE the database does not
+    have, or None when it could not be asked: a caller that decides from them
+    tries again rather than take an outage for a CVE without a score."""
     cve_id = (cve_id or "").strip()
     if not CVE_RE.fullmatch(cve_id):
         logger.debug("Rejected invalid CVE ID format: %r", cve_id)
@@ -30,12 +37,15 @@ def fetch_cve_info(cve_id: str) -> dict:
     cve_id = cve_id.upper()
     try:
         r = requests.get(_CIRCL_URL.format(cve_id), timeout=10, headers={"Accept": "application/json"})
-        if r.status_code != 200:
+        if r.status_code == 404:
             return {}
+        if r.status_code != 200:
+            logger.warning("CVE lookup for %s answered %s", cve_id, r.status_code)
+            return None
         return _parse(r.json())
     except Exception as exc:
         logger.warning("CVE lookup for %s failed: %s", cve_id, exc)
-        return {}
+        return None
 
 
 def _parse(data: dict) -> dict:

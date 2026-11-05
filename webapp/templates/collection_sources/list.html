@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import remove_secret %}
 
+{% macro analyse_note() -%}
+  <i class="fas fa-circle-info me-1" aria-hidden="true"></i>"Analyse its events" is off until you switch it on. With it on,
+  the text of this server's events goes to the AI features, whatever their TLP, and to a cloud provider where the AI tab
+  sets one for a feature.
+{%- endmacro %}
+
 {% block title %}Collection sources | zsazsa CTI{% endblock %}
 {% block page_title %}Collection sources{% endblock %}
 
@@ -277,15 +283,21 @@
                     <label class="form-check-label small">Enabled</label>
                   </div>
                   <div class="form-check form-switch mb-0">
+                    <input class="form-check-input server-analyse-switch" type="checkbox" {{ 'checked' if s.get('analyse') }}>
+                    <label class="form-check-label small">Analyse its events</label>
+                    <span class="text-muted" data-bs-toggle="tooltip" title="The analyser reads this server's events that have a report, as it reads the scraper's, and proposes alerts, advisories and briefing stories from them. Each event it reads costs a model call, so keep the filters above narrow; one run reads at most Max events of them. zsazsa changes nothing on this server's events, apart from adding a summary when adding reports is allowed."><i class="fas fa-circle-info ms-1 small"></i></span>
+                  </div>
+                  <div class="form-check form-switch mb-0">
                     <input class="form-check-input server-allow-reports-switch" type="checkbox" {{ 'checked' if s.get('allow_reports') }}>
                     <label class="form-check-label small">Allow adding reports to events</label>
-                    <span class="text-muted" data-bs-toggle="tooltip" title="Offers the AI summary on this server's events in data collection. zsazsa adds the summary as a report for your organisation only, and publishes the event again without an e-mail, so the key needs to be able to modify and publish the event."><i class="fas fa-circle-info ms-1 small"></i></span>
+                    <span class="text-muted" data-bs-toggle="tooltip" title="Offers the AI summary on this server's events in data collection, and lets the analyser add one to the events it reads. zsazsa adds the summary as a report for your organisation only, and publishes the event again without an e-mail, so the key needs to be able to modify and publish the event."><i class="fas fa-circle-info ms-1 small"></i></span>
                   </div>
                   <button type="button" class="btn btn-sm btn-primary save-server-btn" data-dirty-save>
                     <i class="fas fa-floppy-disk me-1"></i>Save server
                   </button>
                   <span class="save-server-result small"></span>
                 </div>
+                <div class="col-12 small text-muted">{{ analyse_note() }}</div>
               </div>
             </div>
           </div>
@@ -396,15 +408,21 @@
                     <label class="form-check-label small">Enabled</label>
                   </div>
                   <div class="form-check form-switch mb-0">
+                    <input class="form-check-input server-analyse-switch" type="checkbox">
+                    <label class="form-check-label small">Analyse its events</label>
+                    <span class="text-muted" data-bs-toggle="tooltip" title="The analyser reads this server's events that have a report, as it reads the scraper's, and proposes alerts, advisories and briefing stories from them. Each event it reads costs a model call, so keep the filters above narrow; one run reads at most Max events of them. zsazsa changes nothing on this server's events, apart from adding a summary when adding reports is allowed."><i class="fas fa-circle-info ms-1 small"></i></span>
+                  </div>
+                  <div class="form-check form-switch mb-0">
                     <input class="form-check-input server-allow-reports-switch" type="checkbox">
                     <label class="form-check-label small">Allow adding reports to events</label>
-                    <span class="text-muted" data-bs-toggle="tooltip" title="Offers the AI summary on this server's events in data collection. zsazsa adds the summary as a report for your organisation only, and publishes the event again without an e-mail, so the key needs to be able to modify and publish the event."><i class="fas fa-circle-info ms-1 small"></i></span>
+                    <span class="text-muted" data-bs-toggle="tooltip" title="Offers the AI summary on this server's events in data collection, and lets the analyser add one to the events it reads. zsazsa adds the summary as a report for your organisation only, and publishes the event again without an e-mail, so the key needs to be able to modify and publish the event."><i class="fas fa-circle-info ms-1 small"></i></span>
                   </div>
                   <button type="button" class="btn btn-sm btn-primary save-server-btn" data-dirty-save>
                     <i class="fas fa-floppy-disk me-1"></i>Save server
                   </button>
                   <span class="save-server-result small"></span>
                 </div>
+                <div class="col-12 small text-muted">{{ analyse_note() }}</div>
               </div>
             </div>
           </div>
@@ -649,6 +667,7 @@
           verify_tls: row.querySelector('[name="server_verify_tls"]')?.value === 'true',
           enabled: !!row.querySelector('.server-enabled-switch')?.checked,
           allow_reports: !!row.querySelector('.server-allow-reports-switch')?.checked,
+          analyse: !!row.querySelector('.server-analyse-switch')?.checked,
           tags: (row.querySelector('[name="server_tags"]')?.value || '').trim(),
           tags_and: (row.querySelector('[name="server_tags_and"]')?.value || '').trim(),
           tags_not: (row.querySelector('[name="server_tags_not"]')?.value || '').trim(),

@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Daily Threat Briefing metadata managed by the zsazsa CTI program",
   "uuid": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-  "version": 6,
+  "version": 7,
   "attributes": {
     "date": {
       "misp-attribute": "text",
@@ -51,6 +51,12 @@
       "misp-attribute": "text",
       "ui-priority": 7,
       "description": "Analyst notes and follow-up items",
+      "disable_correlation": true
+    },
+    "also-seen": {
+      "misp-attribute": "text",
+      "ui-priority": 7,
+      "description": "JSON list of the events the analyser left out over the cap of stories, for an analyst to add back; never delivered",
       "disable_correlation": true
     },
     "geographic-scope": {

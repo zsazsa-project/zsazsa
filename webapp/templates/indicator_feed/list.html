@@ -129,7 +129,7 @@
                   <a href="{{ url_for('indicator_feed.detail', id=f.id) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                     <i class="fas fa-pen"></i>
                   </a>
-                  <form method="post" action="{{ url_for('indicator_feed.delete', id=f.id) }}" class="d-inline"
+                  <form method="post" action="{{ url_for('indicator_feed.delete', id=f.id) }}" data-busy="Deleting…" class="d-inline"
                         data-submit-confirm="Delete {{ f.feed_id }} ({{ f.name }})? This cannot be undone.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete feed">

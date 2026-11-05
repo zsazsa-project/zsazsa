@@ -69,9 +69,10 @@
               <span class="tlp-badge tlp-{{ s.tlp_clearance | slug }}">TLP:{{ s.tlp_clearance | upper }}</span>
               {% endif %}
             </div>
-            {% if s.products %}
+            {% set products = subscribed_products(s) %}
+            {% if products %}
             <div class="dist-card-products">
-              {% for p in s.products %}
+              {% for p in products %}
               {% set mode = (s.product_modes or {}).get(p) %}
               <span class="dist-prod-chip dist-prod-{{ 'auto' if mode == 'automated' else 'manual' }}" title="{{ 'Auto-publish' if mode == 'automated' else 'Review before send' }}">
                 {% if mode == 'automated' %}<i class="fas fa-robot fa-xs me-1"></i>{% else %}<i class="fas fa-user-pen fa-xs me-1"></i>{% endif %}{{ p }}

@@ -49,40 +49,46 @@ def record(action, entity_type, entity_id=None, entity_label=None, details=None,
         )
 
 
-def get_logs(limit=200, action=None, entity_type=None):
+def _where(action=None, entity_type=None, user=None, day=None) -> tuple[str, list]:
+    """The WHERE clause of the log page's filters, and its arguments. ``day``
+    is a date, YYYY-MM-DD, as the timestamps start with."""
+    clauses, args = [], []
+    for column, value in (("action", action), ("entity_type", entity_type), ("user", user)):
+        if value:
+            clauses.append(f"{column} = ?")
+            args.append(value)
+    if day:
+        clauses.append("timestamp LIKE ?")
+        args.append(f"{day}%")
+    return (" WHERE " + " AND ".join(clauses)) if clauses else "", args
+
+
+def get_logs(limit=200, action=None, entity_type=None, user=None, day=None):
+    where, args = _where(action, entity_type, user, day)
     with _conn() as db:
-        query = "SELECT * FROM audit_log"
-        args = []
-        where = []
+        return db.execute(f"SELECT * FROM audit_log{where} ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
 
-        if action:
-            where.append("action = ?")
-            args.append(action)
-        if entity_type:
-            where.append("entity_type = ?")
-            args.append(entity_type)
 
-        if where:
-            query += " WHERE " + " AND ".join(where)
-
-        query += " ORDER BY id DESC LIMIT ?"
-        args.append(limit)
-        return db.execute(query, tuple(args)).fetchall()
+def activity(since: str, action=None, entity_type=None, user=None) -> dict:
+    """How busy the log has been under these filters: the entries in all, those
+    from ``since`` on (a date) per day, and who, what and on what type they
+    were, most first."""
+    where, args = _where(action, entity_type, user)
+    recent = f"{where} {'AND' if where else 'WHERE'} timestamp >= ?"
+    with _conn() as db:
+        total = db.execute(f"SELECT COUNT(*) FROM audit_log{where}", args).fetchone()[0]
+        per_day = {r[0]: r[1] for r in db.execute(
+            f"SELECT substr(timestamp, 1, 10) AS day, COUNT(*) FROM audit_log{recent} GROUP BY day", (*args, since))}
+        ranked = {column: [tuple(r) for r in db.execute(
+            f"SELECT {column}, COUNT(*) AS n FROM audit_log{recent} GROUP BY {column} ORDER BY n DESC",
+            (*args, since))] for column in ("user", "action", "entity_type")}
+    return {"total": total, "per_day": per_day, **ranked}
 
 
 def log_filters():
     with _conn() as db:
-        actions = [
-            r[0] for r in db.execute(
-                "SELECT DISTINCT action FROM audit_log ORDER BY action"
-            ).fetchall()
-        ]
-        types = [
-            r[0] for r in db.execute(
-                "SELECT DISTINCT entity_type FROM audit_log ORDER BY entity_type"
-            ).fetchall()
-        ]
-    return {"actions": actions, "types": types}
+        return {name: [r[0] for r in db.execute(f"SELECT DISTINCT {column} FROM audit_log ORDER BY {column}")]
+                for name, column in (("actions", "action"), ("types", "entity_type"), ("users", "user"))}
 
 
 def has_event(action, entity_type, entity_id=None, details_contains=None):

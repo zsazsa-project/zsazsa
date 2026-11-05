@@ -56,8 +56,8 @@ class BriefingRejectionStore(unittest.TestCase):
         self.misp.add_object.assert_not_called()
         self.misp.delete_event_report.assert_not_called()
         self.misp.add_event_report.assert_not_called()
-        self.misp.untag.assert_called_once_with(UUID, 'workflow:state="draft"')
-        self.misp.tag.assert_called_once_with(UUID, 'workflow:state="rejected"', local=True)
+        self.misp.tag.assert_called_once_with(event, 'workflow:state="rejected"', local=True)
+        self.misp.untag.assert_called_once_with(event, 'workflow:state="draft"')
         self.misp.publish.assert_not_called()
         event.Object[0] = obj
         loaded = misp_store._briefing_ns(event)
@@ -86,8 +86,10 @@ class BriefingRejectionStore(unittest.TestCase):
     def test_workflow_tag_errors_are_reported(self):
         self.misp.get_event.return_value = _event()
         self.misp.tag.return_value = {"errors": ["tag refused"]}
-        with self.assertRaisesRegex(RuntimeError, "tag refused"):
+        with self.assertRaisesRegex(RuntimeError, "refused the workflow state"):
             misp_store.reject_briefing(UUID)
+        # The new state goes on first: refused, the briefing keeps the one it has.
+        self.misp.untag.assert_not_called()
 
     def test_an_edit_keeps_the_reason_and_a_stale_draft_cannot_undo_rejection(self):
         event = _event("rejected", "Needs verification")

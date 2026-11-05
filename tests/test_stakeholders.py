@@ -3,7 +3,9 @@
 A stakeholder is a MISP event that PIRs, GIRs and distribution lists point at by
 UUID, so an edit must never turn it into a new event. The organisation registry
 is a small SQLite table filled from MISP by hand and by every SSO request, and
-the stakeholder page and export read both. Where MISP is called it is an autospec
+the stakeholder page and export read both. A product type removed under
+Settings > Products is not shown as a subscription, as the edit form does not
+offer it. Where MISP is called it is an autospec
 of PyMISP, and the databases are temporary.
 
     python -m unittest tests.test_stakeholders
@@ -436,6 +438,27 @@ class Pages(TempDatabase):
             page = BeautifulSoup(self.client.get(f"/stakeholders/{UUID}").data, "html.parser")
         self.assertIn("RFI-007", page.select_one("span[title^='Cannot be deleted']")["title"])
         self.assertIsNone(page.select_one("form[data-submit-confirm]"))
+
+    def test_a_product_type_no_longer_offered_is_not_shown(self):
+        """Removed under Settings > Products, it stayed in the list, its
+        counts and its filter, though the edit form no longer offered it."""
+        stakeholders = [_stakeholder(products=["Flash intel alert", "Telephone"])]
+        empty = {name: mock.Mock(return_value=[]) for name in (
+            "pirs_for_stakeholder", "pirs_distributed_to_stakeholder", "girs_for_stakeholder",
+            "girs_distributed_to_stakeholder", "products_for_stakeholder")}
+        with mock.patch.object(config, "PRODUCT_TYPES", ["Flash intel alert"]), \
+             mock.patch.object(misp_store, "list_stakeholders", return_value=stakeholders), \
+             mock.patch.object(misp_store, "get_stakeholder", return_value=stakeholders[0]), \
+             mock.patch.object(misp_store, "records_owned_by_stakeholders", return_value={}), \
+             mock.patch.multiple(misp_store, **empty):
+            listed = BeautifulSoup(self.client.get("/stakeholders/").data, "html.parser")
+            detail = BeautifulSoup(self.client.get(f"/stakeholders/{UUID}").data, "html.parser")
+        self.assertNotIn("Telephone", listed.select_one(".list-stats").get_text(" ", strip=True))
+        self.assertNotIn("Telephone", [o.get("value") for o in listed.select('select[name="product"] option')])
+        self.assertIn("1 product", listed.select_one("tbody tr").get_text(" ", strip=True))
+        self.assertNotIn("Telephone", detail.get_text(" ", strip=True))
+        # Still stored, until the stakeholder is saved again.
+        self.assertEqual(stakeholders[0].products, ["Flash intel alert", "Telephone"])
 
 
 if __name__ == "__main__":

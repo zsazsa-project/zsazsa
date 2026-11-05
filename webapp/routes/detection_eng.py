@@ -193,7 +193,8 @@ def wizard_new():
                                 if action == "submit" else misp_store.DER_REVIEW_DRAFT)
         try:
             uuid, der_id = misp_store.create_der(data)
-            product_log.log_product_sources(data.get("source_event_uuids") or [], "detection-eng-request")
+            product_log.log_product_sources(data.get("source_event_uuids") or [], "detection-eng-request",
+                                            data.get("source_event_hints"))
             audit.record("create", "detection_eng", entity_id=uuid, entity_label=der_id)
             flash(f"{der_id} {'submitted for review' if action == 'submit' else 'saved as draft'}.", "success")
             return redirect(url_for("detection_eng.detail", id=uuid))

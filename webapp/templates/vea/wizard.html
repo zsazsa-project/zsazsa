@@ -423,7 +423,7 @@
                  hover events a native title tooltip needs. The title lives on this
                  wrapping span instead, which stays interactive either way. #}
               <span id="btn-rulezet-lookup-wrap"
-                    {% if rulezet_enabled %}title="Enter a CVE ID above first."{% else %}data-rulezet-unconfigured title="Rulezet is not configured: set RULEZET_URL on the Configuration page."{% endif %}>
+                    {% if rulezet_enabled %}title="Enter a CVE ID above first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-lookup" disabled>
                   <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
                        alt="" style="height:22px;vertical-align:middle;margin-right:6px;">

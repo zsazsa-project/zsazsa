@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form,
+{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form, read_again_note,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
 {% from "_sort_header.html" import sort_th with context %}
@@ -131,9 +131,9 @@
                 <a href="{{ url_for('flash_intel.wizard_edit', id=f.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                   <i class="fas fa-pen"></i>
                 </a>
-                <form method="post" action="{{ url_for('flash_intel.delete', id=f.uuid) }}"
+                <form method="post" action="{{ url_for('flash_intel.delete', id=f.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
-                      data-submit-confirm="Delete {{ f.fia_id }}?">
+                      data-submit-confirm="Delete {{ f.fia_id }}?{{ read_again_note(f.review_state) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete">
                     <i class="fas fa-trash"></i>

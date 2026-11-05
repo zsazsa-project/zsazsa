@@ -19,14 +19,14 @@ _AI_CONFIG_FILE = Path(config.DB_FILE).parent / "ai_features.json"
 # Registry of all LLM call sites. Defines labels, descriptions shown in the
 # UI, and the default prompt filename used when no override is saved.
 FEATURES = {
-    "check_relevance": {
-        "label": "Check article relevance",
-        "description": "Evaluates whether a scraped article matches the configured focus points. Run by the analyser pipeline for every new event.",
-        "default_prompt": "flash_intel_relevance.md",
+    "judge_relevance": {
+        "label": "Judge article relevance",
+        "description": "Decides whether an article is worth a flash intel alert and a daily briefing story, against the focus points and the active PIRs and GIRs, and scores it. Run by the analyser once per event; the verdict is reused until the focus points, the requirements, this prompt or the model change.",
+        "default_prompt": "analyser_relevance.md",
     },
     "generate_flash_intel": {
         "label": "Generate Flash Intel Alert (analyser)",
-        "description": "Auto-generates a Flash Intel Alert from a relevant scraped article. Run by the analyser pipeline when an event is deemed relevant.",
+        "description": "Drafts a Flash Intel Alert from an article the relevance check found worth one. Run by the analyser pipeline.",
         "default_prompt": "flash_intel_generate.md",
     },
     "generate_fia_draft": {
@@ -44,15 +44,15 @@ FEATURES = {
         "description": "Writes the narrative summary that opens a Daily Threat Briefing, from the stories the briefing holds. Run by the analyser pipeline and by the Draft with AI button on the summary field.",
         "default_prompt": "daily_briefing_summary.md",
     },
-    "review_briefing_relevance": {
-        "label": "Review daily briefing relevance",
-        "description": "Evaluates whether a source event/report is useful for a Daily Threat Briefing and should be included.",
-        "default_prompt": "daily_briefing_relevance.md",
-    },
     "detect_story_overlaps": {
         "label": "Detect daily briefing overlap",
         "description": "Compares draft daily briefing stories and flags likely duplicate coverage of the same event.",
         "default_prompt": "daily_briefing_overlap.md",
+    },
+    "compare_stories": {
+        "label": "Compare with earlier products",
+        "description": "Compares an article the analyser would make an alert or a briefing story of with the alerts and briefing stories of the last month that resemble it, and says whether it is the same story and adds new facts. Run by the analyser before it drafts.",
+        "default_prompt": "story_similarity.md",
     },
     "summarise_report": {
         "label": "Summarise MISP report",
@@ -83,6 +83,12 @@ FEATURES = {
 
 PROVIDERS = ["openai", "local"]
 
+# A feature that took over from another, whose provider, model and temperature
+# it starts with when an administrator has not set its own: an article sent to
+# a local model before must not go to OpenAI after an update. The prompt is the
+# new feature's, as it asks for a different answer.
+_TAKES_OVER_FROM = {"judge_relevance": "check_relevance"}
+
 
 def _temperature(value):
     """Sampling temperature as a float, or None to leave it to the model."""
@@ -90,6 +96,10 @@ def _temperature(value):
         return min(2.0, max(0.0, float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def _default_provider() -> str:
+    return getattr(config, "LLM_DEFAULT_PROVIDER", "openai")
 
 
 def load() -> dict:
@@ -102,12 +112,18 @@ def load() -> dict:
         logger.warning("ai_config: load failed: %s", exc)
     result = {}
     for fid, meta in FEATURES.items():
-        saved = overrides.get(fid, {})
+        saved = overrides.get(fid)
+        if saved is None:
+            saved = dict(overrides.get(_TAKES_OVER_FROM.get(fid), {}))
+            saved.pop("prompt", None)
         result[fid] = {
             "label": meta["label"],
             "description": meta["description"],
             "default_prompt": meta["default_prompt"],
-            "provider": saved.get("provider", "openai"),
+            # A feature nobody chose a provider for goes to the default one:
+            # one added by an update must not send articles to OpenAI on an
+            # installation that has a local model as its default.
+            "provider": saved.get("provider") or _default_provider(),
             "model": saved.get("model", ""),
             "temperature": _temperature(saved.get("temperature")),
             "prompt": saved.get("prompt", meta["default_prompt"]),
@@ -138,7 +154,7 @@ def save(data: dict) -> None:
 def get_feature(feature_id: str) -> dict:
     """Return effective config for a single feature."""
     return load().get(feature_id, {
-        "provider": "openai",
+        "provider": _default_provider(),
         "model": "",
         "temperature": None,
         "prompt": FEATURES.get(feature_id, {}).get("default_prompt", ""),

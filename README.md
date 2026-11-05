@@ -187,6 +187,8 @@ Flash intel and advisory previews also offer **QA check against source** and **R
 
 Daily briefings can also be rejected from their preview or detail page, with an optional reason shown in Metadata. Rejected briefings have their own review-state filter and chart segment. **Delete all rejected products** in the briefing overview removes rejected briefings only, after confirmation, regardless of the current filters. Published briefings cannot be rejected.
 
+On the alert, advisory and briefing lists, the drafts, and the alerts and advisories waiting for review, can be ticked and then approved and published, rejected or deleted together from the top of the table.
+
 The QA check runs as a page request, not a background job. Keep the page open to read its result. Leaving the page loses the result even if the server finishes the check; the audit log records the verdict, not the full findings.
 
 ![docs/der1.png](docs/der1.png)
@@ -289,7 +291,9 @@ Rulezet is *optional*. Leave `RULEZET_URL` empty and the search buttons are disa
 
 The work that takes longer runs in the background: an analyser action started from the dashboard, a batch of AI summaries from data collection, a single summary on one event, and the scheduled analyser and mailbox runs. 
 
-A **badge in the top bar** displays the running jobs. A job that stops reporting for half an hour is shown as stalled rather than spinning forever. Scheduled runs are also in the job list. So a cron analyser run is visible while it is running and not only once it appears in the history. The job state is kept in **Redis**.  The **Pipeline page** holds the history logs of the jobs. Entries whose source event has since been rotated out of the scraper MISP are hidden until you switch on *Include orphaned*, and *Purge orphaned* drops those rows for good.
+A **badge in the top bar** displays the running jobs. A job that stops reporting for half an hour is shown as stalled rather than spinning forever. Scheduled runs are also in the job list. So a cron analyser run is visible while it is running and not only once it appears in the history. The job state is kept in **Redis**.
+
+The **Pipeline page** has a tab per question. *Overview* lists what needs a look, such as a source that does not answer, a mailbox that failed its poll, a run that failed or the articles that could not be fetched, each with a button to the tab that has the rest. It also charts the last two weeks of the analyser's outcomes. *Sources* has a card per collection source with its last refresh, and the scraper's card lists its feeds and the mailboxes that feed it. *Analyser runs* is the run history. *Activity* is what became of each event, filtered by outcome, period and feed, with the count of each choice beside it. *Indicators* counts the indicators on the servers. The address bar follows the tab. In the activity, entries whose event has since left the scraper MISP are hidden until you tick *Include deleted events*, and *Purge orphaned* drops those rows for good.
 
 ### Collection source management
 
@@ -321,70 +325,76 @@ A channel can accept every product, or it can be restricted to specific product 
 
 ## What the analyser does
 
-The dashboard has a **Start analyser** button with three options: **Daily threat briefing**, **Flash intel alert** and **Vulnerability advisory**. All three start from the same events, but each one decides differently what to do with them. None of them publish anything or notify stakeholders. They only create **drafts** that you then review, edit and publish yourself.
+The dashboard's **Start analyser** button has three options, **Daily threat briefing**, **Flash intel alert** and **Vulnerability advisory**, and the scheduled analyser runs the same three. They make **drafts** for you to review and publish. The one exception is an alert for a stakeholder on automated mode, which is published and sent at once.
 
-### Executed for all three options
+### Reading the events
 
-1. Refreshes the data collection cache.
-2. Asks the scraper MISP for events dated **yesterday or today** (UTC) that have the scraper tag (`SCRAPER_MARKER_TAG`), up to `MISP_SCRAPER_LIMIT` events, and the webapp MISP for the manual entries of those two days that have a report. Yesterday is read as well so an event that came in late in the day is not missed. A manual entry without one is left for you, as there is nothing for the AI to read.
-3. Keeps only events that still need work, with workflow state `incomplete` or `ongoing`. Events marked `complete` or `rejected` are left alone.
-4. Drops events it cannot use: the article could not be fetched (HTTP error) or the report is empty. These are `rejected`. A failed MISP report request stops the action instead of treating the event as empty.
-5. For each remaining event it makes sure there is an AI summary report, and creates one if it is missing, on the MISP the event is on. When the model or MISP fails on one event, that event goes on without a summary and the run continues with the others. The next scheduled run reads it again for its summary.
+Each option reads what came in or changed since its previous completed run, scheduled or from the dashboard, on the sources switched on under Settings > Analyser:
 
-A manual entry synced to the scraper is processed once, using its original event on the webapp MISP. Generated products keep that source location for later edits and deletion.
+- the scraper's events (`SCRAPER_MARKER_TAG`), at most `ANALYSER_MAX_EVENT_AGE_DAYS` old;
+- the manual entries that have a report;
+- the events with a report on each additional MISP server whose "Analyse its events" is on, through that server's filters and at most its "Max events" a run.
 
-Generated products are never classified below their source events. The default is TLP clear for a briefing and amber for an alert or advisory, raised to the strictest TLP of the sources included. Recipient selection and automated alert delivery use that resulting classification.
+Its first run on zsazsa's own MISP reads the last hour, or the last day for the briefing and the advisories. Another server is read over its "Events from last (days)" window every time, as a synced event keeps the timestamp it had elsewhere. An event the option already handled is only read again when its MISP timestamp shows it changed since. A source that cannot be reached is reported on the run and read again by the next one.
+
+On zsazsa's own MISP only the events in workflow state `incomplete` or `ongoing` are kept. Another server's events are not zsazsa's to change: the analyser keeps what it decided about them in zsazsa, and adds at most an AI summary, where that server's "Allow adding reports to events" is on. An event on two sources is read once, from zsazsa's own MISP.
+
+An event whose article could not be fetched, or whose report is empty, is rejected. Every other event gets an AI summary when it has none, or when its summary is older than the article. A summary that fails leaves the event for the next run.
+
+A product is never classified below its source events: TLP clear for a briefing and amber for an alert or advisory, raised to the strictest TLP of its sources.
+
+### The relevance verdict
+
+The alerts and the briefing go by one AI call per event. It reads the article, its title and its summary against your focus points and your active PIRs and GIRs (not those set to "Won't have"), and says whether the event is worth an alert, a briefing story, both or neither. An alert is for what needs attention within the day. A story is threat information that substantively concerns a focus point or answers a requirement, or, with `ANALYSER_MAJOR_DEVELOPMENTS` on, a major development every organisation needs to know about. A vendor's vulnerability notice that reports no exploitation is left to the advisories.
+
+The AI names its grounds, each with a quote from the article. A ground only counts when it is one of yours and its quote, of four different words or more, is in the article or its title. A quote shortened with "..." needs its parts in that order, each of two words or more. The same call scores the article on the `cti-evaluation` taxonomy and reads its publication date: by default an alert needs an article at most three days old, and a story one at most a week. An article whose date is not known is not held back.
+
+The verdict is kept and reused by later runs until the focus points, the requirements, the prompt or the model change, or the event's title, date, summary or article does. An answer that cannot be read leaves the event open, for at most `ANALYSER_RELEVANCE_ATTEMPTS` runs.
+
+Your own `cti-evaluation` scores, set on the data collection page, take the model's place. Your relevance score also overrides the verdict: **very high** pushes an event to an alert and the briefing, **high** to the briefing, and **low** or lower keeps it out of both. A pushed event goes past the limits and the briefing's cap, is read whatever its age, and is opened again if the analyser had rejected it.
+
+On the Pipeline page, an event the analyser declined has two buttons in its activity. **Push** sets that relevance score, for the briefing or for an alert and the briefing, and the next run makes the product. **Review by hand** flags it for follow-up and opens it again on Data collection. The analyser never rejects an event flagged for follow-up, so it stays there until an analyst deals with it.
+
+**Read again the last (hours)** under Start analyser reads that many hours back, the events already handled included, for after a change to the focus points, a requirement or a prompt. An event already judged under the current settings costs no model call. Nothing needs doing after a product is deleted: the analyser reads its source events again on its next run, unless the product was rejected, so reject a draft you do not want rather than delete it.
+
+### Earlier products
+
+Before an alert or a briefing story is made, the event is compared with the alerts and briefing stories of the last 30 days (`ANALYSER_SIMILARITY_DAYS`), in any state. Only those sharing a CVE, a threat actor or much of the title are compared, by the AI. The same story is left out, and not proposed again. One that adds facts becomes an update that names the earlier product, unless that one was rejected. When the comparison fails, the product is made and says it was not compared.
 
 ### Daily threat briefing
 
-This option is about **situational awareness** for your organisation: what happened today that concerns what you follow.
-
-1. It applies the title exclusion list (`DAILY_BRIEFING_TITLE_EXCLUSIONS`) and skips events already used in an earlier briefing. A story you delete from a briefing does not come back: saving the briefing rejects its source event, and so does deleting a rejected briefing. Deleting a draft briefing as a whole gives its events back to the analyser, so it can be made again.
-2. For each event it asks the AI whether the story contains threat information relevant to your briefing. The AI is given your focus points and your active PIRs and GIRs, and keeps a story with concrete threat information (an incident, a campaign, an exploited CVE, attacker techniques) that substantively concerns one of them, or a major threat development every organisation needs to know about, such as mass exploitation of a widely used product. Broad usefulness to defenders is not enough without threat information relevant to the organisation. Recaps, opinion, trends, marketing and threats confined to regions, sectors and technologies you do not follow are left out. Those events are rejected, with the reason written back onto the event. An event whose answer could not be read is left out of the briefing but not rejected, and shows as "left open" in the run's decisions. It can be assessed again while it remains within the event-date window.
-3. For the events it keeps, it drafts a short write-up with your focus points in mind, extracts sectors, geographies, techniques, threat actors and vendors, and removes near-duplicate stories.
-4. From the stories that survive, it writes the **briefing summary**: a few sentences covering the day as a whole, grouping the stories that share a sector, geography, actor or technique.
-5. The result is one **daily briefing draft** holding the day's stories, ready to review and publish.
+1. It leaves out the events with an excluded title (`DAILY_BRIEFING_TITLE_EXCLUSIONS`), those already in a briefing and those listed under Also seen. A story you delete from a briefing does not come back: saving the briefing rejects its event.
+2. It keeps the events the verdict wants for the briefing, best first: those you pushed, then the ones worth an alert, then by the priority of the PIRs they answer and their overall score, and the major developments last.
+3. It drops the stories that repeat another of the day or of an earlier briefing, and keeps the first 15 (`ANALYSER_BRIEFING_MAX_STORIES`). The rest are listed under "Also seen" on the draft, which is not sent, and from where you can add one back.
+4. It drafts a story per event and a summary of the day. A later run on the same day adds to that draft.
+5. It closes the events no product wants (see [Closing the events](#closing-the-events)).
 
 ### Flash intel alert
 
-This option is **requirement-driven**. It only acts on events that match something you are actively tracking.
-
-1. For each event it compares the event's tags and galaxy clusters against the scope of your **active PIRs and GIRs**.
-2. A keyword match is only a lead. For each matched requirement, best match first and at most three, the AI reads the article against the requirement's question or topic and scope. The first requirement it confirms gets the **flash intel draft**, pre-filled with the summary, linked to that requirement and with the AI's reason. An event the AI confirms for none is logged as not relevant, with its reason.
-3. A story that an alert still in draft or in review already tells, or one made earlier in the run, gets no second alert: the AI compares the event with those alerts, and the event is logged as "The same story as FIA-…".
-4. An event that matches nothing is skipped and logged as **"no PIR/GIR match"**. It is not an error. It means the event was not relevant to any current requirement.
-5. If you have no active PIRs or GIRs, or none whose scope fits the events read, this option creates nothing.
+1. It leaves out the events with an excluded title, and those that already have an alert, rejected ones included.
+2. It makes an alert of each event the verdict wants for one. A PIR on its own only gives an alert from `ANALYSER_ALERT_MIN_PRIORITY` ("Should have" by default); a focus point or a GIR always may.
+3. The AI drafts it with the prompt of the Build with AI button, for the stakeholders of every PIR and GIR in its grounds, or, from focus points alone, for everyone it can reach. An alert that cannot be drafted is tried again by the next run.
+4. A stakeholder on automated mode, cleared for its TLP, gets it published and sent at once.
+5. While the daily briefing is off, it closes the events no product wants.
 
 ### Vulnerability advisory
 
-This option is **CVE-driven**.
+This option goes by CVEs, not by the verdict, and the title exclusions do not apply to it.
 
-1. For each event it looks for a CVE in its vulnerability attributes, and otherwise in its title.
-2. An event with at least one CVE gets a **vulnerability advisory draft**. The CVE is enriched from a vulnerability database (CVSS score, affected products and versions, description) and the advisory sections are drafted by the AI.
-3. An event with no CVE is skipped and logged as **"no CVE found"**. So is one whose CVEs are already in a draft, an advisory in review or a rejected advisory: a CVE you turned down does not come back with every new article about it. One whose advisory was approved does get a new draft.
-4. With the **asset database** on (Settings > Products), only a CVE in a product of your inventory makes a draft. See [Products](#products).
+1. It looks for CVEs in the event's vulnerability attributes, otherwise in its title, and looks up at most ten (`ANALYSER_ADVISORY_MAX_CVES`).
+2. It leaves out a CVE that an advisory of the last 90 days names, in any state, unless the CVE has since gone on the CISA KEV list or its CVSS score rose by 1.0 or more. The new draft then names the earlier advisory. A rejected advisory keeps the CVE out even then.
+3. It keeps a CVE only when it concerns you: its product is in the asset database (when that is on), or its vendor or product is a vendor or technology focus point or in the scope of an active PIR or GIR. A record that names no product yet is matched on the title and summary, and otherwise passes, marked as not checked. With nothing to match against, every CVE passes.
+4. It drafts one advisory per event for the CVEs left, enriched from the vulnerability database. An event with a CVE that could not be looked up waits for the next run.
 
-### The three options side by side
+### Closing the events
 
-| Option | What it acts on | What it skips, and why | Output |
-|---|---|---|---|
-| Daily threat briefing | Yesterday's and today's scraped events and manual entries with threat information relevant to your focus points and requirements, or a major threat development every organisation needs to know about | Off-topic stories, excluded titles, events already briefed | One daily briefing draft with the day's stories |
-| Flash intel alert | Yesterday's and today's scraped events and manual entries that match an active PIR or GIR and that the AI confirms against it | Events logged as "no PIR/GIR match", matches the AI turns down, stories an open alert already tells | One flash intel draft per matched event |
-| Vulnerability advisory | Yesterday's and today's scraped events and manual entries that mention a CVE | Events logged as "no CVE found" | One vulnerability advisory draft per CVE event |
-
-In every case the analyser stops at drafts. Publishing and sending to stakeholders is always a separate step you take by hand. The drafts come with an audience, which an alert or advisory needs before it can be published: a flash intel alert from a PIR or GIR is for the roles of the requirement's owner and of the stakeholders it is distributed to, and any other alert or advisory for the roles of everyone who can receive it, its subscribers cleared for its TLP. Narrow it down before publishing where that is too wide. The alert and advisory lists show under each title why the analyser made the draft.
+The briefing's run, or the alerts' run while the briefing is off, rejects the events every product declined: the option is off, the title is excluded, the verdict does not want it or it repeats an earlier story, and the advisories found no CVE to take. The reasons go on the event as a report. An event stays open while it has a product, is flagged for follow-up, its verdict is still to come or the advisories have not seen its CVEs yet. The advisories decide its CVEs again at this point, and one that would get an advisory now keeps it open too. An event on another MISP server is closed in zsazsa.
 
 ### The scheduled analyser
 
-`run_analyser.py` runs from cron or in the analyser container. By default it only makes flash intel alerts from focus points. Under Settings > System > Analyser you can also switch on the three options of **Start analyser**.
+`run_analyser.py` runs from cron or in the analyser container. By default it only makes flash intel alerts; the advisories and the daily briefing are switched on under Settings > Analyser. A run makes the advisories, then the alerts, and once a day, from `ANALYSER_DAILY_BRIEFING_HOUR` (UTC), the briefing. That briefing adds to a draft made from the dashboard the same day, and adds nothing once the day's briefing is published. A source that could not be read, or an event left for the next run, keeps the day open for the next run.
 
-**Alerts from focus points.** Each run reads the `incomplete` scraper events, and the manual entries with a report, since the previous run, at most `POLL_WINDOW_HOURS` back. The AI checks each article against the focus points. A match becomes a draft flash intel alert at TLP amber or the source's higher classification, and the source event moves to `ongoing`, unless an alert still in draft or in review, or one made earlier in the run, already tells the story. An event whose answer from the AI could not be read is left `incomplete` and logged as an error. The next hourly run only reads what changed, so a briefing or a dashboard run can assess it again while it remains within the event-date window. What happens to an event that matches no focus point depends on the daily briefing. With the scheduled briefing on, the event stays `incomplete`, and the briefing judges it in the evening with its own, wider question, which also lets in a major threat development every organisation needs to know about. With the briefing off, the event is rejected, unless it matches an active PIR or GIR, so a briefing started from the dashboard can still judge it. That match is read from the event's tags and galaxies, which the AI summary adds: switch on the alerts from PIRs and GIRs or the advisories as well, and the summaries are written before this check. With the scheduled briefing on, the data collection queue and the dashboard's pending count therefore hold more open events during the day, until the briefing has run. For a stakeholder subscribed in **automated** mode, the alert is published and sent without review.
-
-**The Start analyser options** work as described above. The alerts from PIRs and GIRs and the advisories, which run every hour, only read the events that came in or changed since their previous scheduled run, so an event is not checked and logged again every hour. The daily briefing is made once a day, from `ANALYSER_DAILY_BRIEFING_HOUR` (UTC). In a run, the alerts from PIRs and GIRs and the advisories go first, then the alerts from focus points, and the briefing last: the check against the focus points can reject an event that matches no focus point, and the briefing rejects events that lack relevant threat information, which would take them out of the others. An event that got an alert from a PIR or GIR earlier in the run is not checked against the focus points, since it has its alert. One that got an advisory is, so a CVE in a product you run can also get an alert. Each option first writes the missing AI summaries, which adds a model call per new event.
-
-The analyser picks events by their MISP `date`, not by when they last changed, and never past today (UTC). The alerts from focus points read the days `POLL_WINDOW_HOURS` reaches back into, yesterday and today with the default 24 hours, and of those only the events changed since the previous run. Editing an older event does not bring it back.
-
-An event never gets more than one flash intel alert.
+One analyser run goes at a time. The dashboard shows the run that is going and holds its Start buttons, and a scheduled run that finds one going skips its hour. A run whose lock has not been refreshed for an hour, as when its process died, loses it. A run also stops, rather than decide on part of them, when MISP cannot list the products or the requirements in full.
 
 ## Importing newsletters
 
@@ -437,7 +447,7 @@ Polling is done by `run_imap_collector.py`. In Docker the `imap-collector` conta
 */15 * * * * cd /var/www/MISP/misp-custom/zsazsa && venv/bin/python run_imap_collector.py
 ```
 
-The Pipeline page (`/pipeline`) shows each mailbox with its last poll and result, and every poll also appears in the run history. Processed messages are flagged with a dedicated IMAP keyword (`zsazsaProcessed`) and marked Seen and Flagged; the keyword, not the read state, is what prevents reprocessing, and nothing is ever deleted from the mailbox.
+The Pipeline page (`/pipeline`) shows each mailbox with its last poll and result under Sources, and every poll also appears in the run history. Processed messages are flagged with a dedicated IMAP keyword (`zsazsaProcessed`) and marked Seen and Flagged; the keyword, not the read state, is what prevents reprocessing, and nothing is ever deleted from the mailbox.
 
 ## Configuration
 
@@ -445,42 +455,92 @@ Almost all runtime settings are in `config/__init__.py`, which is `docker/volume
 
 The Configuration and Collection sources pages and the setup wizard are for MISP site admins only (`perm_site_admin` on the user's role), and the Settings menu is hidden from everyone else. Without single sign-on everyone works as the same identity and the pages stay open to all. See the single sign-on section under System for when zsazsa treats single sign-on as in use.
 
+Each tab but Prompts opens with an overview of what is set up and a menu of its sections. The address bar follows the tab, so a tab or a section can be linked to.
+
 Keys and passwords are never shown again once saved. A field holding one reads "Configured, leave blank to keep": type a new value to replace it, or leave it empty to keep it. Where a secret can be left unset, such as the SMTP password or an LLM key, a "Remove" box under the field clears it. A stored secret stays with the address it was entered for: changing a URL or host means entering its key or password again, and the connection tests only use a stored secret against its own address.
 
 ### Connections
 
-This tab covers the MISP server zsazsa uses as its own **data store**, configured through `MISP_WEBAPP_URL`, `MISP_WEBAPP_KEY` and `MISP_WEBAPP_VERIFYCERT`.
+This tab covers the MISP server zsazsa uses as its own **data store** (`MISP_WEBAPP_URL`, `MISP_WEBAPP_KEY` and `MISP_WEBAPP_VERIFYCERT`), Rulezet and the asset database. Its overview links to where the other connections are set up.
+
+The **asset database** is a CSV file of the products you run, one `"Supplier","Product","Version"` row each, read again every `ASSET_INVENTORY_REFRESH_MINUTES`. With Docker, put it under `volumes/data`. With it on, a CVE whose supplier and product, as the vulnerability database lists them, are in the file is in scope for an advisory, which names the asset under "Our exposure". Names are compared loosely: case, punctuation and forms such as "Inc." are ignored, "PAN-OS" is "PANOS", and a supplier matches its initials, so "HPE" is Hewlett Packard Enterprise. The version is not compared. A file that cannot be read fails the advisory run.
 
 | Setting | Description |
 |---|---|
 | `MISP_WEBAPP_URL` | URL of the MISP server zsazsa uses to store its own program data |
 | `MISP_WEBAPP_KEY` | API key for the webapp MISP server. It needs no site admin, but the Configuration page warns when its role lacks a permission zsazsa uses, such as publishing or tagging, or when the key is read-only |
 | `MISP_WEBAPP_VERIFYCERT` | Whether to verify the webapp MISP server's TLS certificate. On by default; see below for a MISP whose certificate comes from your own CA |
-| `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance. Product forms search it for public detection rules by CVE ID or MITRE ATT&CK technique, and a product page reads a saved rule back from it. A detection engineering request also validates its draft rule against it. Leave empty to disable the lookup |
+| `RULEZET_ENABLED` | Whether the Rulezet integration is on (on by default) |
+| `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance. Product forms search it for public detection rules by CVE ID or MITRE ATT&CK technique, and a product page reads a saved rule back from it. A detection engineering request also validates its draft rule against it. Leave empty, or switch Rulezet off, to disable the lookup |
+| `ASSET_INVENTORY_ENABLED` | Only make a vulnerability advisory for a CVE in a product of the asset inventory |
+| `ASSET_INVENTORY_FILE` | The asset inventory, a CSV file of `"Supplier","Product","Version"` rows |
+| `ASSET_INVENTORY_REFRESH_MINUTES` | How often the asset inventory is read again |
 
 zsazsa checks a MISP server's certificate against the CA list that ships with Python's requests package, not the host's. For a MISP whose certificate comes from your own CA, leave verification on: add the CA to the host (on Debian or Ubuntu, copy it to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`), then set `REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt` for the web app (an `Environment=` line in the systemd unit) and in front of the analyser and IMAP collector cron entries. Point it at the host's whole bundle rather than at your CA alone, or the public services zsazsa calls stop verifying. Turning verification off instead sends the API key to whatever answers at that address.
 
 ### Products
 
-The Products tab covers how products and requirements are categorised and summarised. `PRODUCT_TYPES` defines the catalogue of CTI product types offered when creating a product. `DAILY_BRIEFING_TITLE_EXCLUSIONS` lists story titles or phrases that the daily briefing analyser should ignore when proposing stories. The five `FOCUS_POINTS_*` lists (geographies, sectors, technologies, threat types and threat actors) define the organisation-wide focus points used when previewing relevance against scraper events and when generating AI summaries. `THREAT_ACTOR_TYPES` is a small table of threat actor type names and descriptions, based on the ENISA taxonomy, used when classifying threat actors in products and requirements.
-
-The **Vulnerability advisory** card holds the **asset database**. With it on, the analyser only makes a vulnerability advisory for a CVE in a product you run: it looks for the CVE's supplier and product, as the vulnerability database lists them, in your inventory. An event without a match is logged as "not in the asset inventory", and a matched advisory names the asset under "Our exposure". A CVE whose record names no product, because it is still reserved or its lookup failed, cannot be checked: it makes a draft whose "Our exposure" says so, for the analyst to decide, unless another CVE of the event is in the inventory. Names are compared loosely: case, punctuation and company forms such as "Inc." do not count, "PAN-OS" is "PANOS", and a supplier matches its initials, so "HPE" is Hewlett Packard Enterprise. The version is shown but not compared. An advisory made by hand is not checked. The inventory is a CSV file for now, one asset per line as `"Supplier","Product","Version"`, read again every `ASSET_INVENTORY_REFRESH_MINUTES`; with Docker, put it under `volumes/data`. The card says how many assets the file holds, or why it cannot be read, and a file that cannot be read fails the advisory run.
+The Products tab covers how products and requirements are categorised. `PRODUCT_TYPES` is the catalogue of CTI product types offered when creating a product. `DAILY_BRIEFING_TITLE_EXCLUSIONS` lists titles or phrases of events the analyser keeps out of the daily briefing and the flash intel alerts. The six `FOCUS_POINTS_*` lists are the organisation-wide focus points: the relevance verdict judges each article against them, and the advisories check a CVE against the vendors and technologies. The geographies, sectors, threat types and threat actors offer the names of their MISP galaxy to pick from. A name the galaxy does not have is marked, as the AI then gets only the list's type for it. `THREAT_ACTOR_TYPES` is a small table of threat actor types, based on the ENISA taxonomy, used when classifying threat actors in products and requirements.
 
 | Setting | Description |
 |---|---|
 | `PRODUCT_TYPES` | Catalogue of CTI product types offered when creating a product |
-| `DAILY_BRIEFING_TITLE_EXCLUSIONS` | Story titles or phrases the daily briefing analyser should ignore |
+| `DAILY_BRIEFING_TITLE_EXCLUSIONS` | Titles or phrases of events left out of the daily briefing and the flash intel alerts |
 | `FOCUS_POINTS_GEOGRAPHIES` | Organisation-wide geography focus points |
 | `FOCUS_POINTS_SECTORS` | Organisation-wide sector focus points |
+| `FOCUS_POINTS_VENDORS` | Organisation-wide vendor focus points |
 | `FOCUS_POINTS_TECHNOLOGIES` | Organisation-wide technology focus points |
 | `FOCUS_POINTS_THREAT_TYPES` | Organisation-wide threat type focus points |
 | `FOCUS_POINTS_THREAT_ACTORS` | Organisation-wide threat actor focus points |
 | `THREAT_ACTOR_TYPES` | Threat actor type names and descriptions (ENISA taxonomy) |
-| `ASSET_INVENTORY_ENABLED` | Only make a vulnerability advisory for a CVE in a product of the asset inventory |
-| `ASSET_INVENTORY_FILE` | The asset inventory, a CSV file of `"Supplier","Product","Version"` rows |
-| `ASSET_INVENTORY_REFRESH_MINUTES` | How often the asset inventory is read again |
 
 Renaming a product type does not rename it in the stakeholder subscriptions already stored in MISP. The System tab has a migration for the one rename that shipped with zsazsa ("Vulnerability exploitation advisory" to "Vulnerability advisory").
+
+### Analyser
+
+The Analyser tab holds the analyser's settings in the order it works (see [What the analyser does](#what-the-analyser-does)): what it reads, how it judges an article, the settings of the alerts, the briefing and the advisories, the comparison with earlier products and its logs. A change applies from the next run, without a restart.
+
+Under **What it reads**, each kind of source is switched on or off for every product at once. The articles sent from newsletters come in through the scraper and go with it, as their events cannot be told apart from the others. A source switched on again is read from where the analyser left it.
+
+| Setting | Description | Default |
+|---|---|---|
+| `ANALYSER_FLASH_INTEL` | Make flash intel alerts on the scheduled runs | on |
+| `ANALYSER_VULNERABILITY_ADVISORIES` | Make vulnerability advisories on the scheduled runs | off |
+| `ANALYSER_DAILY_BRIEFING` | Make the daily briefing on the scheduled runs | off |
+| `ANALYSER_DAILY_BRIEFING_HOUR` | Hour (UTC) from which the daily briefing is made | 21 |
+| `ANALYSER_READ_SCRAPER` | Read the scraper's events | on |
+| `ANALYSER_READ_MANUAL` | Read the manual entries | on |
+| `ANALYSER_READ_MISP_SERVERS` | Read the other MISP servers whose "Analyse its events" is on. Each event read costs a model call | on |
+| `ANALYSER_MAX_EVENT_AGE_DAYS` | Oldest scraper event read, in days, by its MISP date | 7 |
+| `ANALYSER_LOOKBACK_HOURS` | How far back the alerts read a source the first time, in hours | 1 |
+| `ANALYSER_BRIEFING_LOOKBACK_HOURS` | The same for the daily briefing and the advisories | 24 |
+| `ANALYSER_MAJOR_DEVELOPMENTS` | A major threat development is a briefing story without a focus point or requirement behind it | on |
+| `ANALYSER_ARTICLE_CHARS` | How much of the article the relevance call reads | 12000 |
+| `ANALYSER_RELEVANCE_ATTEMPTS` | Runs that try an unreadable answer again before the event is left to the analyst | 3 |
+| `ANALYSER_PULL` | An analyst's relevance score at or below this keeps the event out of the alerts and the briefing | low |
+| `ANALYSER_PUSH_BRIEFING` | An analyst's relevance score at or above this pushes the event to the briefing | high |
+| `ANALYSER_PUSH_ALERT` | An analyst's relevance score at or above this pushes the event to an alert | very-high |
+| `ANALYSER_VERY_HIGH_TIMELINESS_DAYS`, `ANALYSER_HIGH_TIMELINESS_DAYS`, `ANALYSER_MODERATE_TIMELINESS_DAYS`, `ANALYSER_LOW_TIMELINESS_DAYS` | Age in days up to which an article's timeliness is very high, high, moderate and low. Older is very low | 1, 3, 7, 30 |
+| `ANALYSER_WEIGHT_USEFULNESS`, `ANALYSER_WEIGHT_SPECIFICITY`, `ANALYSER_WEIGHT_TIMELINESS` | Weights of the three in the overall score | 1 each |
+| `ANALYSER_ALERT_MIN_PRIORITY` | Lowest priority of a PIR that gives an alert on its own | Should have |
+| `ANALYSER_ALERT_MIN_TIMELINESS`, `ANALYSER_ALERT_MIN_USEFULNESS`, `ANALYSER_ALERT_MIN_SPECIFICITY`, `ANALYSER_ALERT_MIN_OVERALL` | Lowest scores for an alert. Empty is not checked | high, then empty |
+| `ANALYSER_BRIEFING_MAX_STORIES` | Most stories in a briefing. The rest are listed under Also seen | 15 |
+| `ANALYSER_OVERLAP_SCORE` | Of two stories of one briefing this alike, the later one is dropped | 0.65 |
+| `ANALYSER_BRIEFING_WITH_ALERTS` | An event with an alert can also be a story | on |
+| `ANALYSER_BRIEFING_MIN_TIMELINESS`, `ANALYSER_BRIEFING_MIN_USEFULNESS`, `ANALYSER_BRIEFING_MIN_SPECIFICITY`, `ANALYSER_BRIEFING_MIN_OVERALL` | Lowest scores for a briefing story. Empty is not checked | moderate, then empty |
+| `ANALYSER_ADVISORY_DAYS` | Days an advisory, in any state, keeps its CVEs from another | 90 |
+| `ANALYSER_ADVISORY_MAX_CVES` | CVEs looked up per event | 10 |
+| `ANALYSER_ADVISORY_CVSS_FLOOR` | Lowest CVSS score that gets an advisory, 0 for any | 0.0 |
+| `ANALYSER_ADVISORY_UPDATES` | A covered CVE now on the CISA KEV list, or whose CVSS score rose, gets an update | on |
+| `ANALYSER_ADVISORY_CVSS_RISE` | The CVSS rise that counts | 1.0 |
+| `ANALYSER_ADVISORY_REJECTED_BLOCKS` | A rejected advisory blocks updates | on |
+| `ANALYSER_ADVISORY_KEV_ONLY` | Only CVEs on the CISA KEV list | off |
+| `ANALYSER_SIMILARITY_DAYS` | Days of alerts and briefing stories, in any state, an event is compared with | 30 |
+| `ANALYSER_SHORTLIST_OVERLAP` | Title word overlap that has the AI compare an earlier product, besides a shared CVE or threat actor | 0.35 |
+| `ANALYSER_SAME_STORY_SCORE` | Score that counts as the same story | 0.65 |
+| `ANALYSER_REJECTED_BLOCKS_UPDATES` | A rejected product blocks updates of its story | on |
+| `EVENT_LOG_RETENTION_DAYS` | Days the rows of the `event_log` table are kept | 90 |
+| `PIPELINE_RUN_LOG_RETENTION_DAYS` | Days the pipeline run history is kept | 90 |
 
 ### System
 
@@ -488,7 +548,7 @@ The System tab holds six cards.
 
 **MISP event distribution** sets `MISP_EVENT_DISTRIBUTION`, the distribution level given to every event zsazsa creates in MISP.
 
-**Analyser** contains `POLL_WINDOW_HOURS` (how far back the analyser looks for new events on each run), what the scheduled analyser makes (see [The scheduled analyser](#the-scheduled-analyser)), `EVENT_LOG_RETENTION_DAYS` (how long rows in the `event_log` table are kept), `PIPELINE_RUN_LOG_RETENTION_DAYS` (how long pipeline run history is kept) and `AUDIT_LOG_RETENTION_DAYS` (how long the audit log under Reporting > Logs is kept, 0 for good). A product's delivery badge comes from the audit log, so it goes when the entry does. **Logging** sets `LOG_LEVEL`. **Web server** covers `HOSTNAME` and `PORT`, plus `SSL_ENABLED`, `SSL_CERT` and `SSL_KEY` for running the built-in server with TLS. After changing the port or SSL settings, restart the application for the change to take effect. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there takes the place of `PORT`; the Docker setup sets both. `HOSTNAME` does not change the listener: it is kept for reference and for building links.
+**Logging** sets `LOG_LEVEL` and `AUDIT_LOG_RETENTION_DAYS`, how long the audit log under Reporting > Logs is kept, 0 for good. A product's delivery badge comes from the audit log, so it goes when the entry does. **Web server** covers `HOSTNAME` and `PORT`, plus `SSL_ENABLED`, `SSL_CERT` and `SSL_KEY` for running the built-in server with TLS. After changing the port or SSL settings, restart the application for the change to take effect. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there takes the place of `PORT`; the Docker setup sets both. `HOSTNAME` does not change the listener: it is kept for reference and for building links.
 
 **Single sign-on** is described in its own section below.
 
@@ -497,14 +557,6 @@ The System tab holds six cards.
 | Setting | Description |
 |---|---|
 | `MISP_EVENT_DISTRIBUTION` | Distribution level for events zsazsa creates: 0 your organisation, 1 this community, 2 connected communities, 3 all communities |
-| `POLL_WINDOW_HOURS` | How far back the analyser looks for new events on each run |
-| `ANALYSER_FLASH_INTEL` | Make flash intel alerts from focus points (on by default) |
-| `ANALYSER_FLASH_INTEL_REQUIREMENTS` | Make flash intel alerts from PIRs and GIRs |
-| `ANALYSER_VULNERABILITY_ADVISORIES` | Make vulnerability advisories |
-| `ANALYSER_DAILY_BRIEFING` | Make the daily briefing |
-| `ANALYSER_DAILY_BRIEFING_HOUR` | Hour (UTC) from which the daily briefing is made |
-| `EVENT_LOG_RETENTION_DAYS` | How long rows in the `event_log` table are kept |
-| `PIPELINE_RUN_LOG_RETENTION_DAYS` | How long pipeline run history is kept |
 | `AUDIT_LOG_RETENTION_DAYS` | How long the audit log is kept (365 days by default, 0 keeps it for good) |
 | `LOG_LEVEL` | Logging verbosity |
 | `HOSTNAME` | Hostname or IP shown for reference and used to build links |
@@ -557,9 +609,10 @@ This tab lists every prompt template file found in `zsazsaprompts/`.
 |---|---|
 | `summarise_misp_report` | Must keep its `**Targeted sector:**`, `**Geographic scope:**`, `**MITRE ATT&CK techniques:**`, `**Threat actor:**` and `**Vendor/Technology:**` headings |
 | `flash_intel_generate` | Must keep its overall section and field structure, since the "Generate AI draft" feature reads it line by line |
-| `flash_intel_relevance` | Must keep returning the `relevant`, `matched_focus_points`, `source_type`, `confidence` and `reason` JSON keys |
+| `analyser_relevance` | Must keep returning the `alert`, `briefing`, `scores`, `publication_date` and `source_type` JSON keys, with a `grounds` list of `name` and `quote` for each product. zsazsa adds the focus points and the active PIRs and GIRs after the prompt, whatever it says |
+| `analyser_major_development` | The major development rule, added after the focus points and requirements while it is switched on. It must keep asking for `major_development` |
 | `daily_briefing_story` | Must keep the five-line structure followed by the `Threat actor type: <type>` line, which is parsed out separately |
-| `daily_briefing_relevance` | Must keep returning only the `include` and `reason` JSON keys. zsazsa adds the focus points, the active PIRs and GIRs and the rule for weighing a story against them after the prompt, whatever it says |
+| `story_similarity` | Must keep returning the `matches` JSON list, with 1-based `index`, `score` and `new_facts` |
 | `daily_briefing_overlap` | Must keep returning the `summary` and `overlaps` JSON structure, with 1-based story indexes |
 | `daily_briefing_summary` | Must keep returning one plain paragraph, since it is rendered as-is at the top of the briefing preview, mail and PDF |
 | `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, since each key fills a named form field or panel |
@@ -605,7 +658,7 @@ Token usage is recorded per provider in the `llm_usage` table of the analyser da
 
 ### Context elements
 
-This tab covers zsazsa's MISP tags and tag presets. The entity type markers `TAG_STAKEHOLDER`, `TAG_PIR`, `TAG_GIR` and `TAG_RFI` identify the corresponding zsazsa entities in MISP. The product classification tags `TAG_FLASH_INTEL`, `TAG_VEA`, `TAG_BRIEFING`, `TAG_TLR`, `TAG_INDICATOR_FEED`, `TAG_THREAT_ACTOR_PROFILE` and `TAG_DETECTION_ENG` mark products by type. `SCRAPER_MARKER_TAG` is the tag the analyser and the data collection page use to recognise events coming from the misp-scraper instance, `TAG_COLLECTION_FOLLOWUP` flags collection items for analyst follow-up, and `TAG_COLLECTION_DISMISSED` marks events from another MISP server that an analyst set aside, since their workflow state belongs to that server. `RECOMMENDED_ACTIONS_IMMEDIATE` and `RECOMMENDED_ACTIONS_NEAR_TERM` are organisation-wide presets offered as one-click insert buttons in the Flash Intel and VEA wizards. Finally, `COLLECTION_TAG_STRIP_PREFIXES` and `COLLECTION_TAG_HIDE_PREFIXES` control how tags are shortened or hidden when displaying events on the data collection page.
+This tab covers zsazsa's MISP tags and tag presets. Each tag links to the MISP events that have it. The entity type markers `TAG_STAKEHOLDER`, `TAG_PIR`, `TAG_GIR` and `TAG_RFI` identify the corresponding zsazsa entities in MISP. The product classification tags `TAG_FLASH_INTEL`, `TAG_VEA`, `TAG_BRIEFING`, `TAG_TLR`, `TAG_INDICATOR_FEED`, `TAG_THREAT_ACTOR_PROFILE` and `TAG_DETECTION_ENG` mark products by type. `SCRAPER_MARKER_TAG` is the tag the analyser and the data collection page use to recognise events coming from the misp-scraper instance, `TAG_COLLECTION_FOLLOWUP` flags collection items for analyst follow-up, and `TAG_COLLECTION_DISMISSED` marks events from another MISP server that an analyst set aside, since their workflow state belongs to that server. `RECOMMENDED_ACTIONS_IMMEDIATE` and `RECOMMENDED_ACTIONS_NEAR_TERM` are organisation-wide presets offered as one-click insert buttons in the Flash Intel and VEA wizards. Finally, `COLLECTION_TAG_STRIP_PREFIXES` and `COLLECTION_TAG_HIDE_PREFIXES` control how tags are shortened or hidden when displaying events on the data collection page.
 
 Everything zsazsa writes in the `zsazsa:` namespace is attached as a local tag, so it never syncs to connected MISP instances.
 
@@ -658,7 +711,7 @@ Delivery itself runs as a background job.
 
 ### Styling
 
-The Styling tab covers branding used in PDF exports and notifications: `BRAND_COMPANY` and `BRAND_DEPARTMENT` (shown in PDF headers and footers), `BRAND_LOGO` (uploaded here and stored in `data/uploads/`, with the setting holding just the file name), and the three brand colours `BRAND_COLOR_1`, `BRAND_COLOR_2` and `BRAND_COLOR_3`, used throughout generated PDFs and Mattermost message styling.
+The Styling tab covers branding used in PDF exports and notifications: `BRAND_COMPANY` and `BRAND_DEPARTMENT` (shown in PDF headers and footers), `BRAND_LOGO` (uploaded here and stored in `data/uploads/`, with the setting holding just the file name), and the three brand colours `BRAND_COLOR_1`, `BRAND_COLOR_2` and `BRAND_COLOR_3`, used throughout generated PDFs and Mattermost message styling. A preview shows the top of a product's PDF as you edit them.
 
 The same tab also chooses the **UI theme**. Three themes ship with zsazsa: **Overmind** (a MISP-style theme with a top navigation bar, the default on a new install), **UiBeta** (a MISP-style light theme, also top navigation), and **Zsazsa legacy** (the original navy theme with the side menu).
 
@@ -717,7 +770,7 @@ The "MISP scraper (collection pipeline)" card holds the connection to the misp-s
 | Max events | Maximum number of events pulled per run (`MISP_SCRAPER_LIMIT`) |
 | Events from last (days) | Only pull scraper events from the last N days (`MISP_SCRAPER_SINCE_DAYS`); 0 disables the date window |
 
-**Running without a scraper.** Turn Enabled off, or clear the URL and the API key, and save. The scraper disappears from the Data collection page, taking the IMAP mailbox labels shown under it with it, and its cached events are dropped on the next refresh. It also stops being offered as a collection source on PIRs and GIRs, stops being counted on the dashboard and reads "Not configured" on the pipeline page. Everything that does not come from the scraper carries on: the other MISP servers, the manual sources, newsletters (which are archived on the webapp MISP; only the pushing of their article URLs needs a scraper), and all the CTI products. The analyser has no events to process without a scraper, but a run still refreshes the indicator feed caches and exits cleanly, so keep its cron entry if you publish indicator feeds. Without it a cached feed is simply rebuilt on demand the next time someone fetches it.
+**Running without a scraper.** Turn Enabled off, or clear the URL and the API key, and save. The scraper disappears from the Data collection page, taking the IMAP mailbox labels shown under it with it, and its cached events are dropped on the next refresh. It also stops being offered as a collection source on PIRs and GIRs, stops being counted on the dashboard and reads "Not configured" on the pipeline page. Everything that does not come from the scraper keeps working: the other MISP servers, the manual sources, newsletters (which are archived on the webapp MISP; only the pushing of their article URLs needs a scraper), and all the CTI products. The analyser goes on with the manual entries and the other MISP servers, and a run also refreshes the indicator feed caches, so keep its cron entry. Without it a cached feed is simply rebuilt on demand the next time someone fetches it.
 
 **Why both "Max events" and "Events from last (days)" matter.** The cache worker fetches up to `MISP_SCRAPER_LIMIT` marker-tagged events in a single page, newest first, so the data collection view never holds more than that many scraper events. Once more events match than the limit allows, the oldest of them are left out of the cache, and the source health card on `/pipeline` marks the source "limit reached". `MISP_SCRAPER_SINCE_DAYS` restricts the pull to a recent window; keep it small enough that the tagged events within it stay under `MISP_SCRAPER_LIMIT`, or raise the limit. Compare "Pull estimate" (or filter the scraper MISP by `SCRAPER_MARKER_TAG`) against the limit to size both settings. Setting the window to 0 pulls by the limit alone.
 
@@ -736,7 +789,7 @@ The scraper's own `subscribe` service must be running against this Redis. Publis
 
 #### Additional MISP servers
 
-The "Other MISP servers" card lists any extra MISP instances configured in `MISP_SERVERS`, such as community MISP servers. Use "Add MISP server" to create a new entry, then fill in a label, an optional ID (used as a URL slug, generated from the label if left blank), the server URL, API key and TLS verification setting. Only published events are fetched from these servers. Filtering is controlled with three tag fields, tags that an event must have any of, tags it must have all of, and tags that exclude it, plus an optional organisation filter that can either restrict results to a set of organisation UUIDs or exclude them. "Events from last (days)" sets how far back to look based on the event date, and "Max events" caps how many events are pulled. As with the scraper, each server can be tested, given a pull estimate, and have its query previewed before saving. Each server is saved individually with its own "Save server" button, can be enabled or disabled with the power icon, and can be deleted. With "Allow adding reports to events" on, data collection offers the AI summary on that server's events, and the AI-connector summary when that module is enabled. A new server has it off. zsazsa adds a summary as a report for your organisation only and publishes the event again without an e-mail. The API key must be able to modify and publish the event, which for another organisation's event means a site admin key. Disabling or deleting a server that is referenced by a PIR or GIR as a collection source will warn you first, since the reference itself is not removed.
+The "Other MISP servers" card lists any extra MISP instances configured in `MISP_SERVERS`, such as community MISP servers. Use "Add MISP server" to create a new entry, then fill in a label, an optional ID (used as a URL slug, generated from the label if left blank), the server URL, API key and TLS verification setting. Only published events are fetched from these servers. Filtering is controlled with three tag fields, tags that an event must have any of, tags it must have all of, and tags that exclude it, plus an optional organisation filter that can either restrict results to a set of organisation UUIDs or exclude them. "Events from last (days)" sets how far back to look based on the event date, and "Max events" caps how many events are pulled. As with the scraper, each server can be tested, given a pull estimate, and have its query previewed before saving. Each server is saved individually with its own "Save server" button, can be enabled or disabled with the power icon, and can be deleted. With "Allow adding reports to events" on, data collection offers the AI summary on that server's events, and the AI-connector summary when that module is enabled. A new server has it off. zsazsa adds a summary as a report for your organisation only and publishes the event again without an e-mail. The API key must be able to modify and publish the event, which for another organisation's event means a site admin key. With "Analyse its events" on, the default, the analyser also reads the server's events that have a report, through the same filters and at most "Max events" a run, the newest first. Each costs a model call, so keep the filters narrow. Disabling or deleting a server that is referenced by a PIR or GIR as a collection source will warn you first, since the reference itself is not removed.
 
 | Field | Description |
 |---|---|
@@ -750,7 +803,8 @@ The "Other MISP servers" card lists any extra MISP instances configured in `MISP
 | Tags NOT | Exclude events with any of these tags |
 | Organisation filter | Include only, or exclude, events from the given organisation UUIDs |
 | Events from last (days) | How far back to look, based on the event date |
-| Max events | Maximum number of events pulled per query |
+| Max events | Maximum number of events pulled per query, and read by one analyser run |
+| Analyse its events | Whether the analyser reads this server's events that have a report. Off until switched on: their text then goes to the AI features, whatever their TLP, and to a cloud provider where the AI tab sets one |
 | Allow adding reports to events | Offer the AI summaries on this server's events. Off for a new server |
 | Enabled | Whether the server is active and offered as a filter option |
 

@@ -1,0 +1,1 @@
+Major development rule: an article may also become a briefing story, and only a briefing story, when it reports a major threat development every organisation needs to know about, such as mass exploitation of a widely used product or a large supply-chain compromise. It needs no grounds then: set "major_development" to true. Use this sparingly.

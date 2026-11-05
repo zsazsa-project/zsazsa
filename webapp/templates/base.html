@@ -821,6 +821,30 @@
     if (message && !confirm(message)) e.preventDefault();
   }, true);
 
+  // A form with data-busy, or a button with it, says it is working once it is
+  // sent: deleting products waits on MISP for each, and until the answer the
+  // page would look as if nothing happened. Its buttons are disabled a moment
+  // after the submit, as a disabled button is left out of what is sent.
+  document.addEventListener('submit', (e) => {
+    const busy = e.submitter?.dataset?.busy || e.target.dataset?.busy;
+    if (e.defaultPrevented || !busy) return;
+    const form = e.target;
+    const button = e.submitter || form.querySelector('button[type="submit"], button:not([type])');
+    form.dataset.busySent = '1';
+    setTimeout(() => {
+      form.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      if (!button) return;
+      const spinner = document.createElement('i');
+      spinner.className = 'fas fa-spinner fa-spin me-1';
+      spinner.setAttribute('aria-hidden', 'true');
+      button.replaceChildren(spinner, document.createTextNode(busy));
+    });
+  });
+  // Back from the next page, the browser can show this one as it was left.
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && document.querySelector('[data-busy-sent]')) location.reload();
+  });
+
   // A button with data-toggle-all (the toggle_all_button macro) ticks every
   // checkbox its selector finds, or clears them once all are ticked. Its icon
   // and title follow the boxes, ticked by hand or not.

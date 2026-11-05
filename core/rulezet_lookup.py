@@ -30,8 +30,14 @@ SEARCH_TIMEOUT_S = 10
 VALIDATE_TIMEOUT_S = 15
 
 
+def enabled() -> bool:
+    """Whether the integration is on: switched on under Settings > Connections,
+    and an instance named."""
+    return bool(getattr(_cfg, "RULEZET_ENABLED", True) and getattr(_cfg, "RULEZET_URL", ""))
+
+
 def _base_url() -> str:
-    return (getattr(_cfg, "RULEZET_URL", "") or "").rstrip("/")
+    return (getattr(_cfg, "RULEZET_URL", "") or "").rstrip("/") if enabled() else ""
 
 
 def _str_list(value) -> list[str]:

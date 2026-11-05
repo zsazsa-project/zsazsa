@@ -151,13 +151,22 @@
       <div class="action-panel-body">
         <div class="pipeline-actions">
           <div class="btn-group">
-            <button class="btn btn-sm btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <button class="btn btn-sm btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown"
+                    data-bs-auto-close="outside" aria-expanded="false">
               <i class="fas fa-play me-1"></i> Start analyser
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
               <li><button class="dropdown-item pipeline-action-btn" type="button" data-action="daily-briefing">Daily briefing</button></li>
               <li><button class="dropdown-item pipeline-action-btn" type="button" data-action="flash-intel">Flash intel alert</button></li>
               <li><button class="dropdown-item pipeline-action-btn" type="button" data-action="vea">Vuln advisory</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li class="px-3 pb-1" style="min-width: 18rem;">
+                <label class="form-label small mb-1" for="pipeline-rescan-hours">Read again the last (hours)</label>
+                <input type="number" id="pipeline-rescan-hours" class="form-control form-control-sm" min="1" max="168"
+                       placeholder="Only what is new">
+                <div class="form-text">After a change to the focus points, a requirement or a prompt. An event
+                  already judged under the current settings costs no model call.</div>
+              </li>
             </ul>
           </div>
           <button class="btn btn-sm btn-outline-secondary" id="pipeline-progress-open" type="button" data-bs-toggle="modal" data-bs-target="#pipelineProgressModal">
@@ -349,17 +358,23 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
         if (data.job.status === 'completed') {
           var result = data.job.result || {};
           var detail = result.message || 'Action completed.';
-          detail += ' Incomplete today: ' + (result.total_incomplete_today || 0);
+          detail += ' Events read: ' + (result.events_read || 0);
           detail += ', hard rejected: ' + (result.hard_rejected || 0);
           detail += ', summaries created: ' + (result.summary_created || 0);
           if (typeof result.excluded_by_title === 'number') {
             detail += ', excluded by title: ' + result.excluded_by_title;
           }
-          if (typeof result.rejected_by_relevance === 'number') {
-            detail += ', rejected by relevance review: ' + result.rejected_by_relevance;
+          if (typeof result.declined_by_relevance === 'number') {
+            detail += ', not for the briefing: ' + result.declined_by_relevance;
+          }
+          if (typeof result.closed === 'number') {
+            detail += ', closed as no product wants them: ' + result.closed;
           }
           detail += '.';
-          setStatus('success', detail);
+          if (Array.isArray(result.errors) && result.errors.length) {
+            detail += ' Not read, and read again by the next run: ' + result.errors.join('; ') + '.';
+          }
+          setStatus(Array.isArray(result.errors) && result.errors.length ? 'warning' : 'success', detail);
           setBusy(false);
           stopPolling();
           window.setTimeout(function() {
@@ -386,10 +401,38 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
     });
   }
 
+  /* One analyser run at a time, from the schedule or from any dashboard. While
+     another one holds the lock the buttons stay off and say why; the run this
+     page started is followed as before. */
+  var lockedByOther = false;
+  function applyLock(busy) {
+    var other = !!busy && busy.job_id !== activeJobId;
+    if (busy) {
+      setBusy(true);
+      if (other) setStatus('warning', busy.message);
+    } else if (lockedByOther && !activeJobId) {
+      setBusy(false);
+      if (statusEl) statusEl.classList.add('d-none');
+    }
+    lockedByOther = other;
+  }
+
+  function checkLock() {
+    fetch(SCRIPT_ROOT + '/pipeline/lock')
+      .then(function(r) { return r.json(); })
+      .then(function(data) { if (data.ok) applyLock(data.busy); })
+      .catch(function() {
+        // Leave the buttons as they are; starting a run checks the lock again.
+      });
+  }
+
   buttons.forEach(function(btn) {
     btn.addEventListener('click', function() {
       var action = btn.dataset.action || '';
       if (!action) return;
+      var rescanEl = document.getElementById('pipeline-rescan-hours');
+      var payload = {action: action};
+      if (rescanEl && rescanEl.value) payload.rescan_hours = Number(rescanEl.value);
       setBusy(true);
       setStatus('info', 'Running analyser action: ' + action + '...');
       fetch(SCRIPT_ROOT + '/pipeline/run', {
@@ -398,10 +441,14 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
-        body: JSON.stringify({action: action}),
+        body: JSON.stringify(payload),
       })
       .then(function(r) { return r.json(); })
       .then(function(data) {
+        if (!data.ok && data.busy) {
+          applyLock(data.busy);
+          return;
+        }
         if (!data.ok) {
           setStatus('danger', 'Pipeline action failed: ' + (data.error || 'unknown error'));
           setBusy(false);
@@ -429,6 +476,8 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
   }
 
   adoptRunningJob();
+  checkLock();
+  window.setInterval(checkLock, 30000);
 })();
 </script>
 
@@ -467,7 +516,8 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
       statsEl.innerHTML =
         '<div class="pipeline-stat"><span class="label">Last run</span>'
         + '<span class="value" title="' + (p.last_run_title || '') + '">' + lastRun + '</span></div>'
-        + '<div class="pipeline-stat"><span class="label">Pending</span><span class="value">' + pending + '</span></div>'
+        + '<div class="pipeline-stat" title="Scraper events still incomplete that the analyser has not judged yet">'
+        + '<span class="label">Pending</span><span class="value">' + pending + '</span></div>'
         + '<div class="pipeline-stat"><span class="label">Processed 24h</span><span class="value">' + (p.total_24h || 0) + '</span></div>'
         + '<div class="pipeline-stat full"><span class="sub">' + (pr.product_created || 0) + ' product, '
         + (pr.not_relevant || 0) + ' skipped, ' + errors + ' errors</span></div>';

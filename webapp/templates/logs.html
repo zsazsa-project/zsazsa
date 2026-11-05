@@ -2,88 +2,198 @@
 
 {% block title %}Audit log | zsazsa CTI{% endblock %}
 {% block page_title %}Audit log{% endblock %}
+{% import "_charts.html" as charts with context %}
+
+{# Who did what, and when the most. Every figure follows the action, type and
+   user filters, so filtering on one user shows when they were busiest; a day
+   only narrows the list of entries. #}
+
+{% set action_badges = {'create': 'bg-success', 'update': 'bg-primary', 'delete': 'bg-danger',
+                        'reject': 'bg-warning text-dark', 'publish': 'bg-info text-dark',
+                        'notify': 'bg-info text-dark', 'error': 'bg-danger', 'run-failed': 'bg-danger'} %}
+
+{# The few most of a dimension in the last days, each a filter on itself. #}
+{% macro ranked(title, icon, rows, param, chosen) -%}
+<div class="col-lg-4">
+  <div class="chart-label mb-2"><i class="fas {{ icon }} me-1"></i>{{ title }}</div>
+  {% set most = rows[0][1] if rows else 0 %}
+  {% for name, n in rows[:6] %}
+  <a href="{{ charts.filtered_url(param, name, chosen) }}" class="chart-row{{ ' logs-chosen' if name == chosen }}"
+     title="{{ 'Show all again' if name == chosen else 'Show only ' ~ name }}">
+    <span class="rank">{{ loop.index }}</span>
+    <span style="min-width:0;">
+      <span class="name">{{ name }}</span>
+      <span class="stats-track d-block" style="--icon-color:var(--accent-blue);"><div style="width:{{ n / most * 100 }}%;"></div></span>
+    </span>
+    <span class="chart-pill">{{ n }}</span>
+  </a>
+  {% else %}
+  <p class="text-muted small mb-0">None in these days.</p>
+  {% endfor %}
+</div>
+{%- endmacro %}
 
 {% block content %}
+{% set filtered = selected.action or selected.type or selected.user %}
+
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-xl-3">
+    <div class="stats-count" style="--icon-color:var(--accent-blue);">
+      <div class="big">{{ '{:,}'.format(found.total) }}</div>
+      <div class="label">Entries{{ ' that match' if filtered }} in the log</div>
+      <div class="label">{% if retention_days %}Kept {{ retention_days }} days{% else %}Kept for good{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stats-count" style="--icon-color:var(--accent-green);">
+      <div class="big">{{ '{:,}'.format(chart.last_7d) }}</div>
+      <div class="label">In the last 7 days</div>
+      <div class="label">{{ '{:,}'.format(found.per_day.values() | sum) }} in the last {{ chart_days }}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    {% if chart.busiest %}
+    <a href="{{ charts.filtered_url('day', chart.busiest.date, day) }}" class="stats-count" style="--icon-color:var(--accent-orange);"
+       title="Show the entries of that day">
+      <div class="big">{{ chart.busiest.n }}</div>
+      <div class="label">On the busiest day of the last {{ chart_days }}</div>
+      <div class="label">{{ chart.busiest.long }}</div>
+    </a>
+    {% else %}
+    <div class="stats-count" style="--icon-color:var(--accent-orange);">
+      <div class="big">0</div><div class="label">Nothing in the last {{ chart_days }} days</div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    {% if found.user %}
+    {% set top_user, top_n = found.user[0] %}
+    <a href="{{ charts.filtered_url('user', top_user, selected.user) }}" class="stats-count" style="--icon-color:var(--accent-purple);"
+       title="Show only their entries">
+      <div class="big">{{ top_n }}</div>
+      <div class="label">By the most active user of the last {{ chart_days }} days</div>
+      <div class="label text-truncate">{{ top_user }}</div>
+    </a>
+    {% else %}
+    <div class="stats-count" style="--icon-color:var(--accent-purple);">
+      <div class="big">-</div><div class="label">Nobody in the last {{ chart_days }} days</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 <div class="card content-card mb-3">
-  <div class="card-body py-2">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label mb-1">Action</label>
-        <select name="action" class="form-select form-select-sm">
-          <option value="">All actions</option>
-          {% for a in actions %}
-          <option value="{{ a }}" {{ 'selected' if selected_action == a }}>{{ a }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label mb-1">Type</label>
-        <select name="type" class="form-select form-select-sm">
-          <option value="">All types</option>
-          {% for t in types %}
-          <option value="{{ t }}" {{ 'selected' if selected_type == t }}>{{ t }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-4 d-flex gap-2">
-        <button class="btn btn-sm btn-primary" type="submit">
-          <i class="fas fa-filter me-1"></i> Filter
-        </button>
-        <a href="{{ url_for('logs.index') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
-      </div>
-    </form>
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span><i class="fas fa-chart-column me-2"></i>Entries per day, last {{ chart_days }} days (UTC)</span>
+    <span class="text-muted small fw-normal">Click a day for its entries</span>
+  </div>
+  <div class="card-body">
+    {% if chart.busiest %}
+    <p class="small mb-2">
+      <span class="chart-swatch" style="background:var(--accent-orange);"></span>The busiest day was
+      <strong>{{ chart.busiest.long }}</strong>, with {{ chart.busiest.n }} entr{{ 'y' if chart.busiest.n == 1 else 'ies' }}.
+    </p>
+    {% endif %}
+    {% set busiest_n = chart.busiest.n if chart.busiest else 0 %}
+    <div class="day-chart" style="--day-gap:2px;" aria-hidden="true">
+      {% for d in chart.days %}
+      {% set is_peak = chart.busiest and d.date == chart.busiest.date %}
+      <a href="{{ charts.filtered_url('day', d.date, day) }}"
+         class="day-chart-col{{ ' peak' if is_peak }}{{ ' faded' if day and d.date != day }}"
+         title="{{ d.long }}: {{ d.n }} entr{{ 'y' if d.n == 1 else 'ies' }}" tabindex="-1">
+        {% if is_peak %}<span class="day-chart-mark">{{ d.n }}</span>{% endif %}
+        {% if d.n %}<span class="day-chart-bar logs-bar" style="height:{{ d.n / busiest_n * 85 }}%;"></span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    <div class="day-chart-labels" style="--day-gap:2px;" aria-hidden="true">
+      {% for d in chart.days %}<span>{{ d.label }}</span>{% endfor %}
+    </div>
+    <table class="visually-hidden">
+      <caption>Entries per day, last {{ chart_days }} days</caption>
+      <thead><tr><th>Day</th><th>Entries</th></tr></thead>
+      <tbody>{% for d in chart.days if d.n %}<tr><td>{{ d.date }}</td><td>{{ d.n }}</td></tr>{% endfor %}</tbody>
+    </table>
+    <div class="row g-4 mt-1">
+      {{ ranked('Who', 'fa-user', found.user, 'user', selected.user) }}
+      {{ ranked('What', 'fa-bolt', found.action, 'action', selected.action) }}
+      {{ ranked('On what', 'fa-shapes', found.entity_type, 'type', selected.type) }}
+    </div>
   </div>
 </div>
 
 <div class="card content-card">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span><i class="fas fa-scroll me-2"></i>Entries</span>
+    <form method="get" class="list-filters d-flex flex-wrap align-items-center gap-2 m-0 fw-normal">
+      {% if day %}<input type="hidden" name="day" value="{{ day }}">{% endif %}
+      {{ charts.filter_select('action', 'Action', 'fa-bolt', 'All actions', actions, selected.action) }}
+      {{ charts.filter_select('type', 'Type', 'fa-shapes', 'All types', types, selected.type) }}
+      {{ charts.filter_select('user', 'User', 'fa-user', 'All users', users, selected.user) }}
+      {% if day %}
+      <a href="{{ charts.filtered_url('day', day, day) }}" class="btn btn-xs btn-outline-primary" title="Show every day again">
+        <i class="fas fa-calendar-day me-1"></i>{{ day_long }} <i class="fas fa-xmark ms-1"></i>
+      </a>
+      {% endif %}
+      {% if filtered or day %}<a href="{{ url_for('logs.index') }}" class="btn btn-xs btn-outline-secondary">Clear</a>{% endif %}
+    </form>
+  </div>
   <div class="card-body p-0">
-    {% if entries %}
-    <table class="table table-hover zsazsa-table mb-0">
-      <thead>
-        <tr>
-          <th style="width:160px">Timestamp (UTC)</th>
-          <th style="width:160px">User</th>
-          <th style="width:100px">Action</th>
-          <th style="width:110px">Type</th>
-          <th>Item</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in entries %}
-        <tr>
-          <td class="text-muted small font-monospace">{{ e['timestamp'] }}</td>
-          <td class="small">{{ e['user'] }}</td>
-          <td>
-            <span class="badge
-              {% if e['action'] == 'create' %}bg-success
-              {% elif e['action'] == 'update' %}bg-primary
-              {% elif e['action'] == 'delete' %}bg-danger
-              {% else %}bg-secondary
-              {% endif %}">
-              {{ e['action'] }}
-            </span>
-          </td>
-          <td class="text-muted small">{{ e['entity_type'] }}</td>
-          <td class="small">{{ e['entity_label'] or e['entity_id'] or '-' }}</td>
-          <td class="text-muted small">{{ e['details'] or '' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="text-muted small px-3 py-2 mb-0 border-top">
-      {% if entries | length >= limit %}The newest {{ limit }} entries are shown. Filter by action or type to reach older ones.{% endif %}
-      {% if retention_days %}Entries older than {{ retention_days }} days are removed.
-      {% else %}Entries are never removed, so the log keeps growing. Set a retention under Settings &rsaquo; System &rsaquo; Analyser.{% endif %}
-    </p>
+    {% if days %}
+    <div style="overflow-x:auto;">
+      <table class="table table-sm zsazsa-table mb-0 logs-table">
+        <thead>
+          <tr>
+            <th style="width:5.5rem;">Time</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Type</th>
+            <th>Item</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in days %}
+          <tr class="logs-day">
+            <th colspan="6">
+              {{ group.long }}
+              {% if group.count %}<span class="text-muted fw-normal">· {{ group.count }} entr{{ 'y' if group.count == 1 else 'ies' }}</span>{% endif %}
+            </th>
+          </tr>
+          {% for e in group.entries %}
+          <tr>
+            <td class="text-muted font-monospace">{{ e.timestamp[11:19] }}</td>
+            <td class="text-nowrap">{{ e.user }}</td>
+            <td><span class="badge {{ action_badges.get(e.action, 'bg-secondary') }}">{{ e.action }}</span></td>
+            <td class="text-muted text-nowrap">{{ e.entity_type }}</td>
+            <td class="logs-item">{{ e.entity_label or e.entity_id or '-' }}</td>
+            <td class="text-muted"><div class="logs-details" {% if e.details %}title="{{ e.details }}"{% endif %}>{{ e.details or '' }}</div></td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
     <div class="empty-state py-5">
       <i class="fas fa-scroll fa-2x text-muted mb-3 d-block"></i>
       <p class="text-muted mb-0">
-        {{ 'No entries match these filters.' if selected_action or selected_type else 'No log entries yet.' }}
+        {{ 'No entries match these filters.' if filtered or day else 'No log entries yet.' }}
       </p>
     </div>
     {% endif %}
   </div>
+  {% if days %}
+  <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 small text-muted">
+    <span>
+      {% if cut_off %}The newest {{ shown }} entries are shown.{% endif %}
+      {% if retention_days %}Entries older than {{ retention_days }} days are removed.
+      {% else %}Entries are never removed, so the log keeps growing. Set a retention under Settings &rsaquo; System.{% endif %}
+    </span>
+    {% if older_url %}
+    <a href="{{ older_url }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-angles-down me-1"></i>Show older entries</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

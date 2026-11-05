@@ -68,6 +68,11 @@ def dismissed_tag() -> str:
     return getattr(config, "TAG_COLLECTION_DISMISSED", 'zsazsa:event="dismiss"')
 
 
+def followup_tag() -> str:
+    """Local tag marking an event an analyst follows up."""
+    return getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
+
+
 def is_set_aside(tags) -> bool:
     """True when an analyst already rejected or dismissed the event."""
     return WORKFLOW_REJECTED_TAG in tags or dismissed_tag() in tags
@@ -387,6 +392,10 @@ def _build_sources(with_manual: bool = True) -> list:
             "since_days": int(s.get("since_days") or 7),
             "limit": int(s.get("limit") or 500),
             "allow_reports": bool(s.get("allow_reports")),
+            # Whether the analyser reads this server's events. Their text then
+            # goes to the AI features, so it takes an administrator's say-so,
+            # also on a server saved before the setting existed.
+            "analyse": bool(s.get("analyse", False)),
         })
     if not with_manual:
         return srcs
@@ -463,7 +472,7 @@ def _sync_flags(conn, source_id: str, rows: list, since: float) -> None:
     two apart until this runs. A flag set after the search started is kept, and
     so is one on an event that has the tag in another source.
     """
-    tag = getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
+    tag = followup_tag()
     tagged = {r["uuid"] for r in rows if tag in r["tags"]}
     now = time.time()
     conn.executemany("INSERT OR IGNORE INTO flagged_events (uuid, flagged_at) VALUES (?, ?)",

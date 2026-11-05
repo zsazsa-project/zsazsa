@@ -366,7 +366,7 @@ class ProductLists(_Page):
         with mock.patch.object(misp_store, "list_briefings", return_value=briefings), \
              mock.patch.object(job_store, "by_entity", return_value={}):
             page = self.page("/briefing/?tlp=AMBER&sort=title&dir=asc")
-        self.assertEqual([td.get_text(strip=True) for td in page.select("tbody tr[id^=briefing-row] td:nth-of-type(2)")],
+        self.assertEqual([td.get_text(strip=True) for td in page.select("tbody tr[id^=briefing-row] td:nth-of-type(3)")],
                          ["Briefing 1", "Briefing 3"])
         self.assertEqual(page.select_one('select[name="tlp"] option[selected]')["value"], "AMBER")
         self.assertIn("Review state draft 1 published 1 TLP CLEAR 1 AMBER 2", self.stats(page))

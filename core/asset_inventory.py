@@ -76,6 +76,13 @@ def find(vendor: str, product: str):
     return None
 
 
+def names(name: str, vendor: str, product: str) -> bool:
+    """Whether a vendor or product name, such as a focus point, is a CVE
+    record's vendor or its product, compared as loosely as the inventory is."""
+    return (bool(vendor) and _same_supplier(name, vendor)) or _same_product(_words(name),
+                                                                             _product_words(product, vendor))
+
+
 def _words(name: str) -> list:
     return re.findall(r"[a-z0-9]+", (name or "").lower())
 

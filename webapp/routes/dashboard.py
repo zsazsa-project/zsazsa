@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, render_template
 
 import config
-from analyser import llm
-from analyser.reader import load_last_action, load_last_run
+from analyser import event_state, llm, run_lock, settings as analyser_settings
+from analyser.sources import last_completed_at
 from webapp import analyser_pipeline, audit, collection_cache
 from webapp import job_store, misp_session, misp_store
 from webapp.routes import setup_wizard
@@ -22,8 +22,8 @@ bp = Blueprint("dashboard", __name__)
 def _pipeline_status():
     """Return scraper / analyser pipeline status for the dashboard panel.
 
-    - ``last_run`` (datetime | None): when the analyser last completed a run,
-      from ``data/state.json``.
+    - ``last_run`` (datetime | None): when an analyser run last completed,
+      scheduled or started here, from its watermarks.
     - ``minutes_since`` (int | None): age in minutes of that timestamp.
     - ``stale`` (bool): True if the last run is older than 90 minutes.
     - ``processed_24h`` (dict): counts per outcome from ``event_log`` over
@@ -36,19 +36,18 @@ def _pipeline_status():
         "processed_24h": {}, "total_24h": 0, "pending": None,
     }
 
-    # Last analyser run: whichever ran more recently, the scheduled analyser or
-    # an action started from here. They are two entries because only the first
-    # of them may move the analyser's watermark.
+    # Last analyser run: whichever completed more recently, the scheduled
+    # analyser or an action started from here. Both move the same watermarks.
     try:
-        stamps = [ts for ts in (load_last_run(), load_last_action()) if ts]
-        if stamps:
-            dt = datetime.fromtimestamp(int(max(stamps)), tz=timezone.utc)
+        stamp = last_completed_at()
+        if stamp:
+            dt = datetime.fromtimestamp(int(stamp), tz=timezone.utc)
             status["last_run"] = dt
             age = (datetime.now(tz=timezone.utc) - dt).total_seconds() / 60
             status["minutes_since"] = int(age)
             status["stale"] = age > 90
     except Exception:
-        logger.exception("Failed to read pipeline state from %s", config.STATE_FILE)
+        logger.exception("Failed to read when the analyser last ran")
 
     # Outcomes over the last 24h from analyser DB
     try:
@@ -63,11 +62,14 @@ def _pipeline_status():
     except Exception:
         logger.exception("Failed to query analyser DB for 24h event counts")
 
-    # Pending scraper events: the marker and the incomplete workflow state as
-    # one AND query, so MISP sends only those, and all of them. Without a
-    # scraper there is nothing to count, and "pending" stays None, which the
+    # Pending scraper events: those still incomplete that have no relevance
+    # verdict yet, which is what "waiting for the analyser" means now that an
+    # event no product wants stays open until the briefing closes it. The
+    # marker and the workflow state go as one AND query, so MISP sends only
+    # those, and all of them. Without a scraper, or one the analyser does not
+    # read, there is nothing to count, and "pending" stays None, which the
     # dashboard renders as "-".
-    if not scraper_enabled():
+    if not scraper_enabled() or not analyser_settings.get("ANALYSER_READ_SCRAPER"):
         return status
     try:
         misp = misp_store._scraper_misp()
@@ -77,7 +79,8 @@ def _pipeline_status():
         if isinstance(pending, dict):
             logger.warning("pending scraper events: MISP refused the search: %s", pending.get("errors") or pending)
         else:
-            status["pending"] = len(pending)
+            judged = event_state.judged("scraper")
+            status["pending"] = sum(1 for event in pending if misp_store._event_uuid(event) not in judged)
     except Exception:
         logger.exception("Failed to query pending scraper events from MISP")
 
@@ -198,6 +201,26 @@ def widgets():
     return jsonify({"html": html, "pipeline": pipeline})
 
 
+def _lock_status() -> dict | None:
+    """The analyser run that holds the lock, as the page shows it, or None."""
+    try:
+        holder = run_lock.holder()
+    except Exception:
+        logger.exception("Failed to read the analyser lock")
+        return None
+    if not holder:
+        return None
+    return {"job_id": holder.get("job_id", ""), "action": holder.get("action", ""),
+            "message": f"The analyser is running: {run_lock.describe(holder)}."}
+
+
+@bp.route("/pipeline/lock", methods=["GET"])
+def pipeline_lock():
+    """Whether an analyser run is going, from the schedule or from a dashboard,
+    so the page can hold its Start buttons until it is done."""
+    return jsonify({"ok": True, "busy": _lock_status()})
+
+
 @bp.route("/pipeline/run", methods=["POST"])
 def run_pipeline_action():
     body, err = _json_object()
@@ -207,13 +230,32 @@ def run_pipeline_action():
     action = (body.get("action") or "").strip().lower()
     if action not in {"daily-briefing", "flash-intel", "vea"}:
         return jsonify({"ok": False, "error": "Unknown pipeline action."}), 400
+    # A rescan reads that many hours back, the events handled there included.
+    rescan_hours = body.get("rescan_hours")
+    if rescan_hours is not None and (type(rescan_hours) is not int or not 1 <= rescan_hours <= 168):
+        return jsonify({"ok": False, "error": "Read again between 1 and 168 hours back."}), 400
 
-    job = job_store.create_job(action, label=analyser_pipeline.ACTION_LABELS[action],
-                               steps=analyser_pipeline.action_steps(action))
-    t = threading.Thread(target=analyser_pipeline.run_action, args=(job["id"], misp_session.current_user_email()),
+    label = analyser_pipeline.ACTION_LABELS[action]
+    user = misp_session.current_user_email()
+    job = job_store.create_job(action, label=label, steps=analyser_pipeline.action_steps(action))
+    # Taken here rather than in the thread, so a run that cannot start says
+    # why straight away instead of failing in the background.
+    token, holder = run_lock.acquire(action, label, user or "an analyst", job_id=job["id"])
+    if holder:
+        job_store.forget_job(job["id"])
+        message = f"The analyser is already running: {run_lock.describe(holder)}. Try again when it is done."
+        return jsonify({"ok": False, "error": message, "busy": _lock_status()}), 409
+    t = threading.Thread(target=_run_and_release, args=(job["id"], user, token, rescan_hours),
                          daemon=True, name=job_store.thread_name(job["id"]))
     t.start()
     return jsonify({"ok": True, "job_id": job["id"], "action": action})
+
+
+def _run_and_release(job_id: str, user: str, token: str, rescan_hours: int | None = None) -> None:
+    try:
+        analyser_pipeline.run_action(job_id, user, lock_token=token, rescan_hours=rescan_hours)
+    finally:
+        run_lock.release(token)
 
 
 @bp.route("/pipeline/run/<string:job_id>", methods=["GET"])
@@ -237,11 +279,10 @@ _AI_FEATURE_BY_ACTION = {
     # Drafting a whole briefing calls draft_briefing_story once per story, so
     # that is the endpoint it spends its time on even when it writes a summary too.
     "briefing-draft": "draft_briefing_story",
-    "flash-intel": "generate_flash_intel",
+    # The alerts call judge_relevance for every event before they draft
+    # anything, so that is the endpoint one of their runs waits on.
+    "flash-intel": "judge_relevance",
     "vea": "draft_vea_sections",
-    # The scheduled analyser calls check_relevance for every event before it
-    # drafts anything, so that is the endpoint one of its runs waits on.
-    "analyser": "check_relevance",
 }
 
 

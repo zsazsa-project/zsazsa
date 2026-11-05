@@ -12,7 +12,12 @@ from core.db import log_event
 from webapp import collection_cache
 
 
-def log_product_sources(source_event_uuids, product_label: str) -> None:
+def log_product_sources(source_event_uuids, product_label: str, hints=None) -> None:
+    """Log each source event of a product. ``hints`` maps an event to the
+    source it was picked from, which the Pipeline page links it to. Without a
+    hint the collection cache names the source, and for an event that two
+    sources hold, either of them."""
+    hints = hints or {}
     uuids = []
     for u in source_event_uuids or []:
         u = (u or "").strip()
@@ -29,4 +34,5 @@ def log_product_sources(source_event_uuids, product_label: str) -> None:
             source_feed=tagger.source_feed_from_tags(row.get("tags", [])),
             outcome="product_created",
             detail=product_label,
+            source_id=hints.get(uuid) or row.get("source_id"),
         )

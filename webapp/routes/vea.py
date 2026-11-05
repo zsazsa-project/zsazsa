@@ -222,7 +222,7 @@ def wizard_new():
                                 if action == "submit" else misp_store.VEA_REVIEW_DRAFT)
         try:
             uuid, vea_id = misp_store.create_vea(data)
-            product_log.log_product_sources(data.get("source_event_uuids") or [], "vea")
+            product_log.log_product_sources(data.get("source_event_uuids") or [], "vea", data.get("source_event_hints"))
             audit.record("create", "vea", entity_id=uuid, entity_label=vea_id)
             flash(f"{vea_id} {'submitted for review' if action == 'submit' else 'saved as draft'}.", "success")
             return redirect(url_for("vea.detail", id=uuid))

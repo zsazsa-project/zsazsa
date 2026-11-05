@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import re
 import time
 from pathlib import Path
@@ -8,6 +9,7 @@ import openai
 import requests
 
 import config
+from analyser import settings
 
 logger = logging.getLogger(__name__)
 
@@ -124,11 +126,20 @@ def _refused_parameter(exc: openai.BadRequestError, optional: dict) -> str | Non
     return next((name for name in optional if name in message), None)
 
 
+def _provider_and_model(cfg: dict) -> tuple[str, str]:
+    provider = _resolve_provider((cfg.get("provider") or "").strip())
+    return provider, (cfg.get("model") or "").strip() or _default_model(provider)
+
+
+def feature_model(feature: str) -> str:
+    """The model a feature is answered by, as its settings resolve it now."""
+    return _provider_and_model(_feature_cfg(feature))[1]
+
+
 def _call(system: str, user: str, max_tokens: int, feature: str = "unknown", cfg: dict = None) -> str:
     """Run one completion for a feature, using that feature's provider, model and temperature."""
     cfg = cfg or {}
-    effective_provider = _resolve_provider((cfg.get("provider") or "").strip())
-    effective_model = (cfg.get("model") or "").strip() or _default_model(effective_provider)
+    effective_provider, effective_model = _provider_and_model(cfg)
     kwargs = {
         "model": effective_model,
         "messages": [
@@ -193,7 +204,7 @@ def _unfence(text: str) -> str:
     """Drop a markdown code fence around an answer that should be bare JSON.
 
     Models wrap JSON in ```json ... ``` often enough, local ones especially,
-    that refusing it would mean check_relevance quietly rejecting every article
+    that refusing it would mean judge_relevance leaving every article unjudged
     and the draft features returning nothing at all.
     """
     # String slicing rather than a lazy DOTALL group between two whitespace
@@ -234,68 +245,82 @@ def _feature_cfg(feature_id: str) -> dict:
         return {}
 
 
-def check_relevance(article_content: str, focus_points: dict, source_reliability: str) -> dict | None:
-    """The model's view of the article against the focus points, or None when
-    its answer could not be read, which is no verdict on the article."""
-    fc = _feature_cfg("check_relevance")
-    system = _build_system_prompt(
-        _resolve_prompt(fc.get("prompt") or "flash_intel_relevance.md"),
-        f"Focus points:\n{json.dumps(focus_points, indent=2)}\n\nSource reliability (Admiralty Scale): {source_reliability}",
-    )
-    # A reasoning model spends part of the budget thinking, and at 512 a local
-    # one often ran out before it wrote the answer.
-    text = _call(system, _untrusted_block(article_content[:10000]), 1024, feature="check_relevance", cfg=fc)
-    parsed = _json_object(text, "check_relevance")
-    if parsed is None:
-        return None
-    matched = parsed.get("matched_focus_points")
-    if (type(parsed.get("relevant")) is not bool
-            or not isinstance(matched, list)
-            or any(not isinstance(point, str) for point in matched)
-            or not isinstance(parsed.get("reason"), str)):
-        logger.error("check_relevance returned an invalid answer shape")
-        return None
-    return parsed
-
-
-def generate_flash_intel(
-    article_content: str,
-    focus_points: dict,
-    matched_points: list,
-    source_reliability: str,
-    event_date: str,
-) -> str:
-    fc = _feature_cfg("generate_flash_intel")
-    extra_parts = [f"Focus points configured:\n{json.dumps(focus_points, indent=2)}"]
-    threat_actor_types = [
-        t.get("name", "") for t in (getattr(config, "THREAT_ACTOR_TYPES", []) or []) if t.get("name")
-    ]
-    if threat_actor_types:
-        extra_parts.append(
-            "Available threat actor types (use exact names when completing 'Threat actor types'):\n"
-            + "\n".join(f"- {n}" for n in threat_actor_types)
-        )
-    system = _build_system_prompt(
-        _resolve_prompt(fc.get("prompt") or "flash_intel_generate.md"),
-        "\n\n".join(extra_parts),
-    )
-    user_message = (
-        f"Matched focus points: {json.dumps(matched_points)}\n"
-        f"Source reliability (Admiralty Scale): {source_reliability}\n"
-        f"Event date: {event_date}\n\n"
-        f"Article content:\n{_untrusted_block(article_content[:12000])}"
-    )
-    return _call(system, user_message, 2048, feature="generate_flash_intel", cfg=fc)
-
-
 def configured_focus_points() -> dict:
     return {
         "geographies": list(getattr(config, "FOCUS_POINTS_GEOGRAPHIES", []) or []),
         "sectors": list(getattr(config, "FOCUS_POINTS_SECTORS", []) or []),
+        "vendors": list(getattr(config, "FOCUS_POINTS_VENDORS", []) or []),
         "technologies": list(getattr(config, "FOCUS_POINTS_TECHNOLOGIES", []) or []),
         "threat_types": list(getattr(config, "FOCUS_POINTS_THREAT_TYPES", []) or []),
         "threat_actors": list(getattr(config, "FOCUS_POINTS_THREAT_ACTORS", []) or []),
     }
+
+
+def relevance_prompt(focus_points: list[str], requirements: list[dict], rules: str = "") -> str:
+    """The system prompt of the relevance call: the prompt file, then the
+    focus points as lines such as "Energy (sector)", the PIRs and GIRs as
+    requirement_scope() gives them with their id, and ``rules``."""
+    fc = _feature_cfg("judge_relevance")
+    return _build_system_prompt(
+        _resolve_prompt(fc.get("prompt") or "analyser_relevance.md"),
+        "Focus points:\n" + ("\n".join(f"- {line}" for line in focus_points) or "(none)")
+        + f"\n\nIntelligence requirements:\n{json.dumps(requirements, indent=2)}"
+        + (f"\n\n{rules}" if rules else ""),
+    )
+
+
+def read_prompt(filename: str) -> str:
+    """A prompt file of zsazsaprompts/, as the Prompts tab saved it."""
+    return Path(_resolve_prompt(filename)).read_text()
+
+
+# The scores the model gives, and the source types it can name.
+_MODEL_SCORES = ("relevance", "usefulness", "specificity", "clarity")
+_SOURCE_TYPES = ("blog-post", "technical-report", "news-report", "advisory", "vendor-advisory",
+                 "threat-intel-report")
+
+
+def judge_relevance(system: str, title: str, summary: str, article: str) -> dict | None:
+    """The model's verdict on an article: whether it is worth an alert and a
+    briefing story, on what grounds, its scores and its publication date. None
+    when its answer could not be read, which is no verdict on the article.
+
+    ``system`` is what relevance_prompt() gives. The grounds are as the model
+    gave them: analyser.relevance checks them.
+    """
+    # Plain text rather than JSON, so the quotes the model copies are the text
+    # the grounds check looks for, not its escaped form.
+    material = f"Title: {title}\n\nSummary:\n{summary or '(none)'}\n\nArticle:\n{article}"
+    text = _call(system, _untrusted_block(material), 1500, feature="judge_relevance",
+                 cfg=_feature_cfg("judge_relevance"))
+    parsed = _json_object(text, "judge_relevance")
+    if parsed is None:
+        return None
+    if not all(_product_answer(parsed.get(product)) for product in ("alert", "briefing")):
+        logger.error("judge_relevance returned an invalid answer shape")
+        return None
+    scores = parsed.get("scores") if isinstance(parsed.get("scores"), dict) else {}
+    published = parsed.get("publication_date")
+    return {
+        "alert": parsed["alert"],
+        "briefing": parsed["briefing"],
+        # Only those the prompt asks for: timeliness and the overall score are
+        # calculated, and one the model sent would take their place.
+        "scores": {name: scores[name] for name in _MODEL_SCORES if scores.get(name) in settings.LEVELS},
+        "publication_date": published if isinstance(published, str) else None,
+        # It becomes a tag on the event, so only a value the prompt offers.
+        "source_type": parsed.get("source_type") if parsed.get("source_type") in _SOURCE_TYPES else "",
+    }
+
+
+def _product_answer(answer) -> bool:
+    """Whether a product's part of the relevance answer has the shape asked for."""
+    return (isinstance(answer, dict)
+            and type(answer.get("relevant")) is bool
+            and isinstance(answer.get("reason"), str)
+            and isinstance(answer.get("grounds"), list)
+            and all(isinstance(g, dict) and isinstance(g.get("name"), str) and isinstance(g.get("quote"), str)
+                    for g in answer["grounds"]))
 
 
 def generate_fia_draft(
@@ -304,11 +329,18 @@ def generate_fia_draft(
     event_date: str = "",
     source_reliability: str = "",
     focus_points: dict | None = None,
+    matched_points: list | None = None,
+    feature: str = "generate_fia_draft",
 ) -> str:
-    """Generate a Flash Intel Alert draft from article content."""
+    """Generate a Flash Intel Alert draft from article content.
+
+    The Build with AI button and the analyser both use it, each as its own
+    feature: the analyser's is "generate_flash_intel", with the focus points
+    and requirements the article was let in on as ``matched_points``.
+    """
     if focus_points is None:
         focus_points = configured_focus_points()
-    fc = _feature_cfg("generate_fia_draft")
+    fc = _feature_cfg(feature)
     extra_parts = []
     if focus_points:
         extra_parts.append(f"Focus points configured:\n{json.dumps(focus_points, indent=2)}")
@@ -324,13 +356,15 @@ def generate_fia_draft(
         _resolve_prompt(fc.get("prompt") or "flash_intel_generate.md"),
         "\n\n".join(extra_parts),
     )
+    matched_line = f"Matched focus points: {json.dumps(matched_points)}\n" if matched_points else ""
     user_message = (
         f"Event title: {event_info}\n"
         f"Event date: {event_date or 'unknown'}\n"
-        f"Source reliability (Admiralty Scale): {source_reliability or 'unknown'}\n\n"
-        f"Article content:\n{content[:12000]}"
+        f"Source reliability (Admiralty Scale): {source_reliability or 'unknown'}\n"
+        f"{matched_line}\n"
+        f"Article content:\n{_untrusted_block(content[:12000])}"
     )
-    return _call(system, user_message, 2048, feature="generate_fia_draft", cfg=fc)
+    return _call(system, user_message, 2048, feature=feature, cfg=fc)
 
 
 _ACTOR_TYPE_LINE_RE = re.compile(r'^\s*Threat actor type\s*:\s*(.+?)\s*$', re.IGNORECASE | re.MULTILINE)
@@ -413,57 +447,6 @@ def draft_briefing_summary(stories: list[dict], scope_summary: list = None, date
     return (text or "").strip()
 
 
-BRIEFING_SCOPE_RULE = (
-    "This rule takes precedence over any broader instruction above. Include a story "
-    "only when it contains concrete threat information and substantively concerns one "
-    "of the focus points or answers one of the intelligence requirements below, or "
-    "when it is a major threat development every organisation needs to know about, "
-    "such as mass exploitation of a widely used product or a large supply-chain "
-    "compromise. Broad usefulness to defenders is not enough: the story must "
-    "contain threat information relevant to this organisation. "
-    "A passing mention of a country, sector or vendor is not a match, and neither is "
-    "the publisher of the story: a vendor describing how its own products protect "
-    "customers does not make the story about that vendor's technology. Leave out a "
-    "threat confined to regions, sectors and technologies the organisation does not "
-    "follow. If a requirement lists out-of-scope items, do not confirm a match when "
-    "the story is about one of them. Name the focus point or requirement in the "
-    "reason when there is one."
-)
-
-
-def review_briefing_relevance(event_title: str, report_title: str, content: str,
-                              focus_points: dict, requirements: list[dict]) -> dict | None:
-    """Decide if a source story belongs in the daily briefing of this
-    organisation, or None when the model's answer could not be read."""
-    fc = _feature_cfg("review_briefing_relevance")
-    # The scope rule goes with the focus points rather than in the prompt file,
-    # so a prompt changed on the Prompts tab cannot leave it out.
-    system = _build_system_prompt(
-        _resolve_prompt(fc.get("prompt") or "daily_briefing_relevance.md"),
-        f"{BRIEFING_SCOPE_RULE}\n\n"
-        f"Organisation focus points:\n{json.dumps(focus_points, indent=2)}\n\n"
-        f"Intelligence requirements:\n{json.dumps(requirements, indent=2)}",
-    )
-    payload = {
-        "event_title": (event_title or "").strip(),
-        "report_title": (report_title or "").strip(),
-        "content": (content or "")[:12000],
-    }
-    text = _call(system, _untrusted_block(json.dumps(payload, ensure_ascii=True)), 1024,
-                 feature="review_briefing_relevance", cfg=fc)
-    parsed = _json_object(text, "review_briefing_relevance")
-    if parsed is None:
-        return None
-    if (type(parsed.get("include")) is not bool
-            or not isinstance(parsed.get("reason"), str)):
-        logger.error("review_briefing_relevance returned an invalid answer shape")
-        return None
-    return {
-        "include": parsed["include"],
-        "reason": parsed["reason"].strip(),
-    }
-
-
 def detect_story_overlaps(stories: list[dict]) -> dict:
     """Detect potentially duplicate daily briefing stories.
 
@@ -506,7 +489,7 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
             score = float(item.get("score", 0))
         except (TypeError, ValueError):
             continue
-        if a <= 0 or b <= 0 or a == b:
+        if not (1 <= a <= len(stories) and 1 <= b <= len(stories)) or a == b or not math.isfinite(score):
             continue
         cleaned.append({
             "a": a,
@@ -518,6 +501,41 @@ def detect_story_overlaps(stories: list[dict]) -> dict:
         "overlaps": cleaned,
         "summary": (parsed.get("summary") or "").strip(),
     }
+
+
+def compare_stories(candidate: dict, earlier: list[dict]) -> list[dict]:
+    """How alike a candidate story is to each earlier one, as {"index" (1-based
+    into ``earlier``), "score" (0..1), "new_facts", "reason"}. Each story is a
+    dict with a title and content. An answer that cannot be read raises, as a
+    failed call does; a match that is not in the shape asked for is left out,
+    as "new_facts": "true" would read as a repeat."""
+    fc = _feature_cfg("compare_stories")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "story_similarity.md"))
+    payload = {
+        "candidate": {"title": (candidate.get("title") or "").strip(),
+                      "content": (candidate.get("content") or "").strip()[:2000]},
+        "earlier": [{"index": index, "title": (s.get("title") or "").strip(),
+                     "content": (s.get("content") or "").strip()[:1500]}
+                    for index, s in enumerate(earlier, 1)],
+    }
+    text = _call(system, _untrusted_block(json.dumps(payload, ensure_ascii=True)), 1024,
+                 feature="compare_stories", cfg=fc)
+    parsed = _json_object(text, "compare_stories")
+    if parsed is None:
+        raise ValueError("The model's comparison could not be read")
+    matches = []
+    for item in parsed.get("matches") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            index, score = int(item.get("index", 0)), float(item.get("score", 0))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= index <= len(earlier) and math.isfinite(score) and type(item.get("new_facts")) is bool:
+            matches.append({"index": index, "score": max(0.0, min(1.0, score)),
+                            "new_facts": item["new_facts"],
+                            "reason": str(item.get("reason") or "").strip()})
+    return matches
 
 
 def _fallback_story_overlaps(stories: list[dict]) -> dict:

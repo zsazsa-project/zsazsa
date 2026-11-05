@@ -302,6 +302,7 @@ def _parse_stories_from_form(form):
             "cti_evaluation": cti_evaluation,
             "threat_actor_types": [v.strip() for v in form.getlist(f"story_{i}_threat_actor_types") if v.strip()],
             "drafted_by": drafted_by if drafted_by in _STORY_ORIGINS else "",
+            "correlation": form.get(f"story_{i}_correlation", "").strip(),
         })
         i += 1
     return stories
@@ -504,7 +505,8 @@ def save():
         return redirect(url_for("daily_briefing.compose"))
     try:
         uuid = misp_store.create_briefing(data)
-        product_log.log_product_sources([s.get("source_event_uuid") for s in stories], "daily-briefing")
+        product_log.log_product_sources([s.get("source_event_uuid") for s in stories], "daily-briefing",
+                                        {s.get("source_event_uuid"): s.get("source_id") for s in stories})
         label = data["title"] or f"Daily briefing {data['date']}"
         audit.record("create", "daily-briefing", entity_id=uuid, entity_label=label)
         flash(f"{label} saved as draft.", "success")
@@ -815,6 +817,51 @@ def delete_rejected():
             flash(f"Could not delete briefing {briefing.date}: {exc}", "warning")
     flash(f"Deleted {deleted} rejected briefing{'s' if deleted != 1 else ''}.",
           "success" if deleted else "info")
+    return redirect(url_for("daily_briefing.list_briefings"))
+
+
+@bp.route("/selected", methods=["POST"])
+def selected():
+    """Approve and publish, reject or delete the briefings ticked on the list.
+
+    Only drafts, each read again as it is now: the list can be older than a
+    change made in another tab.
+    """
+    action = request.form.get("action")
+    if action not in ("approve", "reject", "delete"):
+        return "Unknown action", 400
+    if action == "approve" and not misp_session.current_user_can_publish():
+        flash(misp_session.publish_denied_message("approve and publish"), "warning")
+        return redirect(url_for("daily_briefing.list_briefings"))
+    done = []
+    for id in request.form.getlist("ids"):
+        briefing = misp_store.get_briefing(id)
+        if briefing is None or briefing.review_state != misp_store.BRIEFING_REVIEW_DRAFT:
+            continue
+        label = f"Daily briefing {briefing.date}"
+        try:
+            if action == "approve":
+                if not misp_store.publish_briefing(id):
+                    flash(f"{label}: {misp_store.MISP_NOT_PUBLISHED}", "warning")
+                audit.record("publish", "daily-briefing", entity_id=id, entity_label=label)
+                _start_briefing_delivery(id, briefing.date,
+                                         url_for("daily_briefing.detail", id=id, _external=True), "publish")
+            elif action == "reject":
+                misp_store.reject_briefing(id)
+                audit.record("reject", "daily-briefing", entity_id=id, entity_label=label)
+            else:
+                misp_store.delete_briefing(id, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
+                audit.record("delete", "daily-briefing", entity_id=id, entity_label=label)
+            done.append(briefing.date or id)
+        except Exception as exc:
+            flash(f"Could not {action} {label}: {exc}", "warning")
+    verb = {"approve": "approved and published", "reject": "rejected", "delete": "deleted"}[action]
+    if done:
+        flash(f"Daily briefing{'s' if len(done) != 1 else ''} {', '.join(done)} {verb}.", "success")
+        if action == "approve":
+            flash("Notifications are being sent in the background; the job badge reports the result.", "info")
+    else:
+        flash(f"Nothing was {verb}.", "info")
     return redirect(url_for("daily_briefing.list_briefings"))
 
 

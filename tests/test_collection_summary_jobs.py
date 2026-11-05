@@ -366,6 +366,7 @@ class BusyRowsInTheTable(unittest.TestCase):
             mock.patch.object(collection_cache, "get_events", return_value=rows),
             mock.patch.object(collection_cache, "get_source_status", return_value={}),
             mock.patch.object(collection_cache, "interval_s", return_value=300),
+            mock.patch.object(collection_cache, "get_flagged_uuids", return_value=set()),
             mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
             mock.patch.object(misp_store, "list_briefings", return_value=[]),
             mock.patch.object(data_collection, "_events_being_summarised", return_value={"a" * 36: "job-7"}),

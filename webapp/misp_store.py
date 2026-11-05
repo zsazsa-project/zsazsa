@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 import urllib3
@@ -32,7 +33,7 @@ from types import SimpleNamespace
 
 import config
 import requests
-from analyser import tagger
+from analyser import event_state, tagger
 from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
@@ -100,12 +101,14 @@ NEWEST_FIRST = "id desc"
 _SEARCH_MAX_PAGES = 200
 
 
-def _search_all(misp, **kwargs):
+def _search_all(misp, strict=False, **kwargs):
     """Return every page of a MISP event search, or the error response as-is.
 
     Callers check `isinstance(events, dict)` for a failed search, so an error on
     the first page is returned unchanged. An error part-way through is logged
-    and the pages fetched so far are returned.
+    and the pages fetched so far are returned. With ``strict``, for a caller
+    that decides from the result, as the analyser does, a search that failed
+    or stopped short raises instead.
     """
     kwargs = dict(kwargs)
     limit = int(kwargs.pop("limit", _SEARCH_PAGE_SIZE))
@@ -113,6 +116,8 @@ def _search_all(misp, **kwargs):
     for page in range(1, _SEARCH_MAX_PAGES + 1):
         result = misp.search(limit=limit, page=page, **kwargs)
         if isinstance(result, dict):
+            if strict:
+                raise RuntimeError(f"MISP search page {page} failed: {result.get('errors') or result}")
             if not events:
                 return result
             logger.warning("MISP search page %s failed after %s results: %s",
@@ -123,8 +128,17 @@ def _search_all(misp, **kwargs):
         events.extend(result)
         if len(result) < limit:
             return events
+    if strict:
+        raise RuntimeError(f"MISP search stopped at {_SEARCH_MAX_PAGES} pages")
     logger.warning("MISP search stopped at %s pages (%s results)", _SEARCH_MAX_PAGES, len(events))
     return events
+
+
+def _tagged_events(tag, strict=False):
+    """Every event with one of zsazsa's record tags, [] when MISP could not say.
+    With ``strict``, as the analyser reads, a failed read raises instead."""
+    events = _search_all(_misp(), strict=strict, tags=[tag], pythonify=True)
+    return [] if not events or isinstance(events, dict) else events
 
 
 def _misp():
@@ -703,16 +717,12 @@ def _source_client(source_id: str):
     are left alone. An empty source_id means the scraper, which is where a
     product stored before the hint was recorded got its events.
     """
-    if source_id == "webapp" or source_id.startswith("manual-"):
+    source = event_state.source_of(source_id)
+    if source == "manual":
         return _misp()
-    if source_id and source_id != "scraper":
+    if source != "scraper":
         return None
     return _scraper_misp() if scraper_enabled() else None
-
-
-def analyser_source_id(event) -> str:
-    """Manual entries are on the webapp MISP; scraped events are on the scraper."""
-    return "webapp" if _event_has_tag(event, TAG_MANUAL_ENTRY) else "scraper"
 
 
 def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
@@ -746,12 +756,7 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
             None,
         )
         if current_wf != 'workflow:state="complete"':
-            if current_wf:
-                try:
-                    client.untag(src_uuid, current_wf)
-                except Exception:
-                    pass
-            client.tag(src_uuid, 'workflow:state="ongoing"', local=True)
+            tagger.set_workflow_state(client, event, "ongoing")
         client.tag(src_uuid, f'zsazsa:product="{product_label}"', local=True)
         try:
             from webapp import collection_cache
@@ -773,12 +778,19 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
 
     Its workflow state stays, as an analyst may have set it, or another product,
     unless ``reject`` says the analyst turned the event down: then an event still
-    open is rejected, so the analyser does not propose it again.
+    open is rejected, so the analyser does not propose it again. An event on
+    another MISP server is not ours to change, so that decision is kept in zsazsa
+    instead.
     """
     tag = f'zsazsa:product="{product_label}"'
     try:
         client = _source_client(source_id)
         if client is None:
+            # Another server's event, or the scraper's on an installation that
+            # has none any more.
+            if reject and source_id not in ("", "scraper"):
+                event_state.close(source_id, src_uuid,
+                                  f"Removed by an analyst from a {product_label.replace('-', ' ')}")
             return
         event = client.get_event(src_uuid, pythonify=True)
         if not event or isinstance(event, dict):
@@ -788,8 +800,7 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
         if tag in names:
             client.untag(src_uuid, tag)
             removed.append(tag)
-        open_states = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
-        if reject and names & open_states and tagger.set_workflow_state(client, event, "rejected"):
+        if reject and names & tagger.OPEN_STATES and tagger.set_workflow_state(client, event, "rejected"):
             logger.info("Source event %s rejected: its %s turned it down", src_uuid, product_label)
             added.append('workflow:state="rejected"')
             removed += [name for name in names if name.startswith("workflow:state=")]
@@ -800,7 +811,17 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
         logger.warning("Could not untag source event %s: %s", src_uuid, exc)
 
 
-def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use, reject_removed=False) -> None:
+def _read_again(source_id: str, uuid: str, action: str) -> None:
+    """Have the analyser read a deleted product's source event again. The product
+    is gone by now, so a failure here is logged, not raised to the route."""
+    try:
+        event_state.read_again(event_state.source_of(source_id), uuid, action)
+    except sqlite3.Error as exc:
+        logger.warning("Could not have the analyser read %s again: %s", uuid, exc)
+
+
+def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use, reject_removed=False,
+                           read_again="") -> None:
     """Keep the tags on a product's source events level with its sources.
 
     ``before`` and ``after`` are its sources before and after a change, as
@@ -808,6 +829,7 @@ def _retag_product_sources(product_label, before: dict, after: dict, sources_in_
     it no longer has keeps the tag while another product of its type has it:
     ``sources_in_use`` returns those, and is only asked when one was removed.
     With ``reject_removed`` the analyst took that source out, and it is rejected.
+    ``read_again`` is the analyser action to read such a source once more.
     """
     for uuid, source_id in after.items():
         if uuid not in before:
@@ -824,6 +846,8 @@ def _retag_product_sources(product_label, before: dict, after: dict, sources_in_
         for uuid, source_id in removed.items():
             if uuid not in in_use:
                 _untag_product_source(uuid, product_label, source_id, reject=reject_removed)
+                if read_again:
+                    _read_again(source_id, uuid, read_again)
 
 
 def _sources_of(record) -> dict:
@@ -875,7 +899,7 @@ def _record_data(record, fields, **overrides):
 
     The record's object is written again whole on every change, so anything
     that rewrites it for one field (a review state, a status, a draft rule) has
-    to carry all the others across. Taking them from one list of fields instead
+    to write all the others back. Taking them from one list of fields instead
     of each caller spelling them out again is what keeps one from being dropped
     silently. `overrides` replaces the fields the caller is actually changing.
     Lists and dicts are copied so the caller's namespace is not changed under it.
@@ -1125,6 +1149,16 @@ def _json_dict(raw):
 
 SUBSCRIPTION_MODES = ["automated", "after-approval"]
 DEFAULT_SUBSCRIPTION_MODE = "after-approval"
+
+
+def _delete_unfinished(misp, uuid, label):
+    """Delete a product event just created whose object or report could not be
+    written. Left behind, it would count as the product of its source events,
+    which would then never get one, or a new one on every try."""
+    try:
+        _check(misp.delete_event(uuid), f"delete the unfinished {label}")
+    except Exception as exc:
+        logger.warning("Could not delete the unfinished %s %s: %s", label, uuid, exc)
 
 
 def _event_ref(event):
@@ -1689,11 +1723,8 @@ def list_selectable_pirs(*linked_uuids):
     return [p for p in list_pirs() if p.status == "Active" or p.uuid in linked_uuids]
 
 
-def list_pirs():
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_PIR], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
+def list_pirs(strict=False):
+    events = _tagged_events(config.TAG_PIR, strict)
     result = [_pir_ns(e) for e in events]
     result.sort(key=lambda p: p.pir_id)
     return result
@@ -1788,11 +1819,8 @@ def update_pir_intake(uuid, intake_status, reason=None, linked_pir_uuid=None, ch
 
 # ── GIR CRUD ──────────────────────────────────────────────────────────────────
 
-def list_girs():
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_GIR], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
+def list_girs(strict=False):
+    events = _tagged_events(config.TAG_GIR, strict)
     result = [_gir_ns(e) for e in events]
     result.sort(key=lambda g: g.gir_id)
     return result
@@ -3763,13 +3791,15 @@ def active_requirement_counts(stakeholder, requirements):
 
 def linked_pir_uuids(event) -> set:
     """The PIRs a product event answers, as its object records them: one
-    linked-pir-uuid, or the linked-pir-uuids list of a threat landscape report."""
+    linked-pir-uuid, the linked-pir-uuids list of a threat landscape report, or
+    the linked-requirement-uuids of an alert the analyser made, which can name
+    GIRs too."""
     linked = set()
     for obj in event.objects:
         for attr in obj.attributes:
             if attr.object_relation == "linked-pir-uuid":
                 linked.add(attr.value)
-            elif attr.object_relation == "linked-pir-uuids":
+            elif attr.object_relation in ("linked-pir-uuids", "linked-requirement-uuids"):
                 linked.update(_json_list(attr.value))
     return linked
 
@@ -4884,6 +4914,7 @@ def _fia_obj(data):
     _oa_json(obj, "source-event-hints", src_hints)
     _oa_json(obj, "context-tags", data.get("context_tags", []))
     _oa(obj, "linked-pir-uuid", data.get("linked_pir_uuid"))
+    _oa_json(obj, "linked-requirement-uuids", data.get("linked_requirement_uuids", []))
     _oa(obj, "analyser-reason", data.get("analyser_reason"))
     _oa(obj, "creator", data.get("creator"))
     _oa(obj, "approved-by", data.get("approved_by"))
@@ -4957,6 +4988,10 @@ def _fia_ns(event):
         source_event_uuid=source_event_uuids[0] if source_event_uuids else "",
         context_tags=_json_list(g("context-tags")),
         linked_pir_uuid=g("linked-pir-uuid"),
+        # Every PIR and GIR the analyser found the alert answers. An alert from
+        # before the list, or one an analyst made, has its one PIR.
+        linked_requirement_uuids=(_json_list(g("linked-requirement-uuids"))
+                                  or ([g("linked-pir-uuid")] if g("linked-pir-uuid") else [])),
         analyser_reason=g("analyser-reason"),
         creator=g("creator"),
         approved_by=g("approved-by"),
@@ -5231,11 +5266,8 @@ def _write_fia_report(misp, event_uuid, fia_id, content):
     _check(misp.add_event_report(event_uuid, er), "add FIA report")
 
 
-def list_fias(review_state=None):
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_FLASH_INTEL], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
+def list_fias(review_state=None, strict=False):
+    events = _tagged_events(config.TAG_FLASH_INTEL, strict)
     result = [_fia_ns(e) for e in events]
     if review_state:
         result = [f for f in result if f.review_state == review_state]
@@ -5243,10 +5275,31 @@ def list_fias(review_state=None):
     return result
 
 
+# These four decide what the analyser makes, so a MISP that cannot be read in
+# full raises: read as no products, an event would get a second alert.
 def flash_intel_source_uuids() -> set:
     """The events a flash intel alert was made from, every alert counted,
     rejected ones too, whether the analyser or an analyst made it."""
-    return {uuid for fia in list_fias() for uuid in fia.source_event_uuids}
+    return {uuid for fia in list_fias(strict=True) for uuid in fia.source_event_uuids}
+
+
+def vea_source_uuids() -> set:
+    """The events a vulnerability advisory was made from, every advisory
+    counted, rejected ones too, whether the analyser or an analyst made it."""
+    return {uuid for vea in list_veas(strict=True) for uuid in vea.source_event_uuids}
+
+
+def briefing_source_uuids() -> set:
+    """The events a daily briefing has a story from, every briefing counted,
+    rejected ones too."""
+    return {uuid for briefing in list_briefings(strict=True) for uuid in _briefing_sources(briefing.stories)}
+
+
+def briefing_also_seen_uuids() -> set:
+    """The events a daily briefing lists under Also seen, left out over its cap
+    of stories, every briefing counted."""
+    return {seen.get("source_event_uuid") for briefing in list_briefings(strict=True)
+            for seen in briefing.also_seen}
 
 
 def get_fia(uuid):
@@ -5289,11 +5342,13 @@ def create_fia(data):
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == FIA_REVIEW_APPROVED:
         data["approved_by"] = misp_session.current_user_email()
-    _check(misp.add_object(_event_ref(result), _fia_obj(data)), "add FIA object")
-
-    fia = _fia_ns(result)
-    fia.fia_id = fia_id
-    _write_fia_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
+    try:
+        _check(misp.add_object(_event_ref(result), _fia_obj(data)), "add FIA object")
+        fia = _fia_ns(_check(misp.get_event(uuid, pythonify=True), "read the new FIA"))
+        _write_fia_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
+    except Exception:
+        _delete_unfinished(misp, uuid, "FIA")
+        raise
     for src_uuid in src_uuids:
         _tag_scraper_event_as_product_source(
             src_uuid, "flash-intel", source_id=src_hints.get(src_uuid, ""))
@@ -5320,8 +5375,9 @@ def update_fia(uuid, data):
         data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
-        # Only the analyser sets it, when it makes the draft.
+        # Only the analyser sets these, when it makes the draft.
         data["analyser_reason"] = _obj_attr(old, "analyser-reason") or ""
+        data["linked_requirement_uuids"] = _json_list(_obj_attr(old, "linked-requirement-uuids"))
     obj = _fia_obj(data)
     _sync_object_attributes(misp, event, "zsazsa-flash-intel", obj, "FIA")
 
@@ -5441,7 +5497,9 @@ def reject_fia(uuid, reason=""):
 def delete_fia(uuid, expected_state=None):
     fia = _fia_ns(_delete_record(
         uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL, "FIA", expected_state=expected_state))
-    _retag_product_sources("flash-intel", _sources_of(fia), {}, flash_intel_source_uuids)
+    # A rejected alert was turned down: read again, its story would come back.
+    _retag_product_sources("flash-intel", _sources_of(fia), {}, flash_intel_source_uuids,
+                           read_again="" if fia.review_state == FIA_REVIEW_REJECTED else "flash-intel")
 
 
 # ── Flash intel attachments ──────────────────────────────────────────────────
@@ -5759,13 +5817,13 @@ def _roles_as_audience(stakeholders) -> str:
     return ", ".join(_audience_roles(", ".join(s.role for s in stakeholders if s.role)))
 
 
-def requirement_audience(requirement, stakeholders) -> str:
-    """The audience of a product a PIR or GIR asked for: the roles of its owner
-    and of the stakeholders it is distributed to."""
+def requirement_audience(requirements, stakeholders) -> str:
+    """The audience of a product PIRs or GIRs asked for: the roles of their
+    owners and of the stakeholders they are distributed to."""
     return _roles_as_audience(
         s for s in stakeholders
-        if s.uuid == requirement.owner_uuid
-        or _matches_distribution_entry(requirement.distribution, s.uuid, s.name, s.email))
+        if any(s.uuid == r.owner_uuid or _matches_distribution_entry(r.distribution, s.uuid, s.name, s.email)
+               for r in requirements))
 
 
 def subscriber_audience(product_type: str, tlp: str) -> str:
@@ -5938,6 +5996,7 @@ def _vea_obj(data):
     _oa(obj, "linked-pir-uuid", data.get("linked_pir_uuid"))
     _oa_json(obj, "context-tags", data.get("context_tags", []))
     _oa(obj, "analyser-reason", data.get("analyser_reason"))
+    _oa_json(obj, "cve-baselines", data.get("cve_baselines") or {})
     _oa(obj, "creator", data.get("creator"))
     _oa(obj, "approved-by", data.get("approved_by"))
     return obj
@@ -5955,7 +6014,7 @@ _VEA_FIELDS = (
     "patch_sla_internal", "target_patch_version", "exploitation_indicators",
     "detection_rules", "references", "feedback_deadline", "review_state",
     "rejection_reason", "source_event_uuids", "source_event_hints",
-    "linked_pir_uuid", "context_tags", "analyser_reason", "creator", "approved_by",
+    "linked_pir_uuid", "context_tags", "analyser_reason", "cve_baselines", "creator", "approved_by",
 )
 
 
@@ -6017,6 +6076,9 @@ def _vea_ns(event):
         linked_pir_uuid=g("linked-pir-uuid"),
         context_tags=_json_list(g("context-tags")),
         analyser_reason=g("analyser-reason"),
+        # {CVE: {"cvss", "cisa_kev"}} as the analyser found each when it made
+        # the draft: what a later change of a CVE is measured against.
+        cve_baselines=_json_dict(g("cve-baselines")),
         creator=g("creator"),
         approved_by=g("approved-by"),
         published=bool(getattr(event, "published", False)),
@@ -6163,15 +6225,8 @@ def _write_vea_report(misp, event_uuid, vea_id, content):
     _check(misp.add_event_report(event_uuid, er), "add VEA report")
 
 
-def _vea_source_uuids() -> set:
-    return {uuid for vea in list_veas() for uuid in vea.source_event_uuids}
-
-
-def list_veas(review_state=None):
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_VEA], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
+def list_veas(review_state=None, strict=False):
+    events = _tagged_events(config.TAG_VEA, strict)
     result = [_vea_ns(e) for e in events]
     if review_state:
         result = [v for v in result if v.review_state == review_state]
@@ -6213,11 +6268,13 @@ def create_vea(data):
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == VEA_REVIEW_APPROVED:
         data["approved_by"] = misp_session.current_user_email()
-    _check(misp.add_object(_event_ref(result), _vea_obj(data)), "add VEA object")
-
-    vea = _vea_ns(result)
-    vea.vea_id = vea_id
-    _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
+    try:
+        _check(misp.add_object(_event_ref(result), _vea_obj(data)), "add VEA object")
+        vea = _vea_ns(_check(misp.get_event(uuid, pythonify=True), "read the new VEA"))
+        _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
+    except Exception:
+        _delete_unfinished(misp, uuid, "VEA")
+        raise
     for uid in src_uuids:
         _tag_scraper_event_as_product_source(
             uid, "vea", source_id=src_hints.get(uid, ""))
@@ -6243,8 +6300,9 @@ def update_vea(uuid, data):
         data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
     if old:
         data["creator"] = _obj_attr(old, "creator") or ""
-        # Only the analyser sets it, when it makes the draft.
+        # Only the analyser sets them, when it makes the draft.
         data["analyser_reason"] = _obj_attr(old, "analyser-reason") or ""
+        data["cve_baselines"] = _json_dict(_obj_attr(old, "cve-baselines"))
     obj = _vea_obj(data)
     _sync_object_attributes(misp, event, "zsazsa-vea", obj, "VEA")
 
@@ -6258,7 +6316,7 @@ def update_vea(uuid, data):
     _delete_vea_reports(misp, refreshed)
     vea = _vea_ns(refreshed)
     _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
-    _retag_product_sources("vea", before, _sources_of(vea), _vea_source_uuids)
+    _retag_product_sources("vea", before, _sources_of(vea), vea_source_uuids)
     return uuid, vea_id
 
 
@@ -6304,7 +6362,8 @@ def reject_vea(uuid, reason=""):
 def delete_vea(uuid, expected_state=None):
     vea = _vea_ns(_delete_record(
         uuid, "zsazsa-vea", config.TAG_VEA, "VEA", expected_state=expected_state))
-    _retag_product_sources("vea", _sources_of(vea), {}, _vea_source_uuids)
+    _retag_product_sources("vea", _sources_of(vea), {}, vea_source_uuids,
+                           read_again="" if vea.review_state == VEA_REVIEW_REJECTED else "vea")
 
 
 # ── Detection Engineering Request ────────────────────────────────────────────
@@ -6726,6 +6785,7 @@ def _briefing_obj(data):
     _oa(obj, "story-count", str(count))
     _oa(obj, "escalations", data.get("escalations"))
     _oa(obj, "notes", data.get("notes"))
+    _oa_json(obj, "also-seen", data.get("also_seen", []))
     _oa(obj, "detection-rules", data.get("detection_rules"))
     _oa_json(obj, "geographic-scope", data.get("geographic_scope", []))
     _oa_json(obj, "sectors", data.get("sectors", []))
@@ -6754,7 +6814,7 @@ def _briefing_obj(data):
 # again.
 BRIEFING_FIELDS = (
     "date", "title", "author", "tlp", "review_state", "story_count",
-    "escalations", "notes", "detection_rules", "summary", "summary_stale",
+    "escalations", "notes", "also_seen", "detection_rules", "summary", "summary_stale",
     "geographic_scope", "sectors", "threat_actors", "mitre_attack_techniques",
     "threat_types", "technology", "vendor", "incident", "campaign",
     "creator", "approved_by", "rejection_reason",
@@ -6795,6 +6855,8 @@ def _briefing_ns(event):
         story_count=int(g("story-count") or "0"),
         escalations=g("escalations"),
         notes=g("notes"),
+        # The events the analyser left out over the cap, for an analyst to add back.
+        also_seen=_json_list(_obj_attr(obj, "also-seen")),
         detection_rules=g("detection-rules"),
         geographic_scope=_json_list(_obj_attr(obj, "geographic-scope")),
         sectors=_json_list(_obj_attr(obj, "sectors")),
@@ -7109,6 +7171,9 @@ def _briefing_story_report(index, story):
         # "ai-edited" once an analyst has, empty when written by hand. The
         # compose form shows it as the state of each story.
         "drafted_by": story.get("drafted_by", ""),
+        # The earlier story the analyser found this one tells again, for the
+        # analyst; not delivered.
+        "correlation": story.get("correlation", ""),
     })
     er.distribution = 0
     return er
@@ -7128,15 +7193,8 @@ def _briefing_report(briefing):
     return er
 
 
-def _briefing_source_uuids() -> set:
-    return {uuid for briefing in list_briefings() for uuid in _briefing_sources(briefing.stories)}
-
-
-def list_briefings():
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_BRIEFING], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
+def list_briefings(strict=False):
+    events = _tagged_events(config.TAG_BRIEFING, strict)
     result = [_briefing_ns(e) for e in events]
     result.sort(key=lambda b: b.date or "", reverse=True)
     return result
@@ -7170,11 +7228,7 @@ def create_briefing(data):
         refreshed = misp.get_event(uuid, pythonify=True)
         _check(misp.add_event_report(uuid, _briefing_report(_briefing_ns(refreshed))), "add briefing report")
     except Exception:
-        # Clean up the shell event so it doesn't appear as a dateless entry.
-        try:
-            misp.delete_event(uuid)
-        except Exception:
-            pass
+        _delete_unfinished(misp, uuid, "briefing")
         raise
     for story in data.get("stories", []):
         src = story.get("source_event_uuid", "")
@@ -7223,6 +7277,10 @@ def _update_briefing(uuid, data, expected_state):
         data["creator"] = _obj_attr(old, "creator") or ""
         data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
         data.setdefault("rejection_reason", _obj_attr(old, "rejection-reason") or "")
+    # The form does not post it. An event added back as a story leaves it.
+    in_stories = set(_briefing_sources(data.get("stories", [])))
+    data["also_seen"] = [seen for seen in data.get("also_seen", existing.also_seen)
+                         if seen.get("source_event_uuid") not in in_stories]
     obj = _briefing_obj(data)
     _sync_object_attributes(misp, event, "zsazsa-daily-briefing", obj, "briefing")
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
@@ -7240,7 +7298,7 @@ def _update_briefing(uuid, data, expected_state):
     # A story deleted from the briefing was turned down: left open, its event
     # would be proposed again by the next briefing that reads its date.
     _retag_product_sources("daily-briefing", _briefing_sources(existing.stories),
-                           _briefing_sources(data.get("stories", [])), _briefing_source_uuids,
+                           _briefing_sources(data.get("stories", [])), briefing_source_uuids,
                            reject_removed=True)
     return uuid
 
@@ -7282,10 +7340,14 @@ def delete_briefing(uuid, expected_state=None):
     with _briefing_write_lock:
         briefing = _briefing_ns(_delete_record(
             uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING, "briefing", expected_state=expected_state))
-        # A draft deleted to be made again gives its events back to the analyser;
-        # a rejected one keeps them out of later briefings.
-        _retag_product_sources("daily-briefing", _briefing_sources(briefing.stories), {}, _briefing_source_uuids,
-                               reject_removed=briefing.review_state == BRIEFING_REVIEW_REJECTED)
+        # A draft deleted to be made again gives its events back to the analyser,
+        # those under Also seen too; a rejected one keeps them out of later briefings.
+        rejected = briefing.review_state == BRIEFING_REVIEW_REJECTED
+        _retag_product_sources("daily-briefing", _briefing_sources(briefing.stories), {}, briefing_source_uuids,
+                               reject_removed=rejected, read_again="" if rejected else "daily-briefing")
+        if not rejected:
+            for seen in briefing.also_seen:
+                _read_again(seen.get("source_id", ""), seen["source_event_uuid"], "daily-briefing")
 
 
 def reject_briefing(uuid, reason=""):
@@ -7301,10 +7363,8 @@ def reject_briefing(uuid, reason=""):
         data["review_state"] = BRIEFING_REVIEW_REJECTED
         data["rejection_reason"] = reason
         _sync_object_attributes(misp, event, "zsazsa-daily-briefing", _briefing_obj(data), "briefing")
-        for tag in list(getattr(event, "tags", []) or []):
-            if tag.name.startswith("workflow:state="):
-                _check(misp.untag(event.uuid, tag.name), "remove briefing workflow state")
-        _check(misp.tag(event.uuid, 'workflow:state="rejected"', local=True), "reject briefing workflow state")
+        if not tagger.set_workflow_state(misp, event, "rejected"):
+            raise RuntimeError(f"MISP refused the workflow state of briefing {uuid}; the log says why")
 
 
 def scraper_existing_uuids(uuids):

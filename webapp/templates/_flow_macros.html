@@ -78,6 +78,7 @@
       <span>Pasted or by e-mail; links go to the scraper</span>
     </div>
     <div class="flow-source">
+      <span class="flow-read" title="Read by the analyser"><i class="fas fa-robot"></i></span>
       <img src="{{ misp_logo }}" alt="">
       <strong>MISP communities</strong>
       <span>Other MISP servers</span>
@@ -90,7 +91,7 @@
     </div>
   </div>
   <div class="flow-converge"><img src="{{ misp_logo }}" alt="MISP">Everything is a MISP event</div>
-  <div class="flow-row flow-auto"><i class="fas fa-robot"></i><span class="text-muted">The analyser reads the scraper's events and the manual entries with a report. Events from other MISP servers go in when you pick them.</span></div>
+  <div class="flow-row flow-auto"><i class="fas fa-robot"></i><span class="text-muted">The analyser reads the scraper's events, and the manual entries and the other MISP servers' events that have a report, of the sources switched on. Any event can also be picked by hand.</span></div>
   <div class="flow-links">
     <a href="{{ url_for('data_collection.index') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-layer-group me-1"></i>Data collection</a>
   </div>

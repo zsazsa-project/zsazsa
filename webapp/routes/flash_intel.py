@@ -203,7 +203,6 @@ def review():
         audience_counts=misp_store.audience_counts(matching(all_fias, tests, skip="audience")),
         can_publish=misp_session.current_user_can_publish(),
         schedule_focus=getattr(_cfg, "ANALYSER_FLASH_INTEL", True),
-        schedule_requirements=getattr(_cfg, "ANALYSER_FLASH_INTEL_REQUIREMENTS", False),
         sort=sort,
         dir=direction,
     )
@@ -232,7 +231,8 @@ def wizard_new():
                                 if action == "submit" else misp_store.FIA_REVIEW_DRAFT)
         try:
             uuid, fia_id = misp_store.create_fia(data)
-            product_log.log_product_sources(data.get("source_event_uuids") or [], "flash-intel")
+            product_log.log_product_sources(data.get("source_event_uuids") or [], "flash-intel",
+                                            data.get("source_event_hints"))
             audit.record("create", "fia", entity_id=uuid, entity_label=fia_id)
             flash(f"{fia_id} {'submitted for review' if action == 'submit' else 'saved as draft'}.",
                   "success")
