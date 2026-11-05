@@ -7,23 +7,20 @@ going does not start: the dashboard says who has the lock, and a scheduled run
 skips that hour, whose events the watermarks then give to the next one.
 
 The lock is a row in the SQLite database both processes share, in Docker too. A
-holder refreshes it every few minutes from a thread of its own (kept_fresh), so
-a run waiting on a slow model call keeps it too. One that stops, because its
-process died, loses it once it has been quiet for an hour. A run that finds it
-has lost the lock all the same, as after its process was suspended for that
-long, stops at its next step rather than go on beside the next one.
+holder refreshes it at every step it reports. One that stops, because its
+process died, loses it once it has been quiet for an hour, which is longer than
+a model call can take. A run that finds it has lost the lock all the same, as
+after its process was suspended for that long, stops at its next step rather
+than go on beside the next one.
 """
 
-import threading
 import time
-from contextlib import contextmanager
 from uuid import uuid4
 
 from core.db import row_connection
 
 _NAME = "analyser"
 QUIET_AFTER_SECONDS = 3600
-REFRESH_EVERY_SECONDS = 300
 
 
 class Lost(RuntimeError):
@@ -63,29 +60,6 @@ def refresh(token: str) -> bool:
         changed = conn.execute("UPDATE analyser_lock SET refreshed_at = ? WHERE name = ? AND token = ?",
                                (int(time.time()), _NAME, token)).rowcount
     return changed == 1
-
-
-@contextmanager
-def kept_fresh(token: str):
-    """Refresh the lock every REFRESH_EVERY_SECONDS while the block runs, from
-    a thread of its own: between two steps a run can wait on a model call for
-    as long as the call takes. The thread stops once the lock is lost."""
-    if not token:
-        yield
-        return
-    done = threading.Event()
-
-    def beat():
-        while not done.wait(REFRESH_EVERY_SECONDS) and refresh(token):
-            pass
-
-    thread = threading.Thread(target=beat, name="analyser-lock", daemon=True)
-    thread.start()
-    try:
-        yield
-    finally:
-        done.set()
-        thread.join()
 
 
 def release(token: str) -> None:

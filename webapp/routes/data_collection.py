@@ -20,7 +20,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from pymisp import MISPEvent, PyMISP
 
 import config
-from analyser import event_state, relevance, tagger
+from analyser import event_state, relevance, settings, tagger
 from core import ai_connector
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
@@ -212,7 +212,7 @@ def _build_list_context() -> dict:
         org_list=org_list,
         limit=_DEFAULT_LIMIT,
         marker_tag=config.SCRAPER_MARKER_TAG,
-        followup_tag=_followup_tag(),
+        followup_tag=collection_cache.followup_tag(),
         dismissed_tag=collection_cache.dismissed_tag(),
         total_reports=sum(ev.get("report_count", 0) for ev in events),
         sources=sources,
@@ -589,7 +589,6 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
     else:
         applied_tags = []
         try:
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "draft")
         except Exception as exc:
             logger.warning("Could not update workflow state for %s: %s", uuid, exc)
@@ -1071,7 +1070,6 @@ _CTI_EVAL_PREDICATES = [
     "specificity", "usefulness", "format-validity", "conversion-fidelity",
     "source-reliability", "evidence-strength", "confidence",
 ]
-_CTI_EVAL_VALUES = ["very-low", "low", "moderate", "high", "very-high"]
 
 
 def _misp_for_source(source_id):
@@ -1169,7 +1167,7 @@ def cti_tag(uuid):
     value = (data.get("value") or "").strip().lower()
     if predicate not in _CTI_EVAL_PREDICATES:
         return jsonify({"ok": False, "error": f"Unknown predicate: {predicate!r}"}), 400
-    if value not in _CTI_EVAL_VALUES:
+    if value not in settings.LEVELS:
         return jsonify({"ok": False, "error": f"Unknown value: {value!r}"}), 400
     if not _is_collected(uuid, source_id):
         return jsonify({"ok": False, "error": "Event not found"}), 404
@@ -1202,7 +1200,7 @@ def cti_tag(uuid):
         warnings.append("the event could not be published again; publish it in MISP to keep it on this page "
                         "and in the analysis")
     try:
-        event_state.scored_by_analyst(_analysed_source(source_id), uuid)
+        event_state.scored_by_analyst(event_state.source_of(source_id), uuid)
     except Exception as exc:
         logger.warning("Could not record the score of %s for the analyser: %s", uuid, exc)
         warnings.append("a run of the analyser going now may not see it")
@@ -1225,21 +1223,11 @@ def _drop_other_values(misp, uuid, predicate, tag_name):
     """Take an earlier value of the same score off the event. The taxonomy
     allows one, and MISP does not enforce it: with "low" and "very-high" both
     there, what the analyser read depended on the order of the tags."""
-    event = misp.get_event(uuid, pythonify=True)
-    if isinstance(event, dict):
-        raise RuntimeError(event.get("errors") or event)
+    event = misp_store._check(misp.get_event(uuid, pythonify=True), "read the event")
     prefix = f'{_CTI_EVAL_NAMESPACE}:{predicate}="'
     for tag in event.tags:
         if tag.name.startswith(prefix) and tag.name != tag_name:
-            reply = misp.untag(uuid, tag.name)
-            if isinstance(reply, dict) and "errors" in reply:
-                raise RuntimeError(reply["errors"])
-
-
-def _analysed_source(source_id):
-    """The analyser's id for a source of this page: every manual source is
-    one, the manual entries on zsazsa's MISP."""
-    return "manual" if source_id.startswith("manual-") else source_id
+            misp_store._check(misp.untag(uuid, tag.name), "remove the earlier score")
 
 
 def _reopen(uuid, source_id, misp, why):
@@ -1251,24 +1239,18 @@ def _reopen(uuid, source_id, misp, why):
     if _is_remote_source(source_id):
         event_state.reopen(source_id, uuid)
     else:
-        event = misp.get_event(uuid, pythonify=True)
-        if isinstance(event, dict):
-            raise RuntimeError(event.get("errors") or event)
-        if 'workflow:state="rejected"' not in {t.name for t in event.tags}:
+        event = misp_store._check(misp.get_event(uuid, pythonify=True), "read the event")
+        if collection_cache.WORKFLOW_REJECTED_TAG not in {t.name for t in event.tags}:
             return
         if not tagger.set_workflow_state(misp, event, "incomplete"):
             raise RuntimeError("MISP refused the workflow state")
     audit.record("reopen", "misp-event", entity_id=uuid, details=why)
 
 
-def _followup_tag() -> str:
-    return getattr(config, "TAG_COLLECTION_FOLLOWUP", 'zsazsa:collection="follow-up"')
-
-
 def _flag_for_followup(misp, uuid) -> str:
     """Flag an event for follow-up: the local tag in MISP, then the cache the
     pages and the analyser read the flag from. Returns MISP's error, or ""."""
-    err_text = _misp_response_errors(misp.tag(uuid, _followup_tag(), local=True))
+    err_text = _misp_response_errors(misp.tag(uuid, collection_cache.followup_tag(), local=True))
     if err_text:
         return err_text
     collection_cache.flag_event(uuid)
@@ -1544,7 +1526,6 @@ def bulk_reject_excluded():
                 elif changed:
                     dismissed += 1
                 continue
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             rejected += 1
             audit.record("tag", "misp-event", entity_id=uuid, details=collection_cache.WORKFLOW_REJECTED_TAG)
@@ -1706,7 +1687,6 @@ def bulk_reject():
             continue
 
         try:
-            from analyser import tagger
             tagger.set_workflow_state(misp, event, "rejected")
             audit.record(
                 "reject", "misp-event", entity_id=uuid, entity_label=event.info or uuid,
@@ -1895,7 +1875,7 @@ def flag_for_review(uuid):
 
     try:
         if collection_cache.is_flagged(uuid):
-            err_text = _misp_response_errors(misp.untag(uuid, _followup_tag()))
+            err_text = _misp_response_errors(misp.untag(uuid, collection_cache.followup_tag()))
             if err_text:
                 return jsonify({"ok": False, "error": err_text}), 400
             collection_cache.unflag_event(uuid)
@@ -1958,7 +1938,6 @@ def reject_event(uuid):
         })
 
     try:
-        from analyser import tagger
         tagger.set_workflow_state(misp, event, "rejected")
         logger.info("reject_event: marked %s rejected (%s)", uuid, event_title)
         audit.record(

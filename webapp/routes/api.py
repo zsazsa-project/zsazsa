@@ -124,7 +124,7 @@ def draft_story():
         from analyser import llm
 
         story, suggested_actor_type = llm.draft_briefing_story(
-            content or context_hint, analyser_pipeline.focus_points(), _threat_actor_types())
+            content or context_hint, llm.configured_focus_points(), _threat_actor_types())
         return jsonify({"story": story, "scope": scope, "threat_actor_type": suggested_actor_type, "error": None})
     except Exception as exc:
         logger.warning("draft_story LLM call failed: %s", exc)
@@ -334,7 +334,7 @@ def _run_briefing_draft_job(job_id: str, briefing_uuid: str, with_summary: bool,
         stories = [dict(vars(s)) for s in briefing.stories]
         total = len(stories)
         job_store.update_job(job_id, status="running", message=f"Drafting {total} stories...")
-        focus_points, actor_types = analyser_pipeline.focus_points(), _threat_actor_types()
+        focus_points, actor_types = llm.configured_focus_points(), _threat_actor_types()
         drafted = 0
 
         with job_store.heartbeat(job_id, f"Drafting {total} stories"):

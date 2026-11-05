@@ -37,7 +37,7 @@ STORED = {
     "AI_CONNECTOR_MODEL_ID": "zsazsa-local:latest",
 }
 POSTED = {
-    "enabled": True, "url": "https://ai.example.org/", "port": "6668", "timeout": "600",
+    "enabled": True, "url": "http://ai-connector/", "port": "6667", "timeout": "600",
     "ssl_verify_peer": True, "ssl_verify_host": True, "ssl_allow_self_signed": True,
     "ssl_cafile": "/etc/ssl/ai-ca.pem", "openai_api_base": "http://llm.example.org:11434/v1",
     "api_key": "", "model_id": "gemma4:12b",
@@ -81,8 +81,8 @@ class Saving(unittest.TestCase):
         self.assertEqual(resp.get_json(), {"ok": True})
         self.assertEqual(self.saved(), {
             "AI_CONNECTOR_ENABLED": True,
-            "AI_CONNECTOR_URL": "https://ai.example.org",
-            "AI_CONNECTOR_PORT": 6668,
+            "AI_CONNECTOR_URL": "http://ai-connector",
+            "AI_CONNECTOR_PORT": 6667,
             "AI_CONNECTOR_TIMEOUT": 600,
             "AI_CONNECTOR_SSL_VERIFY_PEER": True,
             "AI_CONNECTOR_SSL_VERIFY_HOST": True,
@@ -109,6 +109,23 @@ class Saving(unittest.TestCase):
         self.assertIn("API key again", resp.get_json()["error"])
         self.assertEqual(self.target.read_text(), before)
 
+    def test_the_api_key_is_not_sent_to_another_module(self):
+        """The module is handed the key, so it stays only while the module does."""
+        before = self.target.read_text()
+        for moved in ({"url": "https://elsewhere.example"}, {"port": "7000"}):
+            with self.subTest(moved=moved):
+                resp = self.save_providers(ai_connector={**POSTED, **moved})
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn("API key again", resp.get_json()["error"])
+                self.assertEqual(self.target.read_text(), before)
+
+    def test_a_key_entered_for_another_module_is_saved(self):
+        moved = {**POSTED, "url": "https://elsewhere.example", "port": "7000", "api_key": "new-key"}
+        self.assertEqual(self.save_providers(ai_connector=moved).get_json(), {"ok": True})
+        saved = self.saved()
+        self.assertEqual((saved["AI_CONNECTOR_URL"], saved["AI_CONNECTOR_PORT"], saved["AI_CONNECTOR_API_KEY"]),
+                         ("https://elsewhere.example", 7000, "new-key"))
+
     def test_the_api_key_can_be_removed(self):
         self.save_providers(ai_connector={**POSTED, "remove_api_key": True})
         self.assertEqual(self.saved()["AI_CONNECTOR_API_KEY"], "")
@@ -128,13 +145,20 @@ class Saving(unittest.TestCase):
             resp = self.client.post("/config/test-ai-connector", json=POSTED)
         self.assertEqual(resp.get_json(), {"ok": True, "message": "Connection OK"})
         settings = ping.call_args.args[0]
-        self.assertEqual((settings["AI_CONNECTOR_URL"], settings["AI_CONNECTOR_PORT"], settings["AI_CONNECTOR_API_KEY"]),
-                         ("https://ai.example.org", 6668, "secret-ai-connector-key"))
+        self.assertEqual((settings["AI_CONNECTOR_MODEL_ID"], settings["AI_CONNECTOR_API_KEY"]),
+                         ("gemma4:12b", "secret-ai-connector-key"))
 
     def test_the_connection_test_does_not_send_the_key_to_another_endpoint(self):
         with mock.patch.object(config_page.ai_connector, "ping") as ping:
             resp = self.client.post("/config/test-ai-connector",
                                     json={**POSTED, "openai_api_base": "https://elsewhere.example/v1"})
+        self.assertEqual(resp.status_code, 400)
+        ping.assert_not_called()
+
+
+    def test_the_connection_test_does_not_send_the_key_to_another_module(self):
+        with mock.patch.object(config_page.ai_connector, "ping") as ping:
+            resp = self.client.post("/config/test-ai-connector", json={**POSTED, "url": "https://elsewhere.example"})
         self.assertEqual(resp.status_code, 400)
         ping.assert_not_called()
 

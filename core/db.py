@@ -123,6 +123,16 @@ def init_db() -> None:
                 PRIMARY KEY (source_id, event_uuid)
             )
         """)
+        # The events an action reads once more, whatever its watermark says: the
+        # source events of a deleted product (analyser.event_state).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analyser_read_again (
+                action     TEXT NOT NULL,
+                source_id  TEXT NOT NULL,
+                event_uuid TEXT NOT NULL,
+                PRIMARY KEY (action, source_id, event_uuid)
+            )
+        """)
         # The one analyser run allowed at a time (analyser.run_lock).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS analyser_lock (

@@ -167,7 +167,8 @@ class RenderedPages(unittest.TestCase):
             ("/stakeholders/", f"Delete {BREAKOUT}?"),
             ("/stakeholders/sh-1", f"Delete {BREAKOUT}?"),
             ("/products/indicator-feed/", f"Delete FEED-001 ({BREAKOUT})? This cannot be undone."),
-            ("/briefing/", f"Delete briefing {BREAKOUT}?"),
+            ("/briefing/", f"Delete briefing {BREAKOUT}? The analyser may draft it again from its source events. "
+                           "Reject it to keep the story out."),
             ("/community/organisations", f"Sync local details for {BREAKOUT} from MISP?"),
             ("/community/organisations", f"Remove organisation {BREAKOUT}?"),
         ):

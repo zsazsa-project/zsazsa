@@ -71,6 +71,15 @@ class ConfigSave(unittest.TestCase):
         self.client.post("/config", data={})
         self.assertEqual(self.saved(), before)
 
+    def test_a_config_from_before_the_switch_keeps_the_alerts_on(self):
+        """The analyser makes alerts unless the config says otherwise, so a form
+        that does not post the new switch, as the setup wizard, must not turn
+        them off."""
+        with mock.patch.dict(vars(config_page._config)):
+            vars(config_page._config).pop("ANALYSER_FLASH_INTEL", None)
+            self.client.post("/config", data={})
+        self.assertIs(self.saved()["ANALYSER_FLASH_INTEL"], True)
+
     def test_a_post_missing_the_credentials_keeps_them(self):
         before = self.saved()
         form = self.full_form()
@@ -253,8 +262,8 @@ class ConfigSave(unittest.TestCase):
                 self.assertTrue(self.client.post("/config/sources/save-server", json=body).get_json()["ok"])
                 self.assertIs(self.saved()["MISP_SERVERS"][-1]["allow_reports"], stored)
 
-    def test_a_server_s_events_are_analysed_unless_switched_off(self):
-        for sent, stored in ((False, False), (True, True), (None, True)):
+    def test_a_server_s_events_are_analysed_only_when_switched_on(self):
+        for sent, stored in ((False, False), (True, True), (None, False)):
             with self.subTest(sent=sent):
                 body = {"label": "Partner", "url": "https://misp.partner.example"}
                 if sent is not None:

@@ -308,7 +308,9 @@ class Wanted(JudgeTest):
         event = _event()
         verdict = self.judge(answer, event=event, judge=judge)
         event.tags = [SimpleNamespace(name=f'cti-evaluation:{dim}="{level}"') for dim, level in scores]
-        return judge.wants(verdict, product, event)
+        with mock.patch.object(relevance, "datetime") as clock:
+            clock.now.return_value.date.return_value = date(2026, 10, 31)
+            return judge.wants(verdict, product, event)
 
     def test_an_analyst_pushes_an_event_past_the_verdict(self):
         """Very high relevance pushes to an alert and to the briefing, high to the briefing."""

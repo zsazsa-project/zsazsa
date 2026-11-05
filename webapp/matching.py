@@ -261,12 +261,17 @@ def match_event_to_requirement(
 
     return ScopeMatch(
         req_type=req_type,
-        req_id=getattr(req, "pir_id", None) or getattr(req, "gir_id", None) or "",
+        req_id=requirement_id(req),
         req_uuid=req.uuid,
         req_label=_requirement_text(req),
         evidence=evidence,
         score=score,
     )
+
+
+def requirement_id(req) -> str:
+    """A PIR's or a GIR's id, such as PIR-00003."""
+    return getattr(req, "pir_id", None) or getattr(req, "gir_id", None) or ""
 
 
 def _requirement_text(req) -> str:

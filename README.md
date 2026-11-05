@@ -335,7 +335,7 @@ Each option reads what came in or changed since its previous completed run, sche
 - the manual entries that have a report;
 - the events with a report on each additional MISP server whose "Analyse its events" is on, through that server's filters and at most its "Max events" a run.
 
-Its first run on zsazsa's own MISP reads the last hour, or the last day for the briefing. Another server is read over its "Events from last (days)" window every time, as a synced event keeps the timestamp it had elsewhere. An event the option already handled is only read again when its MISP timestamp shows it changed since. A source that cannot be reached is reported on the run and read again by the next one.
+Its first run on zsazsa's own MISP reads the last hour, or the last day for the briefing and the advisories. Another server is read over its "Events from last (days)" window every time, as a synced event keeps the timestamp it had elsewhere. An event the option already handled is only read again when its MISP timestamp shows it changed since. A source that cannot be reached is reported on the run and read again by the next one.
 
 On zsazsa's own MISP only the events in workflow state `incomplete` or `ongoing` are kept. Another server's events are not zsazsa's to change: the analyser keeps what it decided about them in zsazsa, and adds at most an AI summary, where that server's "Allow adding reports to events" is on. An event on two sources is read once, from zsazsa's own MISP.
 
@@ -355,7 +355,7 @@ Your own `cti-evaluation` scores, set on the data collection page, take the mode
 
 On the Pipeline page, an event the analyser declined has two buttons in its activity. **Push** sets that relevance score, for the briefing or for an alert and the briefing, and the next run makes the product. **Review by hand** flags it for follow-up and opens it again on Data collection. The analyser never rejects an event flagged for follow-up, so it stays there until an analyst deals with it.
 
-**Read again the last (hours)** under Start analyser reads that many hours back, the events already handled included, for after a change to the focus points, a requirement or a prompt. An event already judged under the current settings costs no model call.
+**Read again the last (hours)** under Start analyser reads that many hours back, the events already handled included, for after a change to the focus points, a requirement or a prompt. An event already judged under the current settings costs no model call. Nothing needs doing after a product is deleted: the analyser reads its source events again on its next run, unless the product was rejected, so reject a draft you do not want rather than delete it.
 
 ### Earlier products
 
@@ -512,8 +512,8 @@ Under **What it reads**, each kind of source is switched on or off for every pro
 | `ANALYSER_READ_MANUAL` | Read the manual entries | on |
 | `ANALYSER_READ_MISP_SERVERS` | Read the other MISP servers whose "Analyse its events" is on. Each event read costs a model call | on |
 | `ANALYSER_MAX_EVENT_AGE_DAYS` | Oldest scraper event read, in days, by its MISP date | 7 |
-| `ANALYSER_LOOKBACK_HOURS` | How far back the alerts and the advisories read a source the first time, in hours | 1 |
-| `ANALYSER_BRIEFING_LOOKBACK_HOURS` | The same for the daily briefing | 24 |
+| `ANALYSER_LOOKBACK_HOURS` | How far back the alerts read a source the first time, in hours | 1 |
+| `ANALYSER_BRIEFING_LOOKBACK_HOURS` | The same for the daily briefing and the advisories | 24 |
 | `ANALYSER_MAJOR_DEVELOPMENTS` | A major threat development is a briefing story without a focus point or requirement behind it | on |
 | `ANALYSER_ARTICLE_CHARS` | How much of the article the relevance call reads | 12000 |
 | `ANALYSER_RELEVANCE_ATTEMPTS` | Runs that try an unreadable answer again before the event is left to the analyst | 3 |
@@ -804,7 +804,7 @@ The "Other MISP servers" card lists any extra MISP instances configured in `MISP
 | Organisation filter | Include only, or exclude, events from the given organisation UUIDs |
 | Events from last (days) | How far back to look, based on the event date |
 | Max events | Maximum number of events pulled per query, and read by one analyser run |
-| Analyse its events | Whether the analyser reads this server's events that have a report. On unless switched off |
+| Analyse its events | Whether the analyser reads this server's events that have a report. Off until switched on: their text then goes to the AI features, whatever their TLP, and to a cloud provider where the AI tab sets one |
 | Allow adding reports to events | Offer the AI summaries on this server's events. Off for a new server |
 | Enabled | Whether the server is active and offered as a filter option |
 

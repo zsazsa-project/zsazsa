@@ -14,6 +14,9 @@ Per event, by its source and uuid, the analysed_events table holds:
   rejection goes; on zsazsa's own MISP it is the event's workflow state;
 - when an analyst last scored it on the data collection page.
 
+analyser_read_again holds the events an action is to read once more, as those
+of a deleted product.
+
 Losing the table loses no intelligence: the products are in MISP. It costs a
 model call for every event read again, and the events of other servers that
 were closed would be proposed again.
@@ -121,6 +124,37 @@ def outcome(state: dict, product: str, decided_on: str) -> str:
     or it was decided on something other than ``decided_on``."""
     entry = state["outcomes"].get(product) or {}
     return entry.get("outcome", "") if entry.get("decided_on") == decided_on else ""
+
+
+def source_of(hint: str) -> str:
+    """The analyser's id of the source a product or a page names for an event:
+    every manual source is one, the manual entries on zsazsa's MISP, and a
+    product from before the hint was kept got its events from the scraper."""
+    if hint == "webapp" or hint.startswith("manual-"):
+        return "manual"
+    return hint or "scraper"
+
+
+def read_again(source_id: str, event_uuid: str, action: str) -> None:
+    """Have the next run of an action read this event, as after its product was
+    deleted. The tag that comes off is local, which does not change the event in
+    MISP, so its watermark alone would pass it by."""
+    with row_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO analyser_read_again (action, source_id, event_uuid) VALUES (?, ?, ?)",
+                     (action, source_id, event_uuid))
+
+
+def to_read_again(source_id: str, action: str) -> set[str]:
+    with row_connection() as conn:
+        rows = conn.execute("SELECT event_uuid FROM analyser_read_again WHERE action = ? AND source_id = ?",
+                            (action, source_id)).fetchall()
+    return {row["event_uuid"] for row in rows}
+
+
+def read_again_done(source_id: str, action: str, event_uuids: set[str]) -> None:
+    with row_connection() as conn:
+        conn.executemany("DELETE FROM analyser_read_again WHERE action = ? AND source_id = ? AND event_uuid = ?",
+                         [(action, source_id, uuid) for uuid in event_uuids])
 
 
 def _write(source_id: str, event_uuid: str, **columns) -> None:

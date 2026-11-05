@@ -119,7 +119,7 @@ class Stories(unittest.TestCase):
             mock.patch.object(pipeline.misp_store, "briefing_also_seen_uuids", return_value=set()),
             mock.patch.object(pipeline.event_state, "load", return_value={"verdict": None, "outcomes": {}}),
             mock.patch.object(pipeline, "todays_draft", return_value=None),
-            mock.patch.object(pipeline, "focus_points", return_value={}),
+            mock.patch("analyser.llm.configured_focus_points", return_value={}),
             mock.patch.object(pipeline.llm, "draft_briefing_story", return_value=("A story", "")),
             mock.patch.object(pipeline.llm, "detect_story_overlaps", return_value={"overlaps": []}),
             mock.patch.object(pipeline.llm, "draft_briefing_summary", return_value="The day"),

@@ -12,6 +12,7 @@ from unittest import mock
 
 from bs4 import BeautifulSoup
 from flask import render_template
+from jinja2 import Environment, FileSystemLoader
 from pymisp import MISPEvent
 
 import config
@@ -577,6 +578,40 @@ class TickedBriefings(TickedDrafts):
         calls = self.post(*args, "approve")
         self.assertEqual([c.args[0] for c in calls.publish.call_args_list], ["a" * 36])
         self.assertEqual(calls.deliver.call_count, 1)
+
+
+
+class DeleteWarning(unittest.TestCase):
+    """The analyser reads a deleted product's source events again, so a draft
+    deleted to be rid of it comes back. The confirmation says to reject it, but
+    not for a rejected product, which stays out."""
+
+    FORMS = ("flash_intel/detail.html", "flash_intel/review.html", "vea/detail.html", "vea/review.html",
+             "daily_briefing/detail.html", "daily_briefing/list.html")
+
+    def note(self, state):
+        env = Environment(loader=FileSystemLoader("webapp/templates"), autoescape=True)
+        template = env.from_string('{% from "_product_actions.html" import read_again_note %}'
+                                   "{{ read_again_note(state) }}")
+        return template.render(state=state)
+
+    def test_a_draft_or_one_in_review_says_it_can_come_back(self):
+        for state in ("draft", "pending-review"):
+            with self.subTest(state):
+                self.assertIn("Reject it to keep the story out.", self.note(state))
+
+    def test_a_rejected_product_says_nothing(self):
+        self.assertEqual(self.note("rejected"), "")
+
+    def test_every_delete_of_a_product_the_analyser_makes_asks_it(self):
+        for name in self.FORMS:
+            with self.subTest(name):
+                source = (Path("webapp/templates") / name).read_text()
+                self.assertRegex(source, r'data-submit-confirm="Delete[^"]*read_again_note\(')
+
+    def test_so_does_the_delete_of_those_ticked(self):
+        source = Path("webapp/templates/_product_actions.html").read_text()
+        self.assertIn("Reject them to keep the stories out.", source)
 
 
 if __name__ == "__main__":

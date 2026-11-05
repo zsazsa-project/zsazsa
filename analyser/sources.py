@@ -20,16 +20,18 @@ which can be days old by the time it arrives. A source that cannot be read is
 reported and skipped, and its watermark stays where it is, so the next run
 reads what this one missed.
 
-A run writes to the events it handles (a summary, a workflow state, a product
-tag), which changes them in MISP. So that the next run does not take its own
-writes for news, the watermark also remembers each event it handled, and an
-event that has not changed since is not read again for the same action. For an
-event the run wrote to, that is the moment of its last write. For one it did
-not, it is the MISP timestamp the event had when it was read, so any later
-change counts, whatever the two clocks say and also when an update reaches
-another server late with the older timestamp of where it was made. Each entry
-also keeps when the run handled the event, which a rescan and the pruning of
-old entries go by.
+A run writes to the events it handles. A summary or a global tag moves the
+event's timestamp in MISP; a local tag, as the workflow state and the product
+tag are, does not. So the events of a deleted product, which did not change,
+are asked for by their uuid (event_state.read_again). So that the next run does
+not take its own writes for news, the watermark also remembers each event it
+handled, and an event that has not changed since is not read again for the same
+action. For an event the run wrote to, that is the moment of its last write.
+For one it did not, it is the MISP timestamp the event had when it was read, so
+any later change counts, whatever the two clocks say and also when an update
+reaches another server late with the older timestamp of where it was made. Each
+entry also keeps when the run handled the event, which a rescan and the pruning
+of old entries go by.
 """
 
 import json
@@ -41,7 +43,7 @@ from datetime import date, datetime, timedelta, timezone
 from pymisp import PyMISP
 
 import config
-from analyser import event_state, settings
+from analyser import event_state, settings, tagger
 from core.db import row_connection
 
 logger = logging.getLogger(__name__)
@@ -55,9 +57,6 @@ WATERMARK_MARGIN_SECONDS = 300
 # Events asked for per page. Every page is read, so this only sets the size of
 # one answer.
 _PAGE_SIZE = 100
-
-# The workflow states of an event on zsazsa's own MISP that is still open.
-_OPEN_STATES = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
 
 
 @dataclass
@@ -160,6 +159,15 @@ def _pushed_filters(source: Source, since: int) -> dict:
     return {"tags": tags, "date_to": _today().isoformat(), "timestamp": since}
 
 
+def _asked_filters(source: Source, asked: set) -> dict:
+    """The events an action is to read again, by their uuid: they did not change,
+    and can be older than what the action reads."""
+    filters = {"uuid": sorted(asked)}
+    if not source.own:
+        filters["metadata"] = True
+    return filters
+
+
 def _search(source: Source, filters: dict) -> list:
     """Every event of a search on a source, page by page.
 
@@ -182,10 +190,9 @@ def _search(source: Source, filters: dict) -> list:
 def _full_event(source: Source, event):
     """Another server's event as a whole, for its reports and attributes: its
     search only asked for what decides whether to read it."""
-    full = source.client.get_event(event.uuid, pythonify=True)
-    if isinstance(full, dict):
-        raise RuntimeError(f"MISP could not give event {event.uuid}: {full.get('errors') or full}")
-    return full
+    from webapp import misp_store
+
+    return misp_store._check(source.client.get_event(event.uuid, pythonify=True), f"read event {event.uuid}")
 
 
 def _timestamp(event) -> int:
@@ -197,7 +204,7 @@ def _still_open(event, source: Source) -> bool:
     """On zsazsa's own MISP, whether the analyser still has something to decide
     about an event. Another server's workflow states are not zsazsa's, and its
     closed events are left out before this (event_state)."""
-    return not source.own or bool({t.name for t in event.tags} & _OPEN_STATES)
+    return not source.own or bool({t.name for t in event.tags} & tagger.OPEN_STATES)
 
 
 def _has_report(event, source: Source) -> bool:
@@ -254,11 +261,14 @@ class Reading:
             # What was handled since then is read again: it was judged under
             # the settings the rescan is for.
             handled = {uuid: entry for uuid, entry in handled.items() if entry[0] < since}
-        events = _search(source, _search_filters(source, since))
+        asked = event_state.to_read_again(source.id, self.action)
+        found = _search(source, _search_filters(source, since))
         if source.kind == "scraper":
-            seen = {e.uuid for e in events}
-            events += [e for e in _search(source, _pushed_filters(source, since)) if e.uuid not in seen]
-        events = [e for e in events if e.uuid not in handled or _timestamp(e) > handled[e.uuid][1]]
+            found += _search(source, _pushed_filters(source, since))
+        if asked:
+            found += _search(source, _asked_filters(source, asked))
+        events = [e for e in {e.uuid: e for e in found}.values()
+                  if e.uuid in asked or e.uuid not in handled or _timestamp(e) > handled[e.uuid][1]]
         if not source.own:
             from webapp import collection_cache
 
@@ -268,11 +278,12 @@ class Reading:
                 {o.lower() for o in source.settings["org_filter"]})
             # The server's limit, the newest first: each event read can cost a
             # model call, and the rest are read by the next runs.
-            events = sorted(events, key=_timestamp, reverse=True)[:source.settings["limit"]]
+            events = sorted(events, key=lambda e: (e.uuid in asked, _timestamp(e)),
+                            reverse=True)[:source.settings["limit"]]
             events = [_full_event(source, e) for e in events]
         # Every event looked at is handled, also one without a report: on
         # another server most are, and each would be fetched whole every run.
-        self._read[source.id] = {"source": source, "mark": mark, "started": started,
+        self._read[source.id] = {"source": source, "mark": mark, "started": started, "asked": asked,
                                  "seen": {e.uuid: _timestamp(e) for e in events}}
         return [e for e in events if _still_open(e, source) and _has_report(e, source)]
 
@@ -281,7 +292,9 @@ class Reading:
             return started - int(self.rescan_hours) * 3600
         if mark:
             return mark["read_from"] - WATERMARK_MARGIN_SECONDS
-        hours = settings.get("ANALYSER_BRIEFING_LOOKBACK_HOURS" if self.action == "daily-briefing"
+        # The advisories as far back as the briefing, which closes an event only
+        # once they have seen its CVEs.
+        hours = settings.get("ANALYSER_BRIEFING_LOOKBACK_HOURS" if self.action in ("daily-briefing", "vea")
                              else "ANALYSER_LOOKBACK_HOURS")
         return started - hours * 3600
 
@@ -300,7 +313,9 @@ class Reading:
         now = int(time.time())
         for source_id, read in self._read.items():
             mark, seen = read["mark"], read["seen"]
-            again = self.retried & set(seen)
+            # One asked for by its uuid stays asked for: an old event would
+            # otherwise send the next read back to its timestamp.
+            again = (self.retried & set(seen)) - read["asked"]
             # The next run reads from when this one started, or from the oldest
             # event to read again, which a rescan can have read from long before.
             read_from = min([seen[uuid] for uuid in again], default=read["started"])
@@ -321,6 +336,7 @@ class Reading:
             for uuid in again | (event_state.scored_by_analyst_since(source_id, read["started"]) & set(seen)):
                 del handled[uuid]
             _save_watermark(self.action, source_id, read_from, handled, now)
+            event_state.read_again_done(source_id, self.action, read["asked"] - self.retried)
         self._read.clear()
 
 

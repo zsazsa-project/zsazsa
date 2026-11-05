@@ -193,14 +193,11 @@ def _emit(progress, step: str, state: str, message: str = "") -> None:
 
 
 def _event_http_error(event) -> bool:
-    for tag in getattr(event, "tags", []) or []:
-        if (getattr(tag, "name", "") or "").startswith(_HTTP_ERROR_PREFIX):
-            return True
-    return False
+    return any(tag.name.startswith(_HTTP_ERROR_PREFIX) for tag in event.tags)
 
 
 def _content(report) -> str:
-    return (getattr(report, "content", "") or "").strip()
+    return (report.content or "").strip()
 
 
 def _changed_at(report) -> float:
@@ -212,8 +209,7 @@ def _article_report(reports):
     """The report with the article: the first with content that zsazsa did
     not write itself, as it writes an AI summary or a rejection note."""
     for report in reports:
-        name = getattr(report, "name", "") or ""
-        if _content(report) and not is_ai_summary_report(name) and not name.startswith(_REJECTION_PREFIX):
+        if _content(report) and not is_ai_summary_report(report.name) and not report.name.startswith(_REJECTION_PREFIX):
             return report
     return None
 
@@ -226,7 +222,7 @@ def _article_text(reports) -> str:
 def _summary_report(reports):
     """The newest AI summary of the event, or None when there is none or the
     article changed after it was written: it would tell the old story."""
-    summary = max((r for r in reports if (getattr(r, "name", "") or "").startswith(AI_SUMMARY_PREFIX)),
+    summary = max((r for r in reports if r.name.startswith(AI_SUMMARY_PREFIX)),
                   key=_changed_at, default=None)
     article = _article_report(reports)
     if summary is None or (article is not None and _changed_at(article) > _changed_at(summary)):
@@ -333,8 +329,7 @@ def _ensure_ai_summary(source, event, reports, galaxy_lookup: dict, progress=Non
     if not content:
         return "", False
 
-    event_tags = [getattr(t, "name", "") for t in (getattr(event, "tags", []) or [])]
-    summary = llm.summarise_report(content, event_info=event.info or "", tags=event_tags)
+    summary = llm.summarise_report(content, event_info=event.info or "", tags=[t.name for t in event.tags])
     if not summary:
         # A model out of tokens answers with nothing; the next run asks again.
         raise RuntimeError("The model returned an empty summary")
@@ -366,7 +361,7 @@ def _delete_outdated_summaries(misp, event, reports) -> None:
     """Delete the summaries written before the article changed, now that a
     new one is there. Deleted softly, as MISP keeps them that way."""
     for report in reports:
-        if (getattr(report, "name", "") or "").startswith(AI_SUMMARY_PREFIX):
+        if report.name.startswith(AI_SUMMARY_PREFIX):
             try:
                 misp_store._check(misp.delete_event_report(report.id), "delete the outdated summary")
             except Exception as exc:
@@ -376,11 +371,57 @@ def _delete_outdated_summaries(misp, event, reports) -> None:
 def _cached_under(source, event) -> str:
     """The source id the collection cache keeps an event under. A manual entry
     is kept under its collection source, which its zsazsa:source tag names."""
-    if source.kind == "manual":
-        for tag in event.tags:
-            if tag.name.startswith('zsazsa:source="'):
-                return collection_cache.manual_source_id(tag.name.split('"')[1])
-    return source.id
+    slug = tagger.tag_value(event, "zsazsa:source=") if source.kind == "manual" else ""
+    return collection_cache.manual_source_id(slug) if slug else source.id
+
+
+def _write_summaries(kept: list, sources: dict, reports: dict, reading: Reading,
+                     progress=None) -> tuple[dict, int, int]:
+    """The AI summary of each event, {uuid: summary}, written now where its
+    source takes one and it has none, and how many were written and failed."""
+    summaries = {}
+    summary_created = summary_failed = 0
+    # Reading the galaxies costs several MISP calls, and a run with nothing left
+    # to summarise has no use for them.
+    galaxy_lookup = _build_galaxy_lookup() if kept else {}
+
+    # Each missing summary is a model call, which on a local model can take
+    # minutes, so the job says which one it is on. A slow run then looks alive,
+    # and one that died shows how far it got.
+    to_write = {e.uuid for e in kept
+                if sources[e.uuid].may_add_reports and not _extract_ai_summary(reports[e.uuid])}
+    missing = len(to_write)
+    _emit(progress, "generate-summaries", "in_progress",
+          f"{missing} of {len(kept)} event(s) need an AI summary.")
+
+    written = 0
+    for event in kept:
+        if event.uuid in to_write:
+            written += 1
+            _emit(progress, "generate-summaries", "in_progress",
+                  f"AI summary {written} of {missing}: {(event.info or event.uuid)[:80]}")
+        try:
+            summary, created = _ensure_ai_summary(sources[event.uuid], event, reports[event.uuid], galaxy_lookup, progress)
+            if created:
+                reading.wrote(event.uuid)
+        except run_lock.Lost:
+            raise
+        except Exception as exc:
+            # One event the model or MISP fails on should not end the run for
+            # the others. It goes on with its article, and the next run reads it
+            # again for the summary.
+            logger.warning("AI summary failed for %s: %s", event.uuid, exc)
+            summary, created = "", False
+            summary_failed += 1
+            reading.retry(event.uuid)
+            reading.wrote(event.uuid)
+        if created:
+            summary_created += 1
+        summaries[event.uuid] = summary
+
+    _emit(progress, "generate-summaries", "completed",
+          f"AI summary pass complete: created {summary_created} new summary report(s).")
+    return summaries, summary_created, summary_failed
 
 
 def _common_candidate_events(reading: Reading, progress=None, title_exclusions=None) -> SimpleNamespace:
@@ -416,7 +457,17 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
 
     for event in events:
         source = sources[event.uuid]
-        reports = read_event_reports(source.client, event)
+        try:
+            reports = read_event_reports(source.client, event)
+        except Exception as exc:
+            # Not rejected as empty, and not the end of the run: the other
+            # sources are read, as they are when a source cannot be searched.
+            logger.warning("Could not read the reports of %s: %s", event.uuid, exc)
+            reading.retry(event.uuid)
+            event_decisions.append(_decision(event, source, "left open",
+                                             "Its reports could not be read; the next run tries again"))
+            _log(event, source, "error", "Its reports could not be read; left for the next run")
+            continue
         reports_cache[event.uuid] = reports
         first_report = _article_text(reports)
 
@@ -455,48 +506,7 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
         filter_detail += f", excluded by title {len(excluded)}"
     _emit(progress, "filter-events", "completed", f"Filtering complete: {filter_detail}.")
 
-    summaries = {}
-    summary_created = summary_failed = 0
-    # Reading the galaxies costs several MISP calls, and a run with nothing left
-    # to summarise has no use for them.
-    galaxy_lookup = _build_galaxy_lookup() if kept else {}
-
-    # Each missing summary is a model call, which on a local model can take
-    # minutes, so the job says which one it is on. A slow run then looks alive,
-    # and one that died shows how far it got.
-    to_write = {e.uuid for e in kept
-                if sources[e.uuid].may_add_reports and not _extract_ai_summary(reports_cache[e.uuid])}
-    missing = len(to_write)
-    _emit(progress, "generate-summaries", "in_progress",
-          f"{missing} of {len(kept)} event(s) need an AI summary.")
-
-    written = 0
-    for event in kept:
-        reports = reports_cache[event.uuid]
-        if event.uuid in to_write:
-            written += 1
-            _emit(progress, "generate-summaries", "in_progress",
-                  f"AI summary {written} of {missing}: {(event.info or event.uuid)[:80]}")
-        try:
-            summary, created = _ensure_ai_summary(sources[event.uuid], event, reports, galaxy_lookup, progress)
-            if created:
-                reading.wrote(event.uuid)
-        except run_lock.Lost:
-            raise
-        except Exception as exc:
-            # One event the model or MISP fails on should not end the run for
-            # the others. It goes on with its article, and the next run reads it
-            # again for the summary.
-            logger.warning("AI summary failed for %s: %s", event.uuid, exc)
-            summary, created = "", False
-            summary_failed += 1
-            reading.retry(event.uuid)
-            reading.wrote(event.uuid)
-        if created:
-            summary_created += 1
-        summaries[event.uuid] = summary
-
-    _emit(progress, "generate-summaries", "completed", f"AI summary pass complete: created {summary_created} new summary report(s).")
+    summaries, summary_created, summary_failed = _write_summaries(kept, sources, reports_cache, reading, progress)
 
     stats = {
         "events_read": len(events),
@@ -595,10 +605,6 @@ def _duplicate_story_indexes(overlaps, keep=frozenset()) -> set:
     return to_drop
 
 
-def focus_points() -> dict:
-    return llm.configured_focus_points()
-
-
 def _declined_by_alerts_and_briefing(event, excluded: bool, verdict, judge: Judge, running: str,
                                      repeats: dict) -> list[str] | None:
     """Why the alerts and the briefing declined an event, or None when one of
@@ -680,6 +686,7 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
             check = _advisory_check()
         except asset_inventory.InventoryError as exc:
             logger.warning("The advisory outcomes are not checked again: %s", exc)
+    excluded = {event.uuid for event in found.excluded}
     closed = 0
     for event in candidates:
         if event.uuid in in_products:
@@ -692,7 +699,7 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
         evidence = _evidence(found, event)
         repeats = {"alert": event_state.outcome(state, "flash-intel", evidence),
                    "briefing": event_state.outcome(state, "daily-briefing", evidence)}
-        reasons = _declined_by_alerts_and_briefing(event, event in found.excluded, state["verdict"], judge, running,
+        reasons = _declined_by_alerts_and_briefing(event, event.uuid in excluded, state["verdict"], judge, running,
                                                    repeats)
         if reasons is None:
             continue
@@ -804,6 +811,97 @@ def todays_draft():
     return next((b for b in todays_briefings() if b.review_state == misp_store.BRIEFING_REVIEW_DRAFT), None)
 
 
+def _without_overlaps(found, ranked: list[tuple], existing: list[dict], progress=None) -> tuple[list, int, dict]:
+    """The ranked events that do not tell the story of another or of one in the
+    draft (``existing``), how many were dropped, and {event uuid: the overlap}
+    for those an analyst pushed, which stay with the overlap marked."""
+    updates = {}
+    if not ranked:
+        return ranked, 0, updates
+    _emit(progress, "check-overlap", "in_progress", "Checking overlap between stories and removing duplicates...")
+    candidates = [{"title": event.info or "", "content": found.summaries.get(event.uuid) or _article(found, event),
+                   "source_url": misp_store.extract_source_url(event)} for event, _verdict, _why in ranked]
+    first_new = len(existing) + 1
+    pushed = {i for i, (event, _verdict, _why) in enumerate(ranked, start=first_new)
+              if relevance.pushed(event, "briefing")}
+    try:
+        to_drop, marked = _overlapping(existing + candidates, first_new, pushed)
+    except Exception as exc:
+        logger.warning("Daily briefing overlap check failed: %s", exc)
+        to_drop, marked = set(), set()
+    for index in sorted(to_drop):
+        event = ranked[index - first_new][0]
+        # Kept, so that the next runs do not propose it again, and the
+        # closing step counts it as declined.
+        event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing",
+                                 "Duplicate coverage of another story", _evidence(found, event))
+        _decide(found, event, "dropped", "Duplicate coverage of another story")
+        _log(event, found.sources[event.uuid], "not_relevant", "Duplicate coverage of another story")
+    for index in marked & pushed:
+        updates[ranked[index - first_new][0].uuid] = "Overlaps with another story of this briefing"
+    kept = [pair for i, pair in enumerate(ranked, start=first_new) if i not in to_drop]
+    _emit(progress, "check-overlap", "completed", f"Overlap check complete: dropped {len(to_drop)} duplicate story(s).")
+    return kept, len(to_drop), updates
+
+
+def _write_briefing(draft, existing: list[dict], stories: list[dict], story_events: list, also_seen: list[dict],
+                    progress=None) -> tuple[str, str]:
+    """Add the new stories to today's ``draft``, or make one of them, with the
+    briefing summary. Returns its uuid and the message of the run."""
+    all_stories = existing + stories
+    now = datetime.now(timezone.utc)
+    # Written from the stories that survived the overlap check, so the summary
+    # describes the draft as it will actually be. A draft is worth more without
+    # a summary than not at all, so a failure here only costs the paragraph and
+    # the analyst can write or redraft it on the form.
+    _emit(progress, "write-summary", "in_progress", "Writing the briefing summary across the stories...")
+    briefing_summary = ""
+    try:
+        briefing_summary = llm.draft_briefing_summary(
+            all_stories, misp_store.briefing_scope_summary(all_stories), now.date().isoformat(),
+        )
+    except Exception as exc:
+        logger.warning("draft_briefing_summary failed: %s", exc)
+    _emit(progress, "write-summary", "completed",
+          "Briefing summary written." if briefing_summary
+          else "No briefing summary written; the draft opens without one.")
+
+    # Never below what the draft already is.
+    tlp = misp_store.source_events_tlp(story_events, draft.tlp if draft else "clear")
+    _emit(progress, "create-drafts", "in_progress", "Writing the daily briefing draft...")
+    if draft:
+        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
+        data.update(
+            stories=all_stories, story_count=len(all_stories),
+            tlp=tlp,
+            vendor=_deduplicate_vendors(list(draft.vendor) + [v.strip() for s in stories
+                                                             for v in s.get("vendor", []) if v.strip()]),
+            also_seen=draft.also_seen + also_seen,
+            summary=briefing_summary or draft.summary,
+            # A summary kept from before the new stories no longer covers them.
+            summary_stale=bool(draft.summary) and not briefing_summary,
+        )
+        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
+        briefing_uuid = draft.uuid
+        message = f"Added {len(stories)} stories to today's daily briefing draft."
+    else:
+        briefing_uuid = misp_store.create_briefing({
+            "date": now.date().isoformat(),
+            "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
+            "author": "analyser",
+            "tlp": tlp,
+            "escalations": "",
+            "notes": "",
+            "also_seen": also_seen,
+            "summary": briefing_summary,
+            "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
+            "vendor": _deduplicate_vendors([v.strip() for s in stories for v in s.get("vendor", []) if v.strip()]),
+            "stories": stories,
+        })
+        message = f"Daily briefing draft created with {len(stories)} stories."
+    return briefing_uuid, message
+
+
 def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
     found = _common_candidate_events(reading, progress, title_exclusions=daily_briefing_title_exclusions() or None)
 
@@ -841,35 +939,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
 
     # Duplicates and the cap are settled on the summaries, before the stories
     # are drafted, so that no model call goes on a story that is left out.
-    dropped = 0
-    # The earlier story each one tells again, for its correlation field.
-    updates = {}
-    if ranked:
-        _emit(progress, "check-overlap", "in_progress", "Checking overlap between stories and removing duplicates...")
-        candidates = [{"title": event.info or "", "content": found.summaries.get(event.uuid) or _article(found, event),
-                       "source_url": misp_store.extract_source_url(event)} for event, _verdict, _why in ranked]
-        first_new = len(existing) + 1
-        # The analyst asked for these: they stay, with the overlap marked.
-        pushed = {i for i, (event, _verdict, _why) in enumerate(ranked, start=first_new)
-                  if relevance.pushed(event, "briefing")}
-        try:
-            to_drop, marked = _overlapping(existing + candidates, first_new, pushed)
-        except Exception as exc:
-            logger.warning("Daily briefing overlap check failed: %s", exc)
-            to_drop, marked = set(), set()
-        for index in sorted(to_drop):
-            event = ranked[index - first_new][0]
-            # Kept, so that the next runs do not propose it again, and the
-            # closing step counts it as declined.
-            event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing",
-                                     "Duplicate coverage of another story", _evidence(found, event))
-            _decide(found, event, "dropped", "Duplicate coverage of another story")
-            _log(event, found.sources[event.uuid], "not_relevant", "Duplicate coverage of another story")
-        for index in marked & pushed:
-            updates[ranked[index - first_new][0].uuid] = "Overlaps with another story of this briefing"
-        ranked = [pair for i, pair in enumerate(ranked, start=first_new) if i not in to_drop]
-        dropped = len(to_drop)
-        _emit(progress, "check-overlap", "completed", f"Overlap check complete: dropped {dropped} duplicate story(s).")
+    ranked, dropped, updates = _without_overlaps(found, ranked, existing, progress)
 
     # Compared with the briefings of the last weeks only as long as there is
     # room: each comparison is a model call.
@@ -883,6 +953,8 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
         if len(kept) >= room and not is_pushed:
             over_cap.append(event)
             continue
+        _emit(progress, "check-overlap", "in_progress",
+              f"Comparing with earlier briefings: {(event.info or event.uuid)[:80]}")
         try:
             same = similarity.same_story(
                 similarity.event_story(event, found.summaries.get(event.uuid, ""), _article(found, event)), earlier)
@@ -907,7 +979,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
         _decide(found, event, "over the cap", f"Listed under Also seen: the briefing has {cap} stories")
 
     _emit(progress, "build-briefing", "in_progress", "Building daily briefing stories from eligible events...")
-    focus = focus_points()
+    focus = llm.configured_focus_points()
     names_with_commas = galaxy_names_with_commas() if ranked else frozenset()
     stories = []
     for position, (event, verdict, why) in enumerate(ranked, start=1):
@@ -938,58 +1010,9 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
         result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
         return result
 
-    all_stories = existing + stories
-    now = datetime.now(timezone.utc)
-    # Written from the stories that survived the overlap check, so the summary
-    # describes the draft as it will actually be. A draft is worth more without
-    # a summary than not at all, so a failure here only costs the paragraph and
-    # the analyst can write or redraft it on the form.
-    _emit(progress, "write-summary", "in_progress", "Writing the briefing summary across the stories...")
-    briefing_summary = ""
-    try:
-        briefing_summary = llm.draft_briefing_summary(
-            all_stories, misp_store.briefing_scope_summary(all_stories), now.date().isoformat(),
-        )
-    except Exception as exc:
-        logger.warning("draft_briefing_summary failed: %s", exc)
-    _emit(progress, "write-summary", "completed",
-          "Briefing summary written." if briefing_summary
-          else "No briefing summary written; the draft opens without one.")
-
-    # Never below what the draft already is.
-    tlp = misp_store.source_events_tlp([events_by_uuid[s["source_event_uuid"]] for s in stories],
-                                       draft.tlp if draft else "clear")
-    _emit(progress, "create-drafts", "in_progress", "Writing the daily briefing draft...")
-    if draft:
-        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
-        data.update(
-            stories=all_stories, story_count=len(all_stories),
-            tlp=tlp,
-            vendor=_deduplicate_vendors(list(draft.vendor) + [v.strip() for s in stories
-                                                             for v in s.get("vendor", []) if v.strip()]),
-            also_seen=draft.also_seen + _also_seen(found, over_cap),
-            summary=briefing_summary or draft.summary,
-            # A summary kept from before the new stories no longer covers them.
-            summary_stale=bool(draft.summary) and not briefing_summary,
-        )
-        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
-        briefing_uuid = draft.uuid
-        message = f"Added {len(stories)} stories to today's daily briefing draft."
-    else:
-        briefing_uuid = misp_store.create_briefing({
-            "date": now.date().isoformat(),
-            "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
-            "author": "analyser",
-            "tlp": tlp,
-            "escalations": "",
-            "notes": "",
-            "also_seen": _also_seen(found, over_cap),
-            "summary": briefing_summary,
-            "review_state": misp_store.BRIEFING_REVIEW_DRAFT,
-            "vendor": _deduplicate_vendors([v.strip() for s in stories for v in s.get("vendor", []) if v.strip()]),
-            "stories": stories,
-        })
-        message = f"Daily briefing draft created with {len(stories)} stories."
+    story_events = [events_by_uuid[s["source_event_uuid"]] for s in stories]
+    briefing_uuid, message = _write_briefing(draft, existing, stories, story_events, _also_seen(found, over_cap),
+                                             progress)
     _emit(progress, "create-drafts", "completed", f"Daily briefing draft written ({briefing_uuid}).")
 
     for s in stories:
@@ -1113,7 +1136,7 @@ def _advisory_coverage() -> dict:
         if vea.created_at and vea.created_at.date() < oldest:
             continue
         cves = [cve.upper() for cve in CVE_RE.findall(vea.cve_id or "")]
-        baselines = getattr(vea, "cve_baselines", None) or {}
+        baselines = vea.cve_baselines
         for position, cve in enumerate(cves):
             if cve in covered:
                 continue
@@ -1143,11 +1166,11 @@ def _scope_terms() -> list[tuple[str, str]]:
     (name, where it is from): the focus points, and the vendor and technology
     scope of every active PIR, except a "Won't have", and GIR."""
     terms = [(name, f"the focus point {name}") for key in ("FOCUS_POINTS_VENDORS", "FOCUS_POINTS_TECHNOLOGIES")
-             for name in (getattr(config, key, []) or []) if str(name).strip()]
+             for name in relevance.focus_names(key)]
     pirs, girs = req_matching.get_requirements(strict=True)
     for requirement in [r for r in pirs if r.priority != "Won't have"] + list(girs):
-        rid = getattr(requirement, "pir_id", "") or getattr(requirement, "gir_id", "")
-        for name in [*(getattr(requirement, "vendor", None) or []), *(getattr(requirement, "technology", None) or [])]:
+        rid = req_matching.requirement_id(requirement)
+        for name in [*requirement.vendor, *requirement.technology]:
             terms.append((name, f"{rid} ({name})"))
     return terms
 
@@ -1250,6 +1273,84 @@ def _no_advisory(declined: list, looked_up: list, cves: list) -> str:
     return f"No CVE to advise on: {', '.join(declined)}"
 
 
+def _advisory_data(found, event, summary: str, advise: list, audience: str) -> dict:
+    """The fields of the advisory on the CVEs in ``advise``, as _cves_to_advise
+    gives them, the first its main CVE, with the sections the model drafted.
+    ``audience`` is who an amber advisory reaches."""
+    primary_cve, enrichment, exposure, update = advise[0]
+    cves = [cve for cve, *_rest in advise]
+    source = found.sources[event.uuid]
+
+    product_lines = []
+    if enrichment.get("products"):
+        product_lines.append("Products: " + ", ".join(enrichment["products"]))
+    if enrichment.get("versions"):
+        product_lines.append("Versions: " + ", ".join(enrichment["versions"]))
+    if enrichment.get("description"):
+        product_lines.append("Description: " + enrichment["description"])
+    product_info = "\n".join(product_lines)
+
+    article = _article(found, event)
+    drafted = {}
+    try:
+        drafted = llm.draft_vea_sections(
+            cve_id=primary_cve,
+            product_info=product_info,
+            article_content=article or summary,
+        )
+    except Exception as exc:
+        logger.warning("draft_vea_sections failed for %s: %s", event.uuid, exc)
+
+    cvss = ""
+    if enrichment.get("cvss_score"):
+        cvss = enrichment["cvss_score"]
+        if enrichment.get("cvss_severity"):
+            cvss += f" {enrichment['cvss_severity']}"
+
+    tlp = misp_store.source_events_tlp([event], "amber")
+    return {
+        "cve_id": "\n".join(cves),
+        "summary": (drafted.get("summary") or summary).strip(),
+        "cvss": cvss or drafted.get("cvss", ""),
+        "cwe": enrichment.get("cwes", [""])[0] if enrichment.get("cwes") else drafted.get("cwe", ""),
+        "title": event.info or "",
+        "tlp": tlp,
+        "author": "analyser",
+        "audience": audience if tlp == "amber" else misp_store.subscriber_audience("Vulnerability advisory", tlp),
+        "affected_product": ", ".join(enrichment.get("products") or []) or drafted.get("affected_product", ""),
+        "affected_versions": ", ".join(enrichment.get("versions") or []) or drafted.get("affected_versions", ""),
+        "fixed_version": "",
+        "exposure": exposure,
+        "observed_exploitation": drafted.get("observed_exploitation", ""),
+        "exploit_availability": enrichment.get("exploit_availability") or drafted.get("exploit_availability", ""),
+        "exploitation_complexity": drafted.get("exploitation_complexity", ""),
+        "threat_actor_interest": drafted.get("threat_actor_interest", ""),
+        "cisa_kev": enrichment.get("cisa_kev") or drafted.get("cisa_kev", ""),
+        "source_description": f"Auto-created from source event {event.uuid}",
+        "source_reliability": tagger.tag_value(event, "admiralty-scale:source-reliability="),
+        "information_credibility": tagger.tag_value(event, "admiralty-scale:information-credibility="),
+        "worst_case": drafted.get("worst_case", ""),
+        "most_likely": drafted.get("most_likely", ""),
+        "immediate_actions": drafted.get("immediate_actions") or [],
+        "patch_sla_internet": "",
+        "patch_sla_internal": "",
+        "target_patch_version": "",
+        "exploitation_indicators": drafted.get("exploitation_indicators") or [],
+        "detection_rules": [],
+        "references": enrichment.get("references") or [],
+        "context_tags": [f"cve:{c}" for c in cves],
+        "review_state": misp_store.VEA_REVIEW_DRAFT,
+        "source_event_uuid": event.uuid,
+        "source_event_hints": {event.uuid: source.hint},
+        "linked_pir_uuid": "",
+        "analyser_reason": " ".join(part for part in (
+            update, f"The event names {', '.join(cves)}.", exposure) if part),
+        # What a later change of each CVE is measured against.
+        "cve_baselines": {cve: {"cvss": record.get("cvss_score") or "", "cisa_kev": record.get("cisa_kev") or ""}
+                          for cve, record, *_rest in advise},
+    }
+
+
 def run_vea_action(reading: Reading, progress=None) -> dict:
     # With the asset inventory on, reading it first fails the run on a bad file
     # before the summaries take their model calls.
@@ -1303,77 +1404,7 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
             _decide(found, event, "declined", reason)
             _log(event, source, "not_relevant", reason)
             continue
-        primary_cve, enrichment, exposure, update = advise[0]
-        cves = [cve for cve, *_rest in advise]
-
-        product_lines = []
-        if enrichment.get("products"):
-            product_lines.append("Products: " + ", ".join(enrichment["products"]))
-        if enrichment.get("versions"):
-            product_lines.append("Versions: " + ", ".join(enrichment["versions"]))
-        if enrichment.get("description"):
-            product_lines.append("Description: " + enrichment["description"])
-        product_info = "\n".join(product_lines)
-
-        article = _article(found, event)
-        drafted = {}
-        try:
-            drafted = llm.draft_vea_sections(
-                cve_id=primary_cve,
-                product_info=product_info,
-                article_content=article or summary,
-            )
-        except Exception as exc:
-            logger.warning("draft_vea_sections failed for %s: %s", event.uuid, exc)
-
-        cvss = ""
-        if enrichment.get("cvss_score"):
-            cvss = enrichment["cvss_score"]
-            if enrichment.get("cvss_severity"):
-                cvss += f" {enrichment['cvss_severity']}"
-
-        tlp = misp_store.source_events_tlp([event], "amber")
-        data = {
-            "cve_id": "\n".join(cves),
-            "summary": (drafted.get("summary") or summary).strip(),
-            "cvss": cvss or drafted.get("cvss", ""),
-            "cwe": enrichment.get("cwes", [""])[0] if enrichment.get("cwes") else drafted.get("cwe", ""),
-            "title": event.info or "",
-            "tlp": tlp,
-            "author": "analyser",
-            "audience": audience if tlp == "amber" else misp_store.subscriber_audience("Vulnerability advisory", tlp),
-            "affected_product": ", ".join(enrichment.get("products") or []) or drafted.get("affected_product", ""),
-            "affected_versions": ", ".join(enrichment.get("versions") or []) or drafted.get("affected_versions", ""),
-            "fixed_version": "",
-            "exposure": exposure,
-            "observed_exploitation": drafted.get("observed_exploitation", ""),
-            "exploit_availability": enrichment.get("exploit_availability") or drafted.get("exploit_availability", ""),
-            "exploitation_complexity": drafted.get("exploitation_complexity", ""),
-            "threat_actor_interest": drafted.get("threat_actor_interest", ""),
-            "cisa_kev": enrichment.get("cisa_kev") or drafted.get("cisa_kev", ""),
-            "source_description": f"Auto-created from source event {event.uuid}",
-            "source_reliability": tagger.tag_value(event, "admiralty-scale:source-reliability="),
-            "information_credibility": tagger.tag_value(event, "admiralty-scale:information-credibility="),
-            "worst_case": drafted.get("worst_case", ""),
-            "most_likely": drafted.get("most_likely", ""),
-            "immediate_actions": drafted.get("immediate_actions") or [],
-            "patch_sla_internet": "",
-            "patch_sla_internal": "",
-            "target_patch_version": "",
-            "exploitation_indicators": drafted.get("exploitation_indicators") or [],
-            "detection_rules": [],
-            "references": enrichment.get("references") or [],
-            "context_tags": [f"cve:{c}" for c in cves],
-            "review_state": misp_store.VEA_REVIEW_DRAFT,
-            "source_event_uuid": event.uuid,
-            "source_event_hints": {event.uuid: source.hint},
-            "linked_pir_uuid": "",
-            "analyser_reason": " ".join(part for part in (
-                update, f"The event names {', '.join(cves)}.", exposure) if part),
-            # What a later change of each CVE is measured against.
-            "cve_baselines": {cve: {"cvss": record.get("cvss_score") or "", "cisa_kev": record.get("cisa_kev") or ""}
-                              for cve, record, *_rest in advise},
-        }
+        data = _advisory_data(found, event, summary, advise, audience)
         _emit(progress, "create-drafts", "in_progress", f"Writing the advisory on {(event.info or event.uuid)[:80]}...")
         try:
             _uuid, vea_id = misp_store.create_vea(data)
@@ -1392,7 +1423,7 @@ def run_vea_action(reading: Reading, progress=None) -> dict:
                                for cve, then in data["cve_baselines"].items()})
         advised.append(event.uuid)
         _decide(found, event, "included", f"{vea_id}: {data['analyser_reason']}")
-        _log(event, source, "product_created", f"vea; CVEs: {', '.join(cves)}")
+        _log(event, source, "product_created", f"vea; CVEs: {', '.join(data['cve_baselines'])}")
     created = len(advised)
     _emit(progress, "create-drafts", "completed", f"Created {created} vulnerability advisory draft(s).")
 
@@ -1453,8 +1484,8 @@ def run_action(job_id: str, user: str, triggered_by: str = "dashboard", lock_tok
     The action reads what changed on each source since its previous completed
     run, whoever started that one, or with ``rescan_hours`` that many hours
     back. Its watermarks move only when it completes. ``lock_token`` is the
-    analyser lock (analyser.run_lock) the caller holds, kept fresh while the
-    run goes, and checked at each step it reports.
+    analyser lock (analyser.run_lock) the caller holds, refreshed and checked at
+    each step it reports.
     """
     job = job_store.get_job(job_id)
     if not job:
@@ -1485,10 +1516,7 @@ def run_action(job_id: str, user: str, triggered_by: str = "dashboard", lock_tok
 
     reading = Reading(action, rescan_hours=rescan_hours)
     try:
-        # Which events have a product, the earlier products and the
-        # requirements are asked of MISP by several steps; once is enough.
-        with run_lock.kept_fresh(lock_token), misp_store.records_kept():
-            result = handler(reading, progress=_progress)
+        result = handler(reading, progress=_progress)
         # Events left for the next run keep the scheduled briefing's day open.
         result["retried"] = len(reading.retried)
         reading.commit()

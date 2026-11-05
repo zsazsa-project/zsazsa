@@ -935,7 +935,7 @@ def index():
             "TAG_COLLECTION_DISMISSED": _form_tag("TAG_COLLECTION_DISMISSED"),
             "RECOMMENDED_ACTIONS_IMMEDIATE": lines("RECOMMENDED_ACTIONS_IMMEDIATE"),
             "RECOMMENDED_ACTIONS_NEAR_TERM": lines("RECOMMENDED_ACTIONS_NEAR_TERM"),
-            "ANALYSER_FLASH_INTEL": _form_bool("ANALYSER_FLASH_INTEL"),
+            "ANALYSER_FLASH_INTEL": _form_bool("ANALYSER_FLASH_INTEL", default=True),
             "ANALYSER_VULNERABILITY_ADVISORIES": _form_bool("ANALYSER_VULNERABILITY_ADVISORIES"),
             "ANALYSER_DAILY_BRIEFING": _form_bool("ANALYSER_DAILY_BRIEFING"),
             "ANALYSER_DAILY_BRIEFING_HOUR": min(23, max(0, _form_int("ANALYSER_DAILY_BRIEFING_HOUR", 21))),
@@ -1149,7 +1149,7 @@ def save_server_config():
         verify_tls = _parse_bool(data.get("verify_tls", True), default=True)
         enabled = _parse_bool(data.get("enabled", True), default=True)
         allow_reports = _parse_bool(data.get("allow_reports", False), default=False)
-        analyse = _parse_bool(data.get("analyse", True), default=True)
+        analyse = _parse_bool(data.get("analyse", False), default=False)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     # Only organisation UUIDs ever match, and the page shows the value back.
@@ -2016,14 +2016,20 @@ def _posted_ai_connector(posted, current):
     if timeout < 1:
         return None, "The AI-connector timeout must be a number of seconds."
     api_base = (posted.get("openai_api_base") or "").strip()
+    module_url = (posted.get("url") or "").strip().rstrip("/")
+    typed_key = (posted.get("api_key") or "").strip()
     api_key = "" if posted.get("remove_api_key") else _kept_secret(
-        (posted.get("api_key") or "").strip(), current["AI_CONNECTOR_API_KEY"],
-        api_base, current["AI_CONNECTOR_OPENAI_API_BASE"])
+        typed_key, current["AI_CONNECTOR_API_KEY"], api_base, current["AI_CONNECTOR_OPENAI_API_BASE"])
+    # The module is handed the key to reach the endpoint, so a stored one stays
+    # only while the module does as well.
+    module_moved = f"{module_url}:{port}" != f"{current['AI_CONNECTOR_URL']}:{current['AI_CONNECTOR_PORT']}"
+    if api_key and not typed_key and module_moved:
+        api_key = None
     if api_key is None:
         return None, _reenter_message("AI-connector API key")
     return {
         "AI_CONNECTOR_ENABLED": bool(posted.get("enabled")),
-        "AI_CONNECTOR_URL": (posted.get("url") or "").strip().rstrip("/"),
+        "AI_CONNECTOR_URL": module_url,
         "AI_CONNECTOR_PORT": port,
         "AI_CONNECTOR_TIMEOUT": timeout,
         "AI_CONNECTOR_SSL_VERIFY_PEER": bool(posted.get("ssl_verify_peer")),

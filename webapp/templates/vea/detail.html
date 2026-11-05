@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_product_actions.html" import read_again_note %}
 {% from "_macros.html" import review_state_badge %}
 
 {% block title %}{{ vea.vea_id }} | VEA{% endblock %}
@@ -312,7 +313,7 @@
       </span>
       {% else %}
       <form method="post" action="{{ url_for('vea.delete', id=vea.uuid) }}"
-            data-submit-confirm="Delete {{ vea.vea_id }}?" class="flex-fill">
+            data-submit-confirm="Delete {{ vea.vea_id }}?{{ read_again_note(vea.review_state) }}" class="flex-fill">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-sm btn-outline-danger w-100">
           <i class="fas fa-trash me-1"></i> Delete VEA

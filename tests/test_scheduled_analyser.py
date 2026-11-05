@@ -228,9 +228,13 @@ class Candidates(unittest.TestCase):
         # Their reports first, then their summaries.
         self.assertEqual(used, [("Scraped", "scraper"), ("Entered", "webapp")] * 2)
 
-    def test_a_report_read_failure_does_not_reject_a_manual_entry(self):
+    def test_a_report_read_failure_leaves_the_event_and_not_the_run(self):
+        """Read as no reports the event would be rejected as empty, and raised
+        it would hold up the other sources, on every run while a server is down."""
         pipeline = run_analyser.analyser_pipeline
         entered = SimpleNamespace(uuid="m" * 36, id="91", info="Manual entry", tags=[])
+        scraped = SimpleNamespace(uuid="a" * 36, id="7", info="Scraped", tags=[])
+        article = [SimpleNamespace(name="Article", content="An article")]
         for reply in ({"errors": ["Report access refused"]}, ConnectionError("Report access refused")):
             with self.subTest(reply=reply):
                 webapp = mock.create_autospec(PyMISP, instance=True)
@@ -238,12 +242,20 @@ class Candidates(unittest.TestCase):
                     webapp.get_event_reports.side_effect = reply
                 else:
                     webapp.get_event_reports.return_value = reply
+                scraper = mock.create_autospec(PyMISP, instance=True)
+                scraper.get_event_reports.return_value = article
                 manual = Source("manual", "manual", "Manual entries", webapp, True)
+                other = Source("scraper", "scraper", "MISP scraper", scraper, False)
+                reading = self.reading([(entered, manual), (scraped, other)])
                 with mock.patch.object(pipeline, "_log"), \
-                     mock.patch.object(pipeline.tagger, "set_workflow_state") as state, \
-                     self.assertRaisesRegex((RuntimeError, ConnectionError), "Report access refused"):
-                    pipeline._common_candidate_events(self.reading([(entered, manual)]))
+                     mock.patch.object(pipeline, "_build_galaxy_lookup", return_value={}), \
+                     mock.patch.object(pipeline.tagger, "set_workflow_state") as state:
+                    found = pipeline._common_candidate_events(reading)
                 state.assert_not_called()
+                reading.retry.assert_called_once_with(entered.uuid)
+                self.assertEqual(found.events, [scraped])
+                self.assertEqual([(d["uuid"], d["outcome"]) for d in found.stats["event_decisions"]],
+                                 [(entered.uuid, "left open")])
 
     def test_another_server_s_event_without_an_article_is_closed_in_zsazsa(self):
         """Its workflow state is not zsazsa's to change."""

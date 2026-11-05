@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form,
+{% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form, read_again_note,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
 {% from "_sort_header.html" import sort_th with context %}
@@ -147,7 +147,7 @@
                 </a>
                 <form method="post" action="{{ url_for('vea.delete', id=v.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
-                      data-submit-confirm="Delete {{ v.vea_id }}?">
+                      data-submit-confirm="Delete {{ v.vea_id }}?{{ read_again_note(v.review_state) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete advisory">
                     <i class="fas fa-trash"></i>

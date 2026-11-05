@@ -86,6 +86,8 @@ def _misp(events=(), error=None, pushed=(), sync_key=False):
         if error is not None:
             return error
         found = pushed if filters.get("tags") is misp.build_complex_query.return_value else events
+        if "uuid" in filters:
+            found = [e for e in events if e.uuid in filters["uuid"]]
         found = list(found)[(page - 1) * limit:page * limit]
         if sync_key and filters.get("excludeLocalTags") is not False:
             found = [SimpleNamespace(**dict(vars(e), tags=[t for t in e.tags if not t.name.startswith("workflow:")]))
@@ -316,9 +318,16 @@ class Watermarks(ReaderTest):
 
     def test_a_first_run_reads_the_last_hour_and_the_briefing_the_last_day(self):
         misp = _misp([])
-        self.read(self.scraper(misp), action="vea")
+        self.read(self.scraper(misp), action="flash-intel")
         self.assertEqual(self.since(misp), NOW - 3600)
         self.read(self.scraper(misp), action="daily-briefing")
+        self.assertEqual(self.since(misp), NOW - 24 * 3600)
+
+    def test_the_advisories_first_read_as_far_back_as_the_briefing(self):
+        """The briefing closes an event only once they have seen its CVEs. One
+        only the briefing read would stay open, and keep its day open."""
+        misp = _misp([])
+        self.read(self.scraper(misp), action="vea")
         self.assertEqual(self.since(misp), NOW - 24 * 3600)
 
     def test_the_next_run_reads_from_where_the_last_one_started(self):
@@ -335,14 +344,14 @@ class Watermarks(ReaderTest):
         self.read(self.scraper(misp), action="flash-intel")
         self.assertEqual(self.since(misp), NOW + 3600 - 3600)
         self.read(self.manual(misp), action="vea")
-        self.assertEqual(self.since(misp), NOW + 3600 - 3600)
+        self.assertEqual(self.since(misp), NOW + 3600 - 24 * 3600)
 
     def test_a_run_that_did_not_complete_moves_nothing(self):
         misp = _misp([_event("e1")])
         self.read(self.scraper(misp), commit=False)
         self.now = NOW + 3600
         self.assertEqual(self.read(self.scraper(misp)), ["e1"])
-        self.assertEqual(self.since(misp), NOW + 3600 - 3600)
+        self.assertEqual(self.since(misp), NOW + 3600 - 24 * 3600)
 
     def test_an_event_the_run_handled_is_not_read_again_for_its_own_changes(self):
         """The summary and tags the run wrote changed the event after it was read."""
@@ -457,6 +466,64 @@ class Watermarks(ReaderTest):
         self.assertEqual(sources.last_completed_at(), NOW + 60)
 
 
+class ReadAgain(ReaderTest):
+    """A deleted product's events: their tags are local, which does not change
+    an event's timestamp, so no search for what changed would find them."""
+
+    def setUp(self):
+        super().setUp()
+        self.misp = _misp([_event("e1", state=ONGOING)])
+        self.assertEqual(self.read(self.scraper(self.misp)), ["e1"])
+        self.assertEqual(self.read(self.scraper(self.misp)), [])
+
+    def test_a_flagged_event_is_read_once_more_by_that_action(self):
+        event_state.read_again("scraper", "e1", "vea")
+        self.assertEqual(self.read(self.scraper(self.misp)), ["e1"])
+        self.assertEqual(self.read(self.scraper(self.misp)), [])
+
+    def test_it_is_found_past_the_search_for_what_changed(self):
+        event_state.read_again("scraper", "e1", "vea")
+        event = _event("e1", state=ONGOING, changed=NOW - 30 * 86400)
+        misp = _misp([event])
+        by_change = misp.search.side_effect
+        misp.search.side_effect = lambda **kw: by_change(**kw) if "uuid" in kw else []
+        self.assertEqual(self.read(self.scraper(misp)), ["e1"])
+
+    def test_the_other_actions_are_left_alone(self):
+        self.read(self.scraper(self.misp), action="flash-intel")
+        event_state.read_again("scraper", "e1", "vea")
+        self.assertEqual(self.read(self.scraper(self.misp), action="flash-intel"), [])
+
+    def test_a_run_that_did_not_complete_leaves_it_flagged(self):
+        event_state.read_again("scraper", "e1", "vea")
+        self.read(self.scraper(self.misp), commit=False)
+        self.assertEqual(self.read(self.scraper(self.misp)), ["e1"])
+
+    def test_one_left_for_the_next_run_stays_flagged(self):
+        """It may be too old for the next search to find, and its age must not
+        send that search back to it."""
+        misp = _misp([_event("e1", state=ONGOING, changed=NOW - 30 * 86400)])
+        event_state.read_again("scraper", "e1", "vea")
+        self.read(self.scraper(misp), retry=["e1"])
+        self.assertEqual(event_state.to_read_again("scraper", "vea"), {"e1"})
+        self.assertEqual(sources._load_watermark("vea", "scraper")["read_from"], NOW)
+
+    def test_an_event_gone_from_misp_is_not_asked_for_for_ever(self):
+        event_state.read_again("scraper", "gone", "vea")
+        self.read(self.scraper(self.misp))
+        self.assertEqual(event_state.to_read_again("scraper", "vea"), set())
+
+    def test_a_closed_state_still_keeps_it_out(self):
+        event_state.read_again("scraper", "e1", "vea")
+        self.assertEqual(self.read(self.scraper(_misp([_event("e1", state=REJECTED)]))), [])
+
+    def test_on_another_server_it_goes_before_the_newer_events_of_the_limit(self):
+        older = _event("older", changed=NOW - 3600)
+        misp = _misp([older, _event("newer", changed=NOW - 60)])
+        event_state.read_again("partner", "older", "vea")
+        self.assertEqual(self.read(self.partner(misp, limit=1)), ["older"])
+
+
 class ConfiguredSources(unittest.TestCase):
     def configured(self, servers, scraper=True, **switches):
         """``switches`` the source switches of Settings > Analyser."""
@@ -469,16 +536,20 @@ class ConfiguredSources(unittest.TestCase):
             return [(s.id, s.kind, s.may_add_reports) for s in sources.configured_sources()]
 
     def server(self, sid, **settings):
-        return {"id": sid, "label": sid, "url": f"https://{sid}.example.org", "api_key": "k", **settings}
+        return {"id": sid, "label": sid, "url": f"https://{sid}.example.org", "api_key": "k", "analyse": True,
+                **settings}
 
     def test_the_manual_entries_first_then_the_scraper_then_the_other_servers(self):
         self.assertEqual(self.configured([self.server("partner")]),
                          [("manual", "manual", True), ("scraper", "scraper", True), ("partner", "misp", False)])
 
-    def test_a_server_is_analysed_unless_switched_off(self):
-        """A server saved before the setting existed is analysed."""
+    def test_a_server_is_analysed_only_when_switched_on(self):
+        """Its events go to the model, so an upgrade does not start that: a
+        server saved before the setting existed is left out."""
+        older = self.server("older")
+        del older["analyse"]
         servers = [self.server("on"), self.server("off", analyse=False), self.server("disabled", enabled=False),
-                   self.server("unset", url="")]
+                   self.server("unset", url=""), older]
         self.assertEqual([sid for sid, *_ in self.configured(servers)], ["manual", "scraper", "on"])
 
     def test_a_summary_goes_on_a_server_s_event_only_when_it_allows_reports(self):

@@ -35,7 +35,8 @@ _PRODUCTS = ("alert", "briefing")
 _PRODUCT_NAMES = {"alert": "alerts", "briefing": "briefing"}
 
 
-def _names(key: str) -> list[str]:
+def focus_names(key: str) -> list[str]:
+    """The names in a focus point setting."""
     return [str(n).strip() for n in (getattr(config, key, []) or []) if str(n).strip()]
 
 
@@ -65,23 +66,23 @@ def focus_points(synonyms: bool = True) -> list[dict]:
         points.append({"name": name, "type": kind, "synonyms": [s for s in also_known_as if s], "found": found,
                        "setting": setting})
 
-    for name in _names("FOCUS_POINTS_GEOGRAPHIES"):
+    for name in focus_names("FOCUS_POINTS_GEOGRAPHIES"):
         key = name.lower()
         kind = "country" if key in countries else "region" if key in regions else "geography"
         add("FOCUS_POINTS_GEOGRAPHIES", name, kind, kind != "geography")
-    for name in _names("FOCUS_POINTS_SECTORS"):
+    for name in focus_names("FOCUS_POINTS_SECTORS"):
         add("FOCUS_POINTS_SECTORS", name, "sector", name.lower() in sectors)
-    for name in _names("FOCUS_POINTS_THREAT_ACTORS"):
+    for name in focus_names("FOCUS_POINTS_THREAT_ACTORS"):
         found = name.lower() in actors
         aliases = (misp_store.threat_actor_galaxy_meta(actors[name.lower()]).get("synonyms", [])
                    if found and synonyms else [])
         add("FOCUS_POINTS_THREAT_ACTORS", name, "threat actor", found, aliases)
-    for name in _names("FOCUS_POINTS_THREAT_TYPES"):
+    for name in focus_names("FOCUS_POINTS_THREAT_TYPES"):
         technique = techniques.get(name.lower())
         add("FOCUS_POINTS_THREAT_TYPES", name, f"technique, ATT&CK {technique}" if technique else "threat type",
             bool(technique))
     for setting, kind in (("FOCUS_POINTS_VENDORS", "vendor"), ("FOCUS_POINTS_TECHNOLOGIES", "technology")):
-        for name in _names(setting):
+        for name in focus_names(setting):
             add(setting, name, kind, True)
     return points
 
@@ -136,10 +137,6 @@ def _line(point: dict) -> str:
     return f"{point['name']} ({point['type']})"
 
 
-def _requirement_id(requirement) -> str:
-    return getattr(requirement, "pir_id", "") or getattr(requirement, "gir_id", "")
-
-
 def _rules() -> str:
     """The rules added after the focus points and requirements."""
     if not settings.get("ANALYSER_MAJOR_DEVELOPMENTS"):
@@ -163,12 +160,12 @@ class Judge:
         pirs = [r for r in pirs if r.priority != "Won't have"]
         self._pir_uuids = {r.uuid for r in pirs}
         self._requirements_by_uuid = {r.uuid: r for r in [*pirs, *girs]}
-        self._requirements_by_id = {_requirement_id(r).upper(): r for r in self._requirements_by_uuid.values()
-                                    if _requirement_id(r)}
+        self._requirements_by_id = {matching.requirement_id(r).upper(): r for r in self._requirements_by_uuid.values()
+                                    if matching.requirement_id(r)}
         self._major_developments = settings.get("ANALYSER_MAJOR_DEVELOPMENTS")
         self._system = llm.relevance_prompt(
             [_line(p) for p in self.focus_points],
-            [{"id": _requirement_id(r), **matching.requirement_scope(r)} for r in self._requirements_by_uuid.values()],
+            [{"id": matching.requirement_id(r), **matching.requirement_scope(r)} for r in self._requirements_by_uuid.values()],
             _rules())
         self.model = llm.feature_model("judge_relevance")
         # What the verdict depends on is all in the prompt: the prompt file,
@@ -253,7 +250,7 @@ class Judge:
             if point:
                 kept.append({"focus_point": point, "quote": ground["quote"].strip()})
             else:
-                kept.append({"requirement": requirement.uuid, "id": _requirement_id(requirement),
+                kept.append({"requirement": requirement.uuid, "id": matching.requirement_id(requirement),
                              "quote": ground["quote"].strip()})
         return kept
 
@@ -290,9 +287,9 @@ class Judge:
         """The highest MoSCoW priority among the PIRs in a verdict's briefing
         grounds: 0 for "Must have", 1 for "Should have", 2 for "Could have",
         and 3 when no PIR is among them."""
-        ranks = {"Must have": 0, "Should have": 1, "Could have": 2}
-        return min((ranks.get(self._requirements_by_uuid[g["requirement"]].priority, 3)
-                    for g in verdict["briefing"]["grounds"] if g.get("requirement") in self._pir_uuids), default=3)
+        priorities = [self._requirements_by_uuid[g["requirement"]].priority for g in verdict["briefing"]["grounds"]
+                      if g.get("requirement") in self._pir_uuids]
+        return min((settings.PRIORITIES.index(p) for p in priorities if p in settings.PRIORITIES), default=3)
 
     def requirements_of(self, grounds: list) -> list:
         """The PIRs and GIRs among grounds, as their records."""

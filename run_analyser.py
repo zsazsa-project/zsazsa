@@ -11,6 +11,8 @@ from analyser.reader import load_last_briefing, save_last_briefing
 from core.db import init_db, log_pipeline_run_start, log_pipeline_run_end
 from webapp import analyser_pipeline, audit, feed_cache, job_store, misp_store
 
+logger = logging.getLogger(__name__)
+
 
 def scheduled_actions(now: datetime) -> list[str]:
     """The analyser actions this run makes, switched on under Settings >
@@ -31,7 +33,7 @@ def scheduled_actions(now: datetime) -> list[str]:
             briefings = analyser_pipeline.todays_briefings()
         except Exception as exc:
             # The other actions still go; the next run tries the briefing again.
-            logging.getLogger(__name__).warning("Could not read today's briefings, no briefing this run: %s", exc)
+            logger.warning("Could not read today's briefings, no briefing this run: %s", exc)
         else:
             if any(b.review_state == misp_store.BRIEFING_REVIEW_PUBLISHED for b in briefings):
                 # Sent already: the day's later events wait for tomorrow's.
@@ -47,7 +49,6 @@ def run_scheduled_actions(actions: list[str], now: datetime, lock_token: str = "
     Each reads what changed on every source since its previous completed run,
     from the schedule or from the dashboard alike (analyser.sources).
     """
-    logger = logging.getLogger(__name__)
     results = {}
     for action in actions:
         label = analyser_pipeline.ACTION_LABELS[action]
@@ -68,7 +69,6 @@ def run_scheduled_actions(actions: list[str], now: datetime, lock_token: str = "
 
 def main() -> None:
     setup_logging()
-    logger = logging.getLogger(__name__)
     logger.info("Analyser started")
 
     init_db()
@@ -89,7 +89,6 @@ def main() -> None:
 
 
 def _run(token: str) -> None:
-    logger = logging.getLogger(__name__)
     run_id = log_pipeline_run_start("analyser", triggered_by="cli")
     now = datetime.now(timezone.utc)
     try:

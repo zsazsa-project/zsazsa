@@ -22,12 +22,12 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 import urllib3
 import re
 from collections import Counter
-from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -134,44 +134,11 @@ def _search_all(misp, strict=False, **kwargs):
     return events
 
 
-# The records an analyser action decides from, kept while it runs
-# (records_kept()) and in its own thread only: a page reads its own. Its steps
-# ask for them one after the other, often within seconds; a list is read again
-# after KEPT_SECONDS, so a product an analyst made while a model call took
-# minutes is seen by the steps after it. A write through this module in that
-# thread drops them, so the action sees what it made itself.
-_kept = threading.local()
-KEPT_SECONDS = 60
-
-
-@contextmanager
-def records_kept():
-    _kept.lists = {}
-    try:
-        yield
-    finally:
-        _kept.lists = None
-
-
-def _drop_kept_records():
-    if getattr(_kept, "lists", None):
-        _kept.lists.clear()
-
-
 def _tagged_events(tag, strict=False):
-    """Every event with one of zsazsa's record tags, [] when MISP could not
-    say. With ``strict``, as the analyser reads, a failed read raises instead,
-    and is kept while records_kept() is on."""
-    def read():
-        events = _search_all(_misp(), strict=strict, tags=[tag], pythonify=True)
-        return [] if not events or isinstance(events, dict) else events
-
-    lists = getattr(_kept, "lists", None)
-    if not strict or lists is None:
-        return read()
-    if tag not in lists or time.monotonic() - lists[tag][0] > KEPT_SECONDS:
-        lists[tag] = (time.monotonic(), read())
-    return lists[tag][1]
+    """Every event with one of zsazsa's record tags, [] when MISP could not say.
+    With ``strict``, as the analyser reads, a failed read raises instead."""
+    events = _search_all(_misp(), strict=strict, tags=[tag], pythonify=True)
+    return [] if not events or isinstance(events, dict) else events
 
 
 def _misp():
@@ -714,7 +681,6 @@ def _tag_local(misp, event_uuid, tag_name):
 
 def _add_event(misp, event, local_tags=None, label="create event"):
     """Create an event, then attach its zsazsa-namespace tags as local tags."""
-    _drop_kept_records()
     result = _check(misp.add_event(event, pythonify=True), label)
     uuid = _event_uuid(result)
     for name in local_tags or []:
@@ -751,9 +717,10 @@ def _source_client(source_id: str):
     are left alone. An empty source_id means the scraper, which is where a
     product stored before the hint was recorded got its events.
     """
-    if source_id == "webapp" or source_id.startswith("manual-"):
+    source = event_state.source_of(source_id)
+    if source == "manual":
         return _misp()
-    if source_id and source_id != "scraper":
+    if source != "scraper":
         return None
     return _scraper_misp() if scraper_enabled() else None
 
@@ -833,8 +800,7 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
         if tag in names:
             client.untag(src_uuid, tag)
             removed.append(tag)
-        open_states = {'workflow:state="incomplete"', 'workflow:state="ongoing"'}
-        if reject and names & open_states and tagger.set_workflow_state(client, event, "rejected"):
+        if reject and names & tagger.OPEN_STATES and tagger.set_workflow_state(client, event, "rejected"):
             logger.info("Source event %s rejected: its %s turned it down", src_uuid, product_label)
             added.append('workflow:state="rejected"')
             removed += [name for name in names if name.startswith("workflow:state=")]
@@ -845,7 +811,17 @@ def _untag_product_source(src_uuid: str, product_label: str, source_id: str = ""
         logger.warning("Could not untag source event %s: %s", src_uuid, exc)
 
 
-def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use, reject_removed=False) -> None:
+def _read_again(source_id: str, uuid: str, action: str) -> None:
+    """Have the analyser read a deleted product's source event again. The product
+    is gone by now, so a failure here is logged, not raised to the route."""
+    try:
+        event_state.read_again(event_state.source_of(source_id), uuid, action)
+    except sqlite3.Error as exc:
+        logger.warning("Could not have the analyser read %s again: %s", uuid, exc)
+
+
+def _retag_product_sources(product_label, before: dict, after: dict, sources_in_use, reject_removed=False,
+                           read_again="") -> None:
     """Keep the tags on a product's source events level with its sources.
 
     ``before`` and ``after`` are its sources before and after a change, as
@@ -853,6 +829,7 @@ def _retag_product_sources(product_label, before: dict, after: dict, sources_in_
     it no longer has keeps the tag while another product of its type has it:
     ``sources_in_use`` returns those, and is only asked when one was removed.
     With ``reject_removed`` the analyst took that source out, and it is rejected.
+    ``read_again`` is the analyser action to read such a source once more.
     """
     for uuid, source_id in after.items():
         if uuid not in before:
@@ -869,6 +846,8 @@ def _retag_product_sources(product_label, before: dict, after: dict, sources_in_
         for uuid, source_id in removed.items():
             if uuid not in in_use:
                 _untag_product_source(uuid, product_label, source_id, reject=reject_removed)
+                if read_again:
+                    _read_again(source_id, uuid, read_again)
 
 
 def _sources_of(record) -> dict:
@@ -920,7 +899,7 @@ def _record_data(record, fields, **overrides):
 
     The record's object is written again whole on every change, so anything
     that rewrites it for one field (a review state, a status, a draft rule) has
-    to carry all the others across. Taking them from one list of fields instead
+    to write all the others back. Taking them from one list of fields instead
     of each caller spelling them out again is what keeps one from being dropped
     silently. `overrides` replaces the fields the caller is actually changing.
     Lists and dicts are copied so the caller's namespace is not changed under it.
@@ -972,7 +951,6 @@ def _sync_object_attributes(misp, event, object_name, new_obj, label="object"):
     diff is keyed on object_relation. Falls back to a plain add when the object
     does not exist yet.
     """
-    _drop_kept_records()
     old = _get_obj(event, object_name)
     if old is None:
         _check(misp.add_object(_event_ref(event), new_obj), f"add {label} object")
@@ -5519,7 +5497,9 @@ def reject_fia(uuid, reason=""):
 def delete_fia(uuid, expected_state=None):
     fia = _fia_ns(_delete_record(
         uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL, "FIA", expected_state=expected_state))
-    _retag_product_sources("flash-intel", _sources_of(fia), {}, flash_intel_source_uuids)
+    # A rejected alert was turned down: read again, its story would come back.
+    _retag_product_sources("flash-intel", _sources_of(fia), {}, flash_intel_source_uuids,
+                           read_again="" if fia.review_state == FIA_REVIEW_REJECTED else "flash-intel")
 
 
 # ── Flash intel attachments ──────────────────────────────────────────────────
@@ -6382,7 +6362,8 @@ def reject_vea(uuid, reason=""):
 def delete_vea(uuid, expected_state=None):
     vea = _vea_ns(_delete_record(
         uuid, "zsazsa-vea", config.TAG_VEA, "VEA", expected_state=expected_state))
-    _retag_product_sources("vea", _sources_of(vea), {}, vea_source_uuids)
+    _retag_product_sources("vea", _sources_of(vea), {}, vea_source_uuids,
+                           read_again="" if vea.review_state == VEA_REVIEW_REJECTED else "vea")
 
 
 # ── Detection Engineering Request ────────────────────────────────────────────
@@ -7148,7 +7129,6 @@ def _replace_reports(misp, event_uuid, stored, wanted, label):
     report no longer wanted is hard-deleted: a soft-deleted one stays on the
     event and would be read again as a story.
     """
-    _drop_kept_records()
     by_name, surplus = {}, []
     for report in stored:
         if report.name in by_name:
@@ -7360,10 +7340,14 @@ def delete_briefing(uuid, expected_state=None):
     with _briefing_write_lock:
         briefing = _briefing_ns(_delete_record(
             uuid, "zsazsa-daily-briefing", config.TAG_BRIEFING, "briefing", expected_state=expected_state))
-        # A draft deleted to be made again gives its events back to the analyser;
-        # a rejected one keeps them out of later briefings.
+        # A draft deleted to be made again gives its events back to the analyser,
+        # those under Also seen too; a rejected one keeps them out of later briefings.
+        rejected = briefing.review_state == BRIEFING_REVIEW_REJECTED
         _retag_product_sources("daily-briefing", _briefing_sources(briefing.stories), {}, briefing_source_uuids,
-                               reject_removed=briefing.review_state == BRIEFING_REVIEW_REJECTED)
+                               reject_removed=rejected, read_again="" if rejected else "daily-briefing")
+        if not rejected:
+            for seen in briefing.also_seen:
+                _read_again(seen.get("source_id", ""), seen["source_event_uuid"], "daily-briefing")
 
 
 def reject_briefing(uuid, reason=""):
@@ -7379,10 +7363,8 @@ def reject_briefing(uuid, reason=""):
         data["review_state"] = BRIEFING_REVIEW_REJECTED
         data["rejection_reason"] = reason
         _sync_object_attributes(misp, event, "zsazsa-daily-briefing", _briefing_obj(data), "briefing")
-        for tag in list(getattr(event, "tags", []) or []):
-            if tag.name.startswith("workflow:state="):
-                _check(misp.untag(event.uuid, tag.name), "remove briefing workflow state")
-        _check(misp.tag(event.uuid, 'workflow:state="rejected"', local=True), "reject briefing workflow state")
+        if not tagger.set_workflow_state(misp, event, "rejected"):
+            raise RuntimeError(f"MISP refused the workflow state of briefing {uuid}; the log says why")
 
 
 def scraper_existing_uuids(uuids):

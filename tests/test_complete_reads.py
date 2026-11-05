@@ -21,7 +21,6 @@ drops what was kept.
     python -m unittest tests.test_complete_reads
 """
 
-import threading
 import unittest
 from unittest import mock
 
@@ -55,58 +54,6 @@ class Searches(unittest.TestCase):
                            misp_store.briefing_source_uuids, misp_store.briefing_also_seen_uuids):
                 with self.subTest(lookup.__name__), self.assertRaises(RuntimeError):
                     lookup()
-
-
-class Kept(unittest.TestCase):
-    def setUp(self):
-        self.misp = mock.create_autospec(PyMISP, instance=True)
-        self.misp.search.return_value = []
-        patcher = mock.patch.object(misp_store, "_misp", return_value=self.misp)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_an_action_reads_the_records_once(self):
-        with misp_store.records_kept():
-            misp_store.flash_intel_source_uuids()
-            misp_store.list_fias(strict=True)
-            misp_store.briefing_source_uuids()
-            misp_store.briefing_also_seen_uuids()
-        self.assertEqual(self.misp.search.call_count, 2)
-
-    def test_but_again_after_it_wrote_one(self):
-        with misp_store.records_kept():
-            misp_store.flash_intel_source_uuids()
-            misp_store._add_event(self.misp, mock.Mock())
-            misp_store.flash_intel_source_uuids()
-        self.assertEqual(self.misp.search.call_count, 2)
-
-    def test_a_product_made_elsewhere_while_the_action_waits_is_seen_after_a_minute(self):
-        alert = mock.Mock(uuid="f" * 36)
-        with mock.patch.object(misp_store, "_fia_ns", return_value=mock.Mock(source_event_uuids=["e" * 36])), \
-             mock.patch.object(misp_store.time, "monotonic", return_value=1000.0) as clock, \
-             misp_store.records_kept():
-            self.assertEqual(misp_store.flash_intel_source_uuids(), set())
-            # An analyst makes an alert from the event, in a request of the web app.
-            self.misp.search.return_value = [alert]
-            self.assertEqual(misp_store.flash_intel_source_uuids(), set())
-            clock.return_value += misp_store.KEPT_SECONDS + 1
-            self.assertEqual(misp_store.flash_intel_source_uuids(), {"e" * 36})
-
-    def test_a_page_reads_its_own(self):
-        """Another thread, and a read that is not the analyser's, are never kept."""
-        with misp_store.records_kept():
-            misp_store.list_fias(strict=True)
-            misp_store.list_fias()
-            other = threading.Thread(target=misp_store.list_fias, kwargs={"strict": True})
-            other.start()
-            other.join()
-        self.assertEqual(self.misp.search.call_count, 3)
-
-    def test_nothing_is_kept_after_the_action(self):
-        with misp_store.records_kept():
-            misp_store.list_fias(strict=True)
-        misp_store.list_fias(strict=True)
-        self.assertEqual(self.misp.search.call_count, 2)
 
 
 class Requirements(unittest.TestCase):

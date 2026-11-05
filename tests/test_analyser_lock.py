@@ -20,7 +20,6 @@ The database is temporary, the run itself is stubbed.
 
 import os
 import tempfile
-import threading
 import unittest
 from unittest import mock
 
@@ -102,34 +101,6 @@ class Lock(LockTest):
         run_lock.refresh(token)
         self.now = NOW + run_lock.QUIET_AFTER_SECONDS + 60
         self.assertIsNone(run_lock.acquire("analyser", "Scheduled analyser run", "schedule")[0])
-
-    def test_a_run_waiting_on_a_long_model_call_keeps_it(self):
-        """The model call outlasts the quiet hour, with no step reported in
-        between: the run's own thread keeps the lock fresh."""
-        token, _holder = run_lock.acquire("flash-intel", "Flash intel alert", "a@example.org")
-        refresh, refreshed = run_lock.refresh, threading.Event()
-
-        def counted(held):
-            still = refresh(held)
-            refreshed.set()
-            return still
-        with mock.patch.object(run_lock, "REFRESH_EVERY_SECONDS", 0.01), \
-             mock.patch.object(run_lock, "refresh", counted), \
-             run_lock.kept_fresh(token):
-            self.now = NOW + run_lock.QUIET_AFTER_SECONDS + 60
-            # Twice: the second refresh began after the clock moved on.
-            for _refresh in range(2):
-                refreshed.clear()
-                self.assertTrue(refreshed.wait(2))
-            self.assertIsNone(run_lock.acquire("analyser", "Scheduled analyser run", "schedule")[0])
-        self.assertEqual(run_lock.holder()["token"], token)
-
-    def test_the_thread_keeping_it_fresh_ends_with_the_run(self):
-        token, _holder = run_lock.acquire("vea", "Vulnerability advisory", "a@example.org")
-        before = threading.active_count()
-        with mock.patch.object(run_lock, "REFRESH_EVERY_SECONDS", 0.01), run_lock.kept_fresh(token):
-            self.assertEqual(threading.active_count(), before + 1)
-        self.assertEqual(threading.active_count(), before)
 
     def test_releasing_a_lock_taken_over_changes_nothing(self):
         stale, _holder = run_lock.acquire("vea", "Vulnerability advisory", "a@example.org")

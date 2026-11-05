@@ -104,6 +104,12 @@
 <td>{% if selectable %}<input type="checkbox" class="form-check-input row-select-cb" value="{{ record_id }}" aria-label="Select {{ label }}">{% endif %}</td>
 {% endmacro %}
 
+{# Said before a delete: the analyser reads the source events of a deleted
+   product again, unless the product was rejected. #}
+{% macro read_again_note(state) -%}
+  {% if state != 'rejected' %} The analyser may draft it again from its source events. Reject it to keep the story out.{% endif %}
+{%- endmacro %}
+
 {% macro selection_toolbar(action, can_publish) %}
 <span id="selection-idle">Actions{% if caller %}{{ caller() }}{% endif %}</span>
 {# The negative margin keeps the buttons from making the heading row taller. #}
@@ -122,7 +128,8 @@
     <i class="fas fa-ban" aria-hidden="true"></i>
   </button>
   <button type="submit" name="action" value="delete" class="btn btn-xs btn-outline-danger" data-busy="Deleting…"
-          data-confirm="Delete {n}? This cannot be undone." title="Delete" aria-label="Delete">
+          data-confirm="Delete {n}? This cannot be undone, and the analyser may draft them again from their source events. Reject them to keep the stories out."
+          title="Delete" aria-label="Delete">
     <i class="fas fa-trash" aria-hidden="true"></i>
   </button>
 </form>

@@ -563,7 +563,7 @@ class Briefing(unittest.TestCase):
                                return_value={"overlaps": list(overlaps)}) as self.overlap, \
              mock.patch.object(analyser_pipeline.llm, "draft_briefing_summary", return_value="The day"), \
              mock.patch.object(analyser_pipeline, "galaxy_names_with_commas", return_value=frozenset()), \
-             mock.patch.object(analyser_pipeline, "focus_points", return_value={}), \
+             mock.patch("analyser.llm.configured_focus_points", return_value={}), \
              mock.patch.object(analyser_pipeline.misp_store, "extract_source_url",
                                side_effect=lambda e: f"https://example.org/{e.uuid[0]}"), \
              mock.patch.object(analyser_pipeline.misp_store, "briefing_scope_summary", return_value=[]), \

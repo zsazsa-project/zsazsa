@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_flow_macros.html" import flow_help %}
-{% from "_product_actions.html" import preview_button, approval_form, rejection_button, delete_rejected_form,
+{% from "_product_actions.html" import read_again_note, preview_button, approval_form, rejection_button, delete_rejected_form,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_sort_header.html" import sort_th with context %}
 {% from "_macros.html" import ai_job_badge, story_scope %}
@@ -120,7 +120,7 @@
                 </a>
                 <form method="post" action="{{ url_for('daily_briefing.delete', id=b.uuid) }}" data-busy="Deleting…"
                       class="d-inline"
-                      data-submit-confirm="Delete briefing{{ (' ' + b.date) if b.date else '' }}?">
+                      data-submit-confirm="Delete briefing{{ (' ' + b.date) if b.date else '' }}?{{ read_again_note(b.review_state) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete briefing">
                     <i class="fas fa-trash"></i>
