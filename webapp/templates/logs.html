@@ -6,13 +6,14 @@
 
 {# Who did what, and when the most. Every figure follows the action, type and
    user filters, so filtering on one user shows when they were busiest; a day
-   only narrows the list of entries. #}
+   narrows the list of entries and the who, what and on what. #}
 
 {% set action_badges = {'create': 'bg-success', 'update': 'bg-primary', 'delete': 'bg-danger',
                         'reject': 'bg-warning text-dark', 'publish': 'bg-info text-dark',
                         'notify': 'bg-info text-dark', 'error': 'bg-danger', 'run-failed': 'bg-danger'} %}
 
-{# The few most of a dimension in the last days, each a filter on itself. #}
+{# The few most of a dimension in the last days, or on the day chosen, each a
+   filter on itself. #}
 {% macro ranked(title, icon, rows, param, chosen) -%}
 <div class="col-lg-4">
   <div class="chart-label mb-2"><i class="fas {{ icon }} me-1"></i>{{ title }}</div>
@@ -28,7 +29,7 @@
     <span class="chart-pill">{{ n }}</span>
   </a>
   {% else %}
-  <p class="text-muted small mb-0">None in these days.</p>
+  <p class="text-muted small mb-0">{{ 'None on this day.' if day else 'None in these days.' }}</p>
   {% endfor %}
 </div>
 {%- endmacro %}
@@ -85,7 +86,7 @@
 <div class="card content-card mb-3">
   <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
     <span><i class="fas fa-chart-column me-2"></i>Entries per day, last {{ chart_days }} days (UTC)</span>
-    <span class="text-muted small fw-normal">Click a day for its entries</span>
+    <span class="text-muted small fw-normal">Click a day for its entries and who did what</span>
   </div>
   <div class="card-body">
     {% if chart.busiest %}
@@ -114,10 +115,16 @@
       <thead><tr><th>Day</th><th>Entries</th></tr></thead>
       <tbody>{% for d in chart.days if d.n %}<tr><td>{{ d.date }}</td><td>{{ d.n }}</td></tr>{% endfor %}</tbody>
     </table>
+    {% if day %}
+    <p class="small mt-3 mb-0">
+      Who, what and on what for <strong>{{ day_long }}</strong>.
+      <a href="{{ charts.filtered_url('day', day, day) }}">Show the last {{ chart_days }} days</a>
+    </p>
+    {% endif %}
     <div class="row g-4 mt-1">
-      {{ ranked('Who', 'fa-user', found.user, 'user', selected.user) }}
-      {{ ranked('What', 'fa-bolt', found.action, 'action', selected.action) }}
-      {{ ranked('On what', 'fa-shapes', found.entity_type, 'type', selected.type) }}
+      {{ ranked('Who', 'fa-user', breakdown.user, 'user', selected.user) }}
+      {{ ranked('What', 'fa-bolt', breakdown.action, 'action', selected.action) }}
+      {{ ranked('On what', 'fa-shapes', breakdown.entity_type, 'type', selected.type) }}
     </div>
   </div>
 </div>

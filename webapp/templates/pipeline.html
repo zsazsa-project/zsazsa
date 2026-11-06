@@ -228,17 +228,21 @@
             {% if not busiest %}<p class="text-muted small mb-1">Nothing analysed in the last 14 days.</p>{% endif %}
             <div class="day-chart" aria-hidden="true">
               {% for d in overview.days %}
-              <div class="day-chart-col" title="{{ d.date }}: {{ d.made }} product{{ 's' if d.made != 1 }} made, {{ d.declined }} declined, {{ d.problem }} problem{{ 's' if d.problem != 1 }}">
+              <a href="#activity" class="day-chart-col" data-pipeline-tab="activity" data-period="{{ d.date }}" tabindex="-1"
+                 title="{{ d.date }}: {{ d.made }} product{{ 's' if d.made != 1 }} made, {{ d.declined }} declined, {{ d.problem }} problem{{ 's' if d.problem != 1 }}">
                 <div class="day-chart-bar" style="height:{{ (d.total / busiest * 100) if busiest else 0 }}%;">
                   {% if d.problem %}<span class="pipeline-problem" style="flex:{{ d.problem }};"></span>{% endif %}
                   {% if d.declined %}<span class="pipeline-declined" style="flex:{{ d.declined }};"></span>{% endif %}
                   {% if d.made %}<span class="pipeline-made" style="flex:{{ d.made }};"></span>{% endif %}
                 </div>
-              </div>
+              </a>
               {% endfor %}
             </div>
             <div class="day-chart-labels" aria-hidden="true">
-              {% for d in overview.days %}<span>{{ d.label }}</span>{% endfor %}
+              {% for d in overview.days %}
+              <a href="#activity" data-pipeline-tab="activity" data-period="{{ d.date }}" tabindex="-1"
+                 title="Show {{ d.date }} in the activity">{{ d.label }}</a>
+              {% endfor %}
             </div>
             <table class="visually-hidden">
               <caption>Analysed per day, last 14 days</caption>
@@ -253,6 +257,7 @@
               <div><div class="chart-label">Last 30 days</div><div class="pipeline-figure">{{ '{:,}'.format(pipeline.last_30d) }}</div></div>
             </div>
             <p class="text-muted small mb-0 mt-2">
+              Click a day for its entries under Activity.
               From the analyser's own log, which still counts events since removed from the scraper MISP.
               <em>Purge orphaned</em> under Activity drops those.
             </p>

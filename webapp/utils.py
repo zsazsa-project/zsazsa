@@ -3,7 +3,7 @@
 import ast
 import re
 from collections import Counter, namedtuple
-from datetime import datetime
+from datetime import date, datetime
 
 import config
 from webapp.models import TLP_LEVELS
@@ -77,6 +77,20 @@ def age_text(seconds: float) -> str:
     if minutes < 1440:
         return f"{round(minutes / 60)}h ago"
     return f"{round(minutes / 1440)}d ago"
+
+
+def iso_day(raw: str) -> str:
+    """A day to filter on, as YYYY-MM-DD, or "" for one that is no date."""
+    try:
+        return date.fromisoformat(raw).isoformat()
+    except ValueError:
+        return ""
+
+
+def long_day(day: str) -> str:
+    """A day, YYYY-MM-DD, as "Thursday 5 November 2026"."""
+    parsed = date.fromisoformat(day)
+    return f"{parsed.strftime('%A')} {parsed.day} {parsed.strftime('%B %Y')}"
 
 
 def dedup_lower(values: list) -> list:

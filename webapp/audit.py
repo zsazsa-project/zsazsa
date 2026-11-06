@@ -69,6 +69,13 @@ def get_logs(limit=200, action=None, entity_type=None, user=None, day=None):
         return db.execute(f"SELECT * FROM audit_log{where} ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
 
 
+def _ranked(db, where: str, args) -> dict:
+    """Who, what and on what type the entries under ``where`` were, most first."""
+    return {column: [tuple(r) for r in db.execute(
+        f"SELECT {column}, COUNT(*) AS n FROM audit_log{where} GROUP BY {column} ORDER BY n DESC", args)]
+        for column in ("user", "action", "entity_type")}
+
+
 def activity(since: str, action=None, entity_type=None, user=None) -> dict:
     """How busy the log has been under these filters: the entries in all, those
     from ``since`` on (a date) per day, and who, what and on what type they
@@ -79,10 +86,15 @@ def activity(since: str, action=None, entity_type=None, user=None) -> dict:
         total = db.execute(f"SELECT COUNT(*) FROM audit_log{where}", args).fetchone()[0]
         per_day = {r[0]: r[1] for r in db.execute(
             f"SELECT substr(timestamp, 1, 10) AS day, COUNT(*) FROM audit_log{recent} GROUP BY day", (*args, since))}
-        ranked = {column: [tuple(r) for r in db.execute(
-            f"SELECT {column}, COUNT(*) AS n FROM audit_log{recent} GROUP BY {column} ORDER BY n DESC",
-            (*args, since))] for column in ("user", "action", "entity_type")}
+        ranked = _ranked(db, recent, (*args, since))
     return {"total": total, "per_day": per_day, **ranked}
+
+
+def ranked_on(day: str, action=None, entity_type=None, user=None) -> dict:
+    """Who, what and on what type the entries of one day were, most first."""
+    where, args = _where(action, entity_type, user, day)
+    with _conn() as db:
+        return _ranked(db, where, args)
 
 
 def log_filters():

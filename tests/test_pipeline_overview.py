@@ -1,6 +1,7 @@
 """The Pipeline page's Overview and the activity filters: the outcomes per day
-and by reason, what "Needs a look" lists and in what order, and the counts
-beside each filter choice, each counted under the other filters.
+and by reason, what "Needs a look" lists and in what order, the counts beside
+each filter choice, each counted under the other filters, and a day of the
+chart opening the activity on it.
 
 The database is temporary; MISP is not asked.
 
@@ -13,10 +14,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from bs4 import BeautifulSoup
 from flask import Flask
 
 import config
 from core import db as core_db
+from webapp import collection_cache, create_app, misp_store
 from webapp.routes import pipeline
 
 
@@ -90,6 +93,92 @@ class ProblemsOfTheWeek(_TempLog):
         _log("no_content", ago="-169 hours")
         _log("not_relevant", "no CVE found", ago="-1 hours")
         self.assertEqual(pipeline._pipeline_stats()["problems_7d"], 1)
+
+
+class OneDay(_TempLog):
+    """A day of the Overview's chart opens the activity on it, through the
+    period filter."""
+
+    def setUp(self):
+        super().setUp()
+        _log("product_created", ago="-2 days", n=2)
+        _log("not_relevant", "no PIR/GIR match", ago="-2 days", feed="Other")
+        _log("not_relevant", "no PIR/GIR match", ago="-3 days", n=4)
+        _log("product_created")
+        self.day = (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat()
+
+    def total(self, **args):
+        with mock.patch.object(pipeline, "scraper_enabled", return_value=False), \
+             mock.patch.object(pipeline, "_cached_sources", return_value={}):
+            return pipeline._activity_page(args, 0, 50)["total"]
+
+    def test_only_that_day_is_shown(self):
+        self.assertEqual(self.total(period=self.day), 3)
+
+    def test_as_many_as_the_chart_counts_for_it(self):
+        chart = next(d for d in pipeline._overview()["days"] if d["date"] == self.day)
+        self.assertEqual(self.total(period=self.day), chart["total"])
+
+    def test_a_day_runs_from_midnight_to_midnight(self):
+        now = datetime.now(timezone.utc)
+        before, after = ((now - timedelta(days=ago)).date().isoformat() for ago in (3, 1))
+        with core_db.row_connection() as db:
+            for stamp in (f"{before} 23:59:59", f"{self.day} 00:00:00", f"{self.day} 23:59:59", f"{after} 00:00:00"):
+                db.execute("INSERT INTO event_log (event_uuid, event_info, source_feed, outcome, processed_at)"
+                           " VALUES ('u', 'An event', 'Feed', 'not_relevant', ?)", (stamp,))
+        self.assertEqual(self.total(period=self.day), 5)
+
+    def test_it_goes_with_the_other_filters(self):
+        self.assertEqual(self.total(period=self.day, outcome="product_created"), 2)
+        self.assertEqual(self.total(period=self.day, source="Other"), 1)
+
+    def test_a_period_that_is_no_date_filters_nothing(self):
+        self.assertEqual(self.total(period="yesterday"), 8)
+
+    def periods(self, **args):
+        return pipeline._activity_facets(args)["period"]
+
+    def test_the_period_filter_lists_the_day_chosen(self):
+        choice = self.periods(period=self.day)[-1]
+        self.assertEqual((choice["value"], choice["n"]), (self.day, 3))
+        self.assertEqual(self.periods(period="2026-11-05")[-1]["label"], "Thursday 5 November 2026")
+
+    def test_counted_under_the_other_filters(self):
+        self.assertEqual(self.periods(period=self.day, source="Other")[-1]["n"], 1)
+
+    def test_a_day_nothing_was_analysed_on_is_kept_at_0(self):
+        empty = (datetime.now(timezone.utc) - timedelta(days=5)).date().isoformat()
+        self.assertEqual(self.periods(period=empty)[-1]["n"], 0)
+
+    def test_no_day_is_listed_unless_chosen(self):
+        self.assertEqual([p["value"] for p in self.periods()], ["", "today", "48h", "7d", "30d"])
+        self.assertEqual([p["value"] for p in self.periods(period="7d")], ["", "today", "48h", "7d", "30d"])
+
+
+class ChartLinks(_TempLog):
+    def test_each_day_and_its_date_open_the_activity_on_it(self):
+        _log("product_created")
+        for patch in (
+            mock.patch.object(config, "LOG_FILE", str(Path(config.DB_FILE).with_name("test.log")), create=True),
+            mock.patch.object(config, "MISP_SESSION_COOKIE_NAME", "MISP-test", create=True),
+            mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
+            mock.patch.object(config, "IMAP_SOURCES", [], create=True),
+            mock.patch.object(collection_cache, "start_worker"),
+            mock.patch("webapp.routes.data_collection._sources", return_value=[]),
+            mock.patch.object(misp_store, "_test_connection", return_value={"ok": True}),
+            mock.patch.object(misp_store, "test_scraper_misp", return_value={"ok": True}),
+            mock.patch.object(misp_store, "test_webapp_misp", return_value={"ok": True}),
+            mock.patch.object(misp_store, "data_collection_source_counts", return_value=[]),
+        ):
+            self.enterContext(patch)
+        response = create_app().test_client().get("/pipeline")
+        self.assertEqual(response.status_code, 200)
+        page = BeautifulSoup(response.data, "html.parser")
+        dates = [d["date"] for d in pipeline._overview()["days"]]
+        for selector in ("a.day-chart-col", ".day-chart-labels a"):
+            links = page.select(selector)
+            self.assertEqual([a["data-period"] for a in links], dates)
+            self.assertEqual({a["data-pipeline-tab"] for a in links}, {"activity"})
 
 
 class Attention(unittest.TestCase):

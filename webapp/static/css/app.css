@@ -2094,7 +2094,9 @@ a.stats-count:hover { box-shadow: var(--shadow-hover-lift); }
 .day-chart-bar > span { display: block; min-height: 2px; }
 .day-chart-col:hover .day-chart-bar { opacity: .8; }
 .day-chart-labels { display: flex; gap: var(--day-gap, 6px); margin-top: .25rem; font-size: .66rem; color: var(--text-muted); }
-.day-chart-labels > span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; }
+.day-chart-labels > span, .day-chart-labels > a { flex: 1; min-width: 0; text-align: center; white-space: nowrap; }
+.day-chart-labels > a { color: inherit; text-decoration: none; }
+.day-chart-labels > a:hover { text-decoration: underline; }
 .day-chart-mark { font-size: .66rem; font-weight: 700; text-align: center; white-space: nowrap; color: var(--text-primary); }
 .day-chart-col.faded { opacity: .35; }
 .pipeline-made { background: var(--accent-green); }

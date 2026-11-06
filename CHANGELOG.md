@@ -36,6 +36,7 @@
 - The analyser also reads the events with a report on the additional MISP servers, through each server's filters and at most its "Max events" a run. Each server has an "Analyse its events" switch, off until an administrator turns it on, as the text of its events then goes to the AI features. What the analyser decides about those events is kept in zsazsa, not on the server.
 - In the Pipeline activity, an event's title links to it in the MISP it was read from. Each outcome has an icon for the kind of reason, and what the analyser wrote is shown under it, in full on the "i". The table is denser.
 - Improved pipeline page and audit log.
+- Use filters per day in audit log and Pipeline.
 - Each analyser run lists what it decided per event on the Pipeline page, the advisory runs too. A story the briefing drops as told before or as duplicate coverage is in the Pipeline activity, as one the alerts drop was.
 - One analyser run goes at a time. The dashboard shows the run that is going and holds its Start buttons, and a scheduled run that finds one going skips its hour.
 - The analyser no longer rejects an event flagged for follow-up, also when its article is missing.

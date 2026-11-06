@@ -8,7 +8,8 @@ read, a rejected one is left out, and a stakeholder is covered by an active PIR
 they own. Indicator health counts every enabled server once, from a cache. Scope values are
 counted once per record, whatever their case. The pipeline never purges history
 on an answer MISP refused, and the audit log says when it shows only part of
-itself.
+itself. A day chosen on its chart narrows the who, what and on what, not the
+figures that say they cover the last 90 days.
 
 MISP is an autospec of PyMISP or the store is patched; the databases are
 temporary.
@@ -367,6 +368,53 @@ class AuditLog(_App):
         text = self.page("?user=one@example.org")
         self.assertIn("The busiest day was", text)
         self.assertIn("with 2 entries", text)
+
+    def breakdown(self, query=""):
+        """The who, what and on what under the chart, as {name: count}."""
+        rows = self.soup(f"/logs{query}").select("a.chart-row")
+        return {row.select_one(".name").get_text(strip=True): int(row.select_one(".chart-pill").get_text(strip=True))
+                for row in rows}
+
+    def test_a_day_narrows_the_who_what_and_on_what(self):
+        """Only the entries followed the day; these went on counting the 90 days."""
+        day = self.write_on(1, 2, user="one@example.org", action="create")
+        self.write_on(2, 5, user="other@example.org", action="delete")
+        self.assertEqual(self.breakdown(), {"other@example.org": 5, "one@example.org": 2,
+                                            "delete": 5, "create": 2, "pir": 7})
+        self.assertEqual(self.breakdown(f"?day={day}"), {"one@example.org": 2, "create": 2, "pir": 2})
+
+    def test_a_day_keeps_the_other_filters(self):
+        day = self.write_on(1, 2, user="one@example.org", action="create")
+        self.write_on(1, 3, user="other@example.org", action="create")
+        self.assertEqual(self.breakdown(f"?day={day}&user=other@example.org"),
+                         {"other@example.org": 3, "create": 3, "pir": 3})
+
+    def test_a_filter_chosen_under_the_chart_stays_on_the_day(self):
+        day = self.write_on(1, 2)
+        link = self.soup(f"/logs?day={day}").select_one("a.chart-row")
+        self.assertIn(f"day={day}", link["href"])
+
+    def test_the_page_says_which_day_they_are_of(self):
+        day = self.write_on(1, 2)
+        page = self.soup(f"/logs?day={day}")
+        self.assertIn("Who, what and on what for", page.get_text(" ", strip=True))
+        self.assertNotIn("Who, what and on what for", self.page())
+
+    def test_the_most_active_user_stays_that_of_the_chart(self):
+        """Its tile says the last 90 days, whatever the day chosen."""
+        day = self.write_on(1, 2, user="one@example.org")
+        self.write_on(2, 5, user="other@example.org")
+        tile = self.soup(f"/logs?day={day}").select("a.stats-count")[-1].get_text(" ", strip=True)
+        self.assertIn("other@example.org", tile)
+
+    def test_a_day_without_entries_says_so(self):
+        self.write_on(1, 2)
+        empty = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d")
+        self.assertIn("None on this day.", self.page(f"?day={empty}"))
+
+    def test_a_day_before_the_chart_has_its_who_what_and_on_what(self):
+        old = self.write_on(120, 3)
+        self.assertEqual(self.breakdown(f"?day={old}"), {"analyst@example.org": 3, "update": 3, "pir": 3})
 
     def test_an_empty_log(self):
         text = self.page()

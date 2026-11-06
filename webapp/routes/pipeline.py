@@ -11,7 +11,7 @@ import config
 from analyser import settings
 from core.db import get_latest_pipeline_run, get_recent_pipeline_runs, row_connection
 from webapp import analyser_pipeline, collection_cache, job_store, misp_store
-from webapp.utils import age_text, scraper_enabled
+from webapp.utils import age_text, iso_day, long_day, scraper_enabled
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("pipeline", __name__)
@@ -218,11 +218,16 @@ def _activity_filters(args, skip=()):
         params.append(source)
 
     period = chosen("period")
+    day = iso_day(period)
     if period == "today":
         clauses.append("processed_at >= date('now')")
     elif period in _ACTIVITY_PERIODS:
         clauses.append("processed_at >= datetime('now', ?)")
         params.append(_ACTIVITY_PERIODS[period])
+    elif day:
+        # A range rather than date(processed_at), so the index on it is used.
+        clauses.append("processed_at >= ? AND processed_at < date(?, '+1 day')")
+        params += [day, day]
 
     q = (args.get("q") or "").strip()
     if q:
@@ -241,7 +246,8 @@ def _activity_facets(args):
     """The choices of the activity's outcome, period and feed filters, each with
     how many entries it shows. A dimension is counted under the other filters,
     so a count is what choosing it gives. The choice made is kept, at 0 when
-    the other filters leave none of it."""
+    the other filters leave none of it. A day from the Overview's chart is
+    listed as a period of its own while it is the one chosen."""
     with row_connection() as db:
         where, params = _activity_filters(args, skip=("outcome",))
         by_outcome = {r["outcome"] or "": r["n"] for r in db.execute(
@@ -254,6 +260,13 @@ def _activity_facets(args):
             " COALESCE(SUM(processed_at >= datetime('now', '-7 days')), 0),"
             " COALESCE(SUM(processed_at >= datetime('now', '-30 days')), 0)"
             f" FROM event_log{where}", params).fetchone()
+        periods = [{"value": value, "label": label, "n": n} for (value, label), n in zip(_FACET_PERIODS, windows)]
+
+        day = iso_day((args.get("period") or "").strip())
+        if day:
+            where, params = _activity_filters(args)
+            n = db.execute(f"SELECT COUNT(*) FROM event_log{where}", params).fetchone()[0]
+            periods.append({"value": day, "label": long_day(day), "n": n})
 
         where, params = _activity_filters(args, skip=("source",))
         by_feed = [(r["source_feed"], r["n"]) for r in db.execute(
@@ -280,7 +293,6 @@ def _activity_facets(args):
     if source and source not in [f["value"] for f in feeds]:
         feeds.append({"value": source, "label": source, "n": 0})
 
-    periods = [{"value": value, "label": label, "n": n} for (value, label), n in zip(_FACET_PERIODS, windows)]
     return {"outcome": outcomes, "period": periods, "source": feeds}
 
 
