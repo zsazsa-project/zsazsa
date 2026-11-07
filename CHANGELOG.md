@@ -116,6 +116,8 @@
 - One vulnerability advisory MISP refused stopped the advisory run, on every run.
 - The Pipeline activity hid the manual entries and the other MISP servers' events as orphaned, as it looked for every event on the scraper, and Purge orphaned deleted them. An entry from before the source was recorded now goes by the collection cache.
 - Deleting an alert, advisory, detection request or briefing left the `zsazsa:product` tag on its source events, which then never got another advisory or briefing story. The tag is now delete unless another product of that type uses the event. The analyser reads the source events of a deleted alert, advisory or briefing again on its next run, unless the product was rejected. The delete confirmations say so: reject a draft to keep its story out.
+- Saving a daily briefing at TLP:AMBER+STRICT or TLP:RED set it to TLP:CLEAR, as the form only offered clear, green and amber. It offers every level now.
+- A story added to a daily briefing left its TLP as it was. The briefing now goes up to the TLP of the story's source event, and the form says so.
 
 ### Security
 

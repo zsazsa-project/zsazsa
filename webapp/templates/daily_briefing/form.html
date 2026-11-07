@@ -109,7 +109,7 @@
           <span class="zs-sep">·</span>
           <span class="zs-counter"><strong id="count-scope">0</strong> scope items</span>
           <span class="zs-sep">·</span>
-          <span class="tlp-badge tlp-{{ briefing_tlp or 'clear' }}" id="shell-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
+          <span class="tlp-badge tlp-{{ (briefing_tlp or 'clear') | slug }}" id="shell-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
           <span class="zs-counter" id="shell-author">{{ briefing_author or '' }}</span>
         </div>
         <div class="d-flex gap-2">
@@ -241,9 +241,9 @@
           <div class="col-md-2">
             <label class="form-label">TLP</label>
             <select name="tlp" id="briefing-tlp" class="form-select">
-              <option value="clear" {{ 'selected' if briefing_tlp == 'clear' }}>clear</option>
-              <option value="green" {{ 'selected' if briefing_tlp == 'green' }}>green</option>
-              <option value="amber" {{ 'selected' if briefing_tlp == 'amber' }}>amber</option>
+              {% for t in tlp_levels %}
+              <option value="{{ t }}" {{ 'selected' if briefing_tlp == t }}>{{ t }}</option>
+              {% endfor %}
             </select>
           </div>
           {% if briefing_created_at %}
@@ -1016,7 +1016,7 @@ function syncShellMeta() {
   var tlp = document.getElementById('briefing-tlp').value || 'clear';
   var author = document.getElementById('briefing-author').value;
   var badge = document.getElementById('shell-tlp');
-  badge.className = 'tlp-badge tlp-' + tlp;
+  badge.className = 'tlp-badge tlp-' + tlp.replace('+', '-');
   badge.textContent = 'TLP:' + tlp.toUpperCase();
   document.getElementById('shell-author').textContent = author;
   document.getElementById('rail-tlp').textContent = badge.textContent;

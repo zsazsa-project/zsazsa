@@ -111,6 +111,7 @@ def _render_briefing_form(
         briefing_title=title,
         briefing_author=author,
         briefing_tlp=tlp,
+        tlp_levels=misp_store.FIA_TLP_LEVELS,
         briefing_escalations=escalations,
         briefing_notes=notes,
         briefing_detection_rules=detection_rules,
@@ -181,9 +182,20 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
         "source_id": source_id,
         "ai_summary": _extract_ai_summary(ev),
         "report_count": len(misp_store.live_reports(ev)),
+        "source_tlp": misp_store.source_events_tlp([ev], "clear"),
     }
     story.update(misp_store.extract_story_context(ev))
     return story
+
+
+def _tlp_with_stories(tlp, seeded):
+    """``tlp``, raised to the strictest source event of the stories just added.
+    The analyst can still lower it on the form, so say that it went up."""
+    raised = misp_store.strictest_tlp([tlp] + [story["source_tlp"] for story in seeded])
+    if raised != tlp:
+        flash(f"The TLP of this briefing went up to TLP:{raised.upper()}, as a new story has "
+              "a source event with that TLP.", "warning")
+    return raised
 
 
 # How many collection events one selection seeds onto a briefing at a time.
@@ -402,7 +414,6 @@ def compose():
         bdate = _form_date(request.form, datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         btitle = request.form.get("title", "").strip()
         author = request.form.get("author", "").strip()
-        tlp = request.form.get("tlp", "clear")
         stories = _seed_stories(request.form.getlist("selected_events"))
 
         return _render_briefing_form(
@@ -410,7 +421,7 @@ def compose():
             date=bdate,
             title=btitle,
             author=author,
-            tlp=tlp,
+            tlp=_tlp_with_stories(request.form.get("tlp", "clear"), stories),
             escalations="",
             notes="",
             detection_rules="",
@@ -438,7 +449,7 @@ def compose():
         date=today,
         title="",
         author="",
-        tlp="clear",
+        tlp=_tlp_with_stories("clear", stories),
         escalations="",
         notes="",
         detection_rules="",
@@ -694,7 +705,7 @@ def add_stories(id):
         date=briefing.date,
         title=briefing.title or "",
         author=briefing.author or "",
-        tlp=briefing.tlp or "clear",
+        tlp=_tlp_with_stories(briefing.tlp or "clear", new_stories),
         escalations=briefing.escalations or "",
         notes=briefing.notes or "",
         detection_rules=briefing.detection_rules or "",

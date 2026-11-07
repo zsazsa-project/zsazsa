@@ -341,7 +341,7 @@ On zsazsa's own MISP only the events in workflow state `incomplete` or `ongoing`
 
 An event whose article could not be fetched, or whose report is empty, is rejected. Every other event gets an AI summary when it has none, or when its summary is older than the article. A summary that fails leaves the event for the next run.
 
-A product is never classified below its source events: TLP clear for a briefing and amber for an alert or advisory, raised to the strictest TLP of its sources.
+The analyser never drafts a product below its source events: TLP clear for a briefing and amber for an alert or advisory, raised to the strictest TLP of its sources. A story added to a briefing later raises its TLP in the same way. The form still lets you change the TLP, so a lower one is your own decision.
 
 ### The relevance verdict
 

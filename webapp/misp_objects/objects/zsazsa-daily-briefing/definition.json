@@ -26,7 +26,7 @@
     "tlp": {
       "misp-attribute": "text",
       "ui-priority": 3,
-      "description": "TLP classification (clear / green / amber)",
+      "description": "TLP classification (clear / green / amber / amber+strict / red)",
       "disable_correlation": true
     },
     "review-state": {

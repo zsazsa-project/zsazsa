@@ -5767,21 +5767,23 @@ def _tlp_cleared(clearance: str, tlp: str) -> bool:
     return have_rank >= need_rank
 
 
+def strictest_tlp(levels) -> str:
+    """The most restrictive of these TLP values. One that names no level counts as red."""
+    return max((_tlp_level(level) or "red" for level in levels), key=_TLP_RANK.get)
+
+
 def source_events_tlp(events, default):
     """Keep the default classification or the strictest source TLP, whichever is higher."""
-    strictest = default
+    levels = [default]
     for event in events:
         for tag in getattr(event, "tags", []) or []:
             name = tag.name.strip()
             if not name.lower().startswith("tlp:"):
                 continue
-            level = _tlp_level(name)
-            if level is None:
+            if _tlp_level(name) is None:
                 logger.warning("Unrecognised source TLP %s on %s; using red", name, event.uuid)
-                level = "red"
-            if _TLP_RANK[level] > _TLP_RANK[strictest]:
-                strictest = level
-    return strictest
+            levels.append(name)
+    return strictest_tlp(levels)
 
 
 def stakeholders_cleared_for(product_type: str, tlp: str) -> list:
