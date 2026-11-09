@@ -347,6 +347,7 @@ def _activity_page(args, offset, limit):
 _DECLINED = (
     ("excluded by title", "fa-filter", "Excluded by title"),
     ("same story", "fa-clone", "Told before"),
+    ("duplicate coverage", "fa-clone", "Told before"),
     ("analyst scored", "fa-user-pen", "Analyst score"),
     ("under the limit", "fa-gauge", "Under a limit"),
     ("priority gives no alert", "fa-star-half-stroke", "PIR priority"),

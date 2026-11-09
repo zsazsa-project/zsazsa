@@ -123,6 +123,7 @@ class Activity(unittest.TestCase):
                 ("product_created", "vea; CVEs: CVE-2026-1", "Product made"),
                 ("not_relevant", "excluded by title filter", "Excluded by title"),
                 ("not_relevant", "The same story as FIA-00012.", "Told before"),
+                ("not_relevant", "Duplicate coverage of another story", "Told before"),
                 ("not_relevant", "An analyst scored its relevance low", "Analyst score"),
                 ("not_relevant", "Its timeliness score is under the limit for the alerts", "Under a limit"),
                 ("not_relevant", "no CVE found", "No CVE to advise on"),

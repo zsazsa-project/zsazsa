@@ -84,7 +84,11 @@ def file_alert(data: dict, event, source, verdict: dict) -> tuple[str, str]:
     # MISP cannot tag an event report (it answers Invalid Target), so the
     # source type goes on the event, when the event is ours to tag.
     if source.own and verdict.get("source_type"):
-        tagger.add_tag(source.client, event, f'osint:source-type="{verdict["source_type"]}"')
+        try:
+            tagger.add_tag(source.client, event, f'osint:source-type="{verdict["source_type"]}"')
+        except Exception as exc:
+            # The alert is filed, and the subscribers on automated mode still get it.
+            logger.warning("Could not tag the source type of %s: %s", event.uuid, exc)
     return fia_id, _publish_to_automated_subscribers(uuid, fia_id, data["tlp"])
 
 

@@ -86,6 +86,18 @@ class KeepAlive(unittest.TestCase):
             headers={"Accept": "application/json", "User-Agent": "Firefox/140"},
             timeout=misp_session._VIEW_ME_TIMEOUT_S, verify=False, allow_redirects=False)
 
+    def test_a_session_another_request_forgot_first_does_not_fail_this_one(self):
+        """Two requests clearing the old sessions at once both deleted the same
+        one, and the second answered with a 500."""
+        class Forgotten(dict):
+            def items(self):
+                return [("gone", -misp_session._KEEPALIVE_EVERY_S)]
+
+        get = mock.Mock(return_value=mock.Mock(status_code=200))
+        with mock.patch.object(misp_session, "_last_keepalive", Forgotten()):
+            self.keep_alive(get)
+        get.assert_called_once()
+
     def test_a_session_is_refreshed_at_most_once_every_few_minutes(self):
         get = mock.Mock(return_value=mock.Mock(status_code=200))
         self.keep_alive(get)

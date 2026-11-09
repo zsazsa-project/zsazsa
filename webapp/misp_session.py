@@ -419,7 +419,8 @@ def keep_misp_session_alive(cookie_name, session_id):
     # sessions in use.
     for sid, at in list(_last_keepalive.items()):
         if now - at >= _KEEPALIVE_EVERY_S:
-            del _last_keepalive[sid]
+            # Not del: another request can be doing the same.
+            _last_keepalive.pop(sid, None)
     _last_keepalive[session_id] = now
 
     try:

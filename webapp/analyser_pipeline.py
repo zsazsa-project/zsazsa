@@ -477,11 +477,7 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
             if event.uuid in followed:
                 event_decisions.append(_decision(event, source, "left open", f"{reason}; an analyst follows it up"))
                 continue
-            try:
-                rejected = event_state.reject(event, source, reason)
-            except Exception as exc:
-                logger.warning("Could not mark %s as rejected: %s", event.uuid, exc)
-                rejected = False
+            rejected = _reject(event, source, reason)
             reading.wrote(event.uuid)
             if rejected:
                 hard_rejected += 1
@@ -523,6 +519,16 @@ def _common_candidate_events(reading: Reading, progress=None, title_exclusions=N
         stats["errors"] = list(reading.errors)
     return SimpleNamespace(sources=sources, events=kept, excluded=excluded, summaries=summaries,
                            reports=reports_cache, stats=stats)
+
+
+def _reject(event, source, reason: str) -> bool:
+    """Reject an event, whichever MISP it is on. False when it is still open,
+    which leaves it for the next run rather than end this one."""
+    try:
+        return event_state.reject(event, source, reason)
+    except Exception as exc:
+        logger.warning("Could not mark %s as rejected: %s", event.uuid, exc)
+        return False
 
 
 def _decision(event, source, outcome: str, reason: str) -> dict:
@@ -711,7 +717,7 @@ def _close_declined(found, judge: Judge | None, reading: Reading, running: str, 
             _decide(found, event, "left open", why)
             continue
         reasons.append(why)
-        rejected = event_state.reject(event, source, "; ".join(reasons))
+        rejected = _reject(event, source, "; ".join(reasons))
         reading.wrote(event.uuid)
         if rejected:
             closed += 1
@@ -844,11 +850,22 @@ def _without_overlaps(found, ranked: list[tuple], existing: list[dict], progress
     return kept, len(to_drop), updates
 
 
+def _stories_of(draft) -> list[dict]:
+    return [{k: v for k, v in vars(s).items() if k != "_report_id"} for s in draft.stories]
+
+
+def _as_saved_now(draft) -> dict:
+    """The fields of today's draft to write back. Read again: the run's model
+    calls take minutes, and what an analyst saved meanwhile stays."""
+    current = misp_store.get_briefing(draft.uuid) or draft
+    return {**{field: getattr(current, field) for field in misp_store.BRIEFING_FIELDS},
+            "stories": _stories_of(current)}
+
+
 def _write_briefing(draft, existing: list[dict], stories: list[dict], story_events: list, also_seen: list[dict],
                     progress=None) -> tuple[str, str]:
     """Add the new stories to today's ``draft``, or make one of them, with the
     briefing summary. Returns its uuid and the message of the run."""
-    all_stories = existing + stories
     now = datetime.now(timezone.utc)
     # Written from the stories that survived the overlap check, so the summary
     # describes the draft as it will actually be. A draft is worth more without
@@ -857,6 +874,7 @@ def _write_briefing(draft, existing: list[dict], stories: list[dict], story_even
     _emit(progress, "write-summary", "in_progress", "Writing the briefing summary across the stories...")
     briefing_summary = ""
     try:
+        all_stories = existing + stories
         briefing_summary = llm.draft_briefing_summary(
             all_stories, misp_store.briefing_scope_summary(all_stories), now.date().isoformat(),
         )
@@ -866,20 +884,19 @@ def _write_briefing(draft, existing: list[dict], stories: list[dict], story_even
           "Briefing summary written." if briefing_summary
           else "No briefing summary written; the draft opens without one.")
 
-    # Never below what the draft already is.
-    tlp = misp_store.source_events_tlp(story_events, draft.tlp if draft else "clear")
     _emit(progress, "create-drafts", "in_progress", "Writing the daily briefing draft...")
     if draft:
-        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
+        data = _as_saved_now(draft)
         data.update(
-            stories=all_stories, story_count=len(all_stories),
-            tlp=tlp,
-            vendor=_deduplicate_vendors(list(draft.vendor) + [v.strip() for s in stories
-                                                             for v in s.get("vendor", []) if v.strip()]),
-            also_seen=draft.also_seen + also_seen,
-            summary=briefing_summary or draft.summary,
+            stories=data["stories"] + stories, story_count=len(data["stories"]) + len(stories),
+            # Never below what the draft already is.
+            tlp=misp_store.source_events_tlp(story_events, data["tlp"]),
+            vendor=_deduplicate_vendors(list(data["vendor"]) + [v.strip() for s in stories
+                                                                for v in s.get("vendor", []) if v.strip()]),
+            also_seen=data["also_seen"] + also_seen,
+            summary=briefing_summary or data["summary"],
             # A summary kept from before the new stories no longer covers them.
-            summary_stale=bool(draft.summary) and not briefing_summary,
+            summary_stale=bool(data["summary"]) and not briefing_summary,
         )
         misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
         briefing_uuid = draft.uuid
@@ -889,7 +906,7 @@ def _write_briefing(draft, existing: list[dict], stories: list[dict], story_even
             "date": now.date().isoformat(),
             "title": f"Daily threat briefing for {now.day} {now.strftime('%B %Y')}",
             "author": "analyser",
-            "tlp": tlp,
+            "tlp": misp_store.source_events_tlp(story_events, "clear"),
             "escalations": "",
             "notes": "",
             "also_seen": also_seen,
@@ -900,6 +917,48 @@ def _write_briefing(draft, existing: list[dict], stories: list[dict], story_even
         })
         message = f"Daily briefing draft created with {len(stories)} stories."
     return briefing_uuid, message
+
+
+def _new_to_the_briefing(found, ranked: list[tuple], existing: list[dict], draft, updates: dict,
+                         progress=None) -> tuple[list, list]:
+    """The ranked events that fit in the briefing and do not repeat an earlier
+    one, and the events over the cap. ``updates`` gets what to say of a story
+    that tells an earlier one again."""
+    # Compared with the briefings of the last weeks only as long as there is
+    # room: each comparison is a model call.
+    cap = settings.get("ANALYSER_BRIEFING_MAX_STORIES")
+    room = max(0, cap - len(existing))
+    earlier = similarity.recent_stories(but=draft) if ranked else []
+    kept, over_cap = [], []
+    for event, verdict, why in ranked:
+        # One an analyst pushed goes past the cap, and an earlier story only
+        # marks it: the analyst asked for it.
+        is_pushed = relevance.pushed(event, "briefing")
+        if len(kept) >= room and not is_pushed:
+            over_cap.append(event)
+            _decide(found, event, "over the cap", f"Listed under Also seen: the briefing has {cap} stories")
+            continue
+        _emit(progress, "check-overlap", "in_progress",
+              f"Comparing with earlier briefings: {(event.info or event.uuid)[:80]}")
+        try:
+            same = similarity.same_story(
+                similarity.event_story(event, found.summaries.get(event.uuid, ""), _article(found, event)), earlier)
+        except Exception as exc:
+            logger.warning("Comparing %s with the earlier briefings failed: %s", event.uuid, exc)
+            same = None
+            updates[event.uuid] = "Not compared with the earlier briefings, as the comparison failed"
+        if similarity.repeats(same) and not is_pushed:
+            told = f"The same story as one in {same['story']['id']}"
+            event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing", told,
+                                     _evidence(found, event))
+            _decide(found, event, "dropped", told)
+            _log(event, found.sources[event.uuid], "not_relevant", f"{told}.")
+            continue
+        if same:
+            told = "Update of" if same["new_facts"] else "The same story as"
+            updates[event.uuid] = f"{told} \"{same['story']['title']}\" in {same['story']['id']}: {same['reason']}"
+        kept.append((event, verdict, why))
+    return kept, over_cap
 
 
 def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
@@ -933,7 +992,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
     declined_by_relevance = len(events) - len(wanted)
 
     draft = todays_draft() if wanted else None
-    existing = [{k: v for k, v in vars(s).items() if k != "_report_id"} for s in draft.stories] if draft else []
+    existing = _stories_of(draft) if draft else []
     ranked = _ranked(wanted, judge)
     events_by_uuid = {event.uuid: event for event, _verdict, _why in ranked}
 
@@ -941,42 +1000,7 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
     # are drafted, so that no model call goes on a story that is left out.
     ranked, dropped, updates = _without_overlaps(found, ranked, existing, progress)
 
-    # Compared with the briefings of the last weeks only as long as there is
-    # room: each comparison is a model call.
-    room = max(0, settings.get("ANALYSER_BRIEFING_MAX_STORIES") - len(existing))
-    earlier = similarity.recent_stories(but=draft) if ranked else []
-    kept, over_cap = [], []
-    for event, verdict, why in ranked:
-        # One an analyst pushed goes past the cap, and an earlier story only
-        # marks it: the analyst asked for it.
-        is_pushed = relevance.pushed(event, "briefing")
-        if len(kept) >= room and not is_pushed:
-            over_cap.append(event)
-            continue
-        _emit(progress, "check-overlap", "in_progress",
-              f"Comparing with earlier briefings: {(event.info or event.uuid)[:80]}")
-        try:
-            same = similarity.same_story(
-                similarity.event_story(event, found.summaries.get(event.uuid, ""), _article(found, event)), earlier)
-        except Exception as exc:
-            logger.warning("Comparing %s with the earlier briefings failed: %s", event.uuid, exc)
-            same = None
-            updates[event.uuid] = "Not compared with the earlier briefings, as the comparison failed"
-        if similarity.repeats(same) and not is_pushed:
-            told = f"The same story as one in {same['story']['id']}"
-            event_state.save_outcome(found.sources[event.uuid].id, event.uuid, "daily-briefing", told,
-                                     _evidence(found, event))
-            _decide(found, event, "dropped", told)
-            _log(event, found.sources[event.uuid], "not_relevant", f"{told}.")
-            continue
-        if same:
-            told = "Update of" if same["new_facts"] else "The same story as"
-            updates[event.uuid] = f"{told} \"{same['story']['title']}\" in {same['story']['id']}: {same['reason']}"
-        kept.append((event, verdict, why))
-    ranked = kept
-    cap = settings.get("ANALYSER_BRIEFING_MAX_STORIES")
-    for event in over_cap:
-        _decide(found, event, "over the cap", f"Listed under Also seen: the briefing has {cap} stories")
+    ranked, over_cap = _new_to_the_briefing(found, ranked, existing, draft, updates, progress)
 
     _emit(progress, "build-briefing", "in_progress", "Building daily briefing stories from eligible events...")
     focus = llm.configured_focus_points()
@@ -994,35 +1018,28 @@ def run_daily_briefing_action(reading: Reading, progress=None) -> dict:
 
     result = {"ok": True, "action": "daily-briefing", **found.stats, "declined_by_relevance": declined_by_relevance,
               "overlap_dropped": dropped, "over_the_cap": len(over_cap)}
-    if not stories and not over_cap:
+    if stories:
+        story_events = [events_by_uuid[s["source_event_uuid"]] for s in stories]
+        briefing_uuid, message = _write_briefing(draft, existing, stories, story_events, _also_seen(found, over_cap),
+                                                 progress)
+        _emit(progress, "create-drafts", "completed", f"Daily briefing draft written ({briefing_uuid}).")
+        for s in stories:
+            uuid = s["source_event_uuid"]
+            # Tagged as a source of the briefing.
+            reading.wrote(uuid)
+            _log(events_by_uuid[uuid], found.sources[uuid], "product_created", "daily-briefing")
+        result.update(created=0 if draft else 1, briefing_uuid=briefing_uuid, stories_included=len(stories),
+                      message=message)
+    elif over_cap:
+        # Today's draft is full: only its Also seen list changes.
+        data = _as_saved_now(draft)
+        data["also_seen"] = data["also_seen"] + _also_seen(found, over_cap)
+        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
+        result.update(created=0, briefing_uuid=draft.uuid, message="Today's daily briefing draft is full.")
+    else:
         _emit(progress, "write-summary", "completed", "No stories to summarise.")
         _emit(progress, "create-drafts", "completed", "No daily briefing draft created (no eligible stories).")
         result.update(created=0, message="No eligible events to include in a daily briefing draft.")
-        result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
-        return result
-
-    if not stories:
-        # Today's draft is full: only its Also seen list changes.
-        data = {field: getattr(draft, field) for field in misp_store.BRIEFING_FIELDS}
-        data.update(stories=existing, also_seen=draft.also_seen + _also_seen(found, over_cap))
-        misp_store.update_briefing(draft.uuid, data, expected_state=misp_store.BRIEFING_REVIEW_DRAFT)
-        result.update(created=0, briefing_uuid=draft.uuid, message="Today's daily briefing draft is full.")
-        result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
-        return result
-
-    story_events = [events_by_uuid[s["source_event_uuid"]] for s in stories]
-    briefing_uuid, message = _write_briefing(draft, existing, stories, story_events, _also_seen(found, over_cap),
-                                             progress)
-    _emit(progress, "create-drafts", "completed", f"Daily briefing draft written ({briefing_uuid}).")
-
-    for s in stories:
-        uuid = s["source_event_uuid"]
-        # Tagged as a source of the briefing.
-        reading.wrote(uuid)
-        _log(events_by_uuid[uuid], found.sources[uuid], "product_created", "daily-briefing")
-
-    result.update(created=0 if draft else 1, briefing_uuid=briefing_uuid, stories_included=len(stories),
-                  message=message)
     result["closed"] = _close_declined(found, judge, reading, "briefing", progress)
     return result
 
@@ -1521,14 +1538,13 @@ def run_action(job_id: str, user: str, triggered_by: str = "dashboard", lock_tok
         result["retried"] = len(reading.retried)
         reading.commit()
         log_pipeline_run_end(run_id, "completed", result)
-        audit.record("run-complete", "pipeline", entity_label=action,
-                     details=(result or {}).get("message") or "", user=user)
+        audit.record("run-complete", "pipeline", entity_label=action, details=result["message"], user=user)
         job_store.complete_open_steps(job_id)
         job_store.update_job(
             job_id,
             status="completed",
             result=result,
-            message=(result or {}).get("message") or "Completed.",
+            message=result["message"],
             error=None,
         )
         job_store.append_log(job_id, "Action completed.")

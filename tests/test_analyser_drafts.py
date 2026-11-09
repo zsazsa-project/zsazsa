@@ -51,7 +51,10 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
+from pymisp import PyMISP
+
 from analyser import relevance
+from analyser.products import flash_intel
 from analyser.sources import Reading, Source
 from core.asset_inventory import Asset
 from webapp import analyser_pipeline, misp_store
@@ -536,9 +539,11 @@ def _draft(stories=(), **fields):
 
 
 class Briefing(unittest.TestCase):
-    def brief(self, verdicts, draft=None, cap=15, overlaps=(), outcomes=None, same=None, pushed=(), listed=()):
+    def brief(self, verdicts, draft=None, cap=15, overlaps=(), outcomes=None, same=None, pushed=(), listed=(),
+              saved=None):
         """``listed`` the events under Also seen of a briefing; ``same`` what
-        the similarity check finds for each event, or the exception it raises."""
+        the similarity check finds for each event, or the exception it raises;
+        ``saved`` the draft as an analyst saved it while the run was going."""
         events = [_event(uuid, f"Event {uuid[0]}", [PUSHED] if uuid in pushed else []) for uuid in verdicts]
         self.created, self.updated = [], []
         reading = mock.create_autospec(Reading, instance=True)
@@ -552,7 +557,8 @@ class Briefing(unittest.TestCase):
         with mock.patch.object(analyser_pipeline, "_common_candidate_events", return_value=_found(events)), \
              mock.patch.object(analyser_pipeline, "Judge", return_value=_Judge(verdicts)), \
              mock.patch.multiple(analyser_pipeline.misp_store, briefing_source_uuids=mock.Mock(return_value=set()),
-                                 briefing_also_seen_uuids=mock.Mock(return_value=set(listed))), \
+                                 briefing_also_seen_uuids=mock.Mock(return_value=set(listed)),
+                                 get_briefing=mock.Mock(return_value=saved or draft)), \
              mock.patch.object(analyser_pipeline.event_state, "load", side_effect=_stored(events, outcomes)), \
              mock.patch.object(analyser_pipeline.event_state, "save_outcome") as self.outcome, \
              mock.patch.object(analyser_pipeline, "todays_draft", return_value=draft), \
@@ -589,6 +595,26 @@ class Briefing(unittest.TestCase):
                                                                          "quote": "q", "priority": 1}]),
                     "a" * 36: _verdict(alert=True, briefing=True, alert_reason="In")})
         self.assertEqual(self.titles(), ["Event a", "Event s", "Event b", "Event m"])
+
+    def test_what_an_analyst_saved_during_the_run_stays(self):
+        """The run read the draft minutes before it wrote, and wrote that copy
+        back: a story deleted and notes written meanwhile were undone."""
+        draft = _draft([SimpleNamespace(title="Deleted meanwhile", source_event_uuid="x" * 36)])
+        saved = _draft([])
+        saved.notes, saved.tlp = "Written meanwhile", "amber"
+        self.brief({"a" * 36: _verdict(briefing=True)}, draft=draft, saved=saved)
+        self.assertEqual(self.titles(), ["Event a"])
+        self.assertEqual(self.updated[0]["story_count"], 1)
+        self.assertEqual(self.updated[0]["notes"], "Written meanwhile")
+        self.assertEqual(self.updated[0]["tlp"], "amber")
+
+    def test_a_full_draft_keeps_what_an_analyst_saved_during_the_run(self):
+        story = SimpleNamespace(title="Earlier", source_event_uuid="x" * 36)
+        saved = _draft([story])
+        saved.notes = "Written meanwhile"
+        self.brief({"a" * 36: _verdict(briefing=True)}, draft=_draft([story]), saved=saved, cap=1)
+        self.assertEqual(self.updated[0]["notes"], "Written meanwhile")
+        self.assertEqual([seen["title"] for seen in self.updated[0]["also_seen"]], ["Event a"])
 
     def test_past_the_cap_the_rest_are_listed_under_also_seen(self):
         self.brief({c * 36: _verdict(briefing=True) for c in "abc"}, cap=2)
@@ -722,6 +748,22 @@ class Briefing(unittest.TestCase):
         self.closed.assert_called_once()
 
 
+class FilingAnAlert(unittest.TestCase):
+    def test_a_source_type_tag_that_fails_does_not_stop_the_alert_going_out(self):
+        """The tag raised after the alert was filed, so the run said no alert
+        was made, and the subscribers on automated mode never got it: the next
+        run skips an event that has an alert."""
+        source = Source("scraper", "scraper", "Scraper", mock.create_autospec(PyMISP, instance=True), True)
+        source.client.tag.side_effect = ConnectionError("MISP is down")
+        event = _event("a" * 36, "An event")
+        with mock.patch.object(analyser_pipeline.misp_store, "create_fia", return_value=("u" * 36, "FIA-00001")), \
+             mock.patch.object(flash_intel, "_publish_to_automated_subscribers", return_value="") as publish, \
+             mock.patch.object(flash_intel, "logger"):
+            result = flash_intel.file_alert({"tlp": "amber"}, event, source, {"source_type": "news-report"})
+        self.assertEqual(result, ("FIA-00001", ""))
+        publish.assert_called_once_with("u" * 36, "FIA-00001", "amber")
+
+
 class Closing(unittest.TestCase):
     SWITCHED_ON = {"ANALYSER_FLASH_INTEL": True, "ANALYSER_DAILY_BRIEFING": True,
                    "ANALYSER_VULNERABILITY_ADVISORIES": True}
@@ -751,7 +793,8 @@ class Closing(unittest.TestCase):
                                                                    relevance.evidence(event, "An article", ""))}), \
              mock.patch.object(analyser_pipeline.collection_cache, "event_cves", return_value=list(cves)), \
              mock.patch.object(analyser_pipeline.collection_cache, "get_flagged_uuids", return_value=set(followed)), \
-             mock.patch.object(analyser_pipeline.event_state, "reject", return_value=not refused) as self.rejected, \
+             mock.patch.object(analyser_pipeline.event_state, "reject", return_value=not refused,
+                               side_effect=refused if isinstance(refused, Exception) else None) as self.rejected, \
              mock.patch.object(analyser_pipeline, "_add_rejection_note") as self.noted:
             self.found = found
             return analyser_pipeline._close_declined(found, _Judge({}), self.reading, running)
@@ -766,6 +809,14 @@ class Closing(unittest.TestCase):
         self.assertEqual(self.rejected.call_args.args[2], "alert: Off; briefing: Off; advisory: no CVE")
         self.noted.assert_called_once()
         self.reading.wrote.assert_called_once_with("a" * 36)
+
+    def test_a_rejection_that_cannot_reach_misp_leaves_the_event_for_the_next_run(self):
+        """It ended the run, after its products were made, and the run was
+        reported as failed."""
+        with mock.patch.object(analyser_pipeline, "logger"):
+            self.assertEqual(self.close(_verdict(), refused=ConnectionError("MISP is down")), 0)
+        self.reading.retry.assert_called_once_with("a" * 36)
+        self.noted.assert_not_called()
 
     def test_one_a_product_wants_stays_open(self):
         self.assertEqual(self.close(_verdict(briefing=True)), 0)
