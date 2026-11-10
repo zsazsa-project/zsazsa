@@ -5,6 +5,8 @@ of a source event, so a reference stored as "url" is invisible to every product
 built from that entry. These checks pin the type down at the point it is
 written, and cover the migration that repairs entries written before the fix.
 The MITRE ATT&CK techniques picked on the form are tagged on the entry too.
+A repeated URL is saved once, and a save that fails halfway deletes the event
+it created.
 
     python -m unittest tests.test_manual_entry_references
 """
@@ -65,6 +67,120 @@ class ReferenceAttributeType(unittest.TestCase):
         ]}
         self.assertEqual(misp_store.event_link_attributes(event),
                          ["https://example.org/advisory"])
+
+
+class RepeatedReferences(unittest.TestCase):
+    """MISP refuses a second link with the same value in one event. The event
+    is created before its links are added, so a URL given twice used to stop
+    the save halfway and leave a half-written entry in MISP."""
+
+    def _save(self, data):
+        stored = []
+
+        def add_attribute(event_id, attribute):
+            # The answer MISP gives for a repeated value, as seen in the log.
+            if any(a.type == attribute.type and a.category == attribute.category
+                   and a.value == attribute.value for a in stored):
+                return {"errors": (403, {"saved": False, "errors": {
+                    "value": ["A similar attribute already exists for this event."]}})}
+            stored.append(attribute)
+            return attribute
+
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.add_event.return_value = _created()
+        misp.add_attribute.side_effect = add_attribute
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_tag_local"), \
+             mock.patch.object(misp_store, "_build_scope_tags", return_value=[]):
+            misp_store.create_manual_collection_event(data)
+        return [(a.comment, a.value) for a in stored if a.type == "link"]
+
+    def test_the_source_reference_repeated_as_an_external_reference_is_saved_once(self):
+        links = self._save({
+            "title": "An entry",
+            "source_reference": "https://example.org/article",
+            "references": [" https://example.org/article ", "https://example.org/other"],
+        })
+        self.assertEqual(links, [("Source reference", "https://example.org/article"),
+                                 ("External reference", "https://example.org/other")])
+
+    def test_an_external_reference_given_twice_is_saved_once(self):
+        links = self._save({
+            "title": "An entry",
+            "references": ["https://example.org/a", "https://example.org/a", "https://example.org/b"],
+        })
+        self.assertEqual(links, [("External reference", "https://example.org/a"),
+                                 ("External reference", "https://example.org/b")])
+
+    def test_the_form_marks_a_repeated_reference(self):
+        """The page says a repeat is saved once instead of leaving it to the save."""
+        from pathlib import Path
+        page = (Path(misp_store.__file__).parent / "templates" / "data_collection"
+                / "manual_entry.html").read_text()
+        self.assertIn("function markRepeatedReferences()", page)
+        self.assertIn("refList.addEventListener('input', markRepeatedReferences)", page)
+        self.assertIn("sourceRef.addEventListener('input', markRepeatedReferences)", page)
+
+
+class FailedSave(unittest.TestCase):
+    """The event is created before its tags, links and reports are added. When
+    one of those fails the event is deleted again, so a failed save leaves no
+    half-written entry in MISP and a retry does not add a second one."""
+
+    REFUSED = {"errors": (403, {"saved": False, "errors": {"value": ["refused"]}})}
+
+    def _misp(self):
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.add_event.return_value = _created()
+        misp.add_attribute.return_value = {}
+        misp.add_event_report.return_value = {}
+        misp.delete_event.return_value = {}
+        return misp
+
+    def _save(self, misp, data):
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_tag_local"), \
+             mock.patch.object(misp_store, "_build_scope_tags", return_value=[]):
+            return misp_store.create_manual_collection_event(data)
+
+    def test_a_refused_reference_deletes_the_new_event(self):
+        misp = self._misp()
+        misp.add_attribute.return_value = self.REFUSED
+        with self.assertRaisesRegex(RuntimeError, "add external reference"):
+            self._save(misp, {"title": "An entry", "references": ["https://example.org/a"]})
+        misp.delete_event.assert_called_once_with("e" * 36)
+
+    def test_a_refused_report_deletes_the_new_event(self):
+        misp = self._misp()
+        misp.add_event_report.return_value = self.REFUSED
+        with self.assertRaisesRegex(RuntimeError, "add manual entry report"):
+            self._save(misp, {"title": "An entry", "description": "Some text"})
+        misp.delete_event.assert_called_once_with("e" * 36)
+
+    def test_the_first_error_is_raised_when_the_delete_fails_too(self):
+        """The analyst is told what went wrong with the save, and the log says
+        the event could not be deleted."""
+        misp = self._misp()
+        misp.add_attribute.return_value = self.REFUSED
+        misp.delete_event.return_value = self.REFUSED
+        with self.assertLogs(misp_store.logger, "WARNING") as logs, \
+             self.assertRaisesRegex(RuntimeError, "add source reference"):
+            self._save(misp, {"title": "An entry", "source_reference": "https://example.org/a"})
+        self.assertIn("Could not delete the unfinished manual entry", logs.output[0])
+
+    def test_a_saved_entry_is_not_deleted(self):
+        misp = self._misp()
+        uuid = self._save(misp, {"title": "An entry", "references": ["https://example.org/a"],
+                                 "description": "Some text"})
+        self.assertEqual(uuid, "e" * 36)
+        misp.delete_event.assert_not_called()
+
+    def test_nothing_is_deleted_when_the_event_was_never_created(self):
+        misp = self._misp()
+        misp.add_event.return_value = self.REFUSED
+        with self.assertRaises(RuntimeError):
+            self._save(misp, {"title": "An entry"})
+        misp.delete_event.assert_not_called()
 
 
 def _attr(uuid, type_, value, category="External analysis", deleted=False):

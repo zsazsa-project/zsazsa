@@ -314,8 +314,38 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   refList.addEventListener('click', function(e) {
     var btn = e.target.closest('.ref-remove');
-    if (btn) btn.closest('.ref-row').remove();
+    if (btn) {
+      btn.closest('.ref-row').remove();
+      markRepeatedReferences();
+    }
   });
+
+  /* A URL already given as the source reference or in an earlier row is saved
+     only once, so say so next to the repeat rather than leave it unexplained.
+     Compared after trimming, as the save compares them. */
+  var sourceRef = document.getElementById('source_reference');
+  function markRepeatedReferences() {
+    refList.querySelectorAll('.ref-dup-note').forEach(function(n) { n.remove(); });
+    var seen = {};
+    var source = sourceRef.value.trim();
+    if (source) seen[source] = 'This is the source reference already, so it is saved once.';
+    refList.querySelectorAll('.ref-row').forEach(function(row) {
+      var input = row.querySelector('input[name="reference"]');
+      var value = input.value.trim();
+      var repeat = value && seen[value];
+      input.classList.toggle('border-warning', !!repeat);
+      if (repeat) {
+        var note = document.createElement('div');
+        note.className = 'ref-dup-note form-text text-warning mb-2';
+        note.textContent = repeat;
+        row.after(note);
+      } else if (value) {
+        seen[value] = 'This URL is listed above already, so it is saved once.';
+      }
+    });
+  }
+  refList.addEventListener('input', markRepeatedReferences);
+  sourceRef.addEventListener('input', markRepeatedReferences);
 
   // Bootstrap tooltips
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {

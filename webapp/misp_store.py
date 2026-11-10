@@ -1152,9 +1152,11 @@ DEFAULT_SUBSCRIPTION_MODE = "after-approval"
 
 
 def _delete_unfinished(misp, uuid, label):
-    """Delete a product event just created whose object or report could not be
-    written. Left behind, it would count as the product of its source events,
-    which would then never get one, or a new one on every try."""
+    """Delete an event just created whose object, report or attributes could
+    not be written. A product left behind would count as the product of its
+    source events, which would then never get one, or a new one on every try.
+    A manual entry left behind would be a half-written copy next to the one
+    the analyst saves on the next try."""
     try:
         _check(misp.delete_event(uuid), f"delete the unfinished {label}")
     except Exception as exc:
@@ -4486,15 +4488,13 @@ TAG_MANUAL_ENTRY = 'zsazsa:source-type="manual"'
 def create_manual_collection_event(data: dict) -> str:
     """Create a manually-entered collection event on the webapp MISP server.
 
-    Returns the new event UUID.
+    Returns the new event UUID. When a step after creating the event fails,
+    the event is deleted again before the error is raised, so a failed save
+    leaves nothing behind and a retry does not add a second entry.
     """
-    from pymisp import MISPEventReport
     misp = _misp()
 
     tlp = data.get("tlp", "amber")
-    source = (data.get("source") or "").strip()
-    slug = source_slug(source)
-
     info = (data.get("title") or "").strip()
     event = _make_event(
         info,
@@ -4507,7 +4507,19 @@ def create_manual_collection_event(data: dict) -> str:
     if isinstance(created, dict):
         raise RuntimeError(f"MISP error: {created.get('errors') or created}")
 
+    try:
+        _fill_manual_collection_event(misp, created, data, info)
+    except Exception:
+        _delete_unfinished(misp, created.uuid, "manual entry")
+        raise
+    return created.uuid
+
+
+def _fill_manual_collection_event(misp, created, data: dict, info: str) -> None:
+    """Add the tags, references and reports of a manual entry to its new event."""
+    from pymisp import MISPEventReport
     uuid = created.uuid
+    slug = source_slug((data.get("source") or "").strip())
 
     _tag_local(misp, uuid, TAG_MANUAL_ENTRY)
     if slug:
@@ -4530,8 +4542,13 @@ def create_manual_collection_event(data: dict) -> str:
     except Exception:
         logger.warning("manual entry %s: could not set its workflow state", uuid)
 
+    # MISP refuses a second link with the same value in one event, so a
+    # repeated URL would fail the whole save.
+    stored_links = set()
+
     source_reference = (data.get("source_reference") or "").strip()
     if source_reference:
+        stored_links.add(source_reference)
         a = MISPAttribute()
         a.type = "link"
         a.category = "External analysis"
@@ -4556,7 +4573,11 @@ def create_manual_collection_event(data: dict) -> str:
     # "url" never reaches a product's reference list.
     for reference in data.get("references") or []:
         reference = reference.strip()
+        if reference in stored_links:
+            logger.info("manual entry %s: skipped repeated reference %s", uuid, reference)
+            continue
         if reference:
+            stored_links.add(reference)
             a = MISPAttribute()
             a.type = "link"
             a.category = "External analysis"
@@ -4576,8 +4597,6 @@ def create_manual_collection_event(data: dict) -> str:
     summary = (data.get("summary") or "").strip()
     if summary:
         add_ai_summary_report(misp, created.id, info or "Manual entry", summary)
-
-    return uuid
 
 
 def add_ai_summary_report(misp, event_id, title: str, summary: str, distribution: int = 5,

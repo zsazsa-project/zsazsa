@@ -81,6 +81,7 @@
 
 ### Fixed
 
+- A manual entry with the same URL as source reference and external reference, or as two external references, failed to save because MISP refuses a repeated link, and left a half-written event in MISP. The URL is now saved once, and the form marks the repeat while you type. A manual entry that fails to save for any other reason after its event was created is deleted from MISP again, so a retry does not leave a half-written copy behind.
 - A feature on the AI tab whose settings were never saved went to OpenAI, whatever the default provider. It goes to the default provider now, as the AI tab says.
 - A `cti-evaluation` score set on the data collection page left the earlier value of that score on the event. On another MISP server, which unpublishes an event that gets a tag, it also took the event off the page.
 - A workflow state MISP refused left the event with none, and no analyser search found it again.
