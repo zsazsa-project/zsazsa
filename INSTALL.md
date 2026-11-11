@@ -4,43 +4,41 @@
   <a href="https://zsazsa-project.org/documentation.html#install"><img alt="Quickstart: install" src="https://img.shields.io/badge/Quickstart-Install-0066cc?style=for-the-badge&logo=rocket&logoColor=white"></a>
 </p>
 
-This guide covers installing zsazsa, with Docker or as a standard installation next to MISP, and serving it under MISP's own address. The [quickstart](https://zsazsa-project.org/documentation.html) is the short path through the same steps. Once zsazsa runs, [Configuration](README.md#configuration) in the README describes every setting, and the rest of the [README](README.md) what zsazsa does and how analysts use it.
+This guide installs zsazsa, with Docker or next to MISP, and serves it under MISP's own address. The [quickstart](https://zsazsa-project.org/documentation.html) is the short path through the same steps. Once zsazsa runs, [Configuration](README.md#configuration) in the README describes every setting, and the rest of the [README](README.md) what zsazsa does.
 
 ## What you need
 
-zsazsa sits on top of MISP and requires:
+zsazsa sits on top of MISP and needs:
 
-- **A MISP server to store CTI program data.** This is where zsazsa saves its objects: stakeholders, PIRs, GIRs, flash intel alerts, advisories, briefings, and so on. This is the server you point `MISP_WEBAPP_URL` at.
+- **A MISP server**. zsazsa stores its stakeholders, requirements and products in MISP, this is `MISP_WEBAPP_URL`.
+- **A MISP server with misp-scraper (optional).** The scraper turns articles into MISP events, which zsazsa reads for data collection and the analyser. This is `MISP_URL`, and it can be the same server. To run without one, leave `MISP_URL` and `MISP_KEY` empty or set `MISP_SCRAPER_ENABLED = False`. Collection then comes from other MISP servers and manual sources.
+- **Other MISP servers (optional).** zsazsa can read events from community or partner servers, set up under Collection sources.
 
-- **A MISP server running misp-scraper (optional).** The scraper feeds threat events into a MISP instance that zsazsa polls for the data collection and the analyser pipeline. This is the server you point `MISP_URL` at. It can be the same server as above. Leave `MISP_URL` and `MISP_KEY` empty, or set `MISP_SCRAPER_ENABLED = False`, to run without one, in which case collection comes from the other MISP servers and the manual sources, and the analyser pipeline has nothing to process.
-
-- **One or more additional MISP servers (optional, and the only collection source if you run without the scraper).** zsazsa can pull threat events from other MISP servers configured under Collection sources.
-
-zsazsa does not install MISP or misp-scraper. Follow the installation guides for those projects first. The Docker setup can run misp-scraper for you, from its own checkout.
+zsazsa does not install MISP or misp-scraper, so install those first. The Docker setup can run misp-scraper for you from its own checkout.
 
 ### Redis
 
-zsazsa uses Redis.
+zsazsa uses Redis for three things:
 
 | Use | Settings | Needed for |
 |---|---|---|
-| MISP's own session store | `MISP_SESSION_REDIS_*` (`config/__init__.py` only) | Single sign-on: reading the logged-in MISP user from MISP's session cookie. Requires PHP to store MISP's sessions in Redis (`session.save_handler = redis`) |
-| Background jobs | `JOB_REDIS_*` (`config/__init__.py` only) | Running-job states |
-| misp-scraper queue | `SCRAPER_REDIS_*` (Settings page) | Sending newsletter article URLs to the scraper |
+| MISP's session store | `MISP_SESSION_REDIS_*` (`config/__init__.py` only) | Single sign-on, which reads the logged-in MISP user from MISP's session. PHP must keep MISP's sessions in Redis (`session.save_handler = redis`) |
+| Background jobs | `JOB_REDIS_*` (`config/__init__.py` only) | The state of running jobs |
+| misp-scraper queue | `SCRAPER_REDIS_*` (Settings) | Sending newsletter articles to the scraper |
 
-All three default to `127.0.0.1:6379`, database `0`, no password, so a single local Redis instance, such as the one MISP already uses, is enough for most installs. The Docker setup asks for MISP's Redis once and sets all three.
+All three default to `127.0.0.1:6379`, database `0`, no password, so the Redis MISP already uses is usually enough. The Docker setup asks for MISP's Redis once and sets all three.
 
 ## Docker or a standard installation
 
-**Docker** is the quickest way in. `docker/setup.sh` asks how MISP, its Redis and misp-scraper run on the host, then builds and starts the web app, the analyser and the IMAP collector, each in a container of its own, and optionally misp-scraper. It can add the `/zsazsa` proxy to MISP's Apache or to misp-core's nginx in misp-docker. Your configuration and data stay in `docker/volumes/`.
+**Docker** is the quickest way. `docker/setup.sh` asks how MISP, its Redis and misp-scraper run on the host, then builds and starts the web app, the analyser and the IMAP collector, each in its own container, and optionally misp-scraper. It can add the `/zsazsa` proxy to MISP's Apache, or to misp-core's nginx in misp-docker. Your configuration and data stay in `docker/volumes/`.
 
-The **standard installation** runs zsazsa from a Python virtual environment in MISP's custom directory, as MISP's web user. You add the proxy to MISP's Apache, the service to systemd and the analyser and IMAP collector to cron yourself.
+The **standard installation** runs zsazsa from a Python virtual environment in MISP's custom directory, as MISP's web user. You add the proxy to Apache, the service to systemd and the analyser and IMAP collector to cron yourself.
 
-Both end in the same place: zsazsa under MISP's address, as `https://misp.example.com/zsazsa`, configured from the setup wizard.
+Both end in the same place: zsazsa under MISP's address, such as `https://misp.example.com/zsazsa`, configured with the setup wizard.
 
 ## Installing with Docker
 
-You need Docker with the compose plugin (`docker compose version` should answer). From a checkout of zsazsa:
+You need Docker with the compose plugin (`docker compose version` should answer). Then:
 
 ```bash
 git clone https://github.com/zsazsa-project/zsazsa.git
@@ -54,14 +52,9 @@ The script asks its questions first and changes nothing until you answer yes to 
 
 ### System packages
 
-zsazsa needs **Python 3.11** or later, with `venv` and `pip`, plus the native
-libraries [WeasyPrint](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation)
-uses to render PDFs (every CTI product, from flash alerts and advisories to
-briefings and reports, is exported through it). `pip install -r requirements.txt`
-succeeds without these; WeasyPrint only fails, with an import error, the first
-time a PDF is actually rendered, so install them upfront.
+zsazsa needs **Python 3.11** or later, with `venv` and `pip`.
 
-On Debian/Ubuntu:
+On Debian or Ubuntu:
 
 ```bash
 sudo apt-get install python3-venv python3-pip python3-dev git \
@@ -69,15 +62,13 @@ sudo apt-get install python3-venv python3-pip python3-dev git \
     libffi-dev shared-mime-info
 ```
 
-`python3-venv` is version-specific (e.g. `python3.12-venv`); if the command
-above cannot find it, install the package matching `python3 --version`.
+`python3-venv` is tied to a Python version, such as `python3.11-venv`. If the command cannot find it, install the one matching `python3 --version`.
 
-On Fedora/RHEL/CentOS the equivalent packages are `python3-devel`, `cairo`,
-`pango`, `gdk-pixbuf2`, `libffi-devel` and `shared-mime-info`.
+On Fedora, RHEL or CentOS the packages are `python3-devel`, `cairo`, `pango`, `gdk-pixbuf2`, `libffi-devel` and `shared-mime-info`.
 
 ### Installing
 
-Install zsazsa in the MISP custom directory and run it under the same web user as MISP. On Ubuntu this means `www-data`:
+Install zsazsa in MISP's custom directory and run it as MISP's web user, `www-data` on Ubuntu:
 
 ```bash
 sudo mkdir -p /var/www/MISP/misp-custom
@@ -88,19 +79,19 @@ cd zsazsa
 sudo -u www-data bash docs/install.sh
 ```
 
-The installer checks the Python version, creates a `venv`, installs the dependencies from `requirements.txt`, creates `data/`, and, when `config/__init__.py` does not exist yet, copies `config/__init__.py.example` and gives it a freshly generated `SECRET_KEY`. An existing config is left alone, so the script is safe to re-run. It finishes by offering to generate a self-signed TLS certificate; answer no unless you intend to serve zsazsa's built-in server directly over HTTPS. Behind Apache, TLS is terminated by Apache and the certificate is not used.
+The installer checks the Python version, creates `venv`, installs `requirements.txt` and creates `data/`. When there is no `config/__init__.py` yet, it copies `config/__init__.py.example` and gives it a new `SECRET_KEY`. An existing config is left alone, so it is safe to run again. If an older Python is the default, name a newer one with `PYTHON=python3.11`.
 
-The certificate can also be created later, or renewed, on its own:
+The installer ends by offering a self-signed TLS certificate. Answer no unless zsazsa's own server will serve HTTPS directly: behind Apache, Apache handles TLS. To create the certificate later:
 
 ```bash
 bash docs/create_cert.sh zsazsa.example.com
 ```
 
-It writes `certs/zsazsa.crt` and `certs/zsazsa.key`, the paths `SSL_CERT` and `SSL_KEY` point at by default, and refuses to run if either already exists, so an existing key is never overwritten. Set `SSL_ENABLED = True` to use it. Leave the hostname off to use this host's own name.
+It writes `certs/zsazsa.crt` and `certs/zsazsa.key`, where `SSL_CERT` and `SSL_KEY` point by default, and never overwrites either. Without a hostname it uses this host's name. Set `SSL_ENABLED = True` to use it.
 
 ### The MISP connection
 
-`config/__init__.py` has every setting the application requires, in the same layout the Settings page produces when it saves. Set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, plus `MISP_URL` and `MISP_KEY` if you run a misp-scraper, or `MISP_SCRAPER_ENABLED = False` if you do not:
+`config/__init__.py` has every setting, in the layout the Settings page writes. Set at least `MISP_WEBAPP_URL` and `MISP_WEBAPP_KEY`, and `MISP_URL` and `MISP_KEY` for a misp-scraper (or `MISP_SCRAPER_ENABLED = False` without one):
 
 ```python
 MISP_WEBAPP_URL = 'https://misp.example.com'
@@ -108,7 +99,7 @@ MISP_WEBAPP_KEY = '<API key>'
 MISP_WEBAPP_VERIFYCERT = True
 ```
 
-If you use single sign-on, set `MISP_SESSION_REDIS_*` here as well, since the web interface does not change them. Everything else can be done from the web interface, by a MISP site admin.
+For a MISP certificate from your own CA, see [Connections](README.md#connections) rather than turning verification off. If you use single sign-on, set `MISP_SESSION_REDIS_*` here too, as the interface does not change them. A MISP site admin can do everything else from the web interface.
 
 ### Running zsazsa
 
@@ -117,42 +108,22 @@ source venv/bin/activate
 python run_webapp.py
 ```
 
-zsazsa listens on `http://0.0.0.0:5000` by default, or on `https://` when `SSL_ENABLED` is on. `ZSAZSA_BIND` in the environment changes the address and `ZSAZSA_PORT` takes the place of `PORT`. `HOSTNAME` and `PORT` are on the Settings page (System tab); restart zsazsa after changing the port. `HOSTNAME` does not change the listener: it is kept for reference and for building links.
+zsazsa listens on `http://0.0.0.0:5000`, or `https://` with `SSL_ENABLED` on. `ZSAZSA_BIND` in the environment changes the address and `ZSAZSA_PORT` replaces `PORT`. `PORT` and `HOSTNAME` are on the System tab of the Settings page; restart zsazsa after changing the port. `HOSTNAME` only builds links and does not change the listener.
 
-Run the analyser pipeline and the IMAP collector from the web user's crontab:
+Run the analyser and the IMAP collector from the web user's crontab:
 
 ```bash
 15 * * * * cd /var/www/MISP/misp-custom/zsazsa && venv/bin/python run_analyser.py
 */15 * * * * cd /var/www/MISP/misp-custom/zsazsa && venv/bin/python run_imap_collector.py
 ```
 
-### The server zsazsa runs on
-
-zsazsa is served by **Flask's built-in server**, in threaded mode, as a single
-process. That is a deliberate choice rather than an oversight, and it is the
-supported way to run it: Apache sits in front, terminates TLS and is what should
-face the network. For the load a CTI team puts on it, a few analysts and a
-background refresh every fifteen minutes, that is enough.
-
-Its own listener binds to every interface, so port 5000 is reachable directly
-unless you stop it. Keep that port closed on the firewall, or bind it to
-`127.0.0.1` with `ZSAZSA_BIND=127.0.0.1` in its environment, as the service
-template shows.
-
-It also has to stay a single process. Several things live in this one and assume
-it: the data collection cache worker, the requirement cache the collection page
-matches against, and the lock that hands out the next PIR, GIR, RFI, FEED and TAP
-number. Running zsazsa under gunicorn or uWSGI with more than one worker gives
-you a cache refresh per worker and lets two workers allocate the same requirement
-id. If you move to such a server, run exactly one worker.
-
 ## Serving zsazsa under MISP's address
 
-zsazsa is designed to run alongside MISP and is served under a subpath of the MISP Apache virtual host, for example `https://misp.example.com/zsazsa`. The application adapts to any subpath automatically, so `/cti`, `/cti-program`, or any other value works without changing the application.
+zsazsa runs under a subpath of MISP's Apache virtual host, such as `https://misp.example.com/zsazsa`. Any subpath works, `/cti` as well as `/zsazsa`, without a change to zsazsa.
 
-Serving zsazsa under the MISP host is also what makes single sign-on possible: the browser only sends MISP's session cookie to zsazsa when both are on the same host.
+Sharing MISP's address is also what makes single sign-on possible: the browser only sends MISP's session cookie to zsazsa on the same host.
 
-The Docker setup offers to add this proxy for you. The steps below are for the standard installation, and for a MISP on another host than zsazsa.
+The Docker setup offers to add the proxy for you. The steps below are for the standard installation, and for a MISP on another host than zsazsa.
 
 ### 1. Systemd
 
@@ -165,20 +136,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now zsazsa.service
 ```
 
-For production, uncomment the `Environment=ZSAZSA_BIND=127.0.0.1` line in the service file, so zsazsa is only reachable through Apache. Leave it commented out for development if you need direct access from other machines on the network.
+In production, uncomment `Environment=ZSAZSA_BIND=127.0.0.1` so zsazsa is only reachable through Apache. Leave it commented out only when other machines need to reach it directly, during development.
 
-Behind an outbound proxy, set `https_proxy` and `no_proxy` in `/etc/environment`, which the service template reads. Put your MISP servers and other internal hosts zsazsa calls, such as a local LLM, in `no_proxy`. Docker containers do not read that file; [docker/README.md](docker/README.md) says how to give them the proxy.
+Behind an outbound proxy, set `https_proxy` and `no_proxy` in `/etc/environment`, which the service reads. Put your MISP servers and the other internal hosts zsazsa calls, such as a local LLM, in `no_proxy`. Docker containers do not read that file; [docker/README.md](docker/README.md) says how to give them the proxy.
 
-### 2. Enable the required Apache modules
+### 2. Apache modules
 
 ```bash
 sudo a2enmod proxy proxy_http headers
 sudo systemctl reload apache2
 ```
 
-### 3. Add the proxy to the MISP virtual host
+### 3. The proxy in MISP's virtual host
 
-Inside the existing `<VirtualHost *:443>` block in your MISP Apache configuration, add:
+Inside the existing `<VirtualHost *:443>` block of MISP's Apache configuration, add:
 
 ```apache
 # zsazsa CTI application
@@ -190,13 +161,13 @@ ProxyPass        /zsazsa  http://127.0.0.1:5000/ timeout=300
 ProxyPassReverse /zsazsa  http://127.0.0.1:5000/
 ```
 
-The value in `RequestHeader set X-Forwarded-Prefix` must match the path used in `ProxyPass` and `ProxyPassReverse`. To use a different subpath, change all three occurrences. No application restart is needed for subpath changes, only an Apache reload (`systemctl reload apache2`). The application reads `X-Forwarded-Prefix` at runtime to construct links and AJAX call paths, and reads `X-Forwarded-Proto` to build correct `https://` URLs in Mattermost and Teams notifications and product preview links. When run directly without a proxy, both headers are absent and the application behaves exactly as before.
+`X-Forwarded-Prefix` must match the path in `ProxyPass` and `ProxyPassReverse`, so a different subpath changes all three. That only takes an Apache reload (`systemctl reload apache2`), not a zsazsa restart. zsazsa builds its links from `X-Forwarded-Prefix`, and the `https://` links in notifications and previews from `X-Forwarded-Proto`. Without a proxy, neither header is there and zsazsa serves from the root.
 
 A MISP behind nginx needs the same three things: the prefix stripped from the path, `X-Forwarded-Prefix` and `X-Forwarded-Proto`. [docker/misp-docker/zsazsa-nginx.sh](docker/misp-docker/zsazsa-nginx.sh) has the `location` block the Docker setup adds to misp-core.
 
 ### 4. Single sign-on
 
-With zsazsa under MISP's address, switch on **Require a MISP session** in the Single sign-on card of Settings > Configuration > System, save, and check it with **Test single sign-on**. PHP has to keep MISP's sessions in Redis for this to work. [Single sign-on against MISP](README.md#single-sign-on-against-misp) in the README explains the requirements and the permissions zsazsa takes from MISP.
+With zsazsa under MISP's address, switch on **Require a MISP session** in the Single sign-on card of Settings > Configuration > System, save, and check it with **Test single sign-on**. PHP must keep MISP's sessions in Redis. [Single sign-on against MISP](README.md#single-sign-on-against-misp) in the README explains the requirements and the permissions zsazsa takes from MISP.
 
 ## Configuring zsazsa
 
@@ -219,30 +190,20 @@ docker compose up -d
 
 `--pull` fetches the latest Python base image, with its security updates.
 
-For a standard installation, go to the installation directory and pull as the web user:
+For a standard installation, pull as the web user and restart the service:
 
 ```bash
 cd /var/www/MISP/misp-custom/zsazsa
 sudo -u www-data git pull
 sudo -u www-data venv/bin/pip install -r requirements.txt
-```
-
-Then restart the service to pick up the changes:
-
-```bash
 sudo systemctl restart zsazsa.service
 ```
 
-After restarting, open Configuration > System and run any migration listed there that
-you have not run before. They are dry-run first and safe to run twice. Upgrading from
-a release before 1.0.0 needs **Align requirement scope and scope items**: before it, a
-technology, vendor, incident or campaign was written to only one of the two places a
-requirement keeps its scope, so it was either invisible on the detail page or matched
-nothing.
+Then open Settings > Configuration > System and run every migration listed there that you have not run before. Each runs as a dry run first and is safe to run twice. Upgrading from a release before 1.0.0 needs **Align requirement scope and scope items**: before it, a technology, vendor, incident or campaign was written to only one of the two places a requirement keeps its scope, so it was either missing from the detail page or matched nothing.
 
-## Optional post-installation steps
+## Optional: the ATT&CK technique list
 
-The MITRE ATT&CK technique list used in product forms and briefing stories is read from `data/mitre-attack-pattern.json`. When that file is missing the list is fetched from the MISP galaxy instead, which works but requires a query. Populate and refresh the local cache with:
+The MITRE ATT&CK techniques offered in product forms and briefing stories are read from `data/mitre-attack-pattern.json`. Without that file, zsazsa queries the galaxy on your MISP instead. To create or refresh the file from the misp-galaxy repository on GitHub:
 
 ```bash
 venv/bin/python scripts/fetch_mitre_galaxy.py
@@ -250,4 +211,4 @@ venv/bin/python scripts/fetch_mitre_galaxy.py
 docker compose exec webapp python scripts/fetch_mitre_galaxy.py
 ```
 
-Re-run it periodically to pick up new techniques. The application notices the new file without a restart.
+Run it again now and then for new techniques. zsazsa picks up the new file without a restart.

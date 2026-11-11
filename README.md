@@ -15,7 +15,7 @@ To set zsazsa up, follow the [quickstart](https://zsazsa-project.org/documentati
 
 This README has two parts. The first describes what zsazsa does and how analysts work with it. The second, the [reference](#reference), has the details.
 
-**Using zsazsa:** [Intelligence flow](#intelligence-flow) · [Intelligence products](#intelligence-products) · [Reviewing and publishing](#reviewing-and-publishing) · [Distribution](#notification-and-distribution-flow) · [What the analyser does](#what-the-analyser-does) · [Newsletters](#importing-newsletters)
+**Using zsazsa:** [Intelligence flow](#intelligence-flow) · [Intelligence products](#intelligence-products) · [Reviewing and publishing](#reviewing-and-publishing) · [Distribution](#notification-and-distribution-flow) · [What the analyser does](#what-the-analyser-does) · [Newsletters](#importing-newsletters-and-mailboxes)
 
 **Reference:** [The analyser in detail](#the-analyser-in-detail) · [Indicator feed URLs and caching](#indicator-feed-urls-and-caching) · [Newsletter import in detail](#newsletter-import-in-detail) · [Configuration](#configuration) · [MISP model](#misp-model-and-tagging-approach)
 
@@ -57,7 +57,7 @@ A stakeholder is linked to an organisation and has an internal or external role,
 
 ![docs/2-stakeholders.png](docs/2-stakeholders.png)
 
-On the **stakeholder matrix** you record each stakeholder's power over your CTI program and their interest in its output. 
+On the **stakeholder matrix** you record each stakeholder's power over your CTI program and their interest in its output.
 
 ![docs/2-stakeholder-matrix.png](docs/2-stakeholder-matrix.png)
 
@@ -109,7 +109,7 @@ When something relevant did not come in through a source, an analyst adds the ar
 
 ![docs/6-manualentry.png](docs/6-manualentry.png)
 
-Articles can also come from a security newsletter, pasted in or read from a mailbox (see [Importing newsletters](#importing-newsletters)).
+Articles can also come from a security newsletter, pasted in or read from a mailbox (see [Importing newsletters](#importing-newsletters-and-mailboxes)).
 
 ![docs/6-importnewsletter-auto-review.png](docs/6-importnewsletter-auto-review.png)
 
@@ -161,7 +161,7 @@ When collection turns up a threat you have no detection for, a **detection engin
 
 ### Reviewing and publishing
 
-Products start as drafts or submitted for review so a colleague looks at it first.
+Products start as drafts, or submitted for review so a colleague looks at them first.
 
 On the briefing, alert, advisory and threat actor profile lists, **Preview and approve** opens a draft inline, with **Approve & publish** beside **Recipients**, which shows who will receive the product and why the others will not. Approving takes MISP's publish permission. For alerts and advisories, **QA check against source** has the AI check the draft against its source events and list the claims to fix. Keep the page open for its result.
 
@@ -217,7 +217,7 @@ The Collection sources page manages every **data collection source** in one plac
 
 Distribution is built around stakeholders, roles, product subscriptions, audiences and **notification channels**. A stakeholder has one role (SOC, Incident Response, Cyber Threat Intelligence and so on), subscribes to product types and chooses the channels they receive products on. A product has one or more audiences, each a stakeholder role.
 
-When a product is published, a stakeholder receives it only **when their role is in the audience*, they subscribe to that product type, and their TLP clearance covers the product's TLP. It then goes out over their channels.
+When a product is published, a stakeholder receives it only **when their role is in the audience**, they subscribe to that product type, and their TLP clearance covers the product's TLP. It then goes out over their channels.
 
 A channel can take every product or only some product types. [Flowintel](https://flowintel.org/) is restricted: a case is created only for the products enabled for that instance in its `case_templates`.
 
@@ -463,7 +463,7 @@ Renaming a product type does not rename it in stakeholder subscriptions already 
 
 ### Analyser
 
-The Analyser tab has the settings in the order the analyser works (see [The analyser in detail](#the-analyser-in-detail)). A change applies from the next run, without a restart. 
+The Analyser tab has the settings in the order the analyser works (see [The analyser in detail](#the-analyser-in-detail)). A change applies from the next run, without a restart.
 
 | Setting | Description | Default |
 |---|---|---|
@@ -663,11 +663,11 @@ A **Flowintel** instance has a name, URL, API key, TLS setting and switch. Per i
 
 ### Styling
 
-The Styling tab sets the branding of PDFs and notifications, with a preview of a product's PDF, and the UI theme: **Overmind** (MISP style, the default), **UiBeta** (MISP style, light) or **Zsazsa legacy** (navy, with a side menu).
+The Styling tab sets the branding of PDFs and notifications, with a preview of a product's PDF, and the UI theme: **Overmind** (MISP style, the default), **UiBeta** (MISP style, light) or **zsazsa legacy** (navy, with a side menu).
 
 | Setting | Description |
 |---|---|
-| `THEME` | UI theme: `overmind` (default), `uibeta` or `default` (Zsazsa legacy) |
+| `THEME` | UI theme: `overmind` (default), `uibeta` or `default` (zsazsa legacy) |
 | `BRAND_COMPANY` | Company name in PDF headers and footers |
 | `BRAND_DEPARTMENT` | Department name in PDF headers and footers |
 | `BRAND_LOGO` | File name of the logo in `data/uploads/`, used in PDFs and notifications |
@@ -798,7 +798,7 @@ Subject and sender cannot prove a message is genuine. In automatic mode zsazsa o
 
 ## MISP model and tagging approach
 
-Each record is one MISP event, with its data in a custom MISP object. The object templates are in `webapp/misp_objects/`.
+Each record is one MISP event, with its data in a custom MISP object. The object templates are in `webapp/misp_objects/objects/`.
 
 | Entity | MISP object |
 |---|---|
