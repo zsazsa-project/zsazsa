@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.10 - development
+## 1.0.10
 
 ### Added
 
