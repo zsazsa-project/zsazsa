@@ -377,7 +377,7 @@ class ChangingTheReviewStateKeepsTheContent(unittest.TestCase):
         stored = misp_store._fia_obj(_filled_fia_data())
         stored.id = "7"  # only objects fetched from MISP have one
         uuid = "5f0c7a3e-1b2c-4d5e-8f90-a1b2c3d4e5f6"
-        event = SimpleNamespace(uuid=uuid, id="42", attributes=[], event_reports=[],
+        event = SimpleNamespace(uuid=uuid, id="42", attributes=[], event_reports=[], tags=[],
                                 objects=[stored], published=False, publish_timestamp=None,
                                 timestamp=None, date=None)
         misp = mock.create_autospec(PyMISP, instance=True)

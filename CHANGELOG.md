@@ -7,6 +7,10 @@
 - A detection engineering request has a CVE field.
 - A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
 
+### Fixed
+
+- An alert, advisory or detection engineering request submitted for review when it is written, or from its edit page, is ongoing in MISP instead of staying a draft.
+
 ## 1.0.10
 
 ### Added

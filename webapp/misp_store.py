@@ -688,6 +688,12 @@ def _add_event(misp, event, local_tags=None, label="create event"):
     return result
 
 
+# The workflow state of an alert's, an advisory's or a detection engineering
+# request's event in MISP, for each of its review states. The taxonomy has no
+# "pending review" or "approved".
+_WORKFLOW_STATES = {"draft": "draft", "pending-review": "ongoing", "approved": "complete", "rejected": "rejected"}
+
+
 def _sync_tlp_tag(misp, event, tlp):
     """Leave a product's event with the one TLP tag the product has.
 
@@ -5327,7 +5333,7 @@ def get_fia(uuid):
 
 
 def create_fia(data):
-    """Create a Flash Intel Alert as a draft MISP event.
+    """Create a Flash Intel Alert as a MISP event.
 
     Returns (uuid, fia_id). The FIA id is derived from the MISP event id so
     it is unique without a separate counter.
@@ -5335,7 +5341,8 @@ def create_fia(data):
     misp = _misp()
     title = (data.get("title") or "").strip() or "Untitled"
     info = f"[zsazsa:fia] {title}"
-    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+    data.setdefault("review_state", FIA_REVIEW_DRAFT)
+    extra = [f'tlp:{data.get("tlp", "amber")}', f'workflow:state="{_WORKFLOW_STATES[data["review_state"]]}"']
     if data.get("source_reliability"):
         extra.append(f'admiralty-scale:source-reliability="{data["source_reliability"].lower()}"')
     if data.get("information_credibility"):
@@ -5357,7 +5364,6 @@ def create_fia(data):
 
     fia_id = _fia_id_from_event_id(result.id)
     data["fia_id"] = fia_id
-    data.setdefault("review_state", FIA_REVIEW_DRAFT)
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == FIA_REVIEW_APPROVED:
         data["approved_by"] = misp_session.current_user_email()
@@ -5404,6 +5410,7 @@ def update_fia(uuid, data):
     misp.update_event({"Event": {"id": event.id, "info": f"[zsazsa:fia] {title}"}})
 
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
+    tagger.set_workflow_state(misp, event, _WORKFLOW_STATES[new_review_state])
     for tag in list(getattr(event, "tags", []) or []):
         if tag.name.startswith("admiralty-scale:"):
             try:
@@ -5434,7 +5441,6 @@ def set_fia_review_state(uuid, state, reason=None):
     """Update the FIA's review-state attribute and the workflow:state tag."""
     if state not in FIA_REVIEW_STATES:
         raise ValueError(f"invalid review state: {state}")
-    misp = _misp()
     event = _zsazsa_event(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL)
     if event is None:
         raise RuntimeError(f"FIA event {uuid} not found")
@@ -5481,25 +5487,6 @@ def set_fia_review_state(uuid, state, reason=None):
         "rejection_reason": reason or fia.rejection_reason,
     }
     update_fia(uuid, payload)
-
-    # Sync workflow:state tag
-    workflow_map = {
-        FIA_REVIEW_DRAFT: "draft",
-        FIA_REVIEW_PENDING: "ongoing",
-        FIA_REVIEW_APPROVED: "complete",
-        FIA_REVIEW_REJECTED: "rejected",
-    }
-    new_wf = f'workflow:state="{workflow_map[state]}"'
-    for tag in list(getattr(event, "tags", []) or []):
-        if tag.name.startswith("workflow:state="):
-            try:
-                misp.untag(event.uuid, tag.name)
-            except Exception as exc:
-                logger.warning("untag %s failed: %s", tag.name, exc)
-    try:
-        misp.tag(event.uuid, new_wf, local=True)
-    except Exception as exc:
-        logger.warning("tag %s with %s failed: %s", event.uuid, new_wf, exc)
 
 
 def publish_fia(uuid):
@@ -6265,7 +6252,8 @@ def create_vea(data):
     cve = (data.get("cve_id") or "").strip()
     title = (data.get("title") or cve or "Untitled").strip()
     info = f"[zsazsa:vea] {cve}: {title}" if cve else f"[zsazsa:vea] {title}"
-    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+    data.setdefault("review_state", VEA_REVIEW_DRAFT)
+    extra = [f'tlp:{data.get("tlp", "amber")}', f'workflow:state="{_WORKFLOW_STATES[data["review_state"]]}"']
     if data.get("source_reliability"):
         extra.append(f'admiralty-scale:source-reliability="{data["source_reliability"].lower()}"')
 
@@ -6285,7 +6273,6 @@ def create_vea(data):
 
     vea_id = _vea_id_from_event_id(result.id)
     data["vea_id"] = vea_id
-    data.setdefault("review_state", VEA_REVIEW_DRAFT)
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == VEA_REVIEW_APPROVED:
         data["approved_by"] = misp_session.current_user_email()
@@ -6332,6 +6319,7 @@ def update_vea(uuid, data):
     info = f"[zsazsa:vea] {cve}: {title}" if cve else f"[zsazsa:vea] {title}"
     misp.update_event({"Event": {"id": event.id, "info": info}})
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
+    tagger.set_workflow_state(misp, event, _WORKFLOW_STATES[new_review_state])
 
     refreshed = misp.get_event(uuid, pythonify=True)
     _delete_vea_reports(misp, refreshed)
@@ -6344,31 +6332,12 @@ def update_vea(uuid, data):
 def set_vea_review_state(uuid, state, reason=None):
     if state not in VEA_REVIEW_STATES:
         raise ValueError(f"invalid VEA review state: {state}")
-    misp = _misp()
     event = _zsazsa_event(uuid, "zsazsa-vea", config.TAG_VEA)
     if event is None:
         raise RuntimeError(f"VEA event {uuid} not found")
     vea = _vea_ns(event)
     update_vea(uuid, _record_data(vea, _VEA_FIELDS, review_state=state,
                                   rejection_reason=reason or vea.rejection_reason))
-
-    workflow_map = {
-        VEA_REVIEW_DRAFT: "draft",
-        VEA_REVIEW_PENDING: "ongoing",
-        VEA_REVIEW_APPROVED: "complete",
-        VEA_REVIEW_REJECTED: "rejected",
-    }
-    new_wf = f'workflow:state="{workflow_map[state]}"'
-    for tag in list(getattr(event, "tags", []) or []):
-        if tag.name.startswith("workflow:state="):
-            try:
-                misp.untag(event.uuid, tag.name)
-            except Exception as exc:
-                logger.warning("untag %s failed: %s", tag.name, exc)
-    try:
-        misp.tag(event.uuid, new_wf, local=True)
-    except Exception as exc:
-        logger.warning("tag %s with %s failed: %s", event.uuid, new_wf, exc)
 
 
 def publish_vea(uuid):
@@ -6661,7 +6630,8 @@ def create_der(data):
     misp = _misp()
     title = (data.get("title") or "Untitled").strip()
     info = f"[zsazsa:der] {title}"
-    extra = [f'tlp:{data.get("tlp", "amber")}', 'workflow:state="draft"']
+    data.setdefault("review_state", DER_REVIEW_DRAFT)
+    extra = [f'tlp:{data.get("tlp", "amber")}', f'workflow:state="{_WORKFLOW_STATES[data["review_state"]]}"']
 
     event = _make_event(info, extra_tags=extra)
     src_uuids, src_hints = _normalise_source_uuids_and_hints(
@@ -6679,7 +6649,6 @@ def create_der(data):
 
     der_id = _der_id_from_event_id(result.id)
     data["der_id"] = der_id
-    data.setdefault("review_state", DER_REVIEW_DRAFT)
     data.setdefault("status", DER_STATUS_PENDING)
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == DER_REVIEW_APPROVED:
@@ -6722,6 +6691,7 @@ def update_der(uuid, data):
     title = (data.get("title") or "Untitled").strip()
     misp.update_event({"Event": {"id": event.id, "info": f"[zsazsa:der] {title}"}})
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
+    tagger.set_workflow_state(misp, event, _WORKFLOW_STATES[new_review_state])
 
     refreshed = misp.get_event(uuid, pythonify=True)
     _delete_der_reports(misp, refreshed)
@@ -6734,7 +6704,6 @@ def update_der(uuid, data):
 def set_der_review_state(uuid, state, reason=None):
     if state not in DER_REVIEW_STATES:
         raise ValueError(f"invalid DER review state: {state}")
-    misp = _misp()
     event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
     if event is None:
         raise RuntimeError(f"DER event {uuid} not found")
@@ -6742,24 +6711,6 @@ def set_der_review_state(uuid, state, reason=None):
 
     update_der(uuid, _der_data(der, review_state=state,
                                rejection_reason=reason or der.rejection_reason))
-
-    workflow_map = {
-        DER_REVIEW_DRAFT: "draft",
-        DER_REVIEW_PENDING: "ongoing",
-        DER_REVIEW_APPROVED: "complete",
-        DER_REVIEW_REJECTED: "rejected",
-    }
-    new_wf = f'workflow:state="{workflow_map[state]}"'
-    for tag in list(getattr(event, "tags", []) or []):
-        if tag.name.startswith("workflow:state="):
-            try:
-                misp.untag(event.uuid, tag.name)
-            except Exception as exc:
-                logger.warning("untag %s failed: %s", tag.name, exc)
-    try:
-        misp.tag(event.uuid, new_wf, local=True)
-    except Exception as exc:
-        logger.warning("tag %s with %s failed: %s", event.uuid, new_wf, exc)
 
 
 def publish_der(uuid):
