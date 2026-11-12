@@ -214,7 +214,7 @@ class _DetectionEngFixture(_Gate):
         self.update = self.stub(detection_eng.misp_store, "update_der")
         self.publish = self.stub(detection_eng.misp_store, "publish_der")
         self.stub(detection_eng.misp_store, "fetch_source_events", return_value=[])
-        self.stub(detection_eng, "_form_data", return_value={"audience": "SOC"})
+        self.stub(detection_eng, "_form_data", return_value={"audience": "SOC", "cve_ids": []})
         self.deliver = self.stub(detection_eng, "_start_der_delivery")
         self.stub(detection_eng.audit, "record")
 
@@ -234,7 +234,7 @@ class DetectionEngPublisher(_DetectionEngFixture):
         self.deliver.assert_not_called()
 
     def test_publishing_from_the_wizard_takes_an_audience(self):
-        with mock.patch.object(detection_eng, "_form_data", return_value={"audience": ""}):
+        with mock.patch.object(detection_eng, "_form_data", return_value={"audience": "", "cve_ids": []}):
             self.client.post(f"/products/detection-eng/{UUID}/edit", data={"action": "publish"})
         self.assertEqual(self.update.call_args.args[1]["review_state"], "pending-review")
         self.publish.assert_not_called()

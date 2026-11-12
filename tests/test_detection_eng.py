@@ -10,19 +10,26 @@ the wrong way, or twice.
 Nothing is written to MISP or sent for real here: the store, Rulezet and the
 delivery job are stubbed.
 
+The CVE field is pinned here too: what the form accepts and refuses, and that
+the report lists the CVEs. So is what a new request made from collected events
+starts with, and that the form keeps every source event a request has.
+
     python -m unittest tests.test_detection_eng
 """
 
 import json
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from flask import Flask
+from bs4 import BeautifulSoup
+from flask import Flask, render_template
 
-from webapp import misp_store
+import config
+from webapp import collection_cache, create_app, misp_store
 from webapp.routes import detection_eng
 
 SOURCE_UUID = "8bff3417-1af2-4ccb-81be-26a8bc99605f"
@@ -37,7 +44,8 @@ def _stored_der(**changes):
     """
     der = SimpleNamespace(
         uuid=DER_UUID, der_id="DER-00042", title="Detect WMI lateral movement",
-        technique=["T1047"], log_sources=["Sysmon", "Windows Security"],
+        technique=["T1047"], cve_ids=["CVE-2024-3400", "CVE-2023-4966"],
+        log_sources=["Sysmon", "Windows Security"],
         hypothesis="Actors pivot with wmic.", expected_output="One alert per host.",
         existing_coverage=["rule-1"], test_cases=["Run wmic /node"],
         format="sigma", draft_rule="title: x", priority="High",
@@ -51,6 +59,14 @@ def _stored_der(**changes):
     )
     der.__dict__.update(changes)
     return der
+
+
+def _client():
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.secret_key = "test"
+    app.register_blueprint(detection_eng.bp)
+    return app.test_client()
 
 
 def _relation(field):
@@ -254,11 +270,7 @@ class Routes(unittest.TestCase):
     """The routes that can change what stakeholders were sent, or send it again."""
 
     def setUp(self):
-        app = Flask(__name__)
-        app.config["TESTING"] = True
-        app.secret_key = "test"
-        app.register_blueprint(detection_eng.bp)
-        self.client = app.test_client()
+        self.client = _client()
 
     def post(self, path, der, data=None, can_publish=True):
         with mock.patch.object(detection_eng.misp_store, "get_der", return_value=der), \
@@ -343,6 +355,153 @@ class Routes(unittest.TestCase):
     def test_resending_with_publish_rights_starts_delivery(self):
         r = self.post("resend", _stored_der())
         r.deliver.assert_called_once_with("DER-00042", DER_UUID, "resend")
+
+
+class CveIds(unittest.TestCase):
+    """The CVE field takes IDs the way analysts paste them. Anything that is not
+    one is refused rather than dropped, so a mistyped CVE is not lost unseen."""
+
+    def test_commas_semicolons_spaces_and_lines_all_separate(self):
+        self.assertEqual(detection_eng._cve_ids("CVE-2024-3400, cve-2023-4966\nCVE-2021-44228;CVE-2024-3400"),
+                         ["CVE-2024-3400", "CVE-2023-4966", "CVE-2021-44228"])
+
+    def test_what_is_not_a_cve_id_is_kept_and_refused(self):
+        cve_ids = detection_eng._cve_ids("CVE-2024-3400 Log4Shell CVE-24-1")
+        self.assertEqual(cve_ids, ["CVE-2024-3400", "LOG4SHELL", "CVE-24-1"])
+        self.assertEqual(detection_eng._cve_warning(cve_ids),
+                         "Not a CVE ID: LOG4SHELL, CVE-24-1. Write each as CVE-2024-3400.")
+
+    def test_valid_or_empty_fields_are_not_refused(self):
+        self.assertEqual(detection_eng._cve_ids(""), [])
+        self.assertEqual(detection_eng._cve_warning([]), "")
+        self.assertEqual(detection_eng._cve_warning(["CVE-2024-3400"]), "")
+
+
+class CveForm(unittest.TestCase):
+    """The wizard stores the CVEs it is given, and stores nothing while one of
+    them is not a CVE ID."""
+
+    def setUp(self):
+        self.client = _client()
+
+    def post(self, path, cve_ids, review_state=misp_store.DER_REVIEW_DRAFT):
+        der = _stored_der(review_state=review_state, status=misp_store.DER_STATUS_PENDING)
+        with mock.patch.object(detection_eng.misp_store, "get_der", return_value=der), \
+             mock.patch.object(detection_eng.misp_store, "create_der",
+                               return_value=(DER_UUID, "DER-00042")) as create, \
+             mock.patch.object(detection_eng.misp_store, "update_der") as update, \
+             mock.patch.object(detection_eng.misp_store, "fetch_source_events", return_value=[]), \
+             mock.patch.object(detection_eng.product_log, "log_product_sources"), \
+             mock.patch.object(detection_eng, "render_template", return_value="form") as render, \
+             mock.patch.object(detection_eng.audit, "record"):
+            self.client.post(f"/products/detection-eng/{path}",
+                             data={"action": "save", "title": der.title, "cve_ids": cve_ids})
+        return SimpleNamespace(create=create, update=update, render=render)
+
+    def test_a_new_request_stores_the_cves_normalised(self):
+        r = self.post("new", "cve-2024-3400, CVE-2023-4966")
+        self.assertEqual(r.create.call_args[0][0]["cve_ids"], ["CVE-2024-3400", "CVE-2023-4966"])
+
+    def test_a_new_request_with_a_wrong_cve_is_not_created(self):
+        r = self.post("new", "CVE-2024-3400, Log4Shell")
+        r.create.assert_not_called()
+        self.assertEqual(r.render.call_args.kwargs["der"]["cve_ids"], ["CVE-2024-3400", "LOG4SHELL"])
+
+    def test_an_edit_stores_the_cves(self):
+        r = self.post(f"{DER_UUID}/edit", "CVE-2021-44228")
+        self.assertEqual(r.update.call_args[0][1]["cve_ids"], ["CVE-2021-44228"])
+
+    def test_an_edit_with_a_wrong_cve_is_not_saved(self):
+        r = self.post(f"{DER_UUID}/edit", "Log4Shell")
+        r.update.assert_not_called()
+
+    def test_a_refused_edit_still_shows_where_the_request_stands(self):
+        r = self.post(f"{DER_UUID}/edit", "Log4Shell", review_state=misp_store.DER_REVIEW_PENDING)
+        self.assertEqual(r.render.call_args.kwargs["der"].get("review_state"), misp_store.DER_REVIEW_PENDING)
+
+    def test_clearing_the_field_removes_the_cves(self):
+        r = self.post(f"{DER_UUID}/edit", "")
+        self.assertEqual(r.update.call_args[0][1]["cve_ids"], [])
+
+
+class SeedFromSources(unittest.TestCase):
+    """A request made from events on Data collection starts with those events
+    linked, and with their ATT&CK techniques and CVEs filled in."""
+
+    EVENT = {"uuid": SOURCE_UUID, "info": "PAN-OS CVE-2024-3400 exploited", "source_url": "https://misp.example",
+             "tags": ['misp-galaxy:mitre-attack-pattern="Exploit Public-Facing Application - T1190"', "tlp:clear"],
+             "attributes": [{"type": "vulnerability", "value": "cve-2023-4966"},
+                            {"type": "vulnerability", "value": "GHSA-jfh8-c2jp-5v3q"}],
+             "objects": []}
+
+    def seed(self, method="get", source=f"{SOURCE_UUID}|scraper", events=(EVENT,), cached=()):
+        with mock.patch.object(detection_eng.misp_store, "fetch_source_events", return_value=list(events)), \
+             mock.patch.object(collection_cache, "get_events_by_uuids", return_value=list(cached)), \
+             mock.patch.object(detection_eng, "render_template", return_value="form") as render:
+            if method == "get":
+                _client().get("/products/detection-eng/new", query_string={"source": source} if source else {})
+            else:
+                _client().post("/products/detection-eng/new", data={"prefill_only": "1", "source": source})
+        return render.call_args.kwargs["der"]
+
+    def test_the_event_is_linked_with_its_techniques_and_cves(self):
+        for method in ("get", "post"):
+            der = self.seed(method)
+            self.assertEqual(der.source_event_uuids, [SOURCE_UUID])
+            self.assertEqual(der.source_event_hints, {SOURCE_UUID: "scraper"})
+            self.assertEqual(der.technique, ["Exploit Public-Facing Application - T1190"])
+            # The GHSA ID is a vulnerability too, but the field would refuse it.
+            self.assertEqual(der.cve_ids, ["CVE-2023-4966", "CVE-2024-3400"])
+
+    def test_an_event_that_could_not_be_fetched_has_its_cves_from_the_cache(self):
+        der = self.seed(events=(), cached=({"uuid": SOURCE_UUID, "vulnerability_ids": ["CVE-2021-44228"]},))
+        self.assertEqual(der.source_event_uuids, [SOURCE_UUID])
+        self.assertEqual(der.cve_ids, ["CVE-2021-44228"])
+
+    def test_a_request_without_sources_starts_empty(self):
+        self.assertIsNone(self.seed(source=""))
+
+
+class SourceEventFields(unittest.TestCase):
+    """The form has a field for each source event, so that saving it keeps them
+    all, and an empty one to add another."""
+
+    def fields(self, der, source_events=()):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.multiple(config, create=True, DB_FILE=f"{tmp}/test.db", LOG_FILE=f"{tmp}/test.log"), \
+             mock.patch.object(collection_cache, "start_worker"), \
+             mock.patch.object(misp_store, "list_selectable_pirs", return_value=[]), \
+             mock.patch.object(misp_store, "galaxy_mitre_attack_patterns", return_value=[]):
+            app = create_app()
+            with app.test_request_context():
+                html = render_template("detection_eng/wizard.html", is_edit=der is not None,
+                                       source_events=list(source_events),
+                                       **detection_eng._wizard_context(der, source_events))
+        return [i["value"] for i in BeautifulSoup(html, "html.parser").select('input[name="source_event_url_item"]')]
+
+    def test_every_source_event_has_a_field(self):
+        other = "0f2c8a3e-5b7d-4e19-9a64-3c1d2b8e7f50"
+        der = _stored_der(review_state=misp_store.DER_REVIEW_DRAFT,
+                          source_event_uuids=[SOURCE_UUID, other], source_event_uuid=SOURCE_UUID)
+        events = [{"uuid": SOURCE_UUID, "source_url": "https://scraper.example"},
+                  {"uuid": other, "source_url": "https://misp.example"}]
+        self.assertEqual(self.fields(der, events), [f"https://scraper.example/events/view/{SOURCE_UUID}",
+                                                    f"https://misp.example/events/view/{other}", ""])
+
+    def test_a_new_request_has_one_empty_field(self):
+        self.assertEqual(self.fields(None), [""])
+
+
+class CveReport(unittest.TestCase):
+    """The report, mail and chat post are made from render_der_markdown()."""
+
+    def test_the_cves_are_listed(self):
+        markdown = misp_store.render_der_markdown(_stored_der())
+        self.assertIn("## CVE(s)", markdown)
+        self.assertIn("- CVE-2024-3400", markdown)
+
+    def test_a_request_without_cves_has_no_cve_section(self):
+        self.assertNotIn("CVE(s)", misp_store.render_der_markdown(_stored_der(cve_ids=[])))
 
 
 class FormatHints(unittest.TestCase):

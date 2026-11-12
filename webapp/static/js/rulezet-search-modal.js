@@ -628,4 +628,56 @@
       zsazsaRulezetSearch(resultPromise, rulesEl, techniqueIds.join(', '), 'attack');
     });
   };
+
+  // The same button on a form with a CVE field, searching by the CVE IDs typed
+  // in it. It takes the options above, with inputId (the CVE field) in place of
+  // checkboxName.
+  window.zsazsaBindRulezetCveLookup = function (opts) {
+    var btn = document.getElementById(opts.buttonId);
+    var btnWrap = document.getElementById(opts.buttonId + '-wrap');
+    var status = document.getElementById(opts.statusId);
+    var rulesEl = document.getElementById(opts.targetId);
+    var cveEl = document.getElementById(opts.inputId);
+    var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+    var cveIdRe = /^CVE-\d{4}-\d{4,}$/;
+    var emptyTitle = 'Enter a CVE ID first.';
+
+    if (!btn || !btnWrap || btnWrap.hasAttribute('data-rulezet-unconfigured')) return;
+
+    function getCveIds() {
+      var ids = [];
+      cveEl.value.toUpperCase().split(/[\s,;]+/).forEach(function (s) {
+        if (cveIdRe.test(s) && !ids.includes(s)) ids.push(s);
+      });
+      return ids;
+    }
+
+    function refreshButtonState() {
+      var hasCve = getCveIds().length > 0;
+      btn.disabled = !hasCve;
+      btnWrap.title = hasCve ? opts.readyTitle : emptyTitle;
+    }
+
+    cveEl.addEventListener('input', refreshButtonState);
+    refreshButtonState();
+
+    btn.addEventListener('click', function () {
+      var cveIds = getCveIds();
+
+      status.style.display = 'none';
+      if (!cveIds.length) {
+        status.innerHTML = '<i class="fas fa-triangle-exclamation me-1"></i>' + emptyTitle;
+        status.style.display = '';
+        return;
+      }
+
+      var resultPromise = fetch(SCRIPT_ROOT + '/api/rulezet-lookup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+        body: JSON.stringify({cve_ids: cveIds}),
+      }).then(zsazsaReadJson);
+
+      zsazsaRulezetSearch(resultPromise, rulesEl, cveIds.join(', '), 'cve');
+    });
+  };
 })();

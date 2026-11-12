@@ -83,7 +83,7 @@
     </div>
 
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>MITRE ATT&amp;CK technique(s)</div>
+      <div class="card-header"><i class="fas fa-bullseye me-2"></i>MITRE ATT&amp;CK technique(s) and CVE(s)</div>
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
           <label class="form-label mb-0">Technique(s) this request targets</label>
@@ -99,11 +99,25 @@
         <div class="mt-1">
           {{ galaxy_multiselect("technique", values=(der.technique if der else []), items=galaxy_mitre_attack, dom_id="der-technique") }}
         </div>
+        <div class="d-flex justify-content-between align-items-center mt-3" style="min-height:2.1rem;">
+          <label class="form-label mb-0" for="der-cve-ids">CVE(s) this request targets</label>
+          <span id="btn-rulezet-der-cve-lookup-wrap"
+                {% if rulezet_enabled %}title="Enter a CVE ID first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-der-cve-lookup" disabled>
+              <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
+                   alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
+              Search Rulezet
+            </button>
+          </span>
+        </div>
+        <input type="text" name="cve_ids" id="der-cve-ids" class="form-control mt-1"
+               value="{{ der.cve_ids | join(', ') if der else '' }}"
+               placeholder="Optional, e.g. CVE-2024-3400, CVE-2023-4966">
         <div class="form-text mt-2">Search Rulezet first: if a rule is a close match, worth adapting, or should be used as a base, add it below.</div>
         <div class="mt-2">
           <label class="form-label small mb-1">Existing coverage (Rulezet)</label>
           <textarea name="existing_coverage" id="der-existing-coverage" class="form-control" rows="3"
-                    placeholder="Rules already found on Rulezet for this technique">{{ lines(der.existing_coverage) if der else '' }}</textarea>
+                    placeholder="Rules already found on Rulezet for these techniques or CVEs">{{ lines(der.existing_coverage) if der else '' }}</textarea>
           <div id="rulezet-der-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
         </div>
       </div>
@@ -136,17 +150,18 @@
     </div>
 
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-link me-2"></i>Source MISP event</div>
+      <div class="card-header"><i class="fas fa-link me-2"></i>Source MISP events</div>
       <div class="card-body">
         {% set existing_source_uuids = (der.source_event_uuids if der and der.source_event_uuids else ([der.source_event_uuid] if der and der.source_event_uuid else [])) %}
-        {% set first_uuid = existing_source_uuids[0] if existing_source_uuids else '' %}
-        {% set meta = (source_events | selectattr('uuid', 'equalto', first_uuid) | list | first) if first_uuid else None %}
+        <label class="form-label">Triggering events (optional)</label>
+        {% for u in existing_source_uuids + [''] %}
+        {% set meta = (source_events | selectattr('uuid', 'equalto', u) | list | first) if u else None %}
         {% set event_base = ((meta.source_url if meta and meta.source_url else misp_webapp_url) or '') %}
-        {% set event_url = (event_base.rstrip('/') ~ '/events/view/' ~ first_uuid) if first_uuid else '' %}
-        <label class="form-label">Triggering event (optional)</label>
-        <input type="text" name="source_event_url_item" class="form-control form-control-sm font-monospace"
-               placeholder="https://misp.example/events/view/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="{{ event_url }}">
-        <div class="form-text">The event/actor/campaign that motivated this request, if any.</div>
+        <input type="text" name="source_event_url_item" class="form-control form-control-sm font-monospace mb-2"
+               placeholder="https://misp.example/events/view/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+               value="{{ (event_base.rstrip('/') ~ '/events/view/' ~ u) if u else '' }}">
+        {% endfor %}
+        <div class="form-text">The events that motivated this request, if any. Paste another into the empty field, or clear one to remove it.</div>
       </div>
     </div>
 
@@ -216,13 +231,20 @@
 
 {% block scripts %}
 <script>
-/* ── Detection lookup (Rulezet, by MITRE ATT&CK technique) ── */
+/* ── Detection lookup (Rulezet, by MITRE ATT&CK technique and by CVE) ── */
 zsazsaBindRulezetAttackLookup({
   buttonId: 'btn-rulezet-der-lookup',
   statusId: 'rulezet-der-status',
   targetId: 'der-existing-coverage',
   checkboxName: 'technique',
   readyTitle: 'Search Rulezet for public rules matching the technique(s) selected above',
+});
+zsazsaBindRulezetCveLookup({
+  buttonId: 'btn-rulezet-der-cve-lookup',
+  statusId: 'rulezet-der-status',
+  targetId: 'der-existing-coverage',
+  inputId: 'der-cve-ids',
+  readyTitle: 'Search Rulezet for public rules matching the CVE ID(s) entered',
 });
 
 /* ── Audience validation ── */

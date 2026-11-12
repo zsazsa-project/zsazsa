@@ -30,6 +30,7 @@
   </div>
   {{ header.wide_meta_item('Audience', der.audience or '-') }}
   {% if der.technique %}{{ header.wide_meta_item('Technique(s)', der.technique | join(', ')) }}{% endif %}
+  {% if der.cve_ids %}{{ header.wide_meta_item('CVE(s)', der.cve_ids | join(', ')) }}{% endif %}
 </div>
 
 {% macro bullets(items) %}

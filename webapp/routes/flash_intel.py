@@ -23,6 +23,7 @@ from webapp.routes.source_event_utils import (
     parse_source_tokens,
     source_event_references,
     source_event_urls_only,
+    source_tag_values,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,25 +107,11 @@ def _wizard_context(fia=None, source_events=None):
 
 def _extract_scope_from_tags(source_events):
     """Extract geographic, sector, and threat-actor scope from source event galaxy tags."""
-    all_tags = [t for ev in source_events for t in ev.get("tags", [])]
-
-    def _vals(prefixes):
-        seen, result = set(), []
-        for tag in all_tags:
-            for prefix in prefixes:
-                if tag.startswith(prefix):
-                    val = tag[len(prefix):].strip().strip('"')
-                    if val and val not in seen:
-                        seen.add(val)
-                        result.append(val)
-                    break
-        return result
-
     return (
-        _vals(['misp-galaxy:country=', 'misp-galaxy:target-information=']),
-        _vals(['misp-galaxy:sector=']),
-        _vals(['misp-galaxy:threat-actor=']),
-        _vals(['misp-galaxy:mitre-attack-pattern=']),
+        source_tag_values(source_events, 'misp-galaxy:country=', 'misp-galaxy:target-information='),
+        source_tag_values(source_events, 'misp-galaxy:sector='),
+        source_tag_values(source_events, 'misp-galaxy:threat-actor='),
+        source_tag_values(source_events, 'misp-galaxy:mitre-attack-pattern='),
     )
 
 

@@ -294,6 +294,12 @@
                     <div class="fw-semibold small mb-2">Technique(s)</div>
                     {% for t in d.technique %}<span class="badge bg-secondary me-1 mb-1" style="font-size:.68rem;">{{ t }}</span>{% else %}<span class="text-muted">-</span>{% endfor %}
                   </div>
+                  {% if d.cve_ids %}
+                  <div class="border rounded p-2 mb-2" style="font-size:.8rem;background:var(--card-bg);">
+                    <div class="fw-semibold small mb-2">CVE(s)</div>
+                    {% for c in d.cve_ids %}<span class="badge bg-secondary me-1 mb-1" style="font-size:.68rem;">{{ c }}</span>{% endfor %}
+                  </div>
+                  {% endif %}
                   {% if d.existing_coverage %}
                   <div class="border rounded p-2" style="font-size:.8rem;background:var(--card-bg);">
                     <div class="fw-semibold small mb-2">Existing coverage (Rulezet)</div>

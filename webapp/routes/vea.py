@@ -13,6 +13,7 @@ from webapp.routes.source_event_utils import (
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
+    source_event_cves,
     source_event_references,
 )
 from webapp import audit, branding, collection_cache, misp_session, misp_store, notify_jobs, product_log
@@ -340,37 +341,11 @@ def _build_seed_from_sources(source_uuids, source_pairs, source_events):
     if not source_uuids:
         return None
 
-    def _all_attrs(ev):
-        attrs = list(ev.get("attributes", []))
-        for obj in ev.get("objects", []):
-            attrs.extend(obj.get("attributes", []))
-        return attrs
-
-    cve_ids = list(dict.fromkeys(
-        a["value"].strip()
-        for ev in source_events
-        for a in _all_attrs(ev)
-        if a.get("type") == "vulnerability" and a.get("value", "").strip()
-    ))
-
-    for ev in source_events:
-        for m in CVE_RE.findall(ev.get("info", "")):
-            cve = m.upper()
-            if cve not in cve_ids:
-                cve_ids.append(cve)
-
-    cached_rows = None
-    if not cve_ids:
-        cached_rows = collection_cache.get_events_by_uuids(source_uuids)
-        for row in cached_rows:
-            for vid in row.get("vulnerability_ids", []):
-                if vid and vid not in cve_ids:
-                    cve_ids.append(vid)
-
+    cve_ids = source_event_cves(source_uuids, source_events)
     labels = list(dict.fromkeys(ev["source_label"] for ev in source_events if ev.get("source_label")))
 
     reliability_letters, credibility_numbers = [], []
-    tag_sources = source_events or cached_rows or collection_cache.get_events_by_uuids(source_uuids)
+    tag_sources = source_events or collection_cache.get_events_by_uuids(source_uuids)
     for ev in tag_sources:
         for t in ev.get("tags", []):
             if t.startswith('admiralty-scale:source-reliability='):

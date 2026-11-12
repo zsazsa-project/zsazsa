@@ -8,6 +8,7 @@ sources/expected output/test cases.
 """
 
 import logging
+from types import SimpleNamespace
 
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 from webapp.routes.source_event_utils import (
@@ -16,10 +17,13 @@ from webapp.routes.source_event_utils import (
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
+    source_event_cves,
     source_event_references,
+    source_tag_values,
 )
 
 from core.rulezet_lookup import validate_rule
+from core.vuln_lookup import CVE_RE
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
 from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
@@ -33,6 +37,41 @@ def source_event_meta():
     return lookup_source_event_meta(request.args)
 
 
+def _cve_ids(raw):
+    """The CVE field split on commas, semicolons and white space, each entry once."""
+    return list(dict.fromkeys(raw.replace(",", " ").replace(";", " ").upper().split()))
+
+
+def _cve_warning(cve_ids):
+    not_cves = [c for c in cve_ids if not CVE_RE.fullmatch(c)]
+    if not_cves:
+        return f"Not a CVE ID: {', '.join(not_cves)}. Write each as CVE-2024-3400."
+    return ""
+
+
+def _seed_from_sources(source_uuids, source_hints):
+    """A new request filled in from the events it is made from: they are its
+    triggering events, and their ATT&CK techniques and CVEs are filled in."""
+    if not source_uuids:
+        return None, []
+    source_events = misp_store.fetch_source_events(source_uuids, source_hints=source_hints,
+                                                   strict_source=bool(source_hints))
+    # Only CVE IDs: the field refuses the GHSA and vendor IDs a vulnerability
+    # attribute can also hold.
+    cve_ids = [c.upper() for c in source_event_cves(source_uuids, source_events) if CVE_RE.fullmatch(c)]
+    seed = SimpleNamespace(
+        der_id="", title="", hypothesis="", expected_output="", format="", priority="",
+        technique=source_tag_values(source_events, "misp-galaxy:mitre-attack-pattern="),
+        cve_ids=list(dict.fromkeys(cve_ids)),
+        log_sources=[], existing_coverage=[], test_cases=[],
+        status=misp_store.DER_STATUS_PENDING, review_state=misp_store.DER_REVIEW_DRAFT,
+        tlp="amber", author="", audience="", linked_pir_uuid="",
+        source_event_uuids=source_uuids, source_event_hints=source_hints,
+        source_event_uuid=source_uuids[0],
+    )
+    return seed, source_events
+
+
 def _form_data(form, der_id=""):
     source_event_refs = form.getlist("source_event_url_item") or form.getlist("source_event_uuid_item")
     source_event_servers = form.getlist("source_event_server_item")
@@ -42,6 +81,7 @@ def _form_data(form, der_id=""):
         "der_id": der_id,
         "title": form.get("title", "").strip(),
         "technique": form.getlist("technique"),
+        "cve_ids": _cve_ids(form.get("cve_ids", "")),
         "log_sources": misp_store._split_lines(form.get("log_sources")),
         "hypothesis": form.get("hypothesis", "").strip(),
         "expected_output": form.get("expected_output", "").strip(),
@@ -173,11 +213,9 @@ def wizard_new():
     if request.method == "POST":
         if request.form.get("prefill_only") == "1":
             source_uuids, source_hints, _source_pairs = parse_source_tokens(request.form.getlist("source"))
-            source_events = misp_store.fetch_source_events(
-                source_uuids, source_hints=source_hints, strict_source=bool(source_hints)
-            ) if source_uuids else []
+            seed, source_events = _seed_from_sources(source_uuids, source_hints)
             return render_template("detection_eng/wizard.html", is_edit=False,
-                                   source_events=source_events, **_wizard_context(None, source_events))
+                                   source_events=source_events, **_wizard_context(seed, source_events))
 
         data = _form_data(request.form)
         source_hints = data.get("source_event_hints") or {}
@@ -186,6 +224,11 @@ def wizard_new():
         )
         if not data["title"]:
             flash("Title is required.", "warning")
+            return render_template("detection_eng/wizard.html", is_edit=False,
+                                   source_events=source_events, **_wizard_context(data, source_events))
+        cve_warning = _cve_warning(data["cve_ids"])
+        if cve_warning:
+            flash(cve_warning, "warning")
             return render_template("detection_eng/wizard.html", is_edit=False,
                                    source_events=source_events, **_wizard_context(data, source_events))
         action = request.form.get("action", "save")
@@ -201,11 +244,9 @@ def wizard_new():
         except Exception as exc:
             flash(f"Could not create detection engineering request: {exc}", "warning")
     source_uuids, source_hints, _source_pairs = parse_source_tokens(request.args.getlist("source"))
-    source_events = misp_store.fetch_source_events(
-        source_uuids, source_hints=source_hints, strict_source=bool(source_hints)
-    ) if source_uuids else []
+    seed, source_events = _seed_from_sources(source_uuids, source_hints)
     return render_template("detection_eng/wizard.html", is_edit=False,
-                           source_events=source_events, **_wizard_context(None, source_events))
+                           source_events=source_events, **_wizard_context(seed, source_events))
 
 
 @bp.route("/<string:id>")
@@ -269,6 +310,7 @@ def wizard_edit(id):
     if request.method == "POST":
         data = _form_data(request.form, der_id=der.der_id)
         data["status"] = der.status
+        data["review_state"] = der.review_state or misp_store.DER_REVIEW_DRAFT
         # The draft rule and its format are only changed through
         # set_draft_rule, which refuses while the request is Active. The
         # wizard has neither as an editable field, so whatever the form
@@ -279,6 +321,11 @@ def wizard_edit(id):
         source_events = misp_store.fetch_source_events(
             data.get("source_event_uuids") or [], source_hints=source_hints, strict_source=bool(source_hints)
         )
+        cve_warning = _cve_warning(data["cve_ids"])
+        if cve_warning:
+            flash(cve_warning, "warning")
+            return render_template("detection_eng/wizard.html", is_edit=True,
+                                   source_events=source_events, **_wizard_context(data, source_events))
         action = request.form.get("action", "save")
         if action == "publish" and not misp_session.current_user_can_publish():
             flash(misp_session.publish_denied_message("approve and publish"), "warning")
@@ -290,8 +337,6 @@ def wizard_edit(id):
             data["review_state"] = misp_store.DER_REVIEW_PENDING
         elif action == "publish":
             data["review_state"] = misp_store.DER_REVIEW_APPROVED
-        else:
-            data["review_state"] = der.review_state or misp_store.DER_REVIEW_DRAFT
         try:
             misp_store.update_der(id, data)
             audit.record("update", "detection_eng", entity_id=id, entity_label=der.der_id)

@@ -7,7 +7,8 @@ from urllib.parse import urlparse
 from flask import jsonify
 
 import config as _cfg
-from webapp import misp_store
+from core.vuln_lookup import CVE_RE
+from webapp import collection_cache, misp_store
 
 _UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 
@@ -216,6 +217,54 @@ def flattened_references(external_references: list[str] | None, source_event_ref
         })
 
     return out
+
+
+def source_tag_values(source_events, *prefixes):
+    """What follows one of the prefixes in the source events' tags, unquoted
+    and each value once: the clusters of a galaxy, for instance."""
+    values = []
+    for ev in source_events:
+        for tag in ev.get("tags", []):
+            for prefix in prefixes:
+                if tag.startswith(prefix):
+                    value = tag[len(prefix):].strip().strip('"')
+                    if value and value not in values:
+                        values.append(value)
+                    break
+    return values
+
+
+def source_event_cves(source_uuids, source_events):
+    """The vulnerability IDs of the source events, each once: those of their
+    vulnerability attributes, then the CVEs named in their titles. Failing
+    those, the ones the collection cache has, which also covers an event that
+    could not be fetched. An attribute can hold a GHSA or vendor ID as well."""
+
+    def _all_attrs(ev):
+        attrs = list(ev.get("attributes", []))
+        for obj in ev.get("objects", []):
+            attrs.extend(obj.get("attributes", []))
+        return attrs
+
+    cve_ids = list(dict.fromkeys(
+        a["value"].strip()
+        for ev in source_events
+        for a in _all_attrs(ev)
+        if a.get("type") == "vulnerability" and a.get("value", "").strip()
+    ))
+
+    for ev in source_events:
+        for m in CVE_RE.findall(ev.get("info", "")):
+            cve = m.upper()
+            if cve not in cve_ids:
+                cve_ids.append(cve)
+
+    if not cve_ids:
+        for row in collection_cache.get_events_by_uuids(source_uuids):
+            for vid in row.get("vulnerability_ids", []):
+                if vid and vid not in cve_ids:
+                    cve_ids.append(vid)
+    return cve_ids
 
 
 def lookup_source_event_meta(request_args):

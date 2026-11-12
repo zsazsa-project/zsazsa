@@ -6444,6 +6444,7 @@ def _der_obj(data):
     _oa(obj, "der-id", data.get("der_id"))
     _oa(obj, "title", data.get("title"))
     _oa_json(obj, "technique", data.get("technique", []))
+    _oa(obj, "cve-ids", _join_lines(data.get("cve_ids")))
     _oa(obj, "log-sources", _join_lines(data.get("log_sources")))
     _oa(obj, "hypothesis", data.get("hypothesis"))
     _oa(obj, "expected-output", data.get("expected_output"))
@@ -6493,6 +6494,7 @@ def _der_ns(event):
         der_id=g("der-id"),
         title=g("title"),
         technique=_json_list(g("technique")),
+        cve_ids=g("cve-ids").splitlines(),
         log_sources=g("log-sources").splitlines(),
         hypothesis=g("hypothesis"),
         expected_output=g("expected-output"),
@@ -6522,7 +6524,7 @@ def _der_ns(event):
 # Every field of a request, named as _der_obj() takes them and as _der_ns()
 # reads them back; see _record_data().
 _DER_FIELDS = (
-    "der_id", "title", "technique", "log_sources", "hypothesis",
+    "der_id", "title", "technique", "cve_ids", "log_sources", "hypothesis",
     "expected_output", "existing_coverage", "test_cases", "format",
     "draft_rule", "priority", "status", "tlp", "author", "audience",
     "review_state", "rejection_reason", "source_event_uuids",
@@ -6572,6 +6574,12 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
         "",
         "---",
         "",
+    ]
+    # Left out when empty: most requests are for a technique, not a
+    # vulnerability.
+    if der.cve_ids:
+        lines += ["## CVE(s)", "", bullets(der.cve_ids), "", "---", ""]
+    lines += [
         "## Log sources",
         "",
         bullets(der.log_sources),
@@ -6676,11 +6684,13 @@ def create_der(data):
     data["creator"] = misp_session.current_user_email()
     if data["review_state"] == DER_REVIEW_APPROVED:
         data["approved_by"] = misp_session.current_user_email()
-    _check(misp.add_object(_event_ref(result), _der_obj(data)), "add DER object")
-
-    der = _der_ns(result)
-    der.der_id = der_id
-    _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+    try:
+        _check(misp.add_object(_event_ref(result), _der_obj(data)), "add DER object")
+        der = _der_ns(_check(misp.get_event(uuid, pythonify=True), "read the new DER"))
+        _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+    except Exception:
+        _delete_unfinished(misp, uuid, "DER")
+        raise
     for uid in src_uuids:
         _tag_scraper_event_as_product_source(uid, "detection-eng-request", source_id=src_hints.get(uid, ""))
     return uuid, der_id

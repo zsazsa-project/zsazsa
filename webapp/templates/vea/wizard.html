@@ -423,7 +423,7 @@
                  hover events a native title tooltip needs. The title lives on this
                  wrapping span instead, which stays interactive either way. #}
               <span id="btn-rulezet-lookup-wrap"
-                    {% if rulezet_enabled %}title="Enter a CVE ID above first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
+                    {% if rulezet_enabled %}title="Enter a CVE ID first."{% else %}data-rulezet-unconfigured title="Rulezet is off: switch it on, with its address, under Settings > Connections."{% endif %}>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="btn-rulezet-lookup" disabled>
                   <img src="{{ url_for('static', filename='rulezet-icon.png') }}"
                        alt="" style="height:22px;vertical-align:middle;margin-right:6px;">
@@ -994,52 +994,13 @@ function runVulnLookup() {
 document.getElementById('btn-vl-lookup').addEventListener('click', runVulnLookup);
 
 /* ── Detection rule lookup (Rulezet, by CVE ID) ── */
-(function() {
-  var btn = document.getElementById('btn-rulezet-lookup');
-  var btnWrap = document.getElementById('btn-rulezet-lookup-wrap');
-  var status = document.getElementById('rulezet-status');
-  var rulesEl = document.getElementById('detection_rules');
-  var cveIdEl = document.getElementById('cve_id');
-  var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-
-  // Rendered disabled, with a "not configured" tooltip, when RULEZET_URL is
-  // empty: leave it that way instead of enabling it once a CVE is typed.
-  if (!btn || btnWrap.hasAttribute('data-rulezet-unconfigured')) return;
-
-  function getCveIds() {
-    var raw = (cveIdEl.value || '').trim();
-    return raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
-  }
-
-  function refreshButtonState() {
-    var hasCve = getCveIds().length > 0;
-    btn.disabled = !hasCve;
-    btnWrap.title = hasCve
-      ? 'Search Rulezet for public rules matching the CVE ID(s) above'
-      : 'Enter a CVE ID above first.';
-  }
-
-  cveIdEl.addEventListener('input', refreshButtonState);
-  refreshButtonState();
-
-  btn.addEventListener('click', function() {
-    var cveIds = getCveIds();
-    status.style.display = 'none';
-    if (!cveIds.length) {
-      status.innerHTML = '<i class="fas fa-triangle-exclamation me-1"></i>Enter at least one CVE ID first.';
-      status.style.display = '';
-      return;
-    }
-
-    var resultPromise = fetch(SCRIPT_ROOT + '/api/rulezet-lookup', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
-      body: JSON.stringify({cve_ids: cveIds}),
-    }).then(zsazsaReadJson);
-
-    zsazsaRulezetSearch(resultPromise, rulesEl, cveIds.join(', '), 'cve');
-  });
-})();
+zsazsaBindRulezetCveLookup({
+  buttonId: 'btn-rulezet-lookup',
+  statusId: 'rulezet-status',
+  targetId: 'detection_rules',
+  inputId: 'cve_id',
+  readyTitle: 'Search Rulezet for public rules matching the CVE ID(s) above',
+});
 
 /* ── Draft with AI ── */
 // Fills only the fields that are still empty. sourceUuids is empty for an

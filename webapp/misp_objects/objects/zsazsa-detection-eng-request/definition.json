@@ -3,7 +3,7 @@
   "meta-category": "intelligence",
   "description": "Detection Engineering Request (DER) managed by the zsazsa CTI program",
   "uuid": "99ed0baa-8472-4446-9d01-1dbe42a3c4a6",
-  "version": 1,
+  "version": 2,
   "attributes": {
     "der-id": {
       "misp-attribute": "text",
@@ -44,7 +44,7 @@
     "existing-coverage": {
       "misp-attribute": "text",
       "ui-priority": 6,
-      "description": "Existing Rulezet rules found relevant to this technique (one per line)",
+      "description": "Existing Rulezet rules found relevant to the request's techniques or CVEs (one per line)",
       "disable_correlation": true
     },
     "test-cases": {
@@ -135,6 +135,12 @@
       "misp-attribute": "text",
       "ui-priority": 21,
       "description": "User who approved/published this request",
+      "disable_correlation": true
+    },
+    "cve-ids": {
+      "misp-attribute": "text",
+      "ui-priority": 22,
+      "description": "CVE identifiers this request targets (one per line)",
       "disable_correlation": true
     }
   }

@@ -1,4 +1,5 @@
-"""Creating a flash intel alert or a vulnerability advisory in MISP.
+"""Creating a flash intel alert, a vulnerability advisory or a detection
+engineering request in MISP.
 
 Each is an event, then its object, then a MISP report rendered from the two. The
 report is rendered from the event as MISP has it once the object is on it: the
@@ -26,7 +27,7 @@ PRODUCT_UUID = "p" * 36
 
 class Creation(unittest.TestCase):
     def create(self, kind, data, refuse="", delete_refused=False):
-        """Create a product of ``kind`` ("fia" or "vea"), with MISP refusing
+        """Create a product of ``kind`` ("fia", "vea" or "der"), with MISP refusing
         the "object" or the "report" when asked."""
         misp = mock.create_autospec(PyMISP, instance=True)
         created, stored = MISPEvent(), MISPEvent()
@@ -44,7 +45,7 @@ class Creation(unittest.TestCase):
         misp.add_event_report.return_value = {"errors": "report refused"} if refuse == "report" else {}
         misp.delete_event.return_value = {"errors": "delete refused"} if delete_refused else {}
         self.misp = misp
-        create = misp_store.create_fia if kind == "fia" else misp_store.create_vea
+        create = {"fia": misp_store.create_fia, "vea": misp_store.create_vea, "der": misp_store.create_der}[kind]
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
              mock.patch.object(misp_store, "_tag_local"), \
              mock.patch.object(misp_store, "_tag_scraper_event_as_product_source") as self.tagged, \
@@ -95,6 +96,31 @@ class Advisory(Creation):
     def test_one_whose_object_is_refused_is_deleted_again(self):
         with self.assertRaisesRegex(RuntimeError, "object refused"):
             self.create("vea", self.DATA, refuse="object")
+        self.misp.delete_event.assert_called_once_with(PRODUCT_UUID)
+        self.tagged.assert_not_called()
+
+
+class DetectionRequest(Creation):
+    DATA = {"title": "Detect PAN-OS exploitation", "hypothesis": "A GlobalProtect session spawns a shell.",
+            "cve_ids": ["CVE-2024-3400"], "tlp": "amber",
+            "source_event_uuids": [SOURCE_UUID], "source_event_hints": {SOURCE_UUID: "scraper"}}
+
+    def test_its_report_is_rendered_with_what_the_object_holds(self):
+        self.assertEqual(self.create("der", self.DATA), (PRODUCT_UUID, "DER-00042"))
+        self.assertIn("A GlobalProtect session spawns a shell.", self.report())
+        self.assertIn("CVE-2024-3400", self.report())
+        self.tagged.assert_called_once_with(SOURCE_UUID, "detection-eng-request", source_id="scraper")
+
+    def test_one_whose_object_is_refused_is_deleted_again(self):
+        with self.assertRaisesRegex(RuntimeError, "object refused"):
+            self.create("der", self.DATA, refuse="object")
+        self.misp.delete_event.assert_called_once_with(PRODUCT_UUID)
+        self.misp.add_event_report.assert_not_called()
+        self.tagged.assert_not_called()
+
+    def test_one_whose_report_is_refused_is_deleted_again(self):
+        with self.assertRaisesRegex(RuntimeError, "report refused"):
+            self.create("der", self.DATA, refuse="report")
         self.misp.delete_event.assert_called_once_with(PRODUCT_UUID)
         self.tagged.assert_not_called()
 

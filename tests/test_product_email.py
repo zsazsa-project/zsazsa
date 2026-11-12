@@ -185,7 +185,7 @@ class DetectionEngineeringRequestHtml(unittest.TestCase):
             der_id="DER-00042", title="Detect WMI lateral movement", tlp="amber",
             created_at=datetime(2026, 9, 1), author="koen", audience="SOC",
             priority="High", status="In Dev", format="sigma",
-            hypothesis="Actors pivot with wmic.", technique=["T1047"],
+            hypothesis="Actors pivot with wmic.", technique=["T1047"], cve_ids=["CVE-2024-3400"],
             log_sources=["Sysmon"], expected_output="One alert per host.",
             existing_coverage=[], test_cases=["Run wmic /node"],
             draft_rule="title: <script>x</script>",
@@ -201,9 +201,10 @@ class DetectionEngineeringRequestHtml(unittest.TestCase):
 
     def test_the_request_sections_are_kept(self):
         html = self._html()
-        for heading in ("Trigger / hypothesis", "Log sources", "Test cases", "Draft rule (sigma)"):
+        for heading in ("Trigger / hypothesis", "CVE(s)", "Log sources", "Test cases", "Draft rule (sigma)"):
             self.assertIn(html_module.escape(heading), html)
         self.assertIn("Actors pivot with wmic.", html)
+        self.assertIn("CVE-2024-3400", html)
 
     def test_the_draft_rule_is_shown_as_text_not_markup(self):
         self.assertNotIn("<script>x</script>", self._html())

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.11 - development
+
+### Added
+
+- A detection engineering request has a CVE field.
+- A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
+
 ## 1.0.10
 
 ### Added

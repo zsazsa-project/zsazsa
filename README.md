@@ -153,7 +153,7 @@ The infrastructure you observed goes in an indicator feed, and a profile can emb
 
 #### Detection engineering request
 
-When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineers to write one: the hypothesis, the technique, the log sources, what a hit looks like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
+When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineers to write one: the hypothesis, the technique, the CVEs when it is for a vulnerability, the log sources, what a hit looks like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
 
 **Approve first** on the status board opens a request for review and approval without leaving the list. After that it moves along an engineering board: Pending, In Dev, In Test, Active, Retired. Marking it **Active** needs a draft rule that passes Rulezet's validator.
 

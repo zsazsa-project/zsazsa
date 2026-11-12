@@ -42,6 +42,11 @@
           {% for t in der.technique %}<span class="badge bg-secondary me-1 mb-1">{{ t }}</span>{% endfor %}
         </div>
         {% endif %}
+        {% if der.cve_ids %}
+        <div class="mt-2">
+          {% for c in der.cve_ids %}<span class="badge bg-secondary me-1 mb-1">{{ c }}</span>{% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 

@@ -2,7 +2,7 @@
    Included from that page's head_extra block rather than from base.html, so
    the other pages do not load a stylesheet and two scripts they never use.
    The scripts are not deferred: the page's own inline script calls
-   zsazsaBindRulezetAttackLookup() as it is parsed. highlight.js itself is
+   zsazsaBindRulezetAttackLookup() or zsazsaBindRulezetCveLookup() as it is parsed. highlight.js itself is
    only fetched the first time a rule's code is shown. #}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA==" crossorigin="anonymous" referrerpolicy="no-referrer">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/rulezet.css') }}?v={{ app_version }}">
