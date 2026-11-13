@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zsazsa API</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.33.3/swagger-ui.min.css" integrity="sha512-zgi8U6dGnxJlQg6QDOnvGFEfoYzehftcTIY7rn0efDUXifCp2ilasPwRGGHve3ZLO3D+2Vyd7pq1ojYroovS9Q==" crossorigin="anonymous" referrerpolicy="no-referrer">
+</head>
+<body>
+{# Swagger UI replaces this; it stays when the script could not be loaded. #}
+<div id="swagger-ui" style="font-family: sans-serif; margin: 2rem;">
+  The API is described in <a href="{{ url_for('api_v1.openapi') }}">openapi.json</a>.
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.33.3/swagger-ui-bundle.min.js" integrity="sha512-GOQzdeK1HLx/3SCpIPJ3sBgx+FtrfWtBtS558K0nrHvw9a6tlvXVmRwSbrnytb5bo51frn6XPW4QVDNuouCdHg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+  if (window.SwaggerUIBundle) {
+    SwaggerUIBundle({url: {{ url_for('api_v1.openapi') | tojson }}, dom_id: '#swagger-ui'});
+  }
+</script>
+</body>
+</html>

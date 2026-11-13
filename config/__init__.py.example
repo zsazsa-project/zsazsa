@@ -90,6 +90,11 @@ FLOWINTEL_INSTANCES = []
 RULEZET_ENABLED = True
 RULEZET_URL = ''
 
+# The API under /api/v1, for other tools to work with zsazsa (see API.md). A
+# tool signs in with the MISP API key of its own user, in the same organisation
+# as MISP_WEBAPP_KEY.
+API_ENABLED = False
+
 # Additional MISP servers queried by the data-collection page.
 MISP_SERVERS = []
 

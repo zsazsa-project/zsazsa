@@ -70,8 +70,15 @@ def create_app():
             session["_csrf_token"] = secrets.token_hex(32)
         return session["_csrf_token"]
 
+    # The API (webapp/routes/api_v1.py) is not used from a browser: a caller
+    # sends its MISP API key instead of a session, and the blueprint checks the
+    # key before anything else. These two hooks would refuse it for want of a
+    # CSRF token or send it to the MISP login. They know it by its path, as a
+    # request that matched no route, a wrong method for one, has no blueprint.
     @app.before_request
     def _validate_csrf():
+        if request.path.startswith("/api/v1/"):
+            return
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
             expected = session.get("_csrf_token")
@@ -84,7 +91,7 @@ def create_app():
 
     @app.before_request
     def _load_misp_user():
-        if request.endpoint in _PUBLIC_ENDPOINTS:
+        if request.endpoint in _PUBLIC_ENDPOINTS or request.path.startswith("/api/v1/"):
             return
         misp_session.load_request_user()
         if g.misp_user:
@@ -109,6 +116,7 @@ def create_app():
             # switch Rulezet off or clear RULEZET_URL without a restart. The
             # "Search Rulezet" buttons stay disabled while it is off.
             "rulezet_enabled": rulezet_lookup.enabled(),
+            "api_enabled": getattr(config, "API_ENABLED", False),
             "subscribed_products": subscribed_products,
         }
 
@@ -184,6 +192,7 @@ def create_app():
     from webapp.routes.daily_briefing import bp as daily_briefing_bp
     from webapp.routes.threat_landscape import bp as threat_landscape_bp
     from webapp.routes.api import bp as api_bp
+    from webapp.routes.api_v1 import bp as api_v1_bp
     from webapp.routes.collection_sources import bp as collection_sources_bp
     from webapp.routes.pipeline import bp as pipeline_bp
     from webapp.routes.setup_wizard import bp as setup_wizard_bp
@@ -206,6 +215,7 @@ def create_app():
     app.register_blueprint(daily_briefing_bp)
     app.register_blueprint(threat_landscape_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(api_v1_bp)
     app.register_blueprint(community_bp)
     app.register_blueprint(collection_sources_bp)
     app.register_blueprint(pipeline_bp)

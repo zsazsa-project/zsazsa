@@ -406,6 +406,11 @@
       <a href="https://github.com/zsazsa-project/zsazsa/" target="_blank" rel="noopener" class="footer-github" title="GitHub repository">
         <i class="fab fa-github"></i>
       </a>
+      {% if api_enabled %}
+      <a href="{{ url_for('api_v1.docs') }}" target="_blank" rel="noopener" class="footer-github" title="zsazsa API">
+        <i class="fas fa-code"></i>
+      </a>
+      {% endif %}
       <a href="https://www.zsazsa-project.org" target="_blank" rel="noopener" class="footer-github" title="zsazsa project website">
         <i class="fas fa-globe"></i>
       </a>

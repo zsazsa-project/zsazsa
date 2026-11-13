@@ -5,6 +5,7 @@
   <a href="INSTALL.md"><img alt="Installation" src="https://img.shields.io/badge/Installation-0052a3?style=for-the-badge&logo=gnubash&logoColor=white"></a>
   <a href="docker/README.md"><img alt="Docker" src="https://img.shields.io/badge/Docker-0052a3?style=for-the-badge&logo=docker&logoColor=white"></a>
   <a href="#configuration"><img alt="Configuration" src="https://img.shields.io/badge/Configuration-0052a3?style=for-the-badge&logo=files&logoColor=white"></a>
+  <a href="API.md"><img alt="API" src="https://img.shields.io/badge/API-0052a3?style=for-the-badge&logo=swagger&logoColor=white"></a>
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/Changelog-6c757d?style=for-the-badge&logo=git&logoColor=white"></a>
   <a href="https://zsazsa-project.org"><img alt="Website" src="https://img.shields.io/badge/Website-6c757d?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
 </p>
@@ -426,7 +427,7 @@ Saved keys and passwords are never shown again. Leave the field empty to keep on
 
 ### Connections
 
-This tab has the MISP server zsazsa stores its records on, Rulezet and the asset database.
+This tab has the MISP server zsazsa stores its records on, Rulezet, the API and the asset database.
 
 The **asset database** is a CSV file of `"Supplier","Product","Version"` rows (under `volumes/data` with Docker). A CVE whose supplier and product are in the file is in scope for an advisory, which names the asset under "Our exposure". Names are compared loosely: case, punctuation and "Inc." are ignored, "PAN-OS" is "PANOS", and initials match, so "HPE" is Hewlett Packard Enterprise. The version is not compared. A file that cannot be read fails the advisory run.
 
@@ -437,6 +438,7 @@ The **asset database** is a CSV file of `"Supplier","Product","Version"` rows (u
 | `MISP_WEBAPP_VERIFYCERT` | Verify that server's TLS certificate (on) |
 | `RULEZET_ENABLED` | Whether the Rulezet integration is on (on) |
 | `RULEZET_URL` | Base URL of a [Rulezet](https://rulezet.org) instance, searched by CVE or ATT&CK technique and used to validate a detection request's draft rule. Empty disables it |
+| `API_ENABLED` | Whether the [API](API.md) is on (off) |
 | `ASSET_INVENTORY_ENABLED` | Only make an advisory for a CVE in a product of the asset inventory |
 | `ASSET_INVENTORY_FILE` | The asset inventory CSV file |
 | `ASSET_INVENTORY_REFRESH_MINUTES` | How often the file is read again |

@@ -323,6 +323,10 @@ class Routes(unittest.TestCase):
                       data={"format": "sigma", "draft_rule": "title: unvalidated"})
         r.update.assert_not_called()
 
+    def test_the_rule_needs_a_format_the_form_offers(self):
+        r = self.post("draft-rule", _stored_der(), data={"format": "snort", "draft_rule": "alert tcp any"})
+        r.update.assert_not_called()
+
     def test_the_rule_can_be_saved_before_active(self):
         r = self.post("draft-rule", _stored_der(), data={"format": "yara", "draft_rule": "rule x {}"})
         data = r.update.call_args[0][1]
@@ -368,23 +372,24 @@ class CveIds(unittest.TestCase):
     def test_what_is_not_a_cve_id_is_kept_and_refused(self):
         cve_ids = detection_eng._cve_ids("CVE-2024-3400 Log4Shell CVE-24-1")
         self.assertEqual(cve_ids, ["CVE-2024-3400", "LOG4SHELL", "CVE-24-1"])
-        self.assertEqual(detection_eng._cve_warning(cve_ids),
-                         "Not a CVE ID: LOG4SHELL, CVE-24-1. Write each as CVE-2024-3400.")
+        self.assertEqual(misp_store.der_field_errors({"cve_ids": cve_ids}),
+                         ["Not a CVE ID: LOG4SHELL, CVE-24-1. Write each as CVE-2024-3400."])
 
     def test_valid_or_empty_fields_are_not_refused(self):
         self.assertEqual(detection_eng._cve_ids(""), [])
-        self.assertEqual(detection_eng._cve_warning([]), "")
-        self.assertEqual(detection_eng._cve_warning(["CVE-2024-3400"]), "")
+        self.assertEqual(misp_store.der_field_errors({"cve_ids": []}), [])
+        self.assertEqual(misp_store.der_field_errors({"cve_ids": ["CVE-2024-3400"]}), [])
 
 
-class CveForm(unittest.TestCase):
+class WizardForm(unittest.TestCase):
     """The wizard stores the CVEs it is given, and stores nothing while one of
-    them is not a CVE ID."""
+    them is not a CVE ID, the title is empty, or a field has a value the form
+    does not offer. The API checks with the same misp_store.der_field_errors()."""
 
     def setUp(self):
         self.client = _client()
 
-    def post(self, path, cve_ids, review_state=misp_store.DER_REVIEW_DRAFT):
+    def post(self, path, cve_ids="", review_state=misp_store.DER_REVIEW_DRAFT, **fields):
         der = _stored_der(review_state=review_state, status=misp_store.DER_STATUS_PENDING)
         with mock.patch.object(detection_eng.misp_store, "get_der", return_value=der), \
              mock.patch.object(detection_eng.misp_store, "create_der",
@@ -395,7 +400,7 @@ class CveForm(unittest.TestCase):
              mock.patch.object(detection_eng, "render_template", return_value="form") as render, \
              mock.patch.object(detection_eng.audit, "record"):
             self.client.post(f"/products/detection-eng/{path}",
-                             data={"action": "save", "title": der.title, "cve_ids": cve_ids})
+                             data={"action": "save", "title": der.title, "cve_ids": cve_ids, **fields})
         return SimpleNamespace(create=create, update=update, render=render)
 
     def test_a_new_request_stores_the_cves_normalised(self):
@@ -422,6 +427,30 @@ class CveForm(unittest.TestCase):
     def test_clearing_the_field_removes_the_cves(self):
         r = self.post(f"{DER_UUID}/edit", "")
         self.assertEqual(r.update.call_args[0][1]["cve_ids"], [])
+
+    def test_a_format_the_page_cannot_change_does_not_hold_up_a_save(self):
+        with mock.patch.object(detection_eng.misp_store, "DER_FORMATS", ["yara"]):
+            r = self.post(f"{DER_UUID}/edit")
+        r.update.assert_called_once()
+
+    def test_an_edit_cannot_empty_the_title(self):
+        r = self.post(f"{DER_UUID}/edit", title="  ")
+        r.update.assert_not_called()
+
+    def test_a_value_the_form_does_not_offer_is_refused(self):
+        """Only a hand-made post can send one, but it would be stored as it came."""
+        for field, value in (("tlp", "foo"), ("priority", "Urgent"), ("audience", "Marketing")):
+            for path in ("new", f"{DER_UUID}/edit"):
+                with self.subTest(field=field, path=path):
+                    r = self.post(path, **{field: value})
+                    r.create.assert_not_called()
+                    r.update.assert_not_called()
+        r = self.post("new", format="snort")
+        r.create.assert_not_called()
+
+    def test_priority_and_format_can_be_left_at_none(self):
+        r = self.post("new", priority="", format="")
+        r.create.assert_called_once()
 
 
 class SeedFromSources(unittest.TestCase):

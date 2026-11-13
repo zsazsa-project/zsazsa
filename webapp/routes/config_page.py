@@ -251,6 +251,7 @@ def _read() -> dict:
         "FLOWINTEL_CASE_TEMPLATE_PRODUCTS": FLOWINTEL_CASE_TEMPLATE_PRODUCTS,
         "RULEZET_ENABLED": getattr(_config, "RULEZET_ENABLED", True),
         "RULEZET_URL": getattr(_config, "RULEZET_URL", ""),
+        "API_ENABLED": getattr(_config, "API_ENABLED", False),
         "MISP_SERVERS": getattr(_config, "MISP_SERVERS", []),
         "IMAP_SOURCES": getattr(_config, "IMAP_SOURCES", []),
         "PRODUCT_TYPES": _config.PRODUCT_TYPES,
@@ -622,6 +623,11 @@ FLOWINTEL_INSTANCES = {flowintel_instances_repr}
 RULEZET_ENABLED = {bool(values.get('RULEZET_ENABLED', True))}
 RULEZET_URL = {values.get('RULEZET_URL', '')!r}
 
+# The API under /api/v1, for other tools to work with zsazsa (see API.md). A
+# tool signs in with the MISP API key of its own user, in the same organisation
+# as MISP_WEBAPP_KEY.
+API_ENABLED = {bool(values.get('API_ENABLED', False))}
+
 # Additional MISP servers queried by the data-collection page.
 MISP_SERVERS = {servers_repr}
 
@@ -906,6 +912,7 @@ def index():
             "FLOWINTEL_INSTANCES": getattr(_config, "FLOWINTEL_INSTANCES", []),
             "RULEZET_ENABLED": _form_bool("RULEZET_ENABLED", default=True),
             "RULEZET_URL": _form_str("RULEZET_URL"),
+            "API_ENABLED": _form_bool("API_ENABLED"),
             "PRODUCT_TYPES": products,
             "DAILY_BRIEFING_TITLE_EXCLUSIONS": exclusions,
             "FOCUS_POINTS_GEOGRAPHIES": fp_geographies,

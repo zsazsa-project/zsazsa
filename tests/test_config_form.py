@@ -197,6 +197,14 @@ class ConfigSave(unittest.TestCase):
         self.client.post("/config", data=form)
         self.assertEqual(self.saved()["RULEZET_URL"], "")
 
+    def test_the_api_switch_is_saved(self):
+        form = self.full_form()
+        for ticked in (True, False):
+            with self.subTest(ticked=ticked):
+                form["API_ENABLED"] = ["true", "false"] if ticked else "false"
+                self.client.post("/config", data=form)
+                self.assertIs(self.saved()["API_ENABLED"], ticked)
+
     def test_the_misp_url_is_saved_without_a_trailing_slash(self):
         """Links append "/events/view/..." to it and would show "//"."""
         form = self.full_form()

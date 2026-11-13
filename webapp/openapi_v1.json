@@ -1,0 +1,358 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "zsazsa API",
+    "version": "1",
+    "description": "For other tools to work with zsazsa's records. Sign in with the MISP API key of a user of your own, in the same organisation as the key zsazsa stores its records with: select Authorize and paste the key. Every MISP call made for you uses that key, so MISP decides what you may see and change. To create or update, the key's role needs Add, Modify Org and Tagger, and the key must not be read-only."
+  },
+  "servers": [{"url": "/api/v1"}],
+  "security": [{"mispKey": []}],
+  "tags": [
+    {"name": "Detection engineering requests", "description": "A request to the detection engineers to write a detection. Approving, publishing and delivering one, its engineering status, its source events and its linked PIR stay with zsazsa's pages."},
+    {"name": "Flash intel alerts", "description": "Listed only, for now."},
+    {"name": "Vulnerability advisories", "description": "Listed only, for now."},
+    {"name": "Daily threat briefings", "description": "Listed only, for now."}
+  ],
+  "paths": {
+    "/detection-engineering/requests": {
+      "get": {
+        "tags": ["Detection engineering requests"],
+        "summary": "List requests, newest first",
+        "operationId": "listDetectionEngineeringRequests",
+        "parameters": [
+          {"name": "review_state", "in": "query", "schema": {"type": "string", "enum": ["draft", "pending-review", "approved", "rejected"]}},
+          {"name": "status", "in": "query", "schema": {"type": "string", "enum": ["Pending", "In Dev", "In Test", "Active", "Retired"]}},
+          {"name": "priority", "in": "query", "schema": {"type": "string", "enum": ["Low", "Medium", "High", "Critical"]}},
+          {"name": "tlp", "in": "query", "schema": {"type": "string", "enum": ["clear", "green", "amber", "amber+strict", "red"]}},
+          {"name": "audience", "in": "query", "description": "A stakeholder role the request is for.", "schema": {"type": "string", "enum": ["SOC", "Incident Response", "Cyber Threat Intelligence", "Threat Hunting", "Detection Engineering", "Vulnerability Management", "Third Party Risk Management", "IT Security", "CISO / Leadership", "Other"]}},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
+          {"name": "limit", "in": "query", "description": "100 at most.", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "A page of requests", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RequestList"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "post": {
+        "tags": ["Detection engineering requests"],
+        "summary": "Create a request",
+        "description": "A field not listed is refused.",
+        "operationId": "createDetectionEngineeringRequest",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/NewRequest"},
+            "example": {"title": "Detect PAN-OS GlobalProtect exploitation", "technique": ["T1190"], "cve_ids": ["CVE-2024-3400"], "hypothesis": "A GlobalProtect session is followed by a shell spawned by the gateway.", "priority": "High", "audience": ["Detection Engineering"], "review_state": "draft"}
+          }}
+        },
+        "responses": {
+          "201": {
+            "description": "Created. When MISP could not read it back, the body has only uuid and der_id.",
+            "headers": {"Location": {"description": "The new request", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Request"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "502": {"$ref": "#/components/responses/NotTaken"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/detection-engineering/requests/{uuid}": {
+      "parameters": [
+        {"name": "uuid", "in": "path", "required": true, "description": "Anything but a UUID is a 404, MISP's numeric event id included.", "schema": {"type": "string", "format": "uuid"}}
+      ],
+      "get": {
+        "tags": ["Detection engineering requests"],
+        "summary": "Read a request",
+        "operationId": "getDetectionEngineeringRequest",
+        "responses": {
+          "200": {"description": "The request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Request"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "patch": {
+        "tags": ["Detection engineering requests"],
+        "summary": "Change a request",
+        "description": "Changes the fields given and keeps the others; an empty object changes nothing. A field not listed is refused, and a published request cannot be changed.",
+        "operationId": "updateDetectionEngineeringRequest",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/RequestChanges"},
+            "example": {"priority": "Critical", "review_state": "pending-review"}
+          }}
+        },
+        "responses": {
+          "200": {"description": "The request as it is now", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Request"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "502": {"$ref": "#/components/responses/NotTaken"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/flash-intel-alerts": {
+      "get": {
+        "tags": ["Flash intel alerts"],
+        "summary": "List alerts, newest first",
+        "operationId": "listFlashIntelAlerts",
+        "parameters": [
+          {"name": "review_state", "in": "query", "schema": {"type": "string", "enum": ["draft", "pending-review", "approved", "rejected"]}},
+          {"name": "tlp", "in": "query", "schema": {"type": "string", "enum": ["clear", "green", "amber", "amber+strict", "red"]}},
+          {"name": "audience", "in": "query", "description": "A stakeholder role the alert is for.", "schema": {"type": "string", "enum": ["SOC", "Incident Response", "Cyber Threat Intelligence", "Threat Hunting", "Detection Engineering", "Vulnerability Management", "Third Party Risk Management", "IT Security", "CISO / Leadership", "Other"]}},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
+          {"name": "limit", "in": "query", "description": "100 at most.", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "A page of alerts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AlertList"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/vulnerability-advisories": {
+      "get": {
+        "tags": ["Vulnerability advisories"],
+        "summary": "List advisories, newest first",
+        "operationId": "listVulnerabilityAdvisories",
+        "parameters": [
+          {"name": "review_state", "in": "query", "schema": {"type": "string", "enum": ["draft", "pending-review", "approved", "rejected"]}},
+          {"name": "exploitation", "in": "query", "description": "How exploited the vulnerability is, as the list in zsazsa shows it.", "schema": {"type": "string", "enum": ["Active", "KEV listed", "Weaponised", "PoC public", "None known", "Unknown"]}},
+          {"name": "tlp", "in": "query", "schema": {"type": "string", "enum": ["clear", "green", "amber", "amber+strict", "red"]}},
+          {"name": "audience", "in": "query", "description": "A stakeholder role the advisory is for.", "schema": {"type": "string", "enum": ["SOC", "Incident Response", "Cyber Threat Intelligence", "Threat Hunting", "Detection Engineering", "Vulnerability Management", "Third Party Risk Management", "IT Security", "CISO / Leadership", "Other"]}},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
+          {"name": "limit", "in": "query", "description": "100 at most.", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "A page of advisories", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdvisoryList"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/daily-briefings": {
+      "get": {
+        "tags": ["Daily threat briefings"],
+        "summary": "List briefings, newest first",
+        "operationId": "listDailyBriefings",
+        "parameters": [
+          {"name": "review_state", "in": "query", "schema": {"type": "string", "enum": ["draft", "published", "rejected"]}},
+          {"name": "tlp", "in": "query", "schema": {"type": "string", "enum": ["clear", "green", "amber", "amber+strict", "red"]}},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
+          {"name": "limit", "in": "query", "description": "100 at most.", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "A page of briefings", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BriefingList"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "mispKey": {"type": "apiKey", "in": "header", "name": "Authorization", "description": "The MISP API key of your user."}
+    },
+    "schemas": {
+      "RequestChanges": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "description": "Cannot be empty."},
+          "technique": {"type": "array", "items": {"type": "string"}, "description": "MITRE ATT&CK techniques, as the ID (T1047) or as the galaxy value (Windows Management Instrumentation - T1047). Stored as the galaxy value."},
+          "cve_ids": {"type": "array", "items": {"type": "string", "pattern": "^CVE-\\d{4}-\\d{4,}$"}},
+          "hypothesis": {"type": "string"},
+          "log_sources": {"type": "array", "items": {"type": "string"}},
+          "expected_output": {"type": "string"},
+          "existing_coverage": {"type": "array", "items": {"type": "string"}},
+          "test_cases": {"type": "array", "items": {"type": "string"}},
+          "priority": {"type": "string", "enum": ["", "Low", "Medium", "High", "Critical"], "description": "Empty for none, as on the form."},
+          "tlp": {"type": "string", "enum": ["clear", "green", "amber", "amber+strict", "red"]},
+          "audience": {"type": "array", "items": {"type": "string", "enum": ["SOC", "Incident Response", "Cyber Threat Intelligence", "Threat Hunting", "Detection Engineering", "Vulnerability Management", "Third Party Risk Management", "IT Security", "CISO / Leadership", "Other"]}},
+          "author": {"type": "string"},
+          "review_state": {"type": "string", "enum": ["draft", "pending-review"], "description": "Approving is done in zsazsa. Set on a rejected request, it sends it back and clears the rejection reason."}
+        }
+      },
+      "NewRequest": {
+        "allOf": [
+          {"$ref": "#/components/schemas/RequestChanges"},
+          {
+            "type": "object",
+            "required": ["title"],
+            "description": "tlp is amber and review_state draft unless given. The rule and its format are only set here; after that zsazsa's detail page changes them, as it checks the rule with Rulezet.",
+            "properties": {
+              "format": {"type": "string", "description": "Empty for none, as on the form.", "enum": ["", "yara", "sigma", "suricata", "zeek", "wazuh", "nse", "crs", "nova", "splunk", "elastic", "sagan", "kql", "atr", "kunai"]},
+              "draft_rule": {"type": "string"}
+            }
+          }
+        ]
+      },
+      "Request": {
+        "type": "object",
+        "properties": {
+          "uuid": {"type": "string", "format": "uuid"},
+          "der_id": {"type": "string", "example": "DER-00042"},
+          "title": {"type": "string"},
+          "technique": {"type": "array", "items": {"type": "string"}},
+          "technique_ids": {"type": "array", "items": {"type": "string"}, "example": ["T1047"]},
+          "cve_ids": {"type": "array", "items": {"type": "string"}},
+          "hypothesis": {"type": "string"},
+          "log_sources": {"type": "array", "items": {"type": "string"}},
+          "expected_output": {"type": "string"},
+          "existing_coverage": {"type": "array", "items": {"type": "string"}},
+          "test_cases": {"type": "array", "items": {"type": "string"}},
+          "format": {"type": "string"},
+          "draft_rule": {"type": "string"},
+          "priority": {"type": "string"},
+          "tlp": {"type": "string"},
+          "audience": {"type": "array", "items": {"type": "string"}},
+          "author": {"type": "string"},
+          "review_state": {"type": "string", "enum": ["draft", "pending-review", "approved", "rejected"]},
+          "status": {"type": "string", "enum": ["Pending", "In Dev", "In Test", "Active", "Retired"]},
+          "rejection_reason": {"type": "string"},
+          "creator": {"type": "string"},
+          "approved_by": {"type": "string"},
+          "published": {"type": "boolean"},
+          "published_at": {"type": "string", "format": "date-time", "nullable": true},
+          "created_at": {"type": "string", "format": "date-time", "nullable": true},
+          "misp_url": {"type": "string"},
+          "source_event_uuids": {"type": "array", "items": {"type": "string"}},
+          "linked_pir_uuid": {"type": "string"}
+        }
+      },
+      "RequestList": {
+        "type": "object",
+        "properties": {
+          "requests": {"type": "array", "items": {"$ref": "#/components/schemas/Request"}},
+          "page": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "total": {"type": "integer", "description": "How many match, on every page."}
+        }
+      },
+      "AlertSummary": {
+        "type": "object",
+        "properties": {
+          "uuid": {"type": "string", "format": "uuid"},
+          "fia_id": {"type": "string"},
+          "summary": {"type": "string"},
+          "audience": {"type": "array", "items": {"type": "string"}},
+          "title": {"type": "string"},
+          "review_state": {"type": "string"},
+          "tlp": {"type": "string"},
+          "creator": {"type": "string"},
+          "approved_by": {"type": "string"},
+          "published": {"type": "boolean"},
+          "published_at": {"type": "string", "format": "date-time", "nullable": true},
+          "created_at": {"type": "string", "format": "date-time", "nullable": true},
+          "misp_url": {"type": "string"}
+        }
+      },
+      "AlertList": {
+        "type": "object",
+        "properties": {
+          "alerts": {"type": "array", "items": {"$ref": "#/components/schemas/AlertSummary"}},
+          "page": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "total": {"type": "integer", "description": "How many match, on every page."}
+        }
+      },
+      "AdvisorySummary": {
+        "type": "object",
+        "properties": {
+          "uuid": {"type": "string", "format": "uuid"},
+          "vea_id": {"type": "string"},
+          "cve_id": {"type": "string"},
+          "cvss": {"type": "string"},
+          "exploitation": {"type": "string", "enum": ["Active", "KEV listed", "Weaponised", "PoC public", "None known", "Unknown"]},
+          "summary": {"type": "string"},
+          "audience": {"type": "array", "items": {"type": "string"}},
+          "title": {"type": "string"},
+          "review_state": {"type": "string"},
+          "tlp": {"type": "string"},
+          "creator": {"type": "string"},
+          "approved_by": {"type": "string"},
+          "published": {"type": "boolean"},
+          "published_at": {"type": "string", "format": "date-time", "nullable": true},
+          "created_at": {"type": "string", "format": "date-time", "nullable": true},
+          "misp_url": {"type": "string"}
+        }
+      },
+      "AdvisoryList": {
+        "type": "object",
+        "properties": {
+          "advisories": {"type": "array", "items": {"$ref": "#/components/schemas/AdvisorySummary"}},
+          "page": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "total": {"type": "integer", "description": "How many match, on every page."}
+        }
+      },
+      "BriefingSummary": {
+        "type": "object",
+        "properties": {
+          "uuid": {"type": "string", "format": "uuid"},
+          "date": {"type": "string", "format": "date"},
+          "story_count": {"type": "integer"},
+          "summary": {"type": "string"},
+          "title": {"type": "string"},
+          "review_state": {"type": "string"},
+          "tlp": {"type": "string"},
+          "creator": {"type": "string"},
+          "approved_by": {"type": "string"},
+          "published": {"type": "boolean"},
+          "published_at": {"type": "string", "format": "date-time", "nullable": true},
+          "created_at": {"type": "string", "format": "date-time", "nullable": true},
+          "misp_url": {"type": "string"}
+        }
+      },
+      "BriefingList": {
+        "type": "object",
+        "properties": {
+          "briefings": {"type": "array", "items": {"$ref": "#/components/schemas/BriefingSummary"}},
+          "page": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "total": {"type": "integer", "description": "How many match, on every page."}
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "example": "unprocessable-entity"},
+              "message": {"type": "string", "description": "What went wrong, naming the field when there is one."}
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {"description": "The body is not a JSON object", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unauthorized": {"description": "No key, or one MISP refuses", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Forbidden": {"description": "The key's user is in another organisation, its role lacks a permission, or the key is read-only", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotFound": {"description": "No such request, or one the key cannot see", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Conflict": {"description": "The request is published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unprocessable": {"description": "A field that cannot be set, or a value that is not valid, in the body or the query", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotTaken": {"description": "MISP did not take the write, or not all of it, with its reason", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unavailable": {"description": "MISP cannot be reached", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    }
+  }
+}

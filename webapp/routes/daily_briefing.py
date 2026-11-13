@@ -16,7 +16,7 @@ from webapp import (audit, branding, collection_cache, job_store, misp_session,
                     misp_store, notify_jobs, product_log)
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.utils import (TLP_NAMES, dedup_lower, matching, md_to_html, mute_lead_labels, ordered_counts,
-                          sort_products, tlp_counts, tlp_of)
+                          sort_products, tlp_counts)
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
 
 logger = logging.getLogger(__name__)
@@ -359,11 +359,7 @@ def list_briefings():
     sort = (request.args.get("sort") or "").strip()
     direction = (request.args.get("dir") or "asc").strip()
     all_briefings = misp_store.list_briefings()
-    tests = {}
-    if state_filter:
-        tests["state"] = lambda b: b.review_state == state_filter
-    if tlp_filter:
-        tests["tlp"] = lambda b: tlp_of(b) == tlp_filter
+    tests = misp_store.product_filters(review_state=state_filter, tlp=tlp_filter)
     briefings = sort_products(matching(all_briefings, tests), sort, direction)
     return render_template(
         "daily_briefing/list.html",
@@ -375,7 +371,7 @@ def list_briefings():
         tlp_filter=tlp_filter,
         review_states=misp_store.BRIEFING_REVIEW_STATES,
         tlp_choices=TLP_NAMES,
-        state_counts=ordered_counts((b.review_state for b in matching(all_briefings, tests, skip="state")),
+        state_counts=ordered_counts((b.review_state for b in matching(all_briefings, tests, skip="review_state")),
                                     misp_store.BRIEFING_REVIEW_STATES),
         tlp_counts=tlp_counts(matching(all_briefings, tests, skip="tlp")),
         can_publish=misp_session.current_user_can_publish(),

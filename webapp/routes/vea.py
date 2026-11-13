@@ -18,7 +18,7 @@ from webapp.routes.source_event_utils import (
 )
 from webapp import audit, branding, collection_cache, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
-from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
+from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("vea", __name__, url_prefix="/products/vea")
@@ -138,19 +138,6 @@ def _start_vea_delivery(vea_id, uuid, reason):
     )
 
 
-# What the list says of an advisory's exploitation, and filters it on: seen
-# exploited, listed by CISA as known exploited, or else how far an exploit is.
-EXPLOITATION = ["Active", "KEV listed"] + misp_store.VEA_EXPLOIT_AVAILABILITY
-
-
-def _exploitation(vea):
-    if "yes" in (vea.observed_exploitation or "").lower():
-        return "Active"
-    if vea.cisa_kev == "Yes":
-        return "KEV listed"
-    return vea.exploit_availability or "Unknown"
-
-
 @bp.route("/")
 def review():
     state_filter = (request.args.get("state") or "").strip()
@@ -160,29 +147,23 @@ def review():
     sort = (request.args.get("sort") or "").strip()
     direction = (request.args.get("dir") or "asc").strip()
     all_veas = misp_store.list_veas()
-    tests = {}
-    if state_filter:
-        tests["state"] = lambda v: v.review_state == state_filter
-    if tlp_filter:
-        tests["tlp"] = lambda v: tlp_of(v) == tlp_filter
-    if audience_filter:
-        tests["audience"] = lambda v: misp_store.has_audience(v, audience_filter)
-    if exploitation_filter:
-        tests["exploitation"] = lambda v: _exploitation(v) == exploitation_filter
+    tests = misp_store.product_filters(review_state=state_filter, tlp=tlp_filter, audience=audience_filter,
+                                       exploitation=exploitation_filter)
     veas = sort_products(matching(all_veas, tests), sort, direction)
     return render_template(
         "vea/review.html",
         veas=veas,
         rejected_count=sum(v.review_state == misp_store.VEA_REVIEW_REJECTED for v in all_veas),
-        exploitation={v.uuid: _exploitation(v) for v in veas},
+        exploitation={v.uuid: misp_store.vea_exploitation(v) for v in veas},
         state_filter=state_filter,
         exploitation_filter=exploitation_filter,
         review_states=misp_store.VEA_REVIEW_STATES,
-        exploitation_choices=EXPLOITATION,
-        state_counts=ordered_counts((v.review_state for v in matching(all_veas, tests, skip="state")),
+        exploitation_choices=misp_store.VEA_EXPLOITATION,
+        state_counts=ordered_counts((v.review_state for v in matching(all_veas, tests, skip="review_state")),
                                     misp_store.VEA_REVIEW_STATES),
-        exploitation_counts=ordered_counts((_exploitation(v) for v in matching(all_veas, tests, skip="exploitation")),
-                                           EXPLOITATION),
+        exploitation_counts=ordered_counts((misp_store.vea_exploitation(v)
+                                            for v in matching(all_veas, tests, skip="exploitation")),
+                                           misp_store.VEA_EXPLOITATION),
         tlp_filter=tlp_filter,
         audience_filter=audience_filter,
         tlp_choices=TLP_NAMES,

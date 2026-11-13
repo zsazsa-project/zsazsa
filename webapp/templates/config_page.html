@@ -318,6 +318,7 @@
             <a href="#connections-overview"><i class="fas fa-plug"></i>What zsazsa connects to</a>
             <a href="#connections-misp"><i class="fas fa-server"></i>MISP webapp store</a>
             <a href="#connections-rulezet"><i class="fas fa-shield-halved"></i>Rulezet</a>
+            <a href="#connections-api"><i class="fas fa-code"></i>API</a>
             <a href="#connections-assets"><i class="fas fa-boxes-stacked"></i>Asset database</a>
           </nav>
         </div>
@@ -330,6 +331,7 @@
                 {% for anchor, label, what, on, state, icon, logo in (
                      ('connections-misp', 'MISP webapp store', 'Its records and products', webapp_set, 'Set up' if webapp_set else 'Not set up', '', misp_logo),
                      ('connections-rulezet', 'Rulezet', 'Public detection rules', rulezet_on, 'On' if rulezet_on else 'Off', 'fas fa-shield-halved', ''),
+                     ('connections-api', 'API', 'For other tools to work with zsazsa', cfg.API_ENABLED, 'On' if cfg.API_ENABLED else 'Off', 'fas fa-code', ''),
                      ('connections-assets', 'Asset database', 'What the advisories check', cfg.ASSET_INVENTORY_ENABLED, 'On' if cfg.ASSET_INVENTORY_ENABLED else 'Off', 'fas fa-boxes-stacked', '')) %}
                 <div class="col-md-4">{{ settings_tile(anchor, label, what, state, on, icon, logo) }}</div>
                 {% endfor %}
@@ -387,6 +389,19 @@
               <label class="form-label">Instance URL</label>
               <input type="url" name="RULEZET_URL" class="form-control font-monospace"
                      placeholder="https://rulezet.org" value="{{ cfg.RULEZET_URL }}">
+            </div>
+          </div>
+
+          <div class="card content-card mb-4" id="connections-api">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span><i class="fas fa-code me-2"></i>API</span>
+              {{ header_switch('API_ENABLED', 'Enabled') }}
+            </div>
+            <div class="card-body">
+              <p class="small mb-0">For other tools, such as Rulezet, to work with zsazsa under <code>/api/v1</code>. A tool
+                signs in with the MISP API key of its own user, who has to be in the same organisation as the key above.
+                {% if cfg.API_ENABLED %}Its <a href="{{ url_for('api_v1.docs') }}" target="_blank" rel="noopener">documentation</a>
+                lets you try it out.{% else %}Switched on, it has a page of documentation to try it out.{% endif %}</p>
             </div>
           </div>
 

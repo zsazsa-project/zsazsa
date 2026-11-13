@@ -14,7 +14,7 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for,
 
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
-from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
+from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts
 from webapp.routes.source_event_utils import (
     flattened_references,
     linked_pir_uuid,
@@ -156,13 +156,7 @@ def review():
     sort = (request.args.get("sort") or "").strip()
     direction = (request.args.get("dir") or "asc").strip()
     all_fias = misp_store.list_fias()
-    tests = {}
-    if state_filter:
-        tests["state"] = lambda f: f.review_state == state_filter
-    if tlp_filter:
-        tests["tlp"] = lambda f: tlp_of(f) == tlp_filter
-    if audience_filter:
-        tests["audience"] = lambda f: misp_store.has_audience(f, audience_filter)
+    tests = misp_store.product_filters(review_state=state_filter, tlp=tlp_filter, audience=audience_filter)
     fias = sort_products(matching(all_fias, tests), sort, direction)
     # The queue can hold dozens of alerts, so the preview rows use the reference
     # URLs the FIA already carries rather than resolving each one against MISP.
@@ -180,7 +174,7 @@ def review():
         reference_items_by_uuid=reference_items_by_uuid,
         state_filter=state_filter,
         review_states=misp_store.FIA_REVIEW_STATES,
-        state_counts=ordered_counts((f.review_state for f in matching(all_fias, tests, skip="state")),
+        state_counts=ordered_counts((f.review_state for f in matching(all_fias, tests, skip="review_state")),
                                     misp_store.FIA_REVIEW_STATES),
         tlp_filter=tlp_filter,
         audience_filter=audience_filter,

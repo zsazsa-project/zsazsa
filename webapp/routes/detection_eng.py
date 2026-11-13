@@ -26,7 +26,7 @@ from core.rulezet_lookup import validate_rule
 from core.vuln_lookup import CVE_RE
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
-from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
+from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("detection_eng", __name__, url_prefix="/products/detection-eng")
@@ -40,13 +40,6 @@ def source_event_meta():
 def _cve_ids(raw):
     """The CVE field split on commas, semicolons and white space, each entry once."""
     return list(dict.fromkeys(raw.replace(",", " ").replace(";", " ").upper().split()))
-
-
-def _cve_warning(cve_ids):
-    not_cves = [c for c in cve_ids if not CVE_RE.fullmatch(c)]
-    if not_cves:
-        return f"Not a CVE ID: {', '.join(not_cves)}. Write each as CVE-2024-3400."
-    return ""
 
 
 def _seed_from_sources(source_uuids, source_hints):
@@ -175,15 +168,8 @@ def review():
     sort = (request.args.get("sort") or "").strip()
     direction = (request.args.get("dir") or "asc").strip()
     all_ders = misp_store.list_ders()
-    tests = {}
-    if state_filter:
-        tests["state"] = lambda d: d.review_state == state_filter
-    if tlp_filter:
-        tests["tlp"] = lambda d: tlp_of(d) == tlp_filter
-    if audience_filter:
-        tests["audience"] = lambda d: misp_store.has_audience(d, audience_filter)
-    if priority_filter:
-        tests["priority"] = lambda d: d.priority == priority_filter
+    tests = misp_store.product_filters(review_state=state_filter, priority=priority_filter,
+                                       tlp=tlp_filter, audience=audience_filter)
     ders = sort_products(matching(all_ders, tests), sort, direction)
     return render_template(
         "detection_eng/review.html",
@@ -192,7 +178,7 @@ def review():
         review_states=misp_store.DER_REVIEW_STATES,
         priority_filter=priority_filter,
         priorities=PRIORITIES,
-        state_counts=ordered_counts((d.review_state for d in matching(all_ders, tests, skip="state")),
+        state_counts=ordered_counts((d.review_state for d in matching(all_ders, tests, skip="review_state")),
                                     misp_store.DER_REVIEW_STATES),
         status_counts=ordered_counts((d.status for d in ders), misp_store.DER_STATUSES),
         priority_counts=ordered_counts((d.priority for d in matching(all_ders, tests, skip="priority")), PRIORITIES),
@@ -222,13 +208,10 @@ def wizard_new():
         source_events = misp_store.fetch_source_events(
             data.get("source_event_uuids") or [], source_hints=source_hints, strict_source=bool(source_hints)
         )
-        if not data["title"]:
-            flash("Title is required.", "warning")
-            return render_template("detection_eng/wizard.html", is_edit=False,
-                                   source_events=source_events, **_wizard_context(data, source_events))
-        cve_warning = _cve_warning(data["cve_ids"])
-        if cve_warning:
-            flash(cve_warning, "warning")
+        errors = misp_store.der_field_errors(data)
+        if errors:
+            for error in errors:
+                flash(error, "warning")
             return render_template("detection_eng/wizard.html", is_edit=False,
                                    source_events=source_events, **_wizard_context(data, source_events))
         action = request.form.get("action", "save")
@@ -309,6 +292,9 @@ def wizard_edit(id):
         return redirect(url_for("detection_eng.detail", id=id))
     if request.method == "POST":
         data = _form_data(request.form, der_id=der.der_id)
+        # Checked before the stored values below replace what the form posted:
+        # the page cannot change those, so they must not hold up a save.
+        errors = misp_store.der_field_errors(data)
         data["status"] = der.status
         data["review_state"] = der.review_state or misp_store.DER_REVIEW_DRAFT
         # The draft rule and its format are only changed through
@@ -321,9 +307,9 @@ def wizard_edit(id):
         source_events = misp_store.fetch_source_events(
             data.get("source_event_uuids") or [], source_hints=source_hints, strict_source=bool(source_hints)
         )
-        cve_warning = _cve_warning(data["cve_ids"])
-        if cve_warning:
-            flash(cve_warning, "warning")
+        if errors:
+            for error in errors:
+                flash(error, "warning")
             return render_template("detection_eng/wizard.html", is_edit=True,
                                    source_events=source_events, **_wizard_context(data, source_events))
         action = request.form.get("action", "save")
@@ -380,6 +366,10 @@ def set_draft_rule(id):
         return redirect(url_for("detection_eng.detail", id=id))
     fmt = request.form.get("format", "").strip()
     draft_rule = request.form.get("draft_rule", "").strip()
+    errors = misp_store.der_field_errors({"format": fmt})
+    if errors:
+        flash(errors[0], "warning")
+        return redirect(url_for("detection_eng.detail", id=id))
     try:
         misp_store.update_der(id, misp_store._der_data(der, format=fmt, draft_rule=draft_rule))
         audit.record("update", "detection_eng", entity_id=id, entity_label=f"{der.der_id} draft rule updated")

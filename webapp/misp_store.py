@@ -29,12 +29,14 @@ import urllib3
 import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from functools import partial
 from types import SimpleNamespace
 
 import config
 import requests
 from analyser import event_state, tagger
 from core.db import next_sequence_value
+from core.vuln_lookup import CVE_RE
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
@@ -1071,8 +1073,8 @@ _WEBAPP_KEY_PERMISSIONS = (
 )
 
 
-def webapp_key_shortcomings():
-    """What MISP_WEBAPP_KEY may not do, one line each; None when MISP cannot be asked.
+def key_is_read_only(role, version):
+    """Whether a key is read-only, from its user's role and MISP's getVersion.
 
     /users/view/me answers with the role as it is stored, whatever the key.
     A read-only key loses every permission on each request instead, and
@@ -1080,6 +1082,12 @@ def webapp_key_shortcomings():
     role grants and getVersion reports as off marks the key as read-only. One
     that an older MISP does not report is not counted.
     """
+    return any(misp_session._role_grants(role, perm) and version.get(perm) is False
+               for perm in ("perm_sync", "perm_sighting", "perm_galaxy_editor", "perm_analyst_data"))
+
+
+def webapp_key_shortcomings():
+    """What MISP_WEBAPP_KEY may not do, one line each; None when MISP cannot be asked."""
     try:
         # A client of its own, with a short timeout: the settings page is where
         # a wrong MISP address is put right, so it must not wait on that MISP.
@@ -1093,8 +1101,7 @@ def webapp_key_shortcomings():
     if "errors" in me:
         return None
     role = me.get("Role") or {}
-    if any(misp_session._role_grants(role, perm) and version.get(perm) is False
-           for perm in ("perm_sync", "perm_sighting", "perm_galaxy_editor", "perm_analyst_data")):
+    if key_is_read_only(role, version):
         return ["The key is read-only, so zsazsa cannot store or change anything in MISP."]
     return [f"Without {perm}, zsazsa cannot {what}."
             for perm, what in _WEBAPP_KEY_PERMISSIONS if not misp_session._role_grants(role, perm)]
@@ -5859,6 +5866,24 @@ def has_audience(product, role) -> bool:
     return role in _audiences(product.audience)
 
 
+# How a product matches each filter of the product lists, by filter name. The
+# list pages and the API both filter with product_filters(), so a filter works
+# the same in both.
+_PRODUCT_FILTERS = {
+    "review_state": lambda product, value: product.review_state == value,
+    "status": lambda product, value: product.status == value,
+    "priority": lambda product, value: product.priority == value,
+    "tlp": lambda product, value: product.tlp.lower() == value.lower(),
+    "audience": lambda product, value: has_audience(product, value),
+    "exploitation": lambda product, value: vea_exploitation(product) == value,
+}
+
+
+def product_filters(**filters):
+    """The tests of the filters that are set, by name, for webapp.utils.matching()."""
+    return {name: partial(_PRODUCT_FILTERS[name], value=value) for name, value in filters.items() if value}
+
+
 def audience_counts(products) -> list:
     """[(role, how many)] of the audiences of ``products``, for the bar above
     their list, in the order of the stakeholder roles."""
@@ -5957,6 +5982,17 @@ VEA_EXPLOIT_AVAILABILITY = ["Weaponised", "PoC public", "None known", "Unknown"]
 VEA_EXPLOIT_COMPLEXITY = ["Low", "Medium", "High", "Unknown"]
 VEA_ACTOR_INTEREST = ["Ransomware", "APT", "Opportunistic", "Multiple", "None observed", "Unknown"]
 VEA_CISA_KEV = ["Yes", "No", "Unknown"]
+# What the list says of an advisory's exploitation, and filters it on: seen
+# exploited, listed by CISA as known exploited, or else how far an exploit is.
+VEA_EXPLOITATION = ["Active", "KEV listed"] + VEA_EXPLOIT_AVAILABILITY
+
+
+def vea_exploitation(vea):
+    if "yes" in (vea.observed_exploitation or "").lower():
+        return "Active"
+    if vea.cisa_kev == "Yes":
+        return "KEV listed"
+    return vea.exploit_availability or "Unknown"
 
 
 def _vea_obj(data):
@@ -6506,6 +6542,34 @@ def _der_data(der, **overrides):
     return _record_data(der, _DER_FIELDS, **overrides)
 
 
+def der_field_errors(data):
+    """What is wrong with the fields of a detection engineering request, one
+    message each. The web form and the API both check with this, and only the
+    fields in data are checked, so an API change is checked on its own.
+
+    Techniques are left out: the form keeps ones that are not in the ATT&CK
+    galaxy, typed in while MISP was out of reach or brought in from a source
+    event.
+    """
+    errors = []
+    if "title" in data and not data["title"].strip():
+        errors.append("A title is required.")
+    not_cves = [c for c in data.get("cve_ids", []) if not CVE_RE.fullmatch(c)]
+    if not_cves:
+        errors.append(f"Not a CVE ID: {', '.join(not_cves)}. Write each as CVE-2024-3400.")
+    if data.get("priority") and data["priority"] not in DER_PRIORITIES:
+        errors.append(f"The priority has to be one of: {', '.join(DER_PRIORITIES)}, or none.")
+    if data.get("format") and data["format"] not in DER_FORMATS:
+        errors.append(f"The format has to be one of: {', '.join(DER_FORMATS)}, or none.")
+    if "tlp" in data and data["tlp"] not in FIA_TLP_LEVELS:
+        errors.append(f"The TLP has to be one of: {', '.join(FIA_TLP_LEVELS)}.")
+    roles = [role for role in data.get("audience", "").split(", ") if role]
+    not_roles = [role for role in roles if role not in STAKEHOLDER_ROLES]
+    if not_roles:
+        errors.append(f"Not a stakeholder role for the audience: {', '.join(not_roles)}.")
+    return errors
+
+
 def _der_id_from_event_id(event_id):
     return f"DER-{int(event_id):05d}"
 
@@ -6611,12 +6675,10 @@ def _der_source_uuids() -> set:
     return {uuid for der in list_ders() for uuid in der.source_event_uuids}
 
 
-def list_ders():
-    misp = _misp()
-    events = _search_all(misp, tags=[config.TAG_DETECTION_ENG], pythonify=True)
-    if not events or isinstance(events, dict):
-        return []
-    result = [_der_ns(e) for e in events]
+def list_ders(strict=False):
+    """Every detection engineering request, newest first. With ``strict``, a
+    search MISP failed raises instead of reading as no requests."""
+    result = [_der_ns(e) for e in _tagged_events(config.TAG_DETECTION_ENG, strict=strict)]
     result.sort(key=lambda d: d.der_id, reverse=True)
     return result
 
@@ -6665,11 +6727,47 @@ def create_der(data):
     return uuid, der_id
 
 
+# A request is read, changed and written back in several MISP calls. Two
+# changes overlapping (two API calls, or the API and an analyst) would each
+# delete fields the other wrote and leave a report each. zsazsa runs as one
+# process (INSTALL.md), so a process lock is enough, as for the briefings.
+_der_write_lock = threading.RLock()
+
+
 def update_der(uuid, data):
+    """Write data over the request."""
+    with _der_write_lock:
+        event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
+        if event is None:
+            raise RuntimeError(f"DER event {uuid} not found")
+        der = _write_der(event, data)
+    return uuid, der.der_id
+
+
+def change_der(uuid, changes, refuse_published=False):
+    """Change the fields in ``changes`` and keep what the others have stored.
+
+    The request is read here, right before it is written, so that a review
+    made since the caller last saw it is not written over. Returns the request
+    as MISP has it afterwards, or None when there is no such request. With
+    ``refuse_published``, a published request raises ValueError.
+    """
+    with _der_write_lock:
+        event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
+        if event is None:
+            return None
+        der = _der_ns(event)
+        if refuse_published and der.review_state == DER_REVIEW_APPROVED:
+            raise ValueError(f"{der.der_id} is published and can no longer be changed.")
+        if not changes:
+            return der
+        return _write_der(event, _der_data(der, **changes))
+
+
+def _write_der(event, data):
+    """Write data over the request read as ``event``, and return it as stored."""
     misp = _misp()
-    event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
-    if event is None:
-        raise RuntimeError(f"DER event {uuid} not found")
+    uuid = event.uuid
     before = _sources_of(_der_ns(event))
 
     old = _get_obj(event, "zsazsa-detection-eng-request")
@@ -6693,24 +6791,22 @@ def update_der(uuid, data):
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
     tagger.set_workflow_state(misp, event, _WORKFLOW_STATES[new_review_state])
 
-    refreshed = misp.get_event(uuid, pythonify=True)
+    refreshed = _check(misp.get_event(uuid, pythonify=True), "read the changed DER back")
     _delete_der_reports(misp, refreshed)
     der = _der_ns(refreshed)
     _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
     _retag_product_sources("detection-eng-request", before, _sources_of(der), _der_source_uuids)
-    return uuid, der_id
+    return der
 
 
 def set_der_review_state(uuid, state, reason=None):
     if state not in DER_REVIEW_STATES:
         raise ValueError(f"invalid DER review state: {state}")
-    event = _zsazsa_event(uuid, "zsazsa-detection-eng-request", config.TAG_DETECTION_ENG)
-    if event is None:
+    changes = {"review_state": state}
+    if reason:
+        changes["rejection_reason"] = reason
+    if change_der(uuid, changes) is None:
         raise RuntimeError(f"DER event {uuid} not found")
-    der = _der_ns(event)
-
-    update_der(uuid, _der_data(der, review_state=state,
-                               rejection_reason=reason or der.rejection_reason))
 
 
 def publish_der(uuid):

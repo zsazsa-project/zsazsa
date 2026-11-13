@@ -5,7 +5,7 @@
 ### Added
 
 - A detection engineering request has a CVE field.
-- A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
+- An API, accessible with a MISP key. It is off until switched on under Settings > Connections, and then the footer links to it.
 
 ### Fixed
 
