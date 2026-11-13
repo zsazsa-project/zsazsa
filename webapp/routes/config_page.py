@@ -18,6 +18,7 @@ from core import ai_connector, asset_inventory, flowintel_client
 from core.atomic_write import write_atomically
 from webapp import audit, misp_session, misp_store, newsletter_parsers
 from webapp.collection_cache import _split_tags, filter_events_by_org, partner_tag_filter
+from webapp.models import FOCUS_POINT_SETTINGS
 from webapp.rate_limit import rate_limited
 from webapp.routes import setup_wizard
 from webapp.utils import (
@@ -1026,6 +1027,47 @@ def index():
                            key_shortcomings=key_shortcomings, asset_count=asset_count, asset_error=asset_error,
                            analyser_settings=analyser_settings, focus_choices=focus_choices,
                            focus_missing=focus_missing, focus_lists=setup_wizard.FOCUS_LISTS)
+
+
+def _add_focus_point(category, name):
+    """Add ``name`` to the focus points of a requirement's scope category.
+    Returns the message for the analyst and the HTTP status that goes with it."""
+    setting = FOCUS_POINT_SETTINGS.get(category)
+    if not setting or not name:
+        return "Only a geography, sector, threat actor, threat type, technology or vendor can be a focus point.", 400
+    current = _read()
+    if name.lower() in (n.lower() for n in current[setting]):
+        return f"{name} is already a focus point.", 200
+    current[setting] = current[setting] + [name]
+    try:
+        _write(current)
+        importlib.reload(_config)
+    except Exception:
+        logger.exception("Could not add the focus point %s", name)
+        return "Could not save configuration.", 500
+    audit.record("update", "config", entity_label="focus-points", details=f"{setting}: added {name}")
+    return f"{name} is now a focus point.", 200
+
+
+@bp.route("/config/focus-points/add", methods=["POST"])
+def add_focus_point():
+    """Add a scope item of a PIR or GIR to the focus points, from the overlap in
+    its Scope card. The record's page posts a form and goes back to the record
+    with the overlap open. The edit form posts JSON and stays, so what the
+    analyst has not saved yet is kept."""
+    if request.is_json:
+        data, err = _json_object()
+        if err:
+            return err
+        message, status = _add_focus_point(str(data.get("category") or ""), str(data.get("value") or "").strip())
+        return jsonify({"ok": status == 200, "message": message}), status
+    message, status = _add_focus_point(request.form.get("category", ""), request.form.get("value", "").strip())
+    flash(message, "success" if status == 200 else "warning")
+    kind = request.form.get("kind")
+    record_id = request.form.get("id", "")
+    if kind in ("pir", "gir") and record_id.replace("-", "").isalnum():
+        return redirect(url_for(f"requirements.{kind}_detail", id=record_id, overlap=1, _anchor="scope-overlap"))
+    return redirect(url_for("config_page.index", tab="tab-products", _anchor="products-focus"))
 
 
 @bp.route("/config/run-migration", methods=["POST"])

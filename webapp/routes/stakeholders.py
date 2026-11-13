@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -5,9 +6,45 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 from notifier import dispatcher
 from webapp import audit, misp_session, misp_store, org_store
 from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS, subscribed_products
+from webapp.routes.stats import FOCUS_POINT_CATEGORIES, FOCUS_SETTINGS, focus_point_of, focus_points
 from webapp.utils import matching, product_detail_url
 
 bp = Blueprint("stakeholders", __name__)
+
+# What zsazsa puts before the title of each record it files in MISP.
+_INFO_PREFIX = re.compile(r"^\[zsazsa:[^\]]*\]\s*")
+
+
+def _scope_and_focus(owned, listed):
+    """The scope items of the PIRs and GIRs a stakeholder owns or is listed in,
+    per category, and the focus points beside them, each marked where the two
+    meet. A scope item names the records it is in, under "owned" and "listed"."""
+    points = focus_points()
+    scope, shared = [], set()
+    for label, attr in misp_store.SCOPE_CATEGORIES:
+        items = {}
+        for how, records in (("owned", owned), ("listed", listed)):
+            for record in records:
+                for value in getattr(record, attr, None) or []:
+                    value = (value or "").strip()
+                    if not value:
+                        continue
+                    item = items.setdefault(value.casefold(), {"value": value, "owned": [], "listed": []})
+                    record_id = getattr(record, "pir_id", "") or getattr(record, "gir_id", "")
+                    if record_id not in item[how]:
+                        item[how].append(record_id)
+        for item in items.values():
+            item["focus"] = focus_point_of(attr, item["value"], points)
+            if item["focus"]:
+                shared.add((FOCUS_SETTINGS[attr], item["focus"].casefold()))
+        if items:
+            scope.append({"label": label, "attr": attr,
+                          "items": sorted(items.values(), key=lambda i: i["value"].casefold())})
+    focus = [{"label": label, "attr": attr,
+              "names": [{"name": name, "shared": (FOCUS_SETTINGS[attr], key) in shared}
+                        for key, name in points[FOCUS_SETTINGS[attr]].items()]}
+             for label, attr in FOCUS_POINT_CATEGORIES]
+    return scope, focus
 
 
 def _parse_contacts(form):
@@ -273,6 +310,9 @@ def detail(id):
         stakeholder, owned_pirs + distributed_pirs, owned_girs + distributed_girs)
     for ev in recent_products:
         ev.app_url = product_detail_url(getattr(ev, "product_type", ""), getattr(ev, "uuid", ""), fallback_url=getattr(ev, "misp_url", ""))
+        # The product type has its own badge in front of the title.
+        ev.title = _INFO_PREFIX.sub("", ev.info or "")
+    scope_items, focus_groups = _scope_and_focus(owned_pirs + owned_girs, distributed_pirs + distributed_girs)
     return render_template(
         "stakeholders/detail.html",
         stakeholder=stakeholder,
@@ -281,6 +321,8 @@ def detail(id):
         owned_girs=owned_girs,
         distributed_girs=distributed_girs,
         recent_products=recent_products,
+        scope_items=scope_items,
+        focus_groups=focus_groups,
         owned_records=misp_store.records_owned_by_stakeholders().get(uuid, []),
         org_map=org_store.org_map(),
         notification_channel_names={c["id"]: c["name"] for c in dispatcher.notification_channels() if c.get("id")},

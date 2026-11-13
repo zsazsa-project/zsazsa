@@ -3,11 +3,13 @@ from datetime import date
 from types import SimpleNamespace
 
 import config
+from analyser.relevance import focus_names
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from webapp import audit, matching as _matching, misp_session, misp_store, notify_jobs, org_store
 from webapp.models import (
     FOCUS_CATEGORIES,
+    FOCUS_POINT_SETTINGS,
     INTEL_LEVELS,
     MOSCOW_PRIORITIES,
     cti_products,
@@ -161,6 +163,14 @@ def _galaxy_context():
         "galaxy_mitre_attack": misp_store.galaxy_mitre_attack_patterns(),
         "intel_levels": INTEL_LEVELS,
     }
+
+
+def _org_focus_points():
+    """The organisation-wide focus points per scope category, as {lower-cased
+    name: name}, so a scope item is found in them whatever its case. The PIR
+    and GIR pages mark the scope items that are one."""
+    return {category: {name.lower(): name for name in focus_names(setting)}
+            for category, setting in FOCUS_POINT_SETTINGS.items()}
 
 
 _SCOPE_FIELDS = (
@@ -432,6 +442,7 @@ def pir_new():
 
     return render_template(
         "requirements/pir_form.html",
+        org_focus=_org_focus_points(),
         pir=None,
         prefill=prefill,
         girs=_linkable_girs(),
@@ -469,6 +480,7 @@ def pir_detail(id):
 
     return render_template(
         "requirements/pir_detail.html",
+        org_focus=_org_focus_points(),
         pir=pir,
         focus_points=pir.focus_points,
         categories=FOCUS_CATEGORIES,
@@ -515,6 +527,7 @@ def pir_edit(id):
 
     return render_template(
         "requirements/pir_form.html",
+        org_focus=_org_focus_points(),
         pir=pir,
         girs=_linkable_girs(pir.linked_gir_uuids),
         triage_checklist=PIR_TRIAGE_CHECKLIST,
@@ -750,6 +763,7 @@ def gir_new():
 
     return render_template(
         "requirements/gir_form.html",
+        org_focus=_org_focus_points(),
         gir=None,
         prefill=prefill,
         stakeholders=stakeholders,
@@ -775,6 +789,7 @@ def gir_detail(id):
     distribution = _distribution_entries(gir.distribution or [], stakeholders)
     return render_template(
         "requirements/gir_detail.html",
+        org_focus=_org_focus_points(),
         gir=gir,
         linked_pirs=[p for p in misp_store.list_pirs() if gir.uuid in p.linked_gir_uuids],
         focus_points=gir.focus_points,
@@ -813,6 +828,7 @@ def gir_edit(id):
 
     return render_template(
         "requirements/gir_form.html",
+        org_focus=_org_focus_points(),
         gir=gir,
         stakeholders=stakeholders,
         org_map=org_store.org_map(),

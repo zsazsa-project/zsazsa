@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect %}
+{% from "_macros.html" import focus_mark, galaxy_multiselect %}
 
 {% block title %}{{ pir.pir_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}<span class="req-id-badge me-2">{{ pir.pir_id }}</span>{% endblock %}
@@ -48,10 +48,18 @@
           <span class="badge bg-primary ms-1" style="font-size:.65rem">{{ focus_points | length }}</span>
           {% endif %}
         </span>
-        <button class="btn btn-xs btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#add-fp-form">
-          <i class="fas fa-plus me-1"></i> Add
-        </button>
+        <span class="d-flex gap-2">
+          <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#scope-overlap"
+                  aria-expanded="{{ 'true' if request.args.get('overlap') else 'false' }}" aria-controls="scope-overlap">
+            <i class="fas fa-bullseye me-1"></i> Overlap with focus points
+          </button>
+          <button class="btn btn-xs btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#add-fp-form">
+            <i class="fas fa-plus me-1"></i> Add
+          </button>
+        </span>
       </div>
+      {% set record = pir %}{% set kind = "pir" %}
+      {% include "requirements/_focus_overlap.html" %}
 
       <div class="fp-purpose-banner">
         <i class="fas fa-info-circle me-1"></i>
@@ -94,7 +102,7 @@
               </div>
               {% set items = _galaxy_map.get(c) or [] %}
               {% if items %}
-                {{ galaxy_multiselect("value", values=selected, items=items, dom_id="fp-" ~ (c | slug)) }}
+                {{ galaxy_multiselect("value", values=selected, items=items, dom_id="fp-" ~ (c | slug), focus=org_focus.get(c)) }}
               {% else %}
                 <div class="form-text text-warning"><i class="fas fa-triangle-exclamation me-1"></i>Galaxy data unavailable for {{ c }}.</div>
                 {% for v in selected %}
@@ -124,7 +132,7 @@
               </div>
               {% if selected %}
               <div class="small text-muted mt-2">
-                Already in scope: {% for v in selected %}<span class="source-tag me-1">{{ v }}</span>{% endfor %}
+                Already in scope: {% for v in selected %}<span class="source-tag me-1">{{ v }}{{ focus_mark(org_focus.get(c), v) }}</span>{% endfor %}
               </div>
               {% endif %}
             </form>
@@ -153,7 +161,7 @@
           {% for fp in focus_points %}
           <div class="fp-item">
             <span class="fp-category fp-cat-{{ fp.category | slug }}">{{ fp.category }}</span>
-            <span class="fp-value">{{ fp.value }}</span>
+            <span class="fp-value">{{ fp.value }}{{ focus_mark(org_focus.get(fp.category), fp.value) }}</span>
             <form method="post" action="{{ url_for('requirements.pir_delete_focus_point', id=pir.id, fp_id=fp.id) }}" class="fp-delete">
               <button class="btn btn-xs btn-outline-danger" title="Remove"><i class="fas fa-xmark"></i></button>
             </form>

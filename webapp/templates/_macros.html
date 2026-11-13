@@ -15,8 +15,16 @@
 {% endif %}
 {% endmacro %}
 
-{% macro tag_input(field, values=[], datalist_id=None, placeholder="Type and press Enter to add") %}
-<div data-ti-field="{{ field }}">
+{% macro focus_mark(names, value) %}
+{# The bullseye on a scope value that is one of the organisation-wide focus
+   points. ``names`` is that category's {lower-cased name: name}. #}
+{% if names and value | lower in names %}<i class="fas fa-bullseye focus-mark" title="Also a focus point of the organisation"></i>{% endif %}
+{% endmacro %}
+
+
+{% macro tag_input(field, values=[], datalist_id=None, placeholder="Type and press Enter to add", focus=None) %}
+{# ``focus`` is the {lower-cased name: name} of the focus points a value gets the bullseye for. #}
+<div data-ti-field="{{ field }}"{% if focus %} data-ti-focus='{{ focus | tojson }}'{% endif %}>
   <div class="input-group input-group-sm">
     <input type="text" id="ti-text-{{ field }}" class="form-control form-control-sm"
            {% if datalist_id %}list="{{ datalist_id }}"{% endif %}
@@ -35,13 +43,14 @@
 {% endmacro %}
 
 
-{% macro galaxy_multiselect(field, values=[], items=[], dom_id=None) %}
+{% macro galaxy_multiselect(field, values=[], items=[], dom_id=None, focus=None) %}
 {# Scrollable checkbox list for galaxy-backed fields.
    Falls back to a tag input when MISP is unreachable and items is empty.
    Selected values (and any custom values not present in items) are pinned
    at the top so the user can see what is already selected.
    ``dom_id`` makes the DOM ids unique when the macro is used multiple
-   times with the same form ``field`` name on one page. #}
+   times with the same form ``field`` name on one page. ``focus`` is the
+   {lower-cased name: name} of the focus points an item gets the bullseye for. #}
 {% set dkey = dom_id or field %}
 {% if items %}
 <input type="text" class="form-control form-control-sm mb-1" data-gms-search="{{ dkey }}"
@@ -59,15 +68,15 @@
   {% for item in ordered %}
   <label class="gms-item">
     <input type="checkbox" name="{{ field }}" value="{{ item | e }}"
-           {% if item | lower in values_lower %}checked{% endif %}>
-    <span>{{ item }}</span>
+           {% if item | lower in values_lower %}checked{% endif %}{% if focus and item | lower in focus %} data-focus{% endif %}>
+    <span>{{ item }}</span>{{ focus_mark(focus, item) }}
   </label>
   {% endfor %}
 </div>
 <div class="gms-selected-display mt-1" id="gms-selected-{{ dkey }}"></div>
 {% else %}
 <div class="form-text text-warning mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Galaxy data unavailable. Enter values manually.</div>
-{{ tag_input(field, values=values, placeholder="Type and press Enter to add") }}
+{{ tag_input(field, values=values, placeholder="Type and press Enter to add", focus=focus) }}
 {% endif %}
 {% endmacro %}
 

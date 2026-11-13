@@ -285,6 +285,59 @@
       </div>
     </div>
 
+    <!-- The scope of the stakeholder's PIRs and GIRs beside the focus points -->
+    <div class="card content-card mt-4">
+      <div class="card-header">
+        <i class="fas fa-bullseye me-2 text-warning"></i>Scope items and focus points
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="fas fa-user me-1"></i>from a PIR or GIR {{ stakeholder.name }} owns ·
+          <i class="fas fa-envelope me-1"></i>from one that lists {{ stakeholder.name }} in its distribution ·
+          <i class="fas fa-bullseye focus-mark ms-0 me-1"></i>also a focus point.
+          A value opens its line in the scope and focus points statistics.
+        </p>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="overlap-head"><i class="fas fa-crosshairs me-1"></i>Scope items</div>
+            {% for cat in scope_items %}
+            <div class="overlap-group">
+              <div class="overlap-category">{{ cat.label }}</div>
+              {% for item in cat['items'] %}
+              <a class="overlap-chip{{ ' is-shared' if item.focus }}"
+                 href="{{ url_for('stats.scope', _anchor='value-' ~ cat.attr ~ '-' ~ (item.value | slug)) }}"
+                 title="{% if item.owned %}Owned: {{ item.owned | join(', ') }}. {% endif %}{% if item.listed %}Listed in: {{ item.listed | join(', ') }}. {% endif %}{% if item.focus %}Also the focus point {{ item.focus }}.{% endif %}">
+                {% if item.focus %}<i class="fas fa-bullseye"></i>{% endif %}{{ item.value }}
+                {% if item.owned %}<i class="fas fa-user text-muted"></i>{% endif %}
+                {% if item.listed %}<i class="fas fa-envelope text-muted"></i>{% endif %}
+              </a>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">The PIRs and GIRs of {{ stakeholder.name }} have no scope items yet.</p>
+            {% endfor %}
+          </div>
+          <div class="col-md-6">
+            <div class="overlap-head"><i class="fas fa-bullseye me-1"></i>Focus points</div>
+            {% for group in focus_groups %}
+            <div class="overlap-group">
+              <div class="overlap-category">{{ group.label }}</div>
+              {% for point in group.names %}
+              <a class="overlap-chip{{ ' is-shared' if point.shared }}"
+                 href="{{ url_for('stats.scope', focus='1', _anchor='value-' ~ group.attr ~ '-' ~ (point.name | slug)) }}"
+                 {% if point.shared %}title="Also in the scope of a PIR or GIR of {{ stakeholder.name }}"{% endif %}>
+                {% if point.shared %}<i class="fas fa-bullseye"></i>{% endif %}{{ point.name }}
+              </a>
+              {% else %}
+              <span class="text-muted small">None</span>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Recent products linked via PIR/GIR or sent through direct product subscriptions -->
     <div class="card content-card mt-4">
       <div class="card-header">
@@ -297,7 +350,7 @@
           <li class="req-item">
             <a href="{{ ev.app_url or ev.misp_url }}" class="req-link">
               <span class="req-id">{{ ev.product_type or '-' }}</span>
-              <span class="req-text">{{ ev.info | truncate(80) }}</span>
+              <span class="req-text">{{ ev.title | truncate(80) }}</span>
             </a>
             <div class="req-meta">
               <span class="text-muted small">{{ ev.date }}</span>

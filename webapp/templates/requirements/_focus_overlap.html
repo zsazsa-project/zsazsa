@@ -1,0 +1,80 @@
+{# The overlap of a requirement's scope with the organisation-wide focus points,
+   in the Scope card of the PIR and GIR pages. Expects ``kind`` ("pir" or
+   "gir"), ``record``, and the page's ``fp_by_category`` and ``org_focus``. #}
+{% set scope_lower = {} %}
+{% for category, values in fp_by_category.items() %}{% set _ = scope_lower.update({category: values | map('lower') | list}) %}{% endfor %}
+{% set overlap = namespace(shared=0, total=0) %}
+{% for category, values in fp_by_category.items() %}
+  {% for value in values %}
+    {% set overlap.total = overlap.total + 1 %}
+    {% if value | lower in org_focus.get(category, {}) %}{% set overlap.shared = overlap.shared + 1 %}{% endif %}
+  {% endfor %}
+{% endfor %}
+<div class="collapse{{ ' show' if request.args.get('overlap') }}" id="scope-overlap">
+  <div class="scope-overlap border-bottom">
+    <p class="small text-muted mb-3">
+      <i class="fas fa-bullseye focus-mark ms-0 me-1"></i>
+      {% if overlap.total %}
+      {{ overlap.shared }} of the {{ overlap.total }} scope item{{ 's' if overlap.total != 1 }} of this {{ kind | upper }}
+      {{ 'is a focus point' if overlap.total == 1 else 'are focus points' }}.
+      {% else %}
+      This {{ kind | upper }} has no scope items yet.
+      {% endif %}
+      The focus points are for the whole organisation: the analyser judges every article against them.
+    </p>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="overlap-head"><i class="fas fa-bullseye me-1"></i>Focus points</div>
+        {% for category, names in org_focus.items() %}
+        <div class="overlap-group">
+          <div class="overlap-category">{{ category }}</div>
+          {% for key, name in names.items() %}
+          {% set shared = key in scope_lower.get(category, []) %}
+          <span class="overlap-chip{{ ' is-shared' if shared }}"{% if shared %} title="Also in the scope of this {{ kind | upper }}"{% endif %}>
+            {% if shared %}<i class="fas fa-bullseye me-1"></i>{% endif %}{{ name }}</span>
+          {% else %}
+          <span class="text-muted small">None</span>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="col-md-6">
+        <div class="overlap-head"><i class="fas fa-crosshairs me-1"></i>Scope of this {{ kind | upper }}</div>
+        {% for category, values in fp_by_category.items() if values %}
+        {% set names = org_focus.get(category) %}
+        <div class="overlap-group">
+          <div class="overlap-category">{{ category }}</div>
+          {% for value in values %}
+          {% if names and value | lower in names %}
+          <span class="overlap-chip is-shared" title="Also a focus point of the organisation">
+            <i class="fas fa-bullseye me-1"></i>{{ value }}</span>
+          {% else %}
+          <span class="overlap-chip">
+            {{ value }}
+            {% if names is not none %}
+            <form method="post" action="{{ url_for('config_page.add_focus_point') }}" class="d-inline"
+                  data-submit-confirm="Add {{ value }} to the {{ category | lower }} focus points? The analyser then judges every article against it, for the whole organisation.">
+              <input type="hidden" name="kind" value="{{ kind }}">
+              <input type="hidden" name="id" value="{{ record.id }}">
+              <input type="hidden" name="category" value="{{ category }}">
+              <input type="hidden" name="value" value="{{ value }}">
+              <span {% if not is_site_admin %}title="Only a site admin can change the focus points"{% endif %}>
+                <button type="submit" class="btn btn-xs btn-outline-primary overlap-add"{% if not is_site_admin %} disabled{% endif %}>
+                  <i class="fas fa-plus me-1"></i>Add to focus points
+                </button>
+              </span>
+            </form>
+            {% else %}
+            <span class="text-muted small ms-1" title="There is no focus point list for {{ category | lower }}s">no focus point list</span>
+            {% endif %}
+          </span>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No scope items yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>

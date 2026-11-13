@@ -53,7 +53,7 @@ The dashboard gives an **operational overview**: pipeline state, active requirem
 
 ### Stakeholders
 
-A stakeholder is linked to an organisation and has an internal or external role, contact details, a TLP clearance, product subscriptions and delivery preferences. Stakeholders own PIRs and GIRs or are in their distribution, and the list can be exported as Markdown.
+A stakeholder is linked to an organisation and has an internal or external role, contact details, a TLP clearance, product subscriptions and delivery preferences. Stakeholders own PIRs and GIRs or are in their distribution, and the list can be exported as Markdown. A stakeholder's page puts the scope items of those PIRs and GIRs beside the focus points, each a link to its line in the scope and focus points statistics.
 
 ![docs/2-stakeholders.png](docs/2-stakeholders.png)
 
@@ -187,7 +187,7 @@ The statistics pages combine operational metrics with CTI maturity.
 
 ![docs/7a-statistics.png](docs/7a-statistics.png)
 
-The scope statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles and briefings.
+The scope and focus points statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
 
 ### AI support
 
@@ -262,7 +262,7 @@ On the Pipeline page, *Analyser runs* has the decision and the reason for each e
 
 ### Setting it up
 
-Everything depends on your focus points and requirements. Enter the focus points under Settings > Products or in the setup wizard, and be specific: "IT" or "Energy" is too vague for a model to judge against. The analyser uses the active PIRs and GIRs. A "Must have" or "Should have" PIR can give an alert, a "Could have" one only a briefing story, and a "Won't have" one is not considered.
+Everything depends on your focus points and requirements. Enter the focus points under Settings > Products or in the setup wizard. A site admin can also add a scope item of a PIR or GIR to them from its Scope card, on its page or while editing it, under **Overlap with focus points**, which sets the two side by side. Be specific: "IT" or "Energy" is too vague for a model to judge against. The analyser uses the active PIRs and GIRs. A "Must have" or "Should have" PIR can give an alert, a "Could have" one only a briefing story, and a "Won't have" one is not considered.
 
 The analyser needs an AI provider on the AI tab. Settings > Analyser has the rest, and most of it can stay as it is. Start with the flash intel alerts, spend a week on the declined events and your focus points, then switch on the briefing and the advisories.
 

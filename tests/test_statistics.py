@@ -6,7 +6,8 @@ publishes without publishing the event, when it last changed. Products are named
 after their type whatever tag value the settings give it, every page of them is
 read, a rejected one is left out, and a stakeholder is covered by an active PIR
 they own. Indicator health counts every enabled server once, from a cache. Scope values are
-counted once per record, whatever their case. The pipeline never purges history
+counted once per record, whatever their case, a value that is a focus point is
+marked, and the page and its CSV filter alike. The pipeline never purges history
 on an answer MISP refused, and the audit log says when it shows only part of
 itself. A day chosen on its chart narrows the who, what and on what, not the
 figures that say they cover the last 90 days.
@@ -518,25 +519,40 @@ class StatisticsPage(_App):
 
 
 class ScopePage(_App):
+    FOCUS = {"FOCUS_POINTS_GEOGRAPHIES": ["belgium"], "FOCUS_POINTS_SECTORS": ["Energy"],
+             "FOCUS_POINTS_THREAT_TYPES": ["Phishing"], "FOCUS_POINTS_THREAT_ACTORS": [],
+             "FOCUS_POINTS_VENDORS": [], "FOCUS_POINTS_TECHNOLOGIES": []}
+
     def setUp(self):
         super().setUp()
         pir = {"kind": "pir", "label": "PIR-001 Wipers", "uuid": PIR}
         alert = {"kind": "fia", "label": "FIA-00001 Grid", "uuid": "f" * 36}
-        categories = [
-            {"label": "Geographic scope", "attr": "geographic_scope", "total": 3, "distinct": 2,
-             "items": [{"value": "Belgium", "count": 2, "entries": [pir, alert]},
-                       {"value": "Europe", "count": 1, "entries": [pir]}]},
-            {"label": "Campaign", "attr": "campaign", "total": 0, "distinct": 0, "items": []},
-        ]
-        with mock.patch.object(misp_store, "scope_stats", return_value=categories):
-            self.page = self.soup("/stats/scope")
+
+        def categories():
+            return [
+                {"label": "Geographic scope", "attr": "geographic_scope", "total": 3, "distinct": 2,
+                 "items": [{"value": "Belgium", "count": 2, "entries": [pir, alert]},
+                           {"value": "Europe", "count": 1, "entries": [pir]}]},
+                {"label": "MITRE ATT&CK techniques", "attr": "mitre_attack_techniques", "total": 2, "distinct": 2,
+                 "items": [{"value": "Phishing - T1566", "count": 1, "entries": [alert]},
+                           {"value": "=T1190", "count": 1, "entries": [pir]}]},
+                {"label": "Campaign", "attr": "campaign", "total": 0, "distinct": 0, "items": []},
+            ]
+
+        for patcher in (mock.patch.object(misp_store, "scope_stats", side_effect=categories),
+                        mock.patch.multiple(config, create=True, **self.FOCUS)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.page = self.soup("/stats/scope")
         self.text = self.page.get_text(" ", strip=True)
+
+    def rows(self, page, category):
+        return [r.get_text(" ", strip=True) for r in page.select(f"#scope-{category} .scope-row")]
 
     def test_every_value_its_count_and_its_records(self):
         geography = self.page.select_one("#scope-geographic_scope")
         self.assertIn("2 distinct · 3 total", geography.get_text(" ", strip=True))
-        rows = [r.get_text(" ", strip=True) for r in geography.select(".scope-row")]
-        self.assertEqual(rows, ["1 Belgium 2", "2 Europe 1"])
+        self.assertEqual(self.rows(self.page, "geographic_scope"), ["1 Belgium 2", "2 Europe 1"])
         records = [(a.find_previous_sibling().get_text(), a["href"]) for a in geography.select(".scope-entries a")]
         self.assertEqual(records[:2], [("PIR", f"/pirs/{PIR}"), ("Alert", f"/products/flash-intel/{'f' * 36}")])
 
@@ -545,10 +561,112 @@ class ScopePage(_App):
         self.assertEqual([s["title"] for s in belgium.find_all("span")], ["PIR: 1", "Alert: 1"])
 
     def test_the_page_totals_and_an_empty_category(self):
-        self.assertIn("3 scope values counted 2 distinct values 1 / 2 categories in use", self.text)
-        self.assertIn("PIRs 1", self.text)
-        self.assertIn("Flash intel alerts 1", self.text)
-        self.assertIn("Campaign No scope items recorded. 0 distinct · 0 total", self.text)
+        for shown in ("5 scope values on events 4 different values 2 / 3 categories in use 2 / 3 focus points in scope",
+                      "PIRs 1", "Flash intel alerts 1",
+                      "Campaign No scope items recorded. 0 distinct · 0 total"):
+            self.assertIn(shown, self.text)
+        self.assertNotIn("differ only in case", self.text)
+
+    def test_every_value_can_be_linked_to(self):
+        """The stakeholder page links a scope item or focus point to its line."""
+        ids = [a["id"] for a in self.page.select(".scope-row")]
+        self.assertEqual(ids, ["value-geographic_scope-belgium", "value-geographic_scope-europe",
+                               "value-mitre_attack_techniques-=t1190", "value-mitre_attack_techniques-phishing---t1566"])
+        self.assertIn("Scope and Focus points statistics", self.text)
+        self.assertEqual(self.page.title.get_text(), "Scope and Focus points stats | zsazsa CTI")
+
+    def test_the_focus_points_in_no_scope(self):
+        """Listed, so a focus point can be linked to even when no record has it."""
+        missing = [(s.find_previous_sibling(class_="text-muted").get_text(), s.get_text(), s["id"])
+                   for s in self.page.select(".scope-missing")]
+        self.assertEqual(missing, [("Sector scope:", "Energy", "value-sectors-energy")])
+        fia = self.soup("/stats/scope?kind=fia")
+        self.assertEqual([s.get_text() for s in fia.select(".scope-missing")], ["Energy"])
+        pir = self.soup("/stats/scope?kind=pir")
+        self.assertEqual([s.get_text() for s in pir.select(".scope-missing")], ["Energy", "Phishing"])
+        self.assertIn("Not a scope value of any record shown.", pir.get_text(" ", strip=True))
+
+    def test_the_focus_points_in_no_scope_follow_the_categories(self):
+        with mock.patch.object(config, "FOCUS_POINTS_TECHNOLOGIES", ["VPN"]):
+            page = self.soup("/stats/scope?kind=pir")
+        block = page.select_one(".scope-missing").find_parent(class_="scope-empty")
+        rows = [" ".join(r.get_text(" ", strip=True).split()) for r in block.select(".d-flex.flex-wrap")]
+        self.assertEqual(rows, ["Sector scope: Energy", "Threat types: Phishing", "Technology: VPN"])
+        self.assertIn("Focus points in no scope Not a scope value of any record shown.",
+                      block.get_text(" ", strip=True))
+
+    def test_a_value_that_is_a_focus_point_is_marked(self):
+        """In any case, and a technique by its name as a threat type."""
+        marks = {m.find_parent(class_="scope-row").select_one(".name").get_text(): m["title"]
+                 for m in self.page.select(".scope-row .focus-mark")}
+        self.assertEqual(marks, {"Belgium": "Focus point: belgium", "Phishing - T1566": "Focus point: Phishing"})
+        self.assertIn("2 distinct · 3 total · 1 focus point", self.text)
+
+    def test_no_focus_points_set(self):
+        with mock.patch.multiple(config, **{key: [] for key in self.FOCUS}):
+            page = self.soup("/stats/scope")
+        self.assertIn("0 / 0 focus points in scope", page.get_text(" ", strip=True))
+        self.assertEqual(page.select(".scope-row .focus-mark, .scope-top-item .focus-mark"), [])
+        self.assertEqual(self.rows(page, "geographic_scope"), ["1 Belgium 2", "2 Europe 1"])
+
+    def test_the_focus_point_filter(self):
+        page = self.soup("/stats/scope?focus=1")
+        self.assertEqual(self.rows(page, "geographic_scope"), ["1 Belgium 2"])
+        self.assertEqual(self.rows(page, "mitre_attack_techniques"), ["1 Phishing - T1566 1"])
+        text = page.get_text(" ", strip=True)
+        self.assertIn("3 scope values on events 2 different values", text)
+        self.assertIn("2 / 3 focus points in scope", text)
+        self.assertEqual(page.select_one("a[aria-pressed]")["aria-pressed"], "true")
+
+    def test_one_kind_of_record(self):
+        """Only the values of the alerts, counted on alerts, while the record
+        counts stay whole so another kind can be picked."""
+        page = self.soup("/stats/scope?kind=fia")
+        self.assertEqual(self.rows(page, "geographic_scope"), ["1 Belgium 1"])
+        self.assertEqual([a.get_text() for a in page.select(".scope-entries a")], ["FIA-00001 Grid", "FIA-00001 Grid"])
+        text = page.get_text(" ", strip=True)
+        self.assertIn("PIRs 1", text)
+        self.assertIn("Only Flash intel alerts", text)
+        active = page.select_one(".kind-row.active")
+        self.assertIn("Flash intel alerts", active.get_text())
+        self.assertEqual(active["href"], "/stats/scope")
+        pirs = [a for a in page.select("a.kind-row") if "PIRs" in a.get_text()][0]
+        self.assertEqual(pirs["href"], "/stats/scope?kind=pir")
+        self.assertEqual(page.select_one("#topbar a[href*=csv]")["href"], "/stats/scope.csv?kind=fia")
+
+    def test_both_filters_keep_each_other(self):
+        page = self.soup("/stats/scope?kind=pir&focus=1")
+        self.assertEqual(self.rows(page, "geographic_scope"), ["1 Belgium 1"])
+        self.assertIn("Categories with nothing for this filter", page.get_text(" ", strip=True))
+        focus = page.select_one("a[aria-pressed]")["href"]
+        self.assertEqual(focus, "/stats/scope?kind=pir")
+
+    def test_an_unknown_kind_shows_everything(self):
+        page = self.soup("/stats/scope?kind=nope&focus=yes")
+        self.assertEqual(self.rows(page, "geographic_scope"), ["1 Belgium 2", "2 Europe 1"])
+        self.assertIsNone(page.select_one(".scope-filter-chip"))
+        self.assertEqual(page.select_one("a[aria-pressed]")["aria-pressed"], "false")
+        self.assertNotIn("Show all", page.get_text(" ", strip=True))
+
+    def test_the_csv(self):
+        with mock.patch.object(stats.audit, "record") as record:
+            response = self.client.get("/stats/scope.csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/csv")
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertEqual(response.get_data(as_text=True).splitlines(), [
+            "scope,value,number",
+            "Geographic scope,Belgium,2",
+            "Geographic scope,Europe,1",
+            "MITRE ATT&CK techniques,'=T1190,1",
+            "MITRE ATT&CK techniques,Phishing - T1566,1",
+        ])
+        record.assert_called_once_with("export", "scope", details=mock.ANY)
+
+    def test_the_csv_has_the_filters_of_the_page(self):
+        with mock.patch.object(stats.audit, "record"):
+            lines = self.client.get("/stats/scope.csv?kind=pir&focus=1").get_data(as_text=True).splitlines()
+        self.assertEqual(lines, ["scope,value,number", "Geographic scope,Belgium,1"])
 
 
 if __name__ == "__main__":

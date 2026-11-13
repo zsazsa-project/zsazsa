@@ -1,0 +1,212 @@
+{# The overlap of the scope with the organisation-wide focus points, on the PIR
+   and GIR edit forms. It follows the form's pickers as they change, so it shows
+   the scope as it is being edited, and adds a focus point without leaving the
+   page, so nothing typed is lost. It is inside the record's form, so it has no
+   named inputs: the form would save them, and see them as unsaved changes.
+   Expects ``kind`` ("pir" or "gir") and ``org_focus``. #}
+<div class="collapse" id="scope-overlap" data-kind="{{ kind | upper }}"
+     data-focus='{{ org_focus | tojson }}' data-admin="{{ 'true' if is_site_admin else 'false' }}"
+     data-url="{{ url_for('config_page.add_focus_point') }}">
+  <div class="scope-overlap border-bottom">
+    <p class="small text-muted mb-1">
+      <i class="fas fa-bullseye focus-mark ms-0 me-1"></i><span data-overlap-summary></span>
+      The focus points are for the whole organisation: the analyser judges every article against them.
+    </p>
+    <p class="small mb-3" data-overlap-status role="status"></p>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="overlap-head"><i class="fas fa-bullseye me-1"></i>Focus points</div>
+        <div data-overlap-focus></div>
+      </div>
+      <div class="col-md-6">
+        <div class="overlap-head"><i class="fas fa-crosshairs me-1"></i>Scope of this {{ kind | upper }}</div>
+        <div data-overlap-scope></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var panel = document.getElementById('scope-overlap');
+  var form = panel.closest('form');
+  var focus = JSON.parse(panel.dataset.focus);
+  var kind = panel.dataset.kind;
+  var admin = panel.dataset.admin === 'true';
+  // Each scope category and the form field that holds it.
+  var FIELDS = [['Geography', 'geographic_scope'], ['Sector', 'sectors'], ['Threat Actor', 'threat_actors'],
+                ['Threat Type', 'threat_types'], ['Technology', 'technology'], ['Vendor', 'vendor'],
+                ['Incident', 'incident'], ['Campaign', 'campaign']];
+  var status = panel.querySelector('[data-overlap-status]');
+
+  // What the form holds now: a ticked galaxy item, or a value of a tag input.
+  function scope() {
+    return FIELDS.map(function(pair) {
+      var values = [];
+      form.querySelectorAll('[name="' + pair[1] + '"]').forEach(function(input) {
+        if ((input.type !== 'checkbox' || input.checked) && input.value.trim() &&
+            values.indexOf(input.value.trim()) === -1) values.push(input.value.trim());
+      });
+      return [pair[0], pair[1], values];
+    });
+  }
+
+  function isFocus(category, value) {
+    return !!focus[category] && Object.prototype.hasOwnProperty.call(focus[category], value.toLowerCase());
+  }
+
+  function chip(text, shared, title) {
+    var el = document.createElement('span');
+    el.className = 'overlap-chip' + (shared ? ' is-shared' : '');
+    if (shared) {
+      var icon = document.createElement('i');
+      icon.className = 'fas fa-bullseye me-1';
+      el.appendChild(icon);
+    }
+    el.appendChild(document.createTextNode(text));
+    if (title) el.title = title;
+    return el;
+  }
+
+  function group(category) {
+    var el = document.createElement('div');
+    el.className = 'overlap-group';
+    var head = document.createElement('div');
+    head.className = 'overlap-category';
+    head.textContent = category;
+    el.appendChild(head);
+    return el;
+  }
+
+  function addButton(category, value) {
+    var wrap = document.createElement('span');
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-xs btn-outline-primary overlap-add';
+    var icon = document.createElement('i');
+    icon.className = 'fas fa-plus me-1';
+    button.append(icon, 'Add to focus points');
+    if (!admin) {
+      button.disabled = true;
+      wrap.title = 'Only a site admin can change the focus points';
+    }
+    button.addEventListener('click', function() { add(category, value, button); });
+    wrap.appendChild(button);
+    return wrap;
+  }
+
+  function render() {
+    var current = scope();
+    var lists = {};
+    var shared = 0, total = 0;
+    current.forEach(function(entry) {
+      lists[entry[0]] = entry[2].map(function(v) { return v.toLowerCase(); });
+      total += entry[2].length;
+      entry[2].forEach(function(v) { if (isFocus(entry[0], v)) shared += 1; });
+    });
+    panel.querySelector('[data-overlap-summary]').textContent = total
+      ? shared + ' of the ' + total + ' scope item' + (total === 1 ? '' : 's') + ' of this ' + kind + ' '
+        + (total === 1 ? 'is a focus point.' : 'are focus points.')
+      : 'This ' + kind + ' has no scope items yet.';
+
+    var left = panel.querySelector('[data-overlap-focus]');
+    left.replaceChildren();
+    // In the order of the form, not the alphabetical one the JSON has.
+    FIELDS.map(function(pair) { return pair[0]; }).filter(function(c) { return focus[c]; }).forEach(function(category) {
+      var el = group(category);
+      var names = Object.keys(focus[category]);
+      if (!names.length) {
+        var none = document.createElement('span');
+        none.className = 'text-muted small';
+        none.textContent = 'None';
+        el.appendChild(none);
+      }
+      names.forEach(function(key) {
+        var inScope = (lists[category] || []).indexOf(key) !== -1;
+        el.appendChild(chip(focus[category][key], inScope, inScope ? 'Also in the scope of this ' + kind : ''));
+      });
+      left.appendChild(el);
+    });
+
+    var right = panel.querySelector('[data-overlap-scope]');
+    right.replaceChildren();
+    current.forEach(function(entry) {
+      var category = entry[0];
+      if (!entry[2].length) return;
+      var el = group(category);
+      entry[2].forEach(function(value) {
+        if (isFocus(category, value)) {
+          el.appendChild(chip(value, true, 'Also a focus point of the organisation'));
+          return;
+        }
+        var item = chip(value, false, '');
+        if (focus[category]) {
+          item.appendChild(addButton(category, value));
+        } else {
+          var note = document.createElement('span');
+          note.className = 'text-muted small ms-1';
+          note.textContent = 'no focus point list';
+          item.appendChild(note);
+        }
+        el.appendChild(item);
+      });
+      right.appendChild(el);
+    });
+    if (!total) {
+      var empty = document.createElement('p');
+      empty.className = 'text-muted small mb-0';
+      empty.textContent = 'No scope items yet.';
+      right.appendChild(empty);
+    }
+  }
+
+  // The bullseye on the value in its picker, as the page would draw it now.
+  function markPicker(category, value) {
+    var field = FIELDS.filter(function(pair) { return pair[0] === category; })[0][1];
+    var lower = value.toLowerCase();
+    form.querySelectorAll('input[type="checkbox"][name="' + field + '"]').forEach(function(cb) {
+      if (cb.value.toLowerCase() !== lower || cb.hasAttribute('data-focus')) return;
+      cb.setAttribute('data-focus', '');
+      zsazsaFocusMark(cb.closest('label'));
+      cb.dispatchEvent(new Event('change', {bubbles: true}));  // the chips under the picker
+    });
+    var tags = form.querySelector('[data-ti-field="' + field + '"]');
+    if (tags) {
+      var names = JSON.parse(tags.dataset.tiFocus || '{}');
+      names[lower] = value;
+      tags.dataset.tiFocus = JSON.stringify(names);
+      if (typeof tiRender === 'function') tiRender(field);
+    }
+  }
+
+  function add(category, value, button) {
+    if (!confirm('Add ' + value + ' to the ' + category.toLowerCase() + ' focus points? '
+                 + 'The analyser then judges every article against it, for the whole organisation.')) return;
+    button.disabled = true;
+    var token = document.querySelector('meta[name="csrf-token"]');
+    fetch(panel.dataset.url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token ? token.content : ''},
+      body: JSON.stringify({category: category, value: value}),
+    }).then(zsazsaReadJson).then(function(data) {
+      status.textContent = data.message || data.error || '';
+      status.className = 'small mb-3 ' + (data.ok ? 'text-success' : 'text-danger');
+      if (!data.ok) { button.disabled = false; return; }
+      focus[category][value.toLowerCase()] = value;
+      markPicker(category, value);
+      render();
+    }).catch(function(err) {
+      status.textContent = 'Could not add the focus point: ' + zsazsaErrorText(err);
+      status.className = 'small mb-3 text-danger';
+      button.disabled = false;
+    });
+  }
+
+  panel.addEventListener('show.bs.collapse', render);
+  form.addEventListener('change', function() { if (panel.classList.contains('show')) render(); });
+  // A tag added or removed changes the hidden inputs, not a field the analyst
+  // typed in. The panel's own redraw is left out, or it would redraw for ever.
+  new MutationObserver(function(changes) {
+    if (panel.classList.contains('show') && changes.some(function(c) { return !panel.contains(c.target); })) render();
+  }).observe(form, {childList: true, subtree: true});
+})();
+</script>

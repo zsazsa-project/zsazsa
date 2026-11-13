@@ -1477,6 +1477,25 @@ a.chart-row:hover { background: var(--surface-hover); }
   background: var(--surface-muted);
 }
 
+/* A scope value that is one of the organisation-wide focus points. */
+.focus-mark { color: var(--accent-orange); font-size: .72rem; margin-left: .35rem; flex-shrink: 0; }
+
+/* The overlap of a requirement's scope with the focus points. */
+.scope-overlap { padding: 0.75rem 1rem; background: var(--surface-muted); }
+.overlap-head { font-weight: 600; font-size: .82rem; margin-bottom: .4rem; }
+.overlap-group { margin-bottom: .5rem; }
+.overlap-category { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-muted); margin-bottom: .2rem; }
+.overlap-chip { display: inline-flex; align-items: center; gap: .35rem; margin: 0 .25rem .25rem 0; padding: .15rem .55rem;
+  border-radius: 999px; font-size: .78rem; background: var(--card-bg); border: 1px solid var(--border-light); }
+.overlap-chip.is-shared { font-weight: 600; border-color: var(--accent-orange);
+  background: color-mix(in srgb, var(--accent-orange) 12%, var(--card-bg)); }
+.overlap-chip.is-shared .fa-bullseye { color: var(--accent-orange); }
+.overlap-add { padding: 0 .4rem; font-size: .7rem; }
+a.overlap-chip { color: inherit; text-decoration: none; }
+a.overlap-chip:hover { border-color: var(--accent-blue); }
+.overlap-chip .fa-user, .overlap-chip .fa-envelope { font-size: .68rem; }
+
 .fp-grid {
   padding: 0.5rem 0.75rem;
   display: flex;

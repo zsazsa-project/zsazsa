@@ -5,7 +5,8 @@ UUID, so an edit must never turn it into a new event. The organisation registry
 is a small SQLite table filled from MISP by hand and by every SSO request, and
 the stakeholder page and export read both. A product type removed under
 Settings > Products is not shown as a subscription, as the edit form does not
-offer it. Where MISP is called it is an autospec
+offer it. The page puts the scope of the stakeholder's PIRs and GIRs beside the
+focus points, and lists its products without zsazsa's prefix. Where MISP is called it is an autospec
 of PyMISP, and the databases are temporary.
 
     python -m unittest tests.test_stakeholders
@@ -263,7 +264,7 @@ class Export(unittest.TestCase):
         self.assertNotIn("PIR-001", bob)
 
 
-class Pages(TempDatabase):
+class _PageClient(TempDatabase):
     def setUp(self):
         super().setUp()
         for patcher in (
@@ -285,6 +286,8 @@ class Pages(TempDatabase):
     def post(self, path, **form):
         return self.client.post(path, data={"csrf_token": "token", **form})
 
+
+class Pages(_PageClient):
     def test_a_blank_name_creates_nothing(self):
         with mock.patch.object(misp_store, "create_stakeholder") as create:
             self.post("/stakeholders/new", name="   ")
@@ -459,6 +462,95 @@ class Pages(TempDatabase):
         self.assertNotIn("Telephone", detail.get_text(" ", strip=True))
         # Still stored, until the stakeholder is saved again.
         self.assertEqual(stakeholders[0].products, ["Flash intel alert", "Telephone"])
+
+
+
+def _requirement(kind, number, **scope):
+    fields = {attr: scope.get(attr, []) for _label, attr in misp_store.SCOPE_CATEGORIES}
+    if kind == "pir":
+        return SimpleNamespace(id=f"p{number}", pir_id=f"PIR-0000{number}", question="Who?", priority="Must have",
+                               status="Active", **fields)
+    return SimpleNamespace(id=f"g{number}", gir_id=f"GIR-0000{number}", topic="Grid", status="Active",
+                           review_cycle="Monthly", **fields)
+
+
+class ScopeAndFocusPoints(_PageClient):
+    """The scope of the PIRs and GIRs a stakeholder owns or is listed in, beside
+    the focus points, each a link into the scope statistics. The product titles
+    leave out the prefix zsazsa files them with in MISP."""
+
+    FOCUS = {"FOCUS_POINTS_GEOGRAPHIES": ["Belgium", "Luxembourg"], "FOCUS_POINTS_THREAT_TYPES": ["Phishing"],
+             "FOCUS_POINTS_SECTORS": [], "FOCUS_POINTS_VENDORS": [], "FOCUS_POINTS_TECHNOLOGIES": [],
+             "FOCUS_POINTS_THREAT_ACTORS": []}
+
+    def detail(self, owned=(), listed=(), products=()):
+        found = {"pirs_for_stakeholder": [r for r in owned if hasattr(r, "pir_id")],
+                 "girs_for_stakeholder": [r for r in owned if hasattr(r, "gir_id")],
+                 "pirs_distributed_to_stakeholder": [r for r in listed if hasattr(r, "pir_id")],
+                 "girs_distributed_to_stakeholder": [r for r in listed if hasattr(r, "gir_id")],
+                 "products_for_stakeholder": list(products)}
+        with mock.patch.multiple(config, create=True, **self.FOCUS), \
+             mock.patch.object(misp_store, "get_stakeholder", return_value=_stakeholder()), \
+             mock.patch.object(misp_store, "records_owned_by_stakeholders", return_value={}), \
+             mock.patch.multiple(misp_store, **{name: mock.Mock(return_value=value) for name, value in found.items()}):
+            response = self.client.get(f"/stakeholders/{UUID}")
+        self.assertEqual(response.status_code, 200)
+        page = BeautifulSoup(response.data, "html.parser")
+        return [h.parent for h in page.select(".card-header") if "Scope items and focus points" in h.get_text()][0]
+
+    def chips(self, section, column):
+        return {" ".join(a.get_text(" ", strip=True).split()): a for a in section.select(".col-md-6")[column].select("a.overlap-chip")}
+
+    def test_owned_and_listed_scope_items(self):
+        section = self.detail(
+            owned=[_requirement("pir", 1, geographic_scope=["Belgium", "Europe"],
+                                mitre_attack_techniques=["Phishing - T1566"])],
+            listed=[_requirement("gir", 2, geographic_scope=["belgium"], vendor=["Fortinet <b>"])])
+        chips = self.chips(section, 0)
+        self.assertEqual(list(chips), ["Belgium", "Europe", "Phishing - T1566", "Fortinet <b>"])
+        belgium = chips["Belgium"]
+        self.assertEqual(belgium["title"], "Owned: PIR-00001. Listed in: GIR-00002. Also the focus point Belgium.")
+        self.assertEqual([i["class"][1] for i in belgium.find_all("i")], ["fa-bullseye", "fa-user", "fa-envelope"])
+        self.assertIn("is-shared", belgium["class"])
+        self.assertEqual([i["class"][1] for i in chips["Fortinet <b>"].find_all("i")], ["fa-envelope"])
+        self.assertNotIn("is-shared", chips["Europe"]["class"])
+        self.assertIn("is-shared", chips["Phishing - T1566"]["class"])
+        self.assertEqual(belgium["href"], "/stats/scope#value-geographic_scope-belgium")
+        self.assertEqual(chips["Phishing - T1566"]["href"], "/stats/scope#value-mitre_attack_techniques-phishing---t1566")
+
+    def test_a_record_is_named_once_for_a_value_it_has_twice(self):
+        section = self.detail(owned=[_requirement("pir", 1, geographic_scope=["Belgium", "belgium"])],
+                              listed=[_requirement("gir", 2, geographic_scope=["BELGIUM", "Belgium"])])
+        self.assertEqual(self.chips(section, 0)["Belgium"]["title"],
+                         "Owned: PIR-00001. Listed in: GIR-00002. Also the focus point Belgium.")
+
+    def test_the_focus_points_beside_them(self):
+        section = self.detail(owned=[_requirement("pir", 1, geographic_scope=["belgium"],
+                                                  mitre_attack_techniques=["Phishing - T1566"])])
+        groups = [g.select_one(".overlap-category").get_text() for g in section.select(".col-md-6")[1].select(".overlap-group")]
+        self.assertEqual(groups, ["Geographic scope", "Sector scope", "Threat actors", "Threat types", "Technology", "Vendor"])
+        chips = self.chips(section, 1)
+        self.assertEqual(list(chips), ["Belgium", "Luxembourg", "Phishing"])
+        self.assertEqual([name for name, a in chips.items() if "is-shared" in a["class"]], ["Belgium", "Phishing"])
+        self.assertEqual(chips["Luxembourg"]["href"], "/stats/scope?focus=1#value-geographic_scope-luxembourg")
+        self.assertEqual(chips["Phishing"]["href"], "/stats/scope?focus=1#value-threat_types-phishing")
+
+    def test_no_scope_items(self):
+        section = self.detail()
+        self.assertIn("The PIRs and GIRs of Ada have no scope items yet.", section.get_text(" ", strip=True))
+        self.assertEqual(list(self.chips(section, 1)), ["Belgium", "Luxembourg", "Phishing"])
+
+    def test_the_product_titles_leave_out_the_prefix(self):
+        products = [SimpleNamespace(info="[zsazsa:briefing] Daily threat briefing 2026-11-13", uuid="b" * 36,
+                                    product_type="Daily threat briefing", date="2026-11-13", misp_url=""),
+                    SimpleNamespace(info="[zsazsa:threat-actor-profile] TAP-00001: Turla", uuid="c" * 36,
+                                    product_type="Threat actor profile", date="2026-11-12", misp_url=""),
+                    SimpleNamespace(info="Ransomware on the grid [zsazsa:x]", uuid="d" * 36,
+                                    product_type="", date="2026-11-11", misp_url="")]
+        page = self.detail(products=products).find_parent("div", class_="col-lg-8")
+        titles = [s.get_text() for s in page.select(".req-text")][-3:]
+        self.assertEqual(titles, ["Daily threat briefing 2026-11-13", "TAP-00001: Turla",
+                                  "Ransomware on the grid [zsazsa:x]"])
 
 
 if __name__ == "__main__":

@@ -7,6 +7,9 @@
 - A detection engineering request has a CVE field.
 - A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
 - On Data collection, clicking an event's organisation filters the list on it.
+- The scope statistics mark the values that are a focus point and say how many focus points are in scope. They filter on the focus points or on one kind of record, and export to CSV.
+- A stakeholder's page lists the scope items of the PIRs and GIRs it owns or is listed in, beside the focus points, each a link to its line in the statistics.
+- The Scope card of a PIR or GIR, on its page and while editing it, shows its overlap with the focus points, and a site admin can add a scope item to them from there. A scope item that is a focus point is marked, on the page and in the edit form.
 
 ## 1.0.10
 

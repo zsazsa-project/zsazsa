@@ -76,4 +76,15 @@ REVIEW_CYCLES = ["Weekly", "Monthly", "Quarterly", "Continuous"]
 
 FOCUS_CATEGORIES = ["Sector", "Technology", "Geography", "Threat Type", "Threat Actor", "Vendor", "Incident", "Campaign"]
 
+# The organisation-wide focus point setting a requirement's scope category
+# corresponds to. Incidents and campaigns have none.
+FOCUS_POINT_SETTINGS = {
+    "Geography": "FOCUS_POINTS_GEOGRAPHIES",
+    "Sector": "FOCUS_POINTS_SECTORS",
+    "Threat Actor": "FOCUS_POINTS_THREAT_ACTORS",
+    "Threat Type": "FOCUS_POINTS_THREAT_TYPES",
+    "Technology": "FOCUS_POINTS_TECHNOLOGIES",
+    "Vendor": "FOCUS_POINTS_VENDORS",
+}
+
 INTEL_LEVELS = ["Strategic", "Operational", "Tactical"]

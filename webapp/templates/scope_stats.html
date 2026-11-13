@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}Scope stats | zsazsa CTI{% endblock %}
-{% block page_title %}Scope statistics{% endblock %}
+{% block title %}Scope and Focus points stats | zsazsa CTI{% endblock %}
+{% block page_title %}Scope and Focus points statistics{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('stats.scope_csv', **filters) }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-file-csv me-1"></i> Export to CSV
+</a>
+{% endblock %}
 
 {% block content %}
 <style>
@@ -12,7 +18,17 @@
   .scope-hero .hero-number { font-size: 2rem; font-weight: 700; line-height: 1; }
   .scope-hero .hero-label { font-size: .75rem; opacity: .85; margin-top: .25rem; }
   .scope-records { background: var(--card-bg); color: var(--text-primary); border-radius: 10px; padding: .8rem 1rem; }
-  .scope-records .kind-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; padding: .12rem 0; }
+  .scope-records .kind-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; padding: .12rem .4rem;
+                             margin: 0 -.4rem; border-radius: 6px; color: inherit; text-decoration: none; }
+  .scope-records a.kind-row:hover { background: var(--surface-muted); }
+  .scope-records .kind-row.active { background: color-mix(in srgb, var(--kind-color) 14%, transparent); font-weight: 600; }
+
+  .scope-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; }
+  .scope-filter-chip { display: inline-flex; align-items: center; border-radius: 999px; padding: .25rem .7rem; font-weight: 600;
+                       color: var(--text-primary); text-decoration: none;
+                       background: color-mix(in srgb, var(--kind-color) 14%, transparent);
+                       border: 1px solid color-mix(in srgb, var(--kind-color) 40%, transparent); }
+  .scope-filter-chip:hover { border-color: var(--kind-color); }
 
   .scope-jump { display: inline-flex; align-items: center; gap: .45rem; background: var(--card-bg); border: 1px solid var(--border-light);
                 border-radius: 999px; padding: .3rem .75rem .3rem .35rem; font-size: .78rem; color: var(--text-primary); text-decoration: none; }
@@ -39,6 +55,9 @@
   .scope-row .value-line .name { min-width: 0; }
   .scope-row .chev { font-size: .6rem; color: var(--text-muted); margin-left: .3rem; transition: transform .15s; }
   .scope-row[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .scope-missing:target { outline: 2px solid var(--accent-orange); scroll-margin-top: 6rem; }
+  .scope-row:target { background: color-mix(in srgb, var(--accent-orange) 16%, transparent); border-radius: 6px;
+                      outline: 2px solid var(--accent-orange); outline-offset: -2px; scroll-margin-top: 6rem; }
 
   .scope-entries { list-style: none; margin: .1rem 0 .45rem 2.1rem; padding: .35rem .55rem; font-size: .78rem;
                    border-left: 2px solid color-mix(in srgb, var(--icon-color) 35%, transparent);
@@ -77,26 +96,45 @@
       <p class="mb-3" style="font-size:.86rem;max-width:62ch;">
         Frequency of each scope value across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
         Geography, sectors, threat actors and MITRE ATT&amp;CK techniques come from MISP galaxies; the rest are curated free-text scope items.
-        Values that differ only in case are counted together. Click a value to see which entries have it.
       </p>
       <div class="d-flex flex-wrap gap-4">
-        <div><div class="hero-number">{{ categories | sum(attribute='total') }}</div><div class="hero-label">scope values counted</div></div>
-        <div><div class="hero-number">{{ categories | sum(attribute='distinct') }}</div><div class="hero-label">distinct values</div></div>
+        <div>
+          <div class="hero-number">{{ categories | sum(attribute='total') }}</div>
+          <div class="hero-label">scope values on events</div>
+        </div>
+        <div>
+          <div class="hero-number">{{ categories | sum(attribute='distinct') }}</div>
+          <div class="hero-label">different values</div>
+        </div>
         <div>
           <div class="hero-number">{{ categories | selectattr('total') | list | length }}<span style="font-size:1rem;opacity:.75;"> / {{ categories | length }}</span></div>
           <div class="hero-label">categories in use</div>
+        </div>
+        <div>
+          <div class="hero-number"><i class="fas fa-bullseye" style="font-size:1.2rem;opacity:.8;"></i> {{ focus_points.matched }}<span style="font-size:1rem;opacity:.75;"> / {{ focus_points.total }}</span></div>
+          <div class="hero-label">focus points in scope</div>
         </div>
       </div>
     </div>
     <div class="col-lg-5">
       <div class="scope-records">
-        <div class="chart-label mb-1">Records with scope</div>
-        {% for kind, k in scope_kinds.items() %}
-        <div class="kind-row">
+        <div class="chart-label mb-0">Records with scope</div>
+        <div class="text-muted mb-1" style="font-size:.7rem;">Click one to see only its scope values.</div>
+        {% macro kind_row(k, count, active) %}
           <span class="chart-swatch" style="background:{{ k.color }};"></span>
           <span class="flex-grow-1">{{ k.plural }}</span>
-          <strong>{{ records_by_kind[kind] }}</strong>
-        </div>
+          {% if active %}<i class="fas fa-xmark text-muted"></i>{% endif %}
+          <strong>{{ count }}</strong>
+        {% endmacro %}
+        {% for kind, k in scope_kinds.items() %}
+        {% set active = filters.kind == kind %}
+        {% if records_by_kind[kind] %}
+        <a class="kind-row{{ ' active' if active }}" style="--kind-color:{{ k.color }};"
+           href="{{ url_for('stats.scope', **dict(filters, kind=None if active else kind)) }}"
+           title="{{ 'Show the scope of every record' if active else 'Show only the scope of ' ~ k.plural }}">{{ kind_row(k, records_by_kind[kind], active) }}</a>
+        {% else %}
+        <div class="kind-row">{{ kind_row(k, 0, False) }}</div>
+        {% endif %}
         {% endfor %}
       </div>
     </div>
@@ -113,11 +151,27 @@
   {% endfor %}
 </div>
 
-<div class="chart-legend mb-3">
+<div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+<div class="chart-legend">
   <span class="fw-semibold">Bars split by record type:</span>
   {% for k in scope_kinds.values() %}
   <span><span class="chart-swatch" style="background:{{ k.color }};"></span>{{ k.label }}</span>
   {% endfor %}
+  <span><i class="fas fa-bullseye focus-mark ms-0 me-1"></i>a focus point</span>
+</div>
+<div class="scope-filters ms-auto">
+  {% if filters.kind %}
+  {% set k = scope_kinds[filters.kind] %}
+  <a href="{{ url_for('stats.scope', **dict(filters, kind=None)) }}" class="scope-filter-chip" style="--kind-color:{{ k.color }};" title="Show the scope of every record">
+    Only {{ k.plural }}<i class="fas fa-xmark ms-2"></i></a>
+  {% endif %}
+  <a href="{{ url_for('stats.scope', **dict(filters, focus=None if filters.focus else '1')) }}"
+     class="btn btn-sm {{ 'btn-primary' if filters.focus else 'btn-outline-secondary' }}" aria-pressed="{{ 'true' if filters.focus else 'false' }}"
+     title="{{ 'Show every value' if filters.focus else 'Show only the values that are a focus point' }}">
+    <i class="fas fa-bullseye me-1"></i>Focus points
+  </a>
+  {% if filters.kind or filters.focus %}<a href="{{ url_for('stats.scope') }}">Show all</a>{% endif %}
+</div>
 </div>
 
 <div class="row g-4">
@@ -135,7 +189,7 @@
     <div class="card content-card chart-card h-100" style="--icon-color:{{ color }};">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="d-flex align-items-center gap-2"><span class="stat-icon icon-sm"><i class="fas {{ icon }}"></i></span>{{ cat.label }}</span>
-        <span class="chart-badge">{{ cat.distinct }} distinct · {{ cat.total }} total</span>
+        <span class="chart-badge">{{ cat.distinct }} distinct · {{ cat.total }} total{% if cat.focus %} · {{ cat.focus }} focus point{{ 's' if cat.focus != 1 }}{% endif %}</span>
       </div>
       <div class="card-body">
         <div class="scope-summary">
@@ -147,7 +201,7 @@
             {% for item in cat['items'][:3] %}
             <div class="scope-top-item">
               <div class="place">{{ ['1st', '2nd', '3rd'][loop.index0] }}</div>
-              <div class="value" title="{{ item.value }}">{{ item.value }}</div>
+              <div class="value" title="{{ item.value }}">{% if item.focus %}<i class="fas fa-bullseye focus-mark ms-0 me-1" title="Focus point: {{ item.focus }}"></i>{% endif %}{{ item.value }}</div>
               <div class="count">{{ item.count }} record{{ 's' if item.count != 1 }}</div>
             </div>
             {% endfor %}
@@ -157,11 +211,12 @@
         <div class="scope-list">
           {% for item in cat['items'] %}
           {% set entries_id = 'scope-' ~ cat.attr ~ '-' ~ loop.index %}
-          <a class="chart-row scope-row" data-bs-toggle="collapse" href="#{{ entries_id }}"
+          {# The stakeholder page links a value here by this id. #}
+          <a class="chart-row scope-row" id="value-{{ cat.attr }}-{{ item.value | slug }}" data-bs-toggle="collapse" href="#{{ entries_id }}"
              role="button" aria-expanded="false" aria-controls="{{ entries_id }}">
             <span class="rank">{{ loop.index }}</span>
             <span class="d-block" style="min-width:0;">
-              <span class="value-line"><span class="name" title="{{ item.value }}">{{ item.value }}</span><i class="fas fa-chevron-right chev"></i></span>
+              <span class="value-line"><span class="name" title="{{ item.value }}">{{ item.value }}</span>{% if item.focus %}<i class="fas fa-bullseye focus-mark" title="Focus point: {{ item.focus }}"></i>{% endif %}<i class="fas fa-chevron-right chev"></i></span>
               <span class="chart-bar" style="width:{{ (item.count / top * 100) | round(1) }}%;">
                 {% for kind, k in scope_kinds.items() if item.by_kind[kind] %}
                 <span style="flex:{{ item.by_kind[kind] }};background:{{ k.color }};" title="{{ k.label }}: {{ item.by_kind[kind] }}"></span>
@@ -191,9 +246,26 @@
   {% endfor %}
 </div>
 
+{% if focus_points.missing %}
+<div class="scope-empty p-3 mt-4" style="--icon-color:var(--accent-orange);">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="stat-icon icon-sm"><i class="fas fa-bullseye"></i></span>
+    <span class="fw-semibold" style="font-size:.84rem;">Focus points in no scope</span>
+    <span class="text-muted" style="font-size:.75rem;">Not a scope value of any record{{ ' shown' if filters.kind or filters.focus }}.</span>
+  </div>
+  {% for group in focus_points.missing %}
+  <div class="d-flex flex-wrap align-items-center gap-1 mb-1" style="font-size:.78rem;">
+    <span class="text-muted me-1">{{ group.label }}:</span>
+    {# The stakeholder page links a focus point here when it is not a value above. #}
+    {% for name in group.names %}<span class="source-tag scope-missing" id="value-{{ group.attr }}-{{ name | slug }}">{{ name }}</span>{% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% set empty_categories = categories | rejectattr('total') | list %}
 {% if empty_categories %}
-<div class="chart-label mt-4 mb-2">Categories with no scope items</div>
+<div class="chart-label mt-4 mb-2">{{ 'Categories with nothing for this filter' if filters.kind or filters.focus else 'Categories with no scope items' }}</div>
 <div class="row g-3">
   {% for cat in empty_categories %}
   {% set icon, color = category_looks.get(cat.attr, ('fa-crosshairs', 'var(--accent-blue)')) %}
@@ -202,7 +274,7 @@
       <span class="stat-icon icon-sm"><i class="fas {{ icon }}"></i></span>
       <div class="flex-grow-1">
         <div class="fw-semibold" style="font-size:.84rem;">{{ cat.label }}</div>
-        <div class="text-muted" style="font-size:.75rem;"><em>No scope items recorded.</em></div>
+        <div class="text-muted" style="font-size:.75rem;"><em>{{ 'Nothing matches the filter.' if filters.kind or filters.focus else 'No scope items recorded.' }}</em></div>
       </div>
       <span class="chart-badge">{{ cat.distinct }} distinct · {{ cat.total }} total</span>
     </div>

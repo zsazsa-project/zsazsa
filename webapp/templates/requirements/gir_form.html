@@ -106,7 +106,15 @@
 
     <!-- Scope -->
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-map me-2"></i>Scope</div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-map me-2"></i>Scope</span>
+        <button type="button" class="btn btn-xs btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#scope-overlap"
+                aria-expanded="false" aria-controls="scope-overlap">
+          <i class="fas fa-bullseye me-1"></i> Overlap with focus points
+        </button>
+      </div>
+      {% set kind = "gir" %}
+      {% include "requirements/_focus_overlap_form.html" %}
       <div class="card-body">
         <div class="row g-3">
 
@@ -118,7 +126,7 @@
             </label>
             {{ galaxy_multiselect("geographic_scope",
                 values=(gir.geographic_scope if is_edit else []),
-                items=galaxy_countries) }}
+                items=galaxy_countries, focus=org_focus['Geography']) }}
           </div>
 
           <div class="col-12">
@@ -127,7 +135,7 @@
             </label>
             {{ galaxy_multiselect("sectors",
                 values=(gir.sectors if is_edit else []),
-                items=galaxy_sectors) }}
+                items=galaxy_sectors, focus=org_focus['Sector']) }}
           </div>
 
           <div class="col-12">
@@ -136,7 +144,7 @@
             </label>
             {{ galaxy_multiselect("threat_actors",
                 values=(gir.threat_actors if is_edit else []),
-                items=galaxy_threat_actors) }}
+                items=galaxy_threat_actors, focus=org_focus['Threat Actor']) }}
           </div>
 
           <div class="col-12">
@@ -159,6 +167,7 @@
                     <label class="form-label small mb-1">Threat types</label>
                     {{ tag_input("threat_types",
                         values=(gir.threat_types if is_edit else []),
+                        focus=org_focus['Threat Type'],
                         placeholder="Ransomware, APT, Espionage…") }}
                   </div>
                 </div>
@@ -171,12 +180,14 @@
                     <label class="form-label small mb-1">Technology</label>
                     {{ tag_input("technology",
                         values=(gir.technology if is_edit else []),
+                        focus=org_focus['Technology'],
                         placeholder="Firewall, Windows, Web servers…") }}
                   </div>
                   <div class="col-sm-6">
                     <label class="form-label small mb-1">Vendor</label>
                     {{ tag_input("vendor",
                         values=(gir.vendor if is_edit else []),
+                        focus=org_focus['Vendor'],
                         placeholder="Microsoft, Cisco, Palo Alto…") }}
                   </div>
                 </div>
@@ -394,6 +405,7 @@ function tiRender(field) {
   var display = document.getElementById('ti-display-' + field);
   var store = document.getElementById('ti-store-' + field);
   if (!display || !store) return;
+  var focus = JSON.parse(display.parentElement.dataset.tiFocus || '{}');
   display.innerHTML = '';
   store.querySelectorAll('input[type="hidden"]').forEach(function(inp) {
     var pill = document.createElement('span');
@@ -405,6 +417,7 @@ function tiRender(field) {
     btn.textContent = '×';
     btn.onclick = function() { inp.remove(); tiRender(field); };
     pill.appendChild(txt);
+    if (Object.prototype.hasOwnProperty.call(focus, inp.value.toLowerCase())) zsazsaFocusMark(pill);
     pill.appendChild(btn);
     display.appendChild(pill);
   });

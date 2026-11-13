@@ -1,10 +1,13 @@
+import csv
+import io
 import logging
 from collections import Counter
 from datetime import date, datetime, timezone
 
-from flask import Blueprint, render_template
+from flask import Blueprint, Response, render_template, request
 
-from webapp import misp_store
+from analyser.relevance import focus_names
+from webapp import audit, misp_store
 from webapp.utils import PRODUCT_TAG_PREFIX, product_type_label
 
 logger = logging.getLogger(__name__)
@@ -379,16 +382,106 @@ def index():
     )
 
 
+# The focus point setting each scope category is matched against. A technique
+# matches a threat type by its name: "Phishing - T1566" is the focus point
+# "Phishing", as the analyser reads one.
+FOCUS_SETTINGS = {
+    "geographic_scope": "FOCUS_POINTS_GEOGRAPHIES",
+    "sectors": "FOCUS_POINTS_SECTORS",
+    "threat_actors": "FOCUS_POINTS_THREAT_ACTORS",
+    "mitre_attack_techniques": "FOCUS_POINTS_THREAT_TYPES",
+    "threat_types": "FOCUS_POINTS_THREAT_TYPES",
+    "technology": "FOCUS_POINTS_TECHNOLOGIES",
+    "vendor": "FOCUS_POINTS_VENDORS",
+}
+# The scope category each focus point list is shown under. A technique is
+# matched against the threat types, which have their own category.
+FOCUS_POINT_CATEGORIES = [(label, attr) for label, attr in misp_store.SCOPE_CATEGORIES
+                          if attr in FOCUS_SETTINGS and attr != "mitre_attack_techniques"]
+_SCOPE_KINDS = ("pir", "gir", "tap", "briefing", "fia")
+
+
+def focus_points():
+    """{setting: {case-folded name: name}} of the focus points."""
+    return {setting: {name.casefold(): name for name in focus_names(setting)}
+            for setting in set(FOCUS_SETTINGS.values())}
+
+
+def focus_point_of(attr, value, points):
+    """The focus point a scope value of category ``attr`` is, or None."""
+    if attr == "mitre_attack_techniques":
+        value = value.rpartition(" - ")[0] or value
+    return points.get(FOCUS_SETTINGS.get(attr), {}).get(value.casefold())
+
+
+def _scope_filters():
+    """The filters in the query string, as url_for takes them back: one kind of
+    record, and focus points only. A filter that is off is None."""
+    kind = request.args.get("kind")
+    return {"kind": kind if kind in _SCOPE_KINDS else None, "focus": "1" if request.args.get("focus") == "1" else None}
+
+
+def _scope_view(kind=None, focus=None):
+    """The scope values as the page and its CSV show them, each marked with the
+    focus point it matches, keeping only the records of ``kind`` and, with
+    ``focus``, only the values that match a focus point.
+
+    Returns the categories, every record with scope counted per kind whatever
+    the filters, and {"matched", "total", "missing"} of the focus points: how
+    many of them are a value shown, and the ones that are not, as {"label",
+    "attr", "names"} per category.
+    """
+    categories = misp_store.scope_stats()
+    records = {(e["kind"], e["uuid"]) for cat in categories for item in cat["items"] for e in item["entries"]}
+    points = focus_points()
+    matched = set()
+    for cat in categories:
+        setting = FOCUS_SETTINGS.get(cat["attr"])
+        items = []
+        for item in cat["items"]:
+            item["focus"] = focus_point_of(cat["attr"], item["value"], points)
+            item["entries"] = [e for e in item["entries"] if kind in (None, e["kind"])]
+            if not item["entries"] or (focus and not item["focus"]):
+                continue
+            if item["focus"]:
+                matched.add((setting, item["focus"].casefold()))
+            item["count"] = len(item["entries"])
+            # The bars and rings split each count by the kind of record it came from.
+            item["by_kind"] = Counter(e["kind"] for e in item["entries"])
+            items.append(item)
+        items.sort(key=lambda i: (-i["count"], i["value"].lower()))
+        cat["items"] = items
+        cat["total"] = sum(i["count"] for i in items)
+        cat["distinct"] = len(items)
+        cat["focus"] = sum(1 for i in items if i["focus"])
+        cat["by_kind"] = sum((i["by_kind"] for i in items), Counter())
+    missing = [{"label": label, "attr": attr,
+                "names": [name for key, name in points[FOCUS_SETTINGS[attr]].items()
+                          if (FOCUS_SETTINGS[attr], key) not in matched]}
+               for label, attr in FOCUS_POINT_CATEGORIES]
+    in_scope = {"matched": len(matched), "total": sum(len(names) for names in points.values()),
+                "missing": [group for group in missing if group["names"]]}
+    return categories, Counter(k for k, _uuid in records), in_scope
+
+
 @bp.route("/stats/scope")
 def scope():
-    categories = misp_store.scope_stats()
-    # The bars and rings split each count by the kind of record it came from.
-    records = set()
+    filters = _scope_filters()
+    categories, records_by_kind, in_scope = _scope_view(**filters)
+    return render_template("scope_stats.html", categories=categories, records_by_kind=records_by_kind,
+                           focus_points=in_scope, filters=filters)
+
+
+@bp.route("/stats/scope.csv")
+def scope_csv():
+    categories, _records, _focus = _scope_view(**_scope_filters())
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["scope", "value", "number"])
     for cat in categories:
-        cat["by_kind"] = Counter()
         for item in cat["items"]:
-            item["by_kind"] = Counter(e["kind"] for e in item["entries"])
-            cat["by_kind"] += item["by_kind"]
-            records.update((e["kind"], e["uuid"]) for e in item["entries"])
-    return render_template("scope_stats.html", categories=categories,
-                           records_by_kind=Counter(kind for kind, _uuid in records))
+            writer.writerow([cat["label"], misp_store._csv_safe(item["value"]), item["count"]])
+    filename = f"scope-{datetime.now(timezone.utc):%Y%m%d}.csv"
+    audit.record("export", "scope", details=filename)
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})

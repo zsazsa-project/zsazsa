@@ -125,7 +125,7 @@
         </a>
         <ul class="dropdown-menu topnav-dropdown-menu">
           <li><a href="{{ url_for('stats.index') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.index' }}"><i class="fas fa-chart-bar fa-fw"></i> Statistics</a></li>
-          <li><a href="{{ url_for('stats.scope') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.scope' }}"><i class="fas fa-crosshairs fa-fw"></i> Scope stats</a></li>
+          <li><a href="{{ url_for('stats.scope') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.scope' }}"><i class="fas fa-crosshairs fa-fw"></i> Scope and Focus points stats</a></li>
           <li><a href="{{ url_for('pipeline.index') }}" class="dropdown-item {{ 'active' if request.blueprint == 'pipeline' }}"><i class="fas fa-satellite-dish fa-fw"></i> Pipeline</a></li>
           <li><a href="{{ url_for('logs.index') }}" class="dropdown-item {{ 'active' if request.endpoint == 'logs.index' }}"><i class="fas fa-scroll fa-fw"></i> Logs</a></li>
           <li><a href="{{ url_for('stakeholders.matrix') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stakeholders.matrix' }}"><i class="fas fa-table-cells fa-fw"></i> Stakeholder matrix</a></li>
@@ -294,7 +294,7 @@
       </li>
       <li>
         <a href="{{ url_for('stats.scope') }}" class="{{ 'active' if request.endpoint == 'stats.scope' }}">
-          <i class="fas fa-crosshairs fa-fw"></i> Scope stats
+          <i class="fas fa-crosshairs fa-fw"></i> Scope and Focus points stats
         </a>
       </li>
       <li>
@@ -765,6 +765,15 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js" integrity="sha512-X/YkDZyjTf4wyc2Vy16YGCPHwAY8rZJY+POgokZjQB2mhIRFJCckEGc6YyX9eNsPfn0PzThEuNs+uaomE5CO6A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
+  // The bullseye on a chosen scope value that is one of the organisation-wide
+  // focus points, as the focus_mark macro draws it on the server.
+  function zsazsaFocusMark(el) {
+    var icon = document.createElement('i');
+    icon.className = 'fas fa-bullseye focus-mark';
+    icon.title = 'Also a focus point of the organisation';
+    el.appendChild(icon);
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('[data-gms-search]').forEach(function(searchInput) {
       var field = searchInput.getAttribute('data-gms-search');
@@ -780,6 +789,7 @@
           var pill = document.createElement('span');
           pill.className = 'gms-pill';
           pill.textContent = cb.value;
+          if (cb.hasAttribute('data-focus')) zsazsaFocusMark(pill);
           selectedDisplay.appendChild(pill);
         });
       }
