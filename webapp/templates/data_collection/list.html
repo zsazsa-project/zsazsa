@@ -51,7 +51,7 @@
     <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
       <span class="text-muted small" style="font-variant-numeric:tabular-nums;white-space:nowrap;">
         <span id="visible-count">{{ events | length }}</span>
-        <span id="total-count-note" style="font-size:.85em;color:var(--neutral-500);"></span>
+        <span id="total-count-note" style="font-size:.85em;color:var(--neutral-500);">of {{ events | length }} matching</span>
         events
       </span>
       <button class="btn btn-xs btn-link text-danger p-0" id="clear-filters-btn"
@@ -71,6 +71,26 @@
          data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-placement="bottom" data-bs-html="true"
          data-bs-title="How cache refresh works"
          data-bs-content="The cache is refreshed automatically every <strong>{{ (cache_interval_s // 60) }} minutes</strong> by a background worker that polls every configured source. Clicking <strong>Refresh cache</strong> wakes the worker early without changing the schedule."></i>
+      <span class="text-muted" style="font-size:.7rem;user-select:none;">·</span>
+      <button class="action-pill" id="save-preset-btn" title="Save current filters as a named preset">
+        <i class="fas fa-floppy-disk" style="font-size:.75rem;"></i> Save preset
+      </button>
+      <div class="dropdown">
+        <button class="action-pill" id="load-preset-btn" data-bs-toggle="dropdown"
+                title="Load a saved filter preset">
+          <i class="fas fa-folder-open" style="font-size:.75rem;"></i> Load preset
+        </button>
+        <div class="dropdown-menu dropdown-menu-end p-2" id="preset-dropdown-content" style="min-width:300px;"></div>
+      </div>
+      <span id="preset-active-indicator" class="preset-active-indicator d-none" title="Current loaded filter preset status">
+        <i class="fas fa-bookmark"></i>
+        <span>Preset:</span>
+        <strong class="preset-name"></strong>
+        <span class="preset-state text-muted"></span>
+        <button type="button" class="preset-clear-btn" id="preset-clear-btn" title="Detach this preset" aria-label="Detach preset">
+          <i class="fas fa-xmark"></i>
+        </button>
+      </span>
     </div>
   </div>
 
@@ -133,6 +153,12 @@
         <i class="fas fa-microscope me-1"></i>CTI Eval
       </button>
 
+      <button class="action-pill hide-rej-btn is-hiding" id="hide-rejected-btn"
+              title="Toggle visibility of rejected events (workflow:state=rejected)">
+        <i class="fas fa-eye" style="font-size:.75rem;"></i>
+        <span class="hide-rej-label">Show rejected</span>
+      </button>
+
       <div class="toolbar-actions">
         <button type="button" class="action-chip" id="pull-event-btn" style="--tile-accent: var(--accent-blue);"
                 data-bs-toggle="modal" data-bs-target="#pull-event-modal"
@@ -161,17 +187,17 @@
       </div>
     </div>
 
-    <!-- Line 2: sources left, view options right -->
+    <!-- Line 2: the sources -->
     {% set source_accents = {'scraper': 'var(--accent-blue)', 'misp': '#7c5cd6', 'manual': 'var(--accent-green)'} %}
     <div class="toolbar-row">
-      <div id="style-current" class="chip-sources d-flex flex-wrap gap-2">
+      <div id="style-current" class="chip-sources">
         {% for s in sources %}
         {% set st = cache_status.get(s.id) %}
         {% set has_err = source_errors.get(s.id) %}
         <div class="source-toggle source-toggle-on {{ 'source-toggle-err' if has_err else '' }}"
              data-source-id="{{ s.id }}"
              style="--tile-accent: {{ source_accents.get(s.kind, 'var(--accent-blue)') }};"
-             title="{{ s.url or '' }}{% if has_err %} · Error: {{ has_err }}{% endif %}">
+             title="{{ s.label }}{% if s.url %} · {{ s.url }}{% endif %}{% if has_err %} · Error: {{ has_err }}{% endif %}">
           <span class="source-toggle-icon">
             {% if s.kind == 'scraper' %}<i class="fas fa-spider"></i>
             {% elif s.kind == 'manual' %}<i class="fas fa-file-import"></i>
@@ -182,11 +208,9 @@
             {% if s.kind == 'misp' %}<span class="source-chip-sub">last {{ s.since_days }}d</span>
             {% elif s.kind == 'manual' %}<span class="source-chip-sub">manual</span>
             {% elif s.kind == 'scraper' and s.imap_sources %}
-              {% for imp in s.imap_sources %}
-              <span class="source-chip-sub" title="Collected from an IMAP mailbox via the scraper">
-                <i class="fas fa-envelope fa-xs me-1" style="opacity:.6;"></i>{{ imp }}
+              <span class="source-chip-sub" title="Collected through the scraper from: {{ s.imap_sources | join(', ') }}">
+                <i class="fas fa-envelope fa-xs me-1" style="opacity:.6;"></i>{{ s.imap_sources | length }} mailbox{{ 'es' if s.imap_sources | length != 1 }}
               </span>
-              {% endfor %}
             {% endif %}
           </span>
           {% if has_err %}
@@ -196,33 +220,6 @@
           {% endif %}
         </div>
         {% endfor %}
-      </div>
-
-      <div class="toolbar-actions">
-        <button class="action-pill hide-rej-btn is-hiding" id="hide-rejected-btn"
-                title="Toggle visibility of rejected events (workflow:state=rejected)">
-          <i class="fas fa-eye" style="font-size:.75rem;"></i>
-          <span class="hide-rej-label">Show rejected</span>
-        </button>
-        <button class="action-pill" id="save-preset-btn" title="Save current filters as a named preset">
-          <i class="fas fa-floppy-disk" style="font-size:.75rem;"></i> Save preset
-        </button>
-        <div class="dropdown">
-          <button class="action-pill" id="load-preset-btn" data-bs-toggle="dropdown"
-                  title="Load a saved filter preset">
-            <i class="fas fa-folder-open" style="font-size:.75rem;"></i> Load preset
-          </button>
-          <div class="dropdown-menu dropdown-menu-end p-2" id="preset-dropdown-content" style="min-width:300px;"></div>
-        </div>
-        <span id="preset-active-indicator" class="preset-active-indicator d-none" title="Current loaded filter preset status">
-          <i class="fas fa-bookmark"></i>
-          <span>Preset:</span>
-          <strong class="preset-name"></strong>
-          <span class="preset-state text-muted"></span>
-          <button type="button" class="preset-clear-btn" id="preset-clear-btn" title="Detach this preset" aria-label="Detach preset">
-            <i class="fas fa-xmark"></i>
-          </button>
-        </span>
       </div>
     </div>
 

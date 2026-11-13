@@ -130,8 +130,24 @@
   /* Source toggles use the same chip language as the actions on the right, so
      the whole toolbar reads as one set of controls. A source that is switched
      off keeps a grey icon tile, a source that is on carries its accent colour:
-     blue for the scraper, purple for a MISP instance, green for manual entry. */
+     blue for the scraper, purple for a MISP instance, green for manual entry.
+     They are all of one size, whatever their label, and styled here, before
+     the table: styled after it, they changed size while the page loaded, and
+     on every reload after a refresh or a change to the events. A label too
+     long for its source is cut short; the tooltip has it in full. */
+  .chip-sources {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    grid-auto-rows: 1fr;
+    gap: .5rem;
+    flex: 1;
+  }
   .chip-sources .source-toggle {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    cursor: pointer;
+    user-select: none;
     gap: .45rem;
     padding: .3rem .6rem .3rem .35rem;
     border: 1px solid var(--border-light);
@@ -175,20 +191,34 @@
   .chip-sources .source-chip-text {
     display: flex;
     flex-direction: column;
+    flex: 1;
     line-height: 1.15;
     min-width: 0;
+  }
+  .chip-sources .source-toggle-label,
+  .chip-sources .source-chip-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .chip-sources .source-chip-sub {
     font-size: .62rem;
     font-weight: 400;
     color: var(--text-muted);
-    white-space: nowrap;
   }
   .chip-sources .source-toggle-badge {
+    flex-shrink: 0;
+    min-width: 2.2rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
     font-size: .62rem;
     padding: .1rem .4rem;
     border-radius: 999px;
   }
+
+  /* An event's organisation filters the list on it. */
+  .org-filter-link { text-decoration: none; }
+  .org-filter-link:hover { text-decoration: underline; }
 
   /* Hide-rejected toggle: action-pill sizing, only state colours differ */
   .hide-rej-btn.is-hiding {
@@ -409,8 +439,12 @@
   .exclusion-actions { display: inline-flex; align-items: center; gap: .35rem; flex-wrap: nowrap; }
 
   /* Top words in the event titles, in the table header: no taller than a source chip. */
-  .title-words { display: flex; align-items: center; gap: .6rem; min-width: 0; overflow: hidden; }
-  .title-words[hidden] { display: none; }
+  /* The chart keeps its height while it is empty: drawn after the page, or
+     emptied by a filter, it made the header grow or shrink and moved the
+     table. Not with the hidden attribute, which Bootstrap takes out of the
+     layout whatever this says. */
+  .title-words { display: flex; align-items: center; gap: .6rem; min-width: 0; overflow: hidden; height: 32px; }
+  .title-words.is-empty { visibility: hidden; }
   .title-words-caption { font-size: .7rem; font-weight: 400; color: var(--text-muted); white-space: nowrap; }
   .title-words-bars { display: flex; align-items: flex-end; gap: .2rem; }
   .title-word {

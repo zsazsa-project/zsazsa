@@ -6,6 +6,7 @@
 
 - A detection engineering request has a CVE field.
 - A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
+- On Data collection, clicking an event's organisation filters the list on it.
 
 ## 1.0.10
 

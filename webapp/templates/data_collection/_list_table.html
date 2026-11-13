@@ -96,7 +96,7 @@
       <span id="table-count">{{ events | length }}</span>
       event<span id="table-count-plural">{{ 's' if events|length != 1 }}</span>
     </span>
-    <div id="title-words" class="title-words" hidden>
+    <div id="title-words" class="title-words is-empty">
       <span class="title-words-caption">Top words in titles</span>
       <div class="title-words-bars"></div>
     </div>
@@ -136,7 +136,6 @@
                   <i class="fas fa-wand-magic-sparkles"></i>
                 </button>
               </span>
-              <i class="fas fa-gear text-muted" id="selection-actions-gear"></i>
             </th>
           </tr>
         </thead>
@@ -320,7 +319,10 @@
               </div>
               {% endif %}
             </td>
-            <td class="text-muted small" style="white-space:nowrap;">{{ e.orgc or '-' }}</td>
+            <td class="text-muted small" style="white-space:nowrap;">
+              {% if e.orgc %}<a href="#" class="org-filter-link text-reset" data-org="{{ e.orgc }}"
+                 title="Filter on this creator organisation">{{ e.orgc }}</a>{% else %}-{% endif %}
+            </td>
             <td class="text-muted small" style="white-space:nowrap;">
               {% if e.source_kind == 'scraper' %}<i class="fas fa-spider me-1"></i>
               {% else %}<i class="fas fa-server me-1"></i>{% endif %}

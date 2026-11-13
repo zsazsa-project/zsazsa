@@ -12,19 +12,6 @@
   box-shadow:var(--shadow-float);
 }
 #go-to-top-btn.visible { opacity:1; transform:translateY(0); pointer-events:auto; }
-.source-toggle {
-  display:inline-flex; align-items:center; gap:.45rem;
-  padding:.4rem .75rem; border:2px solid var(--neutral-300); border-radius:.5rem;
-  cursor:pointer; background:var(--card-bg); transition:border-color .12s, background .12s;
-  user-select:none; font-size:.85rem;
-}
-.source-toggle:hover { border-color:var(--accent-blue); background:var(--source-toggle-hover-bg); }
-.source-toggle-on { border-color:var(--accent-blue); background:var(--source-toggle-on-bg); color:var(--pill-active-fg); font-weight:600; }
-.source-toggle-on .source-toggle-icon { color:var(--accent-blue); }
-.source-toggle-err { border-color:var(--source-toggle-err-border); }
-.source-toggle-err.source-toggle-on { background:var(--source-toggle-err-bg); }
-.source-toggle-icon { font-size:.9rem; color:var(--neutral-600); }
-.source-toggle-badge { font-size:.65rem; padding:.15rem .35rem; border-radius:.25rem; }
 .tag-pill {
   display:inline-block; padding:.15rem .45rem; border-radius:999px;
   font-size:.7rem; font-weight:500; border:1.5px solid var(--neutral-300);
@@ -549,7 +536,7 @@
     var top = topTitleWords(titles, 10);
     var bars = titleWordsChart.querySelector('.title-words-bars');
     bars.replaceChildren();
-    titleWordsChart.hidden = !top.length;
+    titleWordsChart.classList.toggle('is-empty', !top.length);
     var most = top.length ? top[0][1] : 1;
     top.forEach(function(entry) {
       var word = entry[0], count = entry[1];
@@ -1061,23 +1048,35 @@
     });
   }
 
+  // Filter on a creator organisation: 'include', 'exclude' or 'neutral' for
+  // neither. Its pill in the Org panel shows the same state.
+  function setOrgFilter(org, to) {
+    state.includeOrgs.delete(org); state.excludeOrgs.delete(org);
+    if (to === 'include') state.includeOrgs.add(org);
+    if (to === 'exclude') state.excludeOrgs.add(org);
+    document.querySelectorAll('.org-pill').forEach(function(p) {
+      if (p.dataset.org === org) { p.dataset.state = to; p.className = 'tag-pill tag-pill-' + to + ' org-pill'; }
+    });
+    updateOrgSummary(); applyAll();
+  }
+
+  var NEXT_ORG_STATE = {neutral: 'include', include: 'exclude', exclude: 'neutral'};
   document.querySelectorAll('.org-pill').forEach(function(pill) {
     pill.addEventListener('click', function() {
-      var org = pill.dataset.org;
-      var cur = pill.dataset.state;
-      if (cur === 'neutral') {
-        state.includeOrgs.add(org); state.excludeOrgs.delete(org);
-        pill.dataset.state = 'include'; pill.className = 'tag-pill tag-pill-include org-pill';
-      } else if (cur === 'include') {
-        state.includeOrgs.delete(org); state.excludeOrgs.add(org);
-        pill.dataset.state = 'exclude'; pill.className = 'tag-pill tag-pill-exclude org-pill';
-      } else {
-        state.includeOrgs.delete(org); state.excludeOrgs.delete(org);
-        pill.dataset.state = 'neutral'; pill.className = 'tag-pill tag-pill-neutral org-pill';
-      }
-      updateOrgSummary(); applyAll();
+      setOrgFilter(pill.dataset.org, NEXT_ORG_STATE[pill.dataset.state]);
     });
   });
+
+  // The organisation in an event's row filters on it, as its pill does.
+  var eventsTbody = document.getElementById('events-tbody');
+  if (eventsTbody) {
+    eventsTbody.addEventListener('click', function(ev) {
+      var link = ev.target.closest('.org-filter-link');
+      if (!link) return;
+      ev.preventDefault();
+      setOrgFilter(link.dataset.org, 'include');
+    });
+  }
 
   var deselectAllOrgs = document.getElementById('deselect-all-orgs-btn');
   if (deselectAllOrgs) {
@@ -1576,7 +1575,7 @@
 
   /* ── Reject and dismiss ── */
   function showFeedback(message, category) {
-    /* Append a dismissible alert to #flash-container; reuse auto-dismiss logic from base.html */
+    /* Append a dismissible alert to #flash-container, which floats over the page */
     var container = document.getElementById('flash-container');
     if (!container) { return; }
     var cls = category === 'success' ? 'alert-success'
@@ -1823,12 +1822,10 @@
 
   /* ── Bulk actions on selected events (toolbar in the table header) ── */
   var selectionToolbar = document.getElementById('selection-actions-toolbar');
-  var selectionActionsGear = document.getElementById('selection-actions-gear');
 
   function updateSelectionToolbar() {
     var anySelected = selectedRowCbs().length > 0;
     if (selectionToolbar) selectionToolbar.style.display = anySelected ? 'inline-flex' : 'none';
-    if (selectionActionsGear) selectionActionsGear.style.display = anySelected ? 'none' : 'inline';
   }
   document.querySelectorAll('.event-row-cb').forEach(function(cb) { cb.addEventListener('change', updateSelectionToolbar); });
   if (selectAllCb) selectAllCb.addEventListener('change', updateSelectionToolbar);

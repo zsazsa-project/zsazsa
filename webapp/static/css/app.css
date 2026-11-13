@@ -737,13 +737,36 @@ body {
 .job-badge-failed   { color: var(--accent-red); }
 
 /* ─── Flash messages ────────────────────────────────────────────────────── */
+/* They float over the page, below the navigation: in the page, one pushed the
+   content down as it opened and pulled it back up when it closed. */
 #flash-container {
-  padding: 0.75rem 1.75rem 0;
+  position: fixed;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1090;
+  width: min(36rem, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  pointer-events: none;
 }
 
 .alert-flash {
+  margin: 0;
   border-radius: var(--border-radius);
   font-size: 0.875rem;
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+}
+
+/* ─── Icons ─────────────────────────────────────────────────────────────── */
+/* Every icon takes the width of the widest, as Font Awesome's fa-fw does. The
+   icon font comes from the CDN after the page is drawn, and until it is in an
+   icon has no width: the buttons widened when it arrived and moved the tables. */
+.fa, .fas, .far, .fab, .fa-solid, .fa-regular, .fa-brands {
+  width: 1.25em;
+  text-align: center;
 }
 
 /* ─── Cards ─────────────────────────────────────────────────────────────── */
