@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import product_icons %}
 
 {% block title %}{{ stakeholder.name }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ stakeholder.name }}{% endblock %}
@@ -11,282 +12,145 @@
 {% endblock %}
 
 {% block content %}
-<div class="row g-4">
+<style>
+  .hero-tile { width: 3.2rem; height: 3.2rem; border-radius: 12px; font-size: 1.6rem; background: #fff; color: var(--misp-navy);
+               box-shadow: 0 10px 22px -12px rgba(0,0,0,.5); }
+  .hero-tile.external { background: var(--text-primary); color: #fff; }
+  .hero-facts { display: flex; flex-wrap: wrap; gap: .2rem 1rem; font-size: .86rem; opacity: .92; }
+  .clearance { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .45rem; align-self: flex-start;
+               padding: .8rem 1.1rem; border-radius: 10px; background: rgba(0,0,0,.18); font-size: .75rem; text-align: center; }
+  .clearance .tlp-badge { font-size: .9rem; padding: .3rem .6rem; }
+  .req-section { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted);
+                 padding: .85rem 1rem .35rem; }
+  .req-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) 7.5rem 7rem; gap: .9rem; align-items: center;
+             padding: .7rem 1rem; border-top: 1px solid var(--border-faint); color: var(--text-primary); text-decoration: none; }
+  .req-row:hover { background: var(--surface-hover); color: var(--text-primary); }
+  .req-row .req-text { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .req-row .meta { font-size: .78rem; color: var(--text-muted); }
+  .req-empty { padding: .3rem 1rem .9rem; font-size: .84rem; color: var(--text-muted); }
+  .sub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .45rem; }
+  .sub-item { display: flex; align-items: center; gap: .55rem; padding: .5rem .7rem; border: 1px solid var(--border-light);
+              border-radius: 10px; font-size: .84rem; font-weight: 600; }
+  .sub-item i { color: var(--accent-blue); }
+  .sub-item.off { border-style: dashed; color: var(--text-muted); font-weight: 400; }
+  .sub-item.off i { color: var(--text-muted); opacity: .6; }
+  .sub-item .badge { margin-left: auto; }
+  .product-line { display: grid; grid-template-columns: 1.4rem 13rem minmax(0, 1fr) auto; gap: .75rem; align-items: center;
+                  padding: .65rem 1rem; border-top: 1px solid var(--border-faint); color: var(--text-primary); text-decoration: none; }
+  .product-line:first-child { border-top: 0; }
+  .product-line:hover { background: var(--surface-hover); color: var(--text-primary); }
+  .product-line .type { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--misp-navy); }
+  @media (max-width: 768px) {
+    .req-row, .product-line { grid-template-columns: 1fr; gap: .25rem; }
+  }
+</style>
+{% set external = stakeholder.stakeholder_type != 'Internal' %}
+{% set products = subscribed_products(stakeholder) %}
+{% set girs = owned_girs | length + distributed_girs | length %}
 
-  <div class="col-lg-4">
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-id-card me-2"></i>Identity</div>
-      <div class="card-body">
-        <dl class="detail-list">
-          <dt>Role</dt>
-          <dd>{{ stakeholder.role or '-' }}</dd>
-          <dt>Organisation</dt>
-          <dd>{{ org_map.get(stakeholder.organization, stakeholder.organization) or '-' }}</dd>
-          <dt>Type</dt>
-          <dd>
-            {% if stakeholder.stakeholder_type == 'Internal' %}
-            <span class="badge text-bg-primary"><i class="fas fa-building me-1"></i>Internal</span>
-            {% else %}
-            <span class="badge text-bg-secondary"><i class="fas fa-globe me-1"></i>External</span>
-            {% endif %}
-          </dd>
-          {% if stakeholder.contacts %}
-          <dt>Contact{{ 's' if stakeholder.contacts|length > 1 }}</dt>
-          <dd>
-            <div class="d-flex flex-column gap-1">
-            {% for c in stakeholder.contacts %}
-            <div class="d-flex align-items-center gap-2">
-              {% if c.type == 'Email' %}<i class="fas fa-envelope text-muted" style="width:1rem;"></i><a href="mailto:{{ c.value }}">{{ c.value }}</a>
-              {% elif c.type == 'Phone' %}<i class="fas fa-phone text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
-              {% elif c.type == 'Teams' %}<i class="fas fa-comments text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
-              {% elif c.type == 'Mattermost' %}<i class="fas fa-bolt text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
-              {% else %}<i class="fas fa-address-card text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
-              {% endif %}
-              {% if c.get('preferred') %}<span class="badge text-bg-light text-muted small">preferred</span>{% endif %}
-            </div>
-            {% endfor %}
-            </div>
-          </dd>
-          {% endif %}
-          <dt>Added</dt>
-          <dd>{{ stakeholder.created_at.strftime('%d-%m-%Y') if stakeholder.created_at else '-' }}</dd>
-          {% if stakeholder.history_url %}
-          <dt>History</dt>
-          <dd>
-            <a href="{{ stakeholder.history_url }}" target="_blank" rel="noopener" class="text-decoration-none">
-              <i class="fas fa-clock-rotate-left me-1"></i>MISP event history
-            </a>
-          </dd>
-          {% endif %}
-        </dl>
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Intelligence preferences</div>
-      <div class="card-body">
-        <dl class="detail-list mb-3">
-          <dt>TLP clearance</dt>
-          <dd><span class="tlp-badge tlp-{{ stakeholder.tlp_clearance | slug }}">TLP:{{ stakeholder.tlp_clearance | upper }}</span></dd>
-        </dl>
-        <div class="fw-semibold mb-2 text-muted small text-uppercase tracking-wide">Products subscribed</div>
-        {% set products = subscribed_products(stakeholder) %}
-        {% if products %}
-        <div class="d-flex flex-wrap gap-2">
-          {% for p in products %}
-          {% set mode = stakeholder.product_modes.get(p) if stakeholder.product_modes else None %}
-          {# Only an automated subscription says anything: the mode picker is
-             hidden, so after-approval is what a stakeholder carries by default
-             rather than something anyone chose. #}
-          <span class="product-tag">
-            {{ p }}
-            {% if mode == 'automated' %}
-            <span class="badge ms-1" style="background:var(--accent-green);font-weight:500;">automated</span>
-            {% endif %}
-          </span>
-          {% endfor %}
+<section class="record-hero rise mb-4">
+  <div class="hero-main">
+    <div class="d-flex align-items-center gap-3">
+      <span class="monogram hero-tile{{ ' external' if external }}" aria-hidden="true">{{ stakeholder.name[:1] | upper }}</span>
+      <div style="min-width:0;">
+        <div class="eyebrow"><i class="fas fa-{{ 'globe' if external else 'building' }} me-1"></i>{{ 'External' if external else 'Internal' }} stakeholder</div>
+        <h1>{{ stakeholder.name }}</h1>
+        <div class="hero-facts">
+          <span>{{ stakeholder.role or 'No role' }}</span>
+          <span>{{ org_map.get(stakeholder.organization, stakeholder.organization) or 'No organisation' }}</span>
+          {% if stakeholder.created_at %}<span>Added {{ stakeholder.created_at.strftime('%d-%m-%Y') }}</span>{% endif %}
         </div>
-        {% else %}
-        <p class="text-muted mb-0 small">No products configured.</p>
-        {% endif %}
-
-        {% if stakeholder.notification_channels %}
-        <div class="fw-semibold mt-3 mb-2 text-muted small text-uppercase tracking-wide">Notification channels</div>
-        <div class="d-flex flex-wrap gap-2">
-          {% for cid in stakeholder.notification_channels %}
-          <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle">
-            {% if cid.startswith('flowintel:') %}<img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="Flowintel" style="height:12px;width:auto;" class="me-1">{% endif %}
-            {{ notification_channel_names.get(cid, cid) }}
-          </span>
-          {% endfor %}
-        </div>
-        {% endif %}
       </div>
     </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-chart-simple me-2"></i>Stakeholder positioning</div>
-      <div class="card-body">
-        <dl class="detail-list mb-3">
-          <dt>Influence</dt>
-          <dd>{{ stakeholder.influence }}/10</dd>
-          <dt>Interest</dt>
-          <dd>{{ stakeholder.interest }}/10</dd>
-          <dt>Quadrant</dt>
-          <dd><span class="badge quadrant-badge quadrant-{{ stakeholder.quadrant_key }}">{{ stakeholder.quadrant_label }}</span></dd>
-        </dl>
-        {% if stakeholder.engagement_strategy %}
-        <div class="fw-semibold mb-1 text-muted small text-uppercase tracking-wide">Engagement strategy</div>
-        <p class="mb-0">{{ stakeholder.engagement_strategy }}</p>
-        {% endif %}
-        <a href="{{ url_for('stakeholders.matrix') }}" class="btn btn-sm btn-outline-secondary mt-3">
-          <i class="fas fa-table-cells me-1"></i> Stakeholder matrix
-        </a>
-      </div>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ products | length }}<small> / {{ product_types | length }}</small></b><span>product types subscribed</span></div>
+      <div class="record-kpi"><b>{{ owned_pirs | length }}</b><span>PIR{{ 's' if owned_pirs | length != 1 }} owned</span></div>
+      <div class="record-kpi"><b>{{ distributed_pirs | length }}</b><span>PIR{{ 's' if distributed_pirs | length != 1 }} followed</span></div>
+      <div class="record-kpi"><b>{{ girs }}</b><span>GIR{{ 's' if girs != 1 }} owned or followed</span></div>
     </div>
-
-    {% if stakeholder.notes %}
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-note-sticky me-2"></i>Notes</div>
-      <div class="card-body">
-        <p class="mb-0">{{ stakeholder.notes }}</p>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="d-flex gap-2 mb-2">
-      <a href="{{ url_for('stakeholders.edit', id=stakeholder.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
+    <div class="hero-actions">
+      <a href="{{ url_for('stakeholders.edit', id=stakeholder.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      {% if stakeholder.history_url %}
+      <a href="{{ stakeholder.history_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-hero-ghost"><i class="fas fa-clock-rotate-left me-1"></i> MISP event history</a>
+      {% endif %}
       {% if owned_records %}
       <span title="Cannot be deleted while it owns {{ owned_records | join(', ') }}. Give them another owner or delete them first."
-            style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-trash me-1"></i> Delete
-        </button>
+            style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete</button>
       </span>
       {% else %}
-      <form method="post" action="{{ url_for('stakeholders.delete', id=stakeholder.id) }}"
-            data-submit-confirm="Delete {{ stakeholder.name }}?" class="flex-fill">
+      <form method="post" action="{{ url_for('stakeholders.delete', id=stakeholder.id) }}" data-submit-confirm="Delete {{ stakeholder.name }}?" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete
-        </button>
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
       </form>
       {% endif %}
     </div>
-
   </div>
 
+  <div class="clearance">
+    <span>Cleared for</span>
+    <span class="tlp-badge tlp-{{ stakeholder.tlp_clearance | slug }}">TLP:{{ stakeholder.tlp_clearance | upper }}</span>
+  </div>
+
+  <div class="record-panel" style="flex:0 1 18rem;align-self:flex-start;">
+    <div class="chart-label">Positioning</div>
+    <div class="matrix" role="img" aria-label="Influence {{ stakeholder.influence }} of 10, interest {{ stakeholder.interest }} of 10: {{ stakeholder.quadrant_label }}">
+      {% for key, label in (('keep-satisfied', 'Keep satisfied'), ('manage-closely', 'Manage closely'), ('monitor', 'Monitor'), ('keep-informed', 'Keep informed')) %}
+      <div class="{{ 'here' if stakeholder.quadrant_key == key }}">{{ label }}</div>
+      {% endfor %}
+      <span class="pin" style="left:{{ stakeholder.interest_pct }}%;bottom:{{ stakeholder.influence_pct }}%;"></span>
+    </div>
+    <div class="d-flex justify-content-between small text-muted">
+      <span>Interest <strong class="text-body">{{ stakeholder.interest }}/10</strong></span>
+      <span>Influence <strong class="text-body">{{ stakeholder.influence }}/10</strong></span>
+    </div>
+    <a href="{{ url_for('stakeholders.matrix') }}" class="small fw-semibold">Open the stakeholder matrix</a>
+  </div>
+</section>
+
+<div class="row g-4">
   <div class="col-lg-8">
 
-    <!-- Owned PIRs -->
-    <div class="card content-card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-star me-2 text-primary"></i>Priority Intelligence Requirements</span>
-        <a href="{{ url_for('requirements.pir_new', from_stakeholder=stakeholder.uuid) }}" class="btn btn-xs btn-outline-primary" title="New PIR">
-          <i class="fas fa-plus"></i>
-        </a>
-      </div>
-      <div class="card-body p-0">
-        <div class="px-3 pt-3 pb-2 border-bottom">
-          <div class="text-muted small text-uppercase fw-semibold">Owned by {{ stakeholder.name }}</div>
-        </div>
-        {% if owned_pirs %}
-        <ul class="req-list">
-          {% for pir in owned_pirs %}
-          <li class="req-item">
-            <a href="{{ url_for('requirements.pir_detail', id=pir.id) }}" class="req-link">
-              <span class="req-id">{{ pir.pir_id }}</span>
-              <span class="req-text">{{ pir.question | truncate(80) }}</span>
-            </a>
-            <div class="req-meta">
-              <span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span>
-              <span class="badge status-badge status-{{ pir.status | slug }}">{{ pir.status }}</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="empty-state py-4">
-          <p class="text-muted mb-1 small">{{ stakeholder.name }} does not own any PIRs yet.</p>
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+        <span><i class="fas fa-list-check me-2"></i>Requirements</span>
+        <span class="d-flex gap-2">
           <a href="{{ url_for('requirements.pir_new', from_stakeholder=stakeholder.uuid) }}" class="btn btn-xs btn-outline-primary">
-            <i class="fas fa-plus me-1"></i> Create PIR
+            <i class="fas fa-plus me-1"></i> Add a PIR
           </a>
-        </div>
-        {% endif %}
-
-        <div class="px-3 pt-3 pb-2 border-top border-bottom">
-          <div class="text-muted small text-uppercase fw-semibold">Listed in Distribution</div>
-        </div>
-        {% if distributed_pirs %}
-        <ul class="req-list">
-          {% for pir in distributed_pirs %}
-          <li class="req-item">
-            <a href="{{ url_for('requirements.pir_detail', id=pir.id) }}" class="req-link">
-              <span class="req-id">{{ pir.pir_id }}</span>
-              <span class="req-text">{{ pir.question | truncate(80) }}</span>
-            </a>
-            <div class="req-meta">
-              <span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span>
-              <span class="badge status-badge status-{{ pir.status | slug }}">{{ pir.status }}</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="empty-state py-4">
-          <p class="text-muted mb-0 small">{{ stakeholder.name }} is not listed in PIR distribution yet.</p>
-        </div>
-        {% endif %}
-      </div>
-    </div>
-
-    <!-- Owned GIRs -->
-    <div class="card content-card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-list-check me-2 text-success"></i>General Intelligence Requirements</span>
-        <a href="{{ url_for('requirements.gir_new', from_stakeholder=stakeholder.uuid) }}" class="btn btn-xs btn-outline-success" title="New GIR">
-          <i class="fas fa-plus"></i>
-        </a>
+          <a href="{{ url_for('requirements.gir_new', from_stakeholder=stakeholder.uuid) }}" class="btn btn-xs btn-outline-success">
+            <i class="fas fa-plus me-1"></i> Add a GIR
+          </a>
+        </span>
       </div>
       <div class="card-body p-0">
-        <div class="px-3 pt-3 pb-2 border-bottom">
-          <div class="text-muted small text-uppercase fw-semibold">Owned by {{ stakeholder.name }}</div>
-        </div>
-        {% if owned_girs %}
-        <ul class="req-list">
-          {% for gir in owned_girs %}
-          <li class="req-item">
-            <a href="{{ url_for('requirements.gir_detail', id=gir.id) }}" class="req-link">
-              <span class="req-id">{{ gir.gir_id }}</span>
-              <span class="req-text">{{ gir.topic }}</span>
-            </a>
-            <div class="req-meta">
-              <span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span>
-              <span class="text-muted small">{{ gir.review_cycle }}</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="empty-state py-4">
-          <p class="text-muted mb-1 small">{{ stakeholder.name }} does not own any GIRs yet.</p>
-          <a href="{{ url_for('requirements.gir_new', from_stakeholder=stakeholder.uuid) }}" class="btn btn-xs btn-outline-success">
-            <i class="fas fa-plus me-1"></i> Create GIR
-          </a>
-        </div>
-        {% endif %}
-
-        <div class="px-3 pt-3 pb-2 border-top border-bottom">
-          <div class="text-muted small text-uppercase fw-semibold">Listed in Distribution</div>
-        </div>
-        {% if distributed_girs %}
-        <ul class="req-list">
-          {% for gir in distributed_girs %}
-          <li class="req-item">
-            <a href="{{ url_for('requirements.gir_detail', id=gir.id) }}" class="req-link">
-              <span class="req-id">{{ gir.gir_id }}</span>
-              <span class="req-text">{{ gir.topic }}</span>
-            </a>
-            <div class="req-meta">
-              <span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span>
-              <span class="text-muted small">{{ gir.review_cycle }}</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="empty-state py-4">
-          <p class="text-muted mb-0 small">{{ stakeholder.name }} is not listed in GIR distribution yet.</p>
-        </div>
-        {% endif %}
+        {% for title, pirs, girs, empty in (
+             ('Owns', owned_pirs, owned_girs, stakeholder.name ~ ' owns no PIR or GIR yet.'),
+             ('Follows, through the distribution', distributed_pirs, distributed_girs, stakeholder.name ~ ' is in no distribution yet.')) %}
+        <div class="req-section">{{ title }}</div>
+        {% for pir in pirs %}
+        <a href="{{ url_for('requirements.pir_detail', id=pir.id) }}" class="req-row">
+          <span class="req-id">{{ pir.pir_id }}</span>
+          <span class="req-text" title="{{ pir.question }}">{{ pir.question }}</span>
+          <span><span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span></span>
+          <span><span class="badge status-badge status-{{ pir.status | slug }}">{{ pir.status }}</span></span>
+        </a>
+        {% endfor %}
+        {% for gir in girs %}
+        <a href="{{ url_for('requirements.gir_detail', id=gir.id) }}" class="req-row">
+          <span class="req-id">{{ gir.gir_id }}</span>
+          <span class="req-text" title="{{ gir.topic }}">{{ gir.topic }}</span>
+          <span class="meta">{{ gir.review_cycle or 'No review cycle' }}</span>
+          <span><span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span></span>
+        </a>
+        {% endfor %}
+        {% if not pirs and not girs %}<div class="req-empty">{{ empty }}</div>{% endif %}
+        {% endfor %}
       </div>
     </div>
 
     <!-- The scope of the stakeholder's PIRs and GIRs beside the focus points -->
-    <div class="card content-card mt-4">
+    <div class="card content-card mb-4 rise rise-2">
       <div class="card-header">
         <i class="fas fa-bullseye me-2 text-warning"></i>Scope items and focus points
       </div>
@@ -339,34 +203,106 @@
     </div>
 
     <!-- Recent products linked via PIR/GIR or sent through direct product subscriptions -->
-    <div class="card content-card mt-4">
+    <div class="card content-card rise rise-3">
       <div class="card-header">
-        <i class="fas fa-folder-open me-2 text-info"></i>Recent products
+        <i class="fas fa-folder-open me-2"></i>Recent products
       </div>
       <div class="card-body p-0">
-        {% if recent_products %}
-        <ul class="req-list">
-          {% for ev in recent_products %}
-          <li class="req-item">
-            <a href="{{ ev.app_url or ev.misp_url }}" class="req-link">
-              <span class="req-id">{{ ev.product_type or '-' }}</span>
-              <span class="req-text">{{ ev.title | truncate(80) }}</span>
-            </a>
-            <div class="req-meta">
-              <span class="text-muted small">{{ ev.date }}</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
+        {% for ev in recent_products %}
+        <a href="{{ ev.app_url or ev.misp_url }}" class="product-line">
+          <i class="fas fa-{{ product_icons.get(ev.type_label, 'cube') }} fa-fw text-muted" aria-hidden="true"></i>
+          <span class="type">{{ ev.type_label or '-' }}</span>
+          <span class="req-text">{{ ev.title | truncate(90) }}</span>
+          <span class="text-muted small">{{ ev.date }}</span>
+        </a>
         {% else %}
         <div class="empty-state py-4">
           <p class="text-muted mb-0 small">No recent products found for this stakeholder's requirement links or direct product subscriptions.</p>
         </div>
-        {% endif %}
+        {% endfor %}
       </div>
     </div>
 
   </div>
 
+  <div class="col-lg-4">
+
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-cubes me-2"></i>Subscriptions</span>
+        <span class="small text-muted">{{ products | length }} of {{ product_types | length }}</span>
+      </div>
+      <div class="card-body sub-grid">
+        {% for p in product_types %}
+        {% set subscribed = p in products %}
+        {% set mode = stakeholder.product_modes.get(p) if stakeholder.product_modes else None %}
+        <div class="sub-item{{ '' if subscribed else ' off' }}" title="{{ 'Subscribed' if subscribed else 'Not subscribed' }}">
+          <i class="fas fa-{{ product_icons.get(p, 'cube') }} fa-fw" aria-hidden="true"></i>
+          <span>{{ p }}</span>
+          {# Only an automated subscription says anything: the mode picker is
+             hidden, so after-approval is what a stakeholder has by default
+             rather than something anyone chose. #}
+          {% if subscribed and mode == 'automated' %}<span class="badge" style="background:var(--accent-green);font-weight:500;">automated</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-paper-plane me-2"></i>Delivery</div>
+      <div class="card-body">
+        <dl class="detail-list mb-0">
+          <dt>Channels</dt>
+          <dd>
+            {% if stakeholder.notification_channels %}
+            <div class="d-flex flex-wrap gap-2">
+              {% for cid in stakeholder.notification_channels %}
+              <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle">
+                {% if cid.startswith('flowintel:') %}<img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="Flowintel" style="height:12px;width:auto;" class="me-1">{% endif %}
+                {{ notification_channel_names.get(cid, cid) }}
+              </span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted">None</span>
+            {% endif %}
+          </dd>
+          {% if stakeholder.contacts %}
+          <dt>Contact{{ 's' if stakeholder.contacts|length > 1 }}</dt>
+          <dd>
+            <div class="d-flex flex-column gap-1">
+            {% for c in stakeholder.contacts %}
+            <div class="d-flex align-items-center gap-2">
+              {% if c.type == 'Email' %}<i class="fas fa-envelope text-muted" style="width:1rem;"></i><a href="mailto:{{ c.value }}">{{ c.value }}</a>
+              {% elif c.type == 'Phone' %}<i class="fas fa-phone text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
+              {% elif c.type == 'Teams' %}<i class="fas fa-comments text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
+              {% elif c.type == 'Mattermost' %}<i class="fas fa-bolt text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
+              {% else %}<i class="fas fa-address-card text-muted" style="width:1rem;"></i><span>{{ c.value }}</span>
+              {% endif %}
+              {% if c.get('preferred') %}<span class="badge text-bg-light text-muted small">preferred</span>{% endif %}
+            </div>
+            {% endfor %}
+            </div>
+          </dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    {% if stakeholder.engagement_strategy %}
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-handshake me-2"></i>Engagement strategy</div>
+      <div class="card-body"><p class="mb-0">{{ stakeholder.engagement_strategy }}</p></div>
+    </div>
+    {% endif %}
+
+    {% if stakeholder.notes %}
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-note-sticky me-2"></i>Notes</div>
+      <div class="card-body"><p class="mb-0">{{ stakeholder.notes }}</p></div>
+    </div>
+    {% endif %}
+
+  </div>
 </div>
 {% endblock %}

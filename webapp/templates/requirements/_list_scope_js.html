@@ -1,7 +1,6 @@
 {# Shared by pir_list and gir_list: the inline scope-preview accordion (the eye
    button expands a row that lazy-loads the matches fragment; the timeframe
-   selector re-fetches in place). The row -> status-board hover highlight is
-   shared separately via _kanban_hover.html, included below. #}
+   selector re-fetches in place). #}
 <script>
 (function() {
   function loadFragment(body, url) {
@@ -38,4 +37,3 @@
   });
 })();
 </script>
-{% include "_kanban_hover.html" %}

@@ -1239,25 +1239,32 @@
 
       /* Threat landscape queue: tag via AJAX, no wizard navigation */
       if (action === 'threat-landscape-report') {
+        var btn = document.getElementById('create-product-btn');
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Queuing events';
+        }
         fetch(SCRIPT_ROOT + '/collection/queue-for-tlr', {
           method: 'POST',
           headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
           body: JSON.stringify({events: selected}),
         })
-        .then(function(r) { return r.json(); })
+        .then(zsazsaReadJson)
         .then(function(d) {
-          var btn = document.getElementById('create-product-btn');
-          if (d.ok) {
-            if (btn) {
-              var orig = btn.innerHTML;
-              btn.innerHTML = '<i class="fas fa-check me-1"></i>' + d.tagged + ' queued';
-              setTimeout(function() { btn.innerHTML = orig; }, 2000);
-            }
+          if (d.tagged) {
+            reloadTable(d.message, d.ok ? 'success' : 'warning', true);
           } else {
-            alert('Could not queue events: ' + (d.error || 'unknown error'));
+            showFeedback(d.message || 'Could not queue events: ' + (d.error || 'unknown error'), 'warning');
           }
         })
-        .catch(function() { alert('Request failed.'); });
+        .catch(function(err) {
+          showFeedback('Could not queue events: ' + zsazsaErrorText(err), 'warning');
+        })
+        .finally(function() {
+          if (btn) btn.innerHTML = originalHtml;
+          updateCreateProductBtn();
+        });
         return;
       }
 
@@ -1343,6 +1350,14 @@
     }
     if (selectedCountEl) selectedCountEl.textContent = count;
     if (selectedCountBadge) selectedCountBadge.classList.toggle('d-none', !count);
+  }
+  function clearEventSelection() {
+    document.querySelectorAll('.event-row-cb').forEach(function(cb) { cb.checked = false; });
+    if (selectAllCb) {
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    }
+    updateCreateProductBtn();
   }
   document.querySelectorAll('.event-row-cb').forEach(function(cb) { cb.addEventListener('change', updateCreateProductBtn); });
   if (selectAllCb) selectAllCb.addEventListener('change', updateCreateProductBtn);
@@ -1607,9 +1622,10 @@
   var followedJobs = new Set();
   var RELOAD_NOTE = 'zsazsa_collection_reload';
 
-  function reloadTable(message) {
+  function reloadTable(message, category, clearSelection) {
+    if (clearSelection) clearEventSelection();
     try {
-      sessionStorage.setItem(RELOAD_NOTE, JSON.stringify({message: message, scroll: window.scrollY}));
+      sessionStorage.setItem(RELOAD_NOTE, JSON.stringify({message: message, category: category || 'success', clearSelection: !!clearSelection, scroll: window.scrollY}));
     } catch (e) {}
     window.location.reload();
   }
@@ -2107,8 +2123,10 @@
       sessionStorage.removeItem(RELOAD_NOTE);
     } catch (e) {}
     if (note) {
+      // A browser may restore checked inputs while reloading the table.
+      if (note.clearSelection) clearEventSelection();
       window.scrollTo(0, note.scroll || 0);
-      showFeedback(note.message, 'success');
+      showFeedback(note.message, note.category || 'success');
     }
     _saveFilterState();
   })();

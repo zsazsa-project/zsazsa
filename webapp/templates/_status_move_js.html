@@ -1,0 +1,42 @@
+{# Sends a status picked in a list's "Move to" menu or on a record's lifecycle
+   (the status_menu and lifecycle macros) to the record's status route, after
+   asking, and reloads. What the route refuses is shown as a message. #}
+<script>
+(function() {
+  function say(message) {
+    var container = document.getElementById('flash-container');
+    var alert = document.createElement('div');
+    alert.className = 'alert alert-warning alert-dismissible fade show alert-flash';
+    alert.setAttribute('role', 'alert');
+    var text = document.createElement('span');
+    text.textContent = message;
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'btn-close';
+    close.setAttribute('data-bs-dismiss', 'alert');
+    close.setAttribute('aria-label', 'Close');
+    alert.append(text, close);
+    container.appendChild(alert);
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest ? e.target.closest('[data-status-to]') : null;
+    if (!btn || !window.confirm(btn.dataset.confirm)) return;
+    btn.disabled = true;
+    var body = new FormData();
+    body.append('status', btn.dataset.statusTo);
+    var csrf = document.querySelector('meta[name="csrf-token"]');
+    fetch(btn.dataset.updateUrl, {method: 'POST', body: body, headers: csrf ? {'X-CSRF-Token': csrf.content} : {}})
+      .then(zsazsaReadJson)
+      .then(function(data) {
+        if (data.ok) { window.location.reload(); return; }
+        say('Could not change the status: ' + (data.error || 'unknown error'));
+        btn.disabled = false;
+      })
+      .catch(function(err) {
+        say('Could not change the status: ' + zsazsaErrorText(err));
+        btn.disabled = false;
+      });
+  });
+})();
+</script>

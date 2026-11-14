@@ -726,13 +726,12 @@ def _source_client(source_id: str):
 
 
 def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
-                                          misp_client=None, source_id: str = "") -> None:
+                                          misp_client=None, source_id: str = "") -> bool:
     """Tag a source event as having been used to create a product.
 
-    Advances workflow state from 'incomplete' to 'ongoing' and adds a
-    zsazsa:product tag. Events already in 'complete' (or any state other than
-    'incomplete') are left at their current workflow state so a finished event
-    is not regressed when reused as a source.
+    Sets workflow state to 'ongoing' and adds a zsazsa:product tag. Events
+    already in 'complete' keep their state. Returns whether MISP accepted both
+    changes, so a queue action does not report a refused write as successful.
 
     misp_client defaults to the MISP that source_id names (see _source_client).
     Pass a different client when the event lives on another MISP instance
@@ -740,24 +739,27 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
     there, and source_id is then ignored.
     """
     if not src_uuid:
-        return
+        return False
     try:
         client = misp_client or _source_client(source_id)
         if client is None:
-            return
+            return False
         event = client.get_event(src_uuid, pythonify=True)
         # A source is something collected. On the webapp MISP an id from a
         # product form could name one of zsazsa's own records instead.
         if not event or isinstance(event, dict) or _is_own_record(t.name for t in event.tags):
-            return
+            logger.warning("Could not tag source event %s: not a readable collection event", src_uuid)
+            return False
         current_wf = next(
             (tag.name for tag in (getattr(event, "tags", []) or [])
              if tag.name.startswith('workflow:state=')),
             None,
         )
         if current_wf != 'workflow:state="complete"':
-            tagger.set_workflow_state(client, event, "ongoing")
-        client.tag(src_uuid, f'zsazsa:product="{product_label}"', local=True)
+            if not tagger.set_workflow_state(client, event, "ongoing"):
+                return False
+        if not tagger.add_tag(client, src_uuid, f'zsazsa:product="{product_label}"'):
+            return False
         try:
             from webapp import collection_cache
             add_tags = [f'zsazsa:product="{product_label}"']
@@ -768,9 +770,11 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
                 add_tags.append('workflow:state="ongoing"')
             collection_cache.patch_event_tags(src_uuid, add_tags, remove_tags)
         except Exception as exc:
-            logger.debug("Could not patch cache for %s: %s", src_uuid, exc)
+            logger.warning("Could not patch cache for %s: %s", src_uuid, exc)
+        return True
     except Exception as exc:
         logger.warning("Could not tag source event %s: %s", src_uuid, exc)
+        return False
 
 
 def _untag_product_source(src_uuid: str, product_label: str, source_id: str = "", reject=False) -> None:
@@ -4524,6 +4528,14 @@ def _fill_manual_collection_event(misp, created, data: dict, info: str) -> None:
     _tag_local(misp, uuid, TAG_MANUAL_ENTRY)
     if slug:
         _tag_local(misp, uuid, f'zsazsa:source="{slug}"')
+
+    reliability = (data.get("source_reliability") or "").strip().upper()
+    if reliability in FIA_RELIABILITIES:
+        _tag_local(misp, uuid, f'admiralty-scale:source-reliability="{reliability.lower()}"')
+
+    credibility = (data.get("information_credibility") or "").strip()
+    if credibility in FIA_CREDIBILITIES:
+        _tag_local(misp, uuid, f'admiralty-scale:information-credibility="{credibility}"')
 
     # A requirement keeps its techniques on its object, so _build_scope_tags
     # leaves them out; a source event has them as galaxy tags.

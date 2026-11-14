@@ -4,12 +4,28 @@
 
 ### Added
 
+- The threat landscape queue has a "Remove from queue" action beside "Build from selection". It removes the threat landscape product tag without deleting the story, and returns an ongoing story to incomplete only when no other zsazsa product tag remains. Complete stories stay complete.
 - A detection engineering request has a CVE field.
 - A detection engineering request made from events on Data collection starts with their ATT&CK techniques and CVEs filled in.
 - On Data collection, clicking an event's organisation filters the list on it.
+- A manual entry on Data collection can record the source reliability and the information credibility on the Admiralty scale. They are saved as admiralty-scale tags on the event.
 - The scope statistics mark the values that are a focus point and say how many focus points are in scope. They filter on the focus points or on one kind of record, and export to CSV.
 - A stakeholder's page lists the scope items of the PIRs and GIRs it owns or is listed in, beside the focus points, each a link to its line in the statistics.
 - The Scope card of a PIR or GIR, on its page and while editing it, shows its overlap with the focus points, and a site admin can add a scope item to them from there. A scope item that is a focus point is marked, on the page and in the edit form.
+
+### Changed
+
+- The stakeholder list and a stakeholder's page have a new layout, with a banner for the figures and actions. A stakeholder's page shows every product type with its icon, and offers "Add a PIR" beside "Add a GIR".
+- The PIR, GIR and RFI lists and pages have the same layout. The lists group the PIRs, GIRs and RFIs by status and show each one's place among the statuses. The status board is gone: the status is changed from a list row's menu or from the lifecycle on a record's page, by the same rules, and triage stays on the lists.
+- The stakeholder, PIR, GIR and RFI forms have the same layout, with their sections numbered and listed in the banner. Clearance, levels, priority, status and review cycle are picked as buttons, products as tiles with their icons, and the owner is marked among the stakeholders under Distribution. The stakeholder form places the stakeholder on the matrix as the sliders move and previews it. Before an RFI is triaged its form names the response and feedback rather than showing them disabled.
+
+### Security
+
+- soupsieve is updated to 4.1 for CVE-2026-126190, which affects 3.0.3. Installations on Python older than 3.11.5 keep soupsieve 2.10, the last release that supports them.
+
+### Fixed
+
+- Adding articles to the threat landscape queue confirms how many were queued, clears the article selection and reloads the collection table with their product and workflow tags. A stale MISP refetch no longer removes the confirmed changes from the cache, and refused writes are reported instead of counted as queued.
 
 ## 1.0.10
 

@@ -746,6 +746,8 @@ def manual_new():
             "tlp": request.form.get("tlp", "amber"),
             "source_reference": request.form.get("source_reference", "").strip(),
             "source_provider": request.form.get("source_provider", "").strip(),
+            "source_reliability": request.form.get("source_reliability", "").strip(),
+            "information_credibility": request.form.get("information_credibility", "").strip(),
             "summary": request.form.get("summary", "").strip(),
             "description": request.form.get("description", ""),
             "references": [u for u in request.form.getlist("reference") if u.strip()],
@@ -787,6 +789,8 @@ def manual_new():
         "manual_sources": manual_sources,
         "today": str(datetime.date.today()),
         "tlp_levels": misp_store.FIA_TLP_LEVELS,
+        "reliabilities": misp_store.FIA_RELIABILITIES,
+        "credibilities": misp_store.FIA_CREDIBILITIES,
         "galaxy_countries": misp_store.galaxy_geography(),
         "galaxy_sectors": misp_store.galaxy_sectors(),
         "galaxy_threat_actors": misp_store.galaxy_threat_actors(),
@@ -1425,32 +1429,44 @@ def queue_for_tlr():
     if err:
         return err
     events = data.get("events") or []
-    if not events:
+    if not isinstance(events, list) or not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
 
     tagged = 0
+    errors = 0
     for ev in events:
+        if not isinstance(ev, dict):
+            logger.warning("queue_for_tlr: invalid event selection")
+            errors += 1
+            continue
         uuid = (ev.get("uuid") or "").strip()
         source_id = (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip()
         if not uuid or not _is_collected(uuid, source_id):
+            logger.warning("queue_for_tlr: event %s is not collected under source %s", uuid, source_id)
+            errors += 1
             continue
 
         misp_client, err_msg = _misp_for_source(source_id)
         if misp_client is None:
             logger.warning("queue_for_tlr: no MISP client for source %s: %s", source_id, err_msg)
+            errors += 1
             continue
 
-        misp_store._tag_scraper_event_as_product_source(
+        if misp_store._tag_scraper_event_as_product_source(
             uuid, "threat-landscape-report", misp_client=misp_client
-        )
-
-        # Refresh cache so the product badge is visible immediately
-        _refresh_cached_event(uuid, source_id, misp_client, context="queue_for_tlr")
-        tagged += 1
+        ):
+            # The helper patches the confirmed tags into the cache. An immediate
+            # refetch from MISP may still have the old tags and would undo them.
+            tagged += 1
+        else:
+            errors += 1
 
     audit.record("tag", "collection-tlr-queue",
-                 details=f"queued {tagged} event(s) for threat landscape")
-    return jsonify({"ok": True, "tagged": tagged})
+                 details=f"queued {tagged} event(s) for threat landscape; {errors} failed")
+    message = f"{tagged} event{'s' if tagged != 1 else ''} queued for the threat landscape report."
+    if errors:
+        message += f" {errors} event{'s' if errors != 1 else ''} could not be queued. The log says why."
+    return jsonify({"ok": not errors, "tagged": tagged, "errors": errors, "message": message})
 
 
 @bp.route("/bulk-reject-excluded", methods=["POST"])

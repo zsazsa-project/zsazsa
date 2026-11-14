@@ -16,7 +16,7 @@
 <div class="card content-card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="fas fa-map me-2"></i>Queue <span class="badge text-bg-secondary ms-1">{{ queued | length }}{{ '+' if more_waiting }}</span></span>
-    <span class="text-muted small">An event leaves the queue once a report holds it.</span>
+    <span class="text-muted small">An event leaves the queue once a report holds it, or you remove it.</span>
   </div>
   {% if more_waiting %}
   <div class="alert alert-warning small rounded-0 border-start-0 border-end-0 mb-0">
@@ -86,8 +86,8 @@
         </tbody>
       </table>
     </div>
-    <div class="card-footer row g-2 align-items-end">
-      <div class="col-md-3">
+    <div class="card-footer d-flex flex-wrap gap-2 align-items-end">
+      <div style="width:10rem;max-width:100%;">
         <label class="form-label small mb-1">Add to</label>
         <select name="target" class="form-select form-select-sm" id="tlr-build-target">
           <option value="">A new report</option>
@@ -96,17 +96,22 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-4 tlr-new-only">
+      <div class="tlr-new-only flex-grow-1" style="flex-basis:12rem;min-width:0;">
         <label class="form-label small mb-1">Title</label>
         <input type="text" name="title" class="form-control form-control-sm" placeholder="e.g. Q3 2026 Threat Landscape">
       </div>
-      <div class="col-md-2 tlr-new-only">
+      <div class="tlr-new-only" style="width:8rem;max-width:100%;">
         <label class="form-label small mb-1">Reporting period</label>
         <input type="text" name="reporting_period" class="form-control form-control-sm" placeholder="e.g. Q3 2026">
       </div>
-      <div class="col-md-3">
-        <button type="submit" class="btn btn-sm btn-primary w-100" id="tlr-build-btn" disabled>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-sm btn-primary" id="tlr-build-btn" disabled>
           <i class="fas fa-layer-group me-1"></i>Build from selection (<span id="tlr-pick-count">0</span>)
+        </button>
+        <button type="submit" class="btn btn-sm btn-outline-secondary" id="tlr-remove-btn" disabled
+                formaction="{{ url_for('threat_landscape.remove_from_queue') }}" formnovalidate
+                data-submit-confirm="Remove the selected stories from the threat landscape queue? They remain in Data collection.">
+          <i class="fas fa-arrow-rotate-left me-1"></i>Remove from queue (<span id="tlr-remove-count">0</span>)
         </button>
       </div>
     </div>
@@ -316,12 +321,15 @@ document.getElementById('feedback-modal').addEventListener('show.bs.modal', func
   var picks = form.querySelectorAll('.tlr-pick');
   var all = document.getElementById('tlr-select-all');
   var button = document.getElementById('tlr-build-btn');
+  var removeButton = document.getElementById('tlr-remove-btn');
   var target = document.getElementById('tlr-build-target');
 
   function update() {
     var count = form.querySelectorAll('.tlr-pick:checked').length;
     document.getElementById('tlr-pick-count').textContent = count;
+    document.getElementById('tlr-remove-count').textContent = count;
     button.disabled = count === 0;
+    removeButton.disabled = count === 0;
     all.checked = count > 0 && count === picks.length;
   }
   all.addEventListener('change', function() {
@@ -329,6 +337,7 @@ document.getElementById('feedback-modal').addEventListener('show.bs.modal', func
     update();
   });
   picks.forEach(function(box) { box.addEventListener('change', update); });
+  update();
 
   // Title and period only mean something for a new report.
   target.addEventListener('change', function() {

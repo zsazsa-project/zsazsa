@@ -6,7 +6,8 @@ built from that entry. These checks pin the type down at the point it is
 written, and cover the migration that repairs entries written before the fix.
 The MITRE ATT&CK techniques picked on the form are tagged on the entry too.
 A repeated URL is saved once, and a save that fails halfway deletes the event
-it created.
+it created. The source reliability and information credibility picked on the
+form become admiralty-scale tags, and a value off the scale is not tagged.
 
     python -m unittest tests.test_manual_entry_references
 """
@@ -209,6 +210,53 @@ class Techniques(unittest.TestCase):
         """It was d752161c-..., MISP's mitre-malware galaxy, where no technique
         is found, so none was ever tagged."""
         self.assertEqual(misp_store.GALAXY_MITRE_ATTACK, "c4e851fa-775f-11e7-8163-b774922098cd")
+
+
+class AdmiraltyAssessment(unittest.TestCase):
+    def _save(self, data):
+        misp = mock.create_autospec(PyMISP, instance=True)
+        misp.add_event.return_value = _created()
+        with mock.patch.object(misp_store, "_misp", return_value=misp), \
+             mock.patch.object(misp_store, "_build_scope_tags", return_value=[]):
+            misp_store.create_manual_collection_event(data)
+        return misp
+
+    def test_selected_assessments_are_local_misp_taxonomy_tags(self):
+        misp = self._save({
+            "title": "An entry",
+            "source_reliability": "B",
+            "information_credibility": "2",
+        })
+        admiralty_calls = [
+            call for call in misp.tag.call_args_list
+            if call.args[1].startswith("admiralty-scale:")
+        ]
+        self.assertEqual(
+            admiralty_calls,
+            [
+                mock.call("e" * 36, 'admiralty-scale:source-reliability="b"', local=True),
+                mock.call("e" * 36, 'admiralty-scale:information-credibility="2"', local=True),
+            ],
+        )
+
+    def test_invalid_assessments_are_not_tagged(self):
+        misp = self._save({
+            "title": "An entry",
+            "source_reliability": "Z",
+            "information_credibility": "7",
+        })
+        self.assertFalse(any(
+            call.args[1].startswith("admiralty-scale:")
+            for call in misp.tag.call_args_list
+        ))
+
+    def test_manual_form_has_admiralty_selectors(self):
+        from pathlib import Path
+        page = (Path(misp_store.__file__).parent / "templates" / "data_collection"
+                / "manual_entry.html").read_text()
+        self.assertIn("Source assessment", page)
+        self.assertIn('name="source_reliability"', page)
+        self.assertIn('name="information_credibility"', page)
 
 
 class Migration(unittest.TestCase):

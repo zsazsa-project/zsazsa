@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import focus_mark, galaxy_multiselect %}
+{% from "_macros.html" import focus_mark, galaxy_multiselect, lifecycle %}
 
 {% block title %}{{ pir.pir_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}<span class="req-id-badge me-2">{{ pir.pir_id }}</span>{% endblock %}
@@ -9,30 +9,100 @@
 <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
-<button class="btn btn-sm btn-outline-warning" id="notify-btn"
-        data-notify-url="{{ url_for('requirements.pir_notify', id=pir.id) }}">
-  <i class="fas fa-bell me-1"></i> Notify stakeholders
-</button>
 {% endblock %}
 
 {% block content %}
 
-<!-- Question banner -->
-<div class="question-banner mb-4">
-  <p class="question-banner-text">{{ pir.question }}</p>
-  {% if pir.context %}
-  <p class="question-banner-context">{{ pir.context }}</p>
-  {% endif %}
-  {% if linked_girs %}
-  <p class="question-banner-context">
-    Related GIRs:
-    {% for g in linked_girs %}
-    <a href="{{ url_for('requirements.gir_detail', id=g.id) }}" class="text-decoration-none ms-1">
-      <span class="req-id-badge">{{ g.gir_id }}</span> {{ g.topic }}</a>{{ ',' if not loop.last }}
-    {% endfor %}
-  </p>
-  {% endif %}
-</div>
+{% set pir_statuses = ['Pending', 'Active', 'In Development', 'Under Evaluation', 'Implemented', 'Retired'] %}
+{% set rejected = pir.intake_status == 'rejected' %}
+{% set shared = namespace(n=0) %}
+{% for fp in focus_points %}{% if fp.value | lower in org_focus.get(fp.category, {}) %}{% set shared.n = shared.n + 1 %}{% endif %}{% endfor %}
+{% set late = pir.next_review and pir.next_review < today and pir.status not in ('Retired', 'Implemented') and not rejected %}
+{% set review_days = (pir.next_review - today).days if pir.next_review else none %}
+<section class="record-hero rise mb-4">
+  <div class="hero-main">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <span class="hero-id"><i class="fas fa-star me-1"></i>{{ pir.pir_id }}</span>
+      <span class="badge status-badge status-{{ 'rejected' if rejected else pir.status | slug }}">{{ 'Rejected' if rejected else pir.status }}</span>
+      <span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span>
+      {% for lvl in pir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
+    </div>
+    <h1 class="question">{{ pir.question }}</h1>
+    {% if pir.context %}<p class="lead-text">{{ pir.context }}</p>{% endif %}
+    {% if linked_girs %}
+    <p class="lead-text related-links mt-1">
+      Related GIRs:
+      {% for g in linked_girs %}
+      <a href="{{ url_for('requirements.gir_detail', id=g.id) }}" class="ms-1">{{ g.gir_id }} {{ g.topic }}</a>{{ ',' if not loop.last }}
+      {% endfor %}
+    </p>
+    {% endif %}
+    <div class="record-facts">
+      <div><span>Owner</span>
+        {% if pir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=pir.owner_stakeholder.id) }}">{{ pir.owner_stakeholder.name }}</a>
+        {% else %}{{ pir.owner_name or 'No owner yet' }}{% endif %}
+      </div>
+      {% if pir.time_frame %}<div><span>Time frame</span>{{ pir.time_frame }}</div>{% endif %}
+      {% if pir.collection_sources %}<div><span>Collection</span>{{ pir.collection_sources | join(', ') }}</div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      {% if not rejected %}
+      <a href="{{ url_for('requirements.pir_edit', id=pir.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-hero-ghost" id="notify-btn"
+              data-notify-url="{{ url_for('requirements.pir_notify', id=pir.id) }}">
+        <i class="fas fa-bell me-1"></i> Notify stakeholders
+      </button>
+      <a href="{{ url_for('requirements.pir_scope_preview', id=pir.id) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-eye me-1"></i> Preview matches</a>
+      <form method="post" action="{{ url_for('requirements.pir_delete', id=pir.id) }}"
+            data-submit-confirm="Delete {{ pir.pir_id }}?" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
+      </form>
+    </div>
+  </div>
+  <div class="hero-block{{ ' late' if late }}">
+    <span>Review</span>
+    {% if review_days is none %}
+    <b>-</b><span>no review date set</span>
+    {% elif review_days < 0 %}
+    <b>{{ -review_days }}</b><span>day{{ 's' if review_days != -1 }} overdue</span>
+    {% else %}
+    <b>{{ review_days }}</b><span>day{{ 's' if review_days != 1 }} to go</span>
+    {% endif %}
+    {% if pir.next_review %}<span>due {{ pir.next_review.strftime('%d-%m-%Y') }}</span>{% endif %}
+  </div>
+  <div class="record-tiles">
+    <div class="record-tile"><b>{{ focus_points | length }}</b><span>scope item{{ 's' if focus_points | length != 1 }}</span></div>
+    <div class="record-tile accent"><b>{{ shared.n }}</b><span>of them focus points</span></div>
+    <div class="record-tile"><b>{{ (pir.mitre_attack_techniques or []) | length }}</b><span>ATT&amp;CK techniques</span></div>
+    <div class="record-tile"><b>{{ selected_count }}<small> / {{ distribution | length }}</small></b><span>stakeholders receive it</span></div>
+  </div>
+</section>
+
+{% if pir.decision_supported or pir.decision_maker or pir.consequence %}
+<section class="card content-card mb-4 rise rise-1">
+  <div class="card-header"><i class="fas fa-bullseye me-2"></i>The decision it supports</div>
+  <div class="card-body decision-chain">
+    <div class="decision-step decision">
+      <span class="chart-label">Decision</span>
+      <h3>{{ pir.decision_supported or 'Not recorded' }}</h3>
+    </div>
+    <div class="arrow" aria-hidden="true"><i class="fas fa-arrow-right"></i></div>
+    <div class="decision-step">
+      <span class="chart-label">Taken by</span>
+      {% if pir.decision_maker %}<ul>{% for dm in pir.decision_maker %}<li>{{ dm }}</li>{% endfor %}</ul>
+      {% else %}<p class="text-muted small mt-1 mb-0">Not recorded</p>{% endif %}
+    </div>
+    <div class="arrow" aria-hidden="true"><i class="fas fa-arrow-right"></i></div>
+    <div class="decision-step risk">
+      <span class="chart-label">If it stays unanswered</span>
+      {% if pir.consequence %}<ul>{% for c in pir.consequence %}<li>{{ c }}</li>{% endfor %}</ul>
+      {% else %}<p class="text-muted small mt-1 mb-0">Not recorded</p>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <div class="row g-4">
 
@@ -177,44 +247,6 @@
       </div>
     </div>
 
-    <!-- Decision support -->
-    {% if pir.decision_supported or pir.decision_maker or pir.consequence %}
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Decision support</div>
-      <div class="card-body">
-        <dl class="detail-list">
-          {% if pir.decision_supported %}
-          <dt>Decision supported</dt><dd>{{ pir.decision_supported }}</dd>
-          {% endif %}
-          {% if pir.decision_maker %}
-          <dt>Decision maker{{ 's' if pir.decision_maker | length > 1 }}</dt>
-          <dd>
-            {% if pir.decision_maker | length == 1 %}
-              {{ pir.decision_maker[0] }}
-            {% else %}
-              <ul class="mb-0 ps-3">
-                {% for dm in pir.decision_maker %}<li>{{ dm }}</li>{% endfor %}
-              </ul>
-            {% endif %}
-          </dd>
-          {% endif %}
-          {% if pir.consequence %}
-          <dt>Consequence{{ 's' if pir.consequence | length > 1 }} if unanswered</dt>
-          <dd>
-            {% if pir.consequence | length == 1 %}
-              {{ pir.consequence[0] }}
-            {% else %}
-              <ul class="mb-0 ps-3">
-                {% for c in pir.consequence %}<li>{{ c }}</li>{% endfor %}
-              </ul>
-            {% endif %}
-          </dd>
-          {% endif %}
-        </dl>
-      </div>
-    </div>
-    {% endif %}
-
     <!-- Scope is now folded into Scope above -->
     {% if pir.time_frame or pir.out_of_scope %}
     <div class="card content-card mb-4">
@@ -235,12 +267,10 @@
 
     <!-- MITRE ATT&CK techniques -->
     {% if pir.mitre_attack_techniques %}
-    <div class="card content-card mb-4" style="border-color:var(--mitre-card-border);">
-      <div class="card-header" style="background:var(--tlp-red-bg);border-bottom-color:var(--mitre-card-border);">
-        <span style="color:var(--chip-mitre-fg);font-weight:600;">
-          <i class="fas fa-shield-halved me-2"></i>MITRE ATT&amp;CK techniques
-        </span>
-        <span class="badge ms-2" style="background:var(--chip-mitre-accent);font-size:.65rem;">{{ pir.mitre_attack_techniques | length }}</span>
+    <div class="card content-card attack-card mb-4">
+      <div class="card-header">
+        <i class="fas fa-shield-halved me-2"></i>MITRE ATT&amp;CK techniques
+        <span class="badge attack-count ms-2">{{ pir.mitre_attack_techniques | length }}</span>
       </div>
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2">
@@ -312,36 +342,35 @@
   <!-- Right: metadata -->
   <div class="col-lg-4">
 
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-route me-2"></i>Lifecycle</div>
+      <div class="card-body">
+        {% set status_url = url_for('requirements.pir_status_update', id=pir.id) %}
+        {% if rejected %}
+        {{ lifecycle(pir.pir_id, pir.status, pir_statuses, [], status_url, 'Rejected in triage, so it does not move.') }}
+        {% elif pir.status == 'Pending' %}
+        {{ lifecycle(pir.pir_id, pir.status, pir_statuses, [], status_url, 'A pending PIR leaves Pending through triage.') }}
+        <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-warning mt-2"><i class="fas fa-gavel me-1"></i>Triage it on the PIR list</a>
+        {% else %}
+        {{ lifecycle(pir.pir_id, pir.status, pir_statuses, pir_statuses | reject('equalto', 'Pending') | list, status_url) }}
+        {% endif %}
+      </div>
+    </div>
+
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Details</div>
       <div class="card-body">
         <dl class="detail-list">
-          <dt>Priority</dt>
-          <dd><span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span></dd>
           {% if pir.priority_justification %}
           <dt>Priority justification</dt>
           <dd>{{ pir.priority_justification }}</dd>
           {% endif %}
-          {% if pir.intel_level %}
-          <dt>Intelligence level</dt>
-          <dd>
-            <div class="d-flex flex-wrap gap-1">
-              {% for lvl in pir.intel_level %}
-              <span class="badge text-bg-secondary">{{ lvl }}</span>
-              {% endfor %}
-            </div>
-          </dd>
-          {% endif %}
-          <dt>Status</dt>
-          <dd><span class="badge status-badge status-{{ pir.status | slug }}">{{ pir.status }}</span></dd>
           <dt>Time sensitivity</dt>
           <dd>{{ pir.time_sensitivity or '-' }}</dd>
           <dt>Created</dt>
           <dd>{{ pir.created_at.strftime('%d-%m-%Y') if pir.created_at else '-' }}</dd>
           <dt>Created by</dt>
           <dd>{{ pir.creator or '-' }}</dd>
-          <dt>Next review</dt>
-          <dd>{{ pir.next_review.strftime('%d-%m-%Y') if pir.next_review else '-' }}</dd>
           {% if pir.history_url %}
           <dt>History</dt>
           <dd>
@@ -410,28 +439,6 @@
     </div>
 
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user-tie me-2"></i>Ownership</div>
-      <div class="card-body">
-        {% if pir.owner_stakeholder %}
-        <a href="{{ url_for('stakeholders.detail', id=pir.owner_stakeholder.id) }}" class="d-flex align-items-center gap-2 text-decoration-none">
-          <span class="owner-avatar">{{ pir.owner_stakeholder.name[0:1] | upper }}</span>
-          <span>
-            <div class="fw-semibold">{{ pir.owner_stakeholder.name }}</div>
-            <div class="text-muted small">{{ pir.owner_stakeholder.role or '' }}</div>
-          </span>
-        </a>
-        {% elif pir.owner_name %}
-        <div class="d-flex align-items-center gap-2">
-          <span class="owner-avatar owner-avatar-muted">{{ pir.owner_name[0:1] | upper }}</span>
-          <div class="fw-semibold">{{ pir.owner_name }}</div>
-        </div>
-        {% else %}
-        <p class="text-muted mb-0 small">No owner assigned.</p>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Collection coverage</div>
       <div class="card-body small">
         {% if not scope_terms %}
@@ -467,21 +474,6 @@
       </div>
     </div>
 
-    <div class="d-flex gap-2 mb-2">
-      {% if pir.intake_status != 'rejected' %}
-      <a href="{{ url_for('requirements.pir_edit', id=pir.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
-      {% endif %}
-      <form method="post" action="{{ url_for('requirements.pir_delete', id=pir.id) }}"
-            data-submit-confirm="Delete {{ pir.pir_id }}?" class="flex-fill">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete PIR
-        </button>
-      </form>
-    </div>
-
   </div>
 
 </div>
@@ -512,33 +504,7 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-.attack-technique-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .25rem .55rem;
-  background: var(--tlp-red-bg);
-  border: 1.5px solid var(--chip-mitre-border);
-  border-radius: .4rem;
-  font-size: .78rem;
-  line-height: 1.3;
-  max-width: 22rem;
-}
-.attack-tid {
-  font-family: monospace;
-  font-weight: 700;
-  color: var(--chip-mitre-accent);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.attack-tname {
-  color: var(--mitre-technique-name-fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>
+{% include "_status_move_js.html" %}
 <script>
 (function() {
   var btn = document.getElementById('notify-btn');

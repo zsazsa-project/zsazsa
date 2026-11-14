@@ -1,7 +1,8 @@
 {# The response to an RFI: its text, the confidence and the output formats the
    requester asked for. Shared by the RFI form and the inline edit on the RFI
    page. Expects rfi (or none), is_edit, triaged, estimative_confidence,
-   output_formats and tlp_levels. #}
+   output_formats and tlp_levels. With show_response false, only the output
+   formats: the form leaves the response out until the RFI is triaged. #}
 {% from "_macros.html" import product_icon %}
 
 {% macro fmt_row(item) %}
@@ -26,6 +27,7 @@
 </div>
 {% endmacro %}
 
+{% if show_response | default(true) %}
 <div class="mb-3">
   <label class="form-label">Response (delivered to the requester)</label>
   <textarea name="response" class="form-control" rows="6" {{ 'disabled' if not triaged }}>{{ rfi.response if is_edit else '' }}</textarea>
@@ -47,6 +49,7 @@
   <div class="form-text">Confidence in the analytic judgment of the response.</div>
   {% include "_estimative_help.html" %}
 </div>
+{% endif %}
 <div>
   <label class="form-label">Preferred output formats</label>
   <div class="form-text d-flex gap-2 mt-0 mb-2">

@@ -117,6 +117,10 @@ Articles can also come from a security newsletter, pasted in or read from a mail
 
 From the same view, analysts **create a product** from selected source events.
 
+**Add to threat landscape queue** tags the selected events with `zsazsa:product="threat-landscape-report"` and sets their workflow state to ongoing, leaving complete events complete. The table reloads with the updated tags and a confirmation showing how many events were queued. Any events that could not be queued are reported too.
+
+On the threat landscape page, **Remove from queue** removes that tag from the selected stories without deleting their MISP events. They remain in Data collection. An ongoing story returns to incomplete only if it has no other `zsazsa:product` tag; complete stories stay complete. Events already held by a report cannot be removed through the queue.
+
 ![docs/6-createproduct.png](docs/6-createproduct.png)
 
 #### Daily threat briefing

@@ -391,6 +391,8 @@ class CveForm(unittest.TestCase):
                                return_value=(DER_UUID, "DER-00042")) as create, \
              mock.patch.object(detection_eng.misp_store, "update_der") as update, \
              mock.patch.object(detection_eng.misp_store, "fetch_source_events", return_value=[]), \
+             mock.patch.object(detection_eng.misp_store, "list_selectable_pirs", return_value=[]), \
+             mock.patch.object(detection_eng.misp_store, "galaxy_mitre_attack_patterns", return_value=[]), \
              mock.patch.object(detection_eng.product_log, "log_product_sources"), \
              mock.patch.object(detection_eng, "render_template", return_value="form") as render, \
              mock.patch.object(detection_eng.audit, "record"):
@@ -437,6 +439,8 @@ class SeedFromSources(unittest.TestCase):
     def seed(self, method="get", source=f"{SOURCE_UUID}|scraper", events=(EVENT,), cached=()):
         with mock.patch.object(detection_eng.misp_store, "fetch_source_events", return_value=list(events)), \
              mock.patch.object(collection_cache, "get_events_by_uuids", return_value=list(cached)), \
+             mock.patch.object(detection_eng.misp_store, "list_selectable_pirs", return_value=[]), \
+             mock.patch.object(detection_eng.misp_store, "galaxy_mitre_attack_patterns", return_value=[]), \
              mock.patch.object(detection_eng, "render_template", return_value="form") as render:
             if method == "get":
                 _client().get("/products/detection-eng/new", query_string={"source": source} if source else {})

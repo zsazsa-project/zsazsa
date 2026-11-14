@@ -7,7 +7,7 @@ from notifier import dispatcher
 from webapp import audit, misp_session, misp_store, org_store
 from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS, subscribed_products
 from webapp.routes.stats import FOCUS_POINT_CATEGORIES, FOCUS_SETTINGS, focus_point_of, focus_points
-from webapp.utils import matching, product_detail_url
+from webapp.utils import matching, product_detail_url, product_type_label
 
 bp = Blueprint("stakeholders", __name__)
 
@@ -264,6 +264,7 @@ def list_stakeholders():
         org_filter=org_filter,
         role_filter=role_filter,
         product_filter=product_filter,
+        product_types=cti_products(),
     )
 
 
@@ -312,6 +313,7 @@ def detail(id):
         ev.app_url = product_detail_url(getattr(ev, "product_type", ""), getattr(ev, "uuid", ""), fallback_url=getattr(ev, "misp_url", ""))
         # The product type has its own badge in front of the title.
         ev.title = _INFO_PREFIX.sub("", ev.info or "")
+        ev.type_label = product_type_label(getattr(ev, "product_type", ""))
     scope_items, focus_groups = _scope_and_focus(owned_pirs + owned_girs, distributed_pirs + distributed_girs)
     return render_template(
         "stakeholders/detail.html",
@@ -323,6 +325,7 @@ def detail(id):
         recent_products=recent_products,
         scope_items=scope_items,
         focus_groups=focus_groups,
+        product_types=cti_products(),
         owned_records=misp_store.records_owned_by_stakeholders().get(uuid, []),
         org_map=org_store.org_map(),
         notification_channel_names={c["id"]: c["name"] for c in dispatcher.notification_channels() if c.get("id")},

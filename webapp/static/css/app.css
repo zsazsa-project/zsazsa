@@ -1237,11 +1237,6 @@ a.chart-row:hover { background: var(--surface-hover); }
 .sort-th.sort-active { color: var(--accent-blue); }
 .sort-idle { opacity: .35; }
 
-/* Two-way hover highlight between a list row and its status-board card,
-   shared by the PIR/GIR/RFI list pages. */
-.kanban-card.req-hover { background: var(--neutral-200) !important; box-shadow: 0 0 0 2px var(--neutral-400) !important; }
-.req-row.req-hover > td { background-color: var(--neutral-200) !important; }
-
 /* ─── TLP badges ────────────────────────────────────────────────────────── */
 .tlp-badge {
   display: inline-block;
@@ -2833,3 +2828,188 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .brand-preview-label { font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-2, #0078f1); }
 .brand-preview-title { font-size: 1.1rem; font-weight: 700; color: var(--brand-1, #0f2d52); }
 .brand-preview-meta { font-size: .75rem; color: var(--brand-3, #64748b); }
+
+/* ─── Record pages ── */
+/* The stakeholder pages, and next the PIR, GIR and RFI ones, open with the
+   banner of the scope and focus points statistics, in its size and colours:
+   a few figures and the page's actions, and a white panel with the
+   breakdown. */
+.record-hero { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;
+  padding: 1.4rem 1.6rem; border-radius: 12px; color: #fff; background: var(--brand-gradient); box-shadow: var(--card-shadow); }
+.record-hero::after { content: ""; position: absolute; right: -60px; top: -60px; width: 240px; height: 240px;
+  border-radius: 50%; background: var(--overlay-white-15); pointer-events: none; }
+.record-hero > * { position: relative; z-index: 1; }
+.record-hero .hero-main { flex: 1 1 28rem; min-width: 0; }
+.record-hero .eyebrow { font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+.record-hero h1 { margin: .15rem 0 .2rem; font-size: 1.6rem; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; }
+.record-hero .lead-text { margin: 0; max-width: 62ch; font-size: .86rem; }
+.record-hero .hero-main a:not(.btn) { color: #fff; }
+.record-kpis { display: flex; flex-wrap: wrap; gap: .8rem 1.5rem; margin-top: .9rem; }
+.record-kpi { color: inherit; text-decoration: none; }
+.record-kpi b { display: block; font-size: 2rem; font-weight: 700; line-height: 1; }
+.record-kpi b small { font-size: 1rem; font-weight: 500; opacity: .75; }
+.record-kpi span { display: block; margin-top: .25rem; font-size: .75rem; opacity: .85; }
+.record-kpi.warn b { color: #ffd59e; }
+.record-hero .hero-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.btn-hero { background: #fff; border: 1px solid #fff; color: var(--misp-navy); font-weight: 600; }
+.btn-hero:hover, .btn-hero:focus { background: var(--surface-tint); border-color: var(--surface-tint); color: var(--misp-navy); }
+.btn-hero-ghost { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.45); color: #fff; font-weight: 600; }
+.btn-hero-ghost:hover, .btn-hero-ghost:focus { background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.65); color: #fff; }
+.record-panel { display: flex; flex-direction: column; gap: .8rem; flex: 1 1 22rem; max-width: 34rem;
+  padding: .8rem 1rem; border-radius: 10px; background: var(--card-bg); color: var(--text-primary); }
+/* Internal and external, wherever a stakeholder is named. */
+.stakeholder-internal { color: var(--accent-blue); }
+.stakeholder-external { color: var(--accent-purple); }
+/* A stakeholder's initial, as the list and the page show it. */
+.monogram { display: inline-grid; place-items: center; flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 9px;
+  background: var(--surface-tint); color: var(--misp-navy); font-weight: 700; }
+.monogram.external { background: var(--text-primary); color: #fff; }
+/* The sections arrive one after another when the page opens. */
+@keyframes record-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rise { animation: record-rise .55s cubic-bezier(.2,.7,.2,1) both; }
+.rise-1 { animation-delay: .07s; } .rise-2 { animation-delay: .14s; } .rise-3 { animation-delay: .21s; }
+@media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
+
+/* ─── Requirement pages: PIRs, GIRs and RFIs ── */
+/* One table with a header row per status, so the list shows where the records
+   stand as the status board did. */
+.req-table .lane-head th { padding: .95rem 1rem .4rem; background: var(--card-bg); border-bottom: 0;
+  text-transform: none; letter-spacing: 0; font-size: inherit; }
+.req-table tbody + tbody .lane-head th { border-top: 2px solid var(--border-light); }
+.lane-mark { display: inline-block; width: .65rem; height: .65rem; border-radius: 3px; margin-right: .5rem; }
+.lane-name { font-size: .95rem; font-weight: 700; color: var(--text-primary); }
+.lane-count { margin-left: .4rem; font-size: .75rem; font-weight: 500; color: var(--text-muted); }
+.lane-hint { float: right; font-size: .75rem; font-weight: 400; color: var(--text-muted); }
+.owner-cell { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: .82rem; }
+.owner-cell .monogram { width: 1.7rem; height: 1.7rem; border-radius: 7px; font-size: .8rem; }
+.owner-cell.none { color: var(--accent-orange); }
+.prio-steps { display: flex; gap: 2px; margin-bottom: .3rem; }
+.prio-steps i { width: 1.1rem; height: .3rem; border-radius: 2px; background: var(--border-light); }
+.prio-steps i.on { background: var(--text-primary); }
+.scope-ring { display: grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 50%; font-size: .8rem; font-weight: 700;
+  background: radial-gradient(circle, var(--card-bg) 58%, transparent 59%), conic-gradient(var(--accent-blue) var(--p), var(--border-light) 0); }
+.overdue { display: block; font-size: .72rem; font-weight: 700; color: var(--accent-red); }
+/* The banner of a PIR, GIR or RFI. */
+.hero-id { padding: .15rem .5rem; border-radius: 6px; background: #fff; color: var(--misp-navy); font-size: .8rem; font-weight: 700; }
+.hero-tag { padding: .18rem .55rem; border-radius: 999px; border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.16);
+  font-size: .66rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.record-hero h1.question { margin-top: .55rem; font-size: 1.35rem; max-width: 62ch; }
+.record-facts { display: flex; flex-wrap: wrap; gap: .4rem 1.6rem; margin-top: .8rem; font-size: .84rem; }
+.record-facts > div > span { display: block; font-size: .7rem; opacity: .8; }
+.record-facts .warn { color: #ffd59e; font-weight: 700; }
+.record-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; flex: 0 1 19rem; align-self: flex-start; }
+.record-tile { padding: .65rem .8rem; border-radius: 10px; background: var(--card-bg); color: var(--text-primary); }
+.record-tile b { display: block; font-size: 1.6rem; line-height: 1; }
+.record-tile b small { font-size: .9rem; font-weight: 500; color: var(--text-muted); }
+.record-tile span { display: block; margin-top: .3rem; font-size: .72rem; color: var(--text-muted); }
+.record-tile.accent b { color: var(--accent-orange); }
+.hero-block { display: flex; flex-direction: column; align-items: center; gap: .4rem; align-self: flex-start;
+  padding: .8rem 1.1rem; border-radius: 10px; background: rgba(0,0,0,.18); text-align: center; font-size: .75rem; }
+.hero-block b { font-size: 2.2rem; line-height: 1; }
+.hero-block.late b { color: #ffd59e; }
+/* The decision a PIR supports, who takes it and what if it stays unanswered. */
+.decision-chain { display: grid; grid-template-columns: minmax(0, 1.1fr) 1.5rem minmax(0, 1fr) 1.5rem minmax(0, 1fr); }
+.decision-chain .arrow { display: grid; place-items: center; color: var(--text-muted); }
+.decision-step { padding: .8rem .9rem; border: 1px solid var(--border-light); border-radius: 10px; background: var(--surface-muted); }
+.decision-step.decision { background: var(--surface-tint); }
+.decision-step.risk { border-color: color-mix(in srgb, var(--accent-red) 25%, var(--card-bg));
+  background: color-mix(in srgb, var(--accent-red) 6%, var(--card-bg)); }
+.decision-step h3 { margin: .35rem 0 0; font-size: 1rem; font-weight: 700; }
+.decision-step ul { margin: .35rem 0 0; padding: 0; list-style: none; font-weight: 600; }
+.decision-step.risk li { color: var(--accent-red); }
+@media (max-width: 768px) { .decision-chain { grid-template-columns: 1fr; } .decision-chain .arrow { transform: rotate(90deg); } }
+/* A record's statuses in their order, each a move where one is allowed. */
+.lifecycle { margin: 0; padding: 0; list-style: none; }
+.lifecycle li { display: flex; align-items: center; gap: .6rem; min-height: 2rem; color: var(--text-muted); }
+.lifecycle .dot { flex-shrink: 0; width: .8rem; height: .8rem; border: 2px solid var(--border-light); border-radius: 50%; background: var(--card-bg); }
+.lifecycle li.done .dot { border-color: var(--accent-blue); background: var(--accent-blue); }
+.lifecycle li.now { color: var(--text-primary); font-weight: 700; }
+.lifecycle li.now .dot { border-color: var(--accent-green); background: var(--accent-green);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-green) 20%, transparent); }
+.lifecycle .btn { margin-left: auto; }
+/* The filters under a list's banner, in one row. */
+.record-filters { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .8rem 1rem; }
+.record-filters .filter { flex: 1 1 13rem; max-width: 17rem; margin-bottom: 0; }
+.record-filters .shown { margin-left: auto; display: flex; align-items: center; gap: .6rem; font-size: .82rem; color: var(--text-muted); }
+/* Where a record stands among its statuses, as a row of steps, on the lists. */
+.status-steps { display: flex; gap: 3px; margin-bottom: .3rem; }
+.status-steps i { flex: 1; height: .35rem; border-radius: 99px; background: var(--border-light); }
+.status-steps i.done { background: var(--accent-blue); }
+.status-steps i.now { background: var(--accent-blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 30%, transparent); }
+/* The intelligence levels, in the colours of their bar on the lists. */
+.level-badge { font-size: .7rem; font-weight: 600; border-radius: 4px; padding: 2px 7px; text-transform: uppercase; letter-spacing: .03em; }
+.level-strategic { background: var(--misp-navy); color: #fff; }
+.level-operational { background: color-mix(in srgb, var(--accent-blue) 14%, var(--card-bg)); color: color-mix(in srgb, var(--accent-blue) 65%, #000); }
+.level-tactical { background: color-mix(in srgb, var(--accent-green) 14%, var(--card-bg)); color: color-mix(in srgb, var(--accent-green) 60%, #000); }
+/* The page's icon at the start of a list's banner. */
+.hero-icon { display: grid; place-items: center; flex-shrink: 0; width: 3.1rem; height: 3.1rem; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.18); font-size: 1.35rem; }
+/* The ATT&CK techniques of a PIR or GIR, in the purple the scope statistics use for them. */
+.attack-card { border-color: color-mix(in srgb, var(--accent-purple) 30%, var(--border-light)); }
+.attack-card .card-header { background: color-mix(in srgb, var(--accent-purple) 8%, var(--card-bg));
+  border-bottom-color: color-mix(in srgb, var(--accent-purple) 30%, var(--border-light));
+  color: color-mix(in srgb, var(--accent-purple) 75%, #000); font-weight: 600; }
+.attack-card .attack-count { background: var(--accent-purple); font-size: .65rem; }
+.attack-technique-badge { display: inline-flex; align-items: center; gap: .3rem; max-width: 22rem; padding: .25rem .55rem;
+  border: 1.5px solid color-mix(in srgb, var(--accent-purple) 35%, var(--card-bg)); border-radius: .4rem;
+  background: color-mix(in srgb, var(--accent-purple) 7%, var(--card-bg)); font-size: .78rem; line-height: 1.3; }
+.attack-tid { flex-shrink: 0; font-family: monospace; font-weight: 700; white-space: nowrap;
+  color: color-mix(in srgb, var(--accent-purple) 80%, #000); }
+.attack-tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+
+/* A stakeholder's place on the power and interest matrix, on its page and its form. */
+.matrix { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, 3.1rem);
+  gap: 3px; border-radius: 10px; overflow: hidden; }
+.matrix div { padding: .45rem .6rem; background: var(--surface-muted); font-size: .66rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.matrix div.here { background: color-mix(in srgb, var(--accent-orange) 14%, var(--card-bg)); color: var(--text-primary); }
+.matrix .pin { position: absolute; width: 1rem; height: 1rem; border-radius: 50%; background: var(--accent-orange);
+  border: 3px solid var(--card-bg); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-orange) 25%, transparent);
+  transform: translate(-50%, 50%); }
+
+/* ─── Record forms ── */
+/* The new and edit forms of stakeholders, PIRs, GIRs and RFIs: the banner lists
+   the sections, which turn white once something is filled in, the cards are
+   numbered, and choices are buttons rather than drop-downs. */
+.form-steps { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
+.record-hero .form-steps a { display: inline-flex; align-items: center; gap: .35rem; padding: .22rem .65rem; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.14); color: #fff; font-size: .75rem; font-weight: 600;
+  text-decoration: none; }
+.record-hero .form-steps a:hover { background: rgba(255,255,255,.26); }
+.record-hero .form-steps a.done { background: #fff; border-color: #fff; color: var(--misp-navy); }
+/* The default theme's top bar stays at the top of the window; the others scroll away. */
+.form-step, .form-aside { --form-top: 5rem; }
+[data-theme="uibeta"] .form-step, [data-theme="overmind"] .form-step,
+[data-theme="uibeta"] .form-aside, [data-theme="overmind"] .form-aside { --form-top: 1rem; }
+.form-step { scroll-margin-top: var(--form-top); }
+.step-num { display: inline-grid; place-items: center; width: 1.45rem; height: 1.45rem; margin-right: .55rem; border-radius: 50%;
+  background: var(--misp-navy); color: #fff; font-size: .72rem; font-weight: 700; }
+.step-num.done { background: var(--accent-green); }
+.choice-group { display: flex; flex-wrap: wrap; gap: .45rem; }
+.choice { display: inline-flex; align-items: center; gap: .45rem; min-height: 2.35rem; margin: 0; padding: 0 .85rem;
+  border: 1px solid var(--border-light); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);
+  font-size: .84rem; font-weight: 600; cursor: pointer; }
+.choice:hover { border-color: var(--accent-blue); }
+.choice.chip { min-height: 1.95rem; padding: 0 .75rem; border-radius: 999px; font-weight: 500; }
+.btn-check:checked + .choice { border-color: var(--accent-blue); background: var(--pill-active-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 15%, transparent); }
+.btn-check:checked + .choice::before { content: "\f00c"; font: var(--fa-font-solid); font-size: .72rem; color: var(--accent-blue); }
+.btn-check:focus-visible + .choice { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.product-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .5rem; }
+.product-tile { display: flex; align-items: center; gap: .6rem; margin: 0; padding: .5rem .7rem; border: 1px solid var(--border-light);
+  border-radius: 10px; font-size: .84rem; font-weight: 600; cursor: pointer; }
+.product-tile:hover { border-color: var(--accent-blue); }
+.product-tile .tile-icon { display: grid; place-items: center; flex-shrink: 0; width: 1.8rem; height: 1.8rem; border-radius: 8px;
+  background: var(--surface-muted); color: var(--text-muted); }
+.product-tile input { flex-shrink: 0; margin: 0 0 0 auto; }
+.product-tile:has(input:checked) { border-color: var(--accent-blue); background: var(--pill-active-bg); }
+.product-tile:has(input:checked) .tile-icon { background: var(--accent-blue); color: #fff; }
+.form-preview { display: flex; align-items: center; gap: .8rem; }
+.form-preview .monogram { width: 3rem; height: 3rem; border-radius: 12px; font-size: 1.35rem; }
+.form-facts { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .45rem .8rem; margin: 0; font-size: .84rem; }
+.form-facts dt { padding-top: .1rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.form-facts dd { margin: 0; min-width: 0; }
+.form-tips { margin: 0; padding-left: 1.1rem; font-size: .84rem; }
+.form-tips li + li { margin-top: .45rem; }
+.form-note { padding: .7rem .85rem; border-radius: 8px; background: var(--surface-tint); color: var(--text-primary); font-size: .84rem; }
+@media (min-width: 992px) { .form-aside { position: sticky; top: var(--form-top); } }

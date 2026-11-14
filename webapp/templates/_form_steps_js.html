@@ -1,0 +1,25 @@
+{# The sections of a record form as steps. A card with data-step="<selector>"
+   counts as done once one of the fields that selector names has a value; its
+   number turns green and its pill in the banner turns white. #}
+<script>
+(function () {
+  document.querySelectorAll('.form-step[data-step]').forEach(function (card) {
+    var pill = document.querySelector('.form-steps a[href="#' + card.id + '"]');
+    var num = card.querySelector('.step-num');
+    function filled(field) {
+      if (field.type === 'checkbox' || field.type === 'radio') return field.checked;
+      return field.value.trim() !== '';
+    }
+    function update() {
+      var done = Array.prototype.some.call(card.querySelectorAll(card.dataset.step), filled);
+      if (pill) pill.classList.toggle('done', done);
+      if (num) num.classList.toggle('done', done);
+    }
+    card.addEventListener('input', update);
+    card.addEventListener('change', update);
+    card.addEventListener('keyup', update);
+    card.addEventListener('click', function () { setTimeout(update, 0); });
+    update();
+  });
+})();
+</script>

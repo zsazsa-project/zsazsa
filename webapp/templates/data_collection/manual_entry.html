@@ -175,6 +175,34 @@
       </div>
 
       <div class="card content-card mb-4">
+        <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Source reliability
+              <span class="text-muted small">(Admiralty A–F)</span>
+            </label>
+            <select name="source_reliability" class="form-select">
+              <option value="">-</option>
+              {% for r in reliabilities %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Information credibility
+              <span class="text-muted small">(Admiralty 1–6)</span>
+            </label>
+            <select name="information_credibility" class="form-select">
+              <option value="">-</option>
+              {% for c in credibilities %}
+              <option value="{{ c }}">{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card content-card mb-4">
         <div class="card-header"><i class="fas fa-floppy-disk me-2"></i>Save</div>
         <div class="card-body">
           <p class="text-muted small mb-3">

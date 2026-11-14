@@ -184,6 +184,9 @@
   'Threat actor profile': 'user-secret',
   'Indicator feed': 'satellite-dish',
   'Detection engineering request': 'crosshairs',
+  'Campaign profile': 'flag',
+  'Incident response support': 'kit-medical',
+  'Hunt support': 'binoculars',
 } %}
 
 {% macro product_icon(name) %}<i class="fas fa-{{ product_icons.get(name, 'cube') }} fa-fw text-muted me-1"></i>{% endmacro %}
@@ -242,4 +245,45 @@
         title="{{ select_title }}" aria-label="{{ select_title }}">
   <i class="fas fa-check-double"></i>
 </button>
+{% endmacro %}
+
+
+{% macro status_menu(label, current, targets, url) %}
+{# The "Move to" menu of a PIR, GIR or RFI on its list: the statuses ``targets``
+   allows from ``current``, each asked for first. _status_move_js.html sends it. #}
+{% set moves = targets | reject('equalto', current) | list %}
+{% if moves %}
+<div class="dropdown d-inline-block">
+  <button type="button" class="btn btn-xs btn-outline-primary" data-bs-toggle="dropdown" aria-expanded="false"
+          data-bs-popper-config='{"strategy":"fixed"}' title="Change the status of {{ label }}" aria-label="Change the status of {{ label }}">
+    <i class="fas fa-arrow-right-arrow-left"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><h6 class="dropdown-header">Move {{ label }} to</h6></li>
+    {% for status in moves %}
+    <li><button type="button" class="dropdown-item" data-status-to="{{ status }}" data-update-url="{{ url }}"
+                data-confirm="Move {{ label }} to {{ status }}?">{{ status }}</button></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{% macro lifecycle(label, current, statuses, targets, url, note='') %}
+{# A record's ``statuses`` in their order with the current one marked, and a
+   move to each of ``targets``. ``note`` says why there are none. #}
+{% set at = statuses.index(current) if current in statuses else -1 %}
+<ol class="lifecycle">
+  {% for status in statuses %}
+  <li class="{{ 'now' if status == current else ('done' if loop.index0 < at else '') }}">
+    <span class="dot" aria-hidden="true"></span><span>{{ status }}</span>
+    {% if status != current and status in targets %}
+    <button type="button" class="btn btn-xs btn-outline-secondary" data-status-to="{{ status }}" data-update-url="{{ url }}"
+            data-confirm="Move {{ label }} to {{ status }}?">Move here</button>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% if note %}<p class="small text-muted mb-0 mt-2">{{ note }}</p>{% endif %}
 {% endmacro %}

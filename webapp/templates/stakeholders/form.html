@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import product_icon, toggle_all_button %}
+{% from "_macros.html" import product_icons, toggle_all_button %}
 
 {% set is_edit = stakeholder is not none %}
 {% block title %}{{ 'Edit' if is_edit else 'New' }} Stakeholder | zsazsa CTI{% endblock %}
@@ -13,18 +13,53 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" class="row g-4" data-unsaved-warning>
+<form method="post" data-unsaved-warning>
 
-  <div class="col-lg-7">
+<section class="record-hero rise mb-4">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-people-group"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">
+      Who receives the products, at which TLP, and how closely to keep them involved.
+      {% if not is_edit %}Only the name is needed to save; the rest can follow.{% endif %}
+    </p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      <a href="#step-identity">1 Identity</a>
+      <a href="#step-contacts">2 Contact details</a>
+      <a href="#step-positioning">3 Positioning</a>
+      <a href="#step-preferences">4 Intelligence preferences</a>
+    </nav>
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-8">
 
     <!-- Identity -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-id-card me-2"></i>Identity</div>
+    <div class="card content-card form-step mb-4" id="step-identity" data-step='input[name="name"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Identity</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Name</label>
           <input type="text" name="name" class="form-control" required value="{{ stakeholder.name if is_edit else '' }}">
         </div>
+        <div class="mb-3">
+          <label class="form-label">Stakeholder type</label>
+          {% set current_type = stakeholder.stakeholder_type if is_edit else 'Internal' %}
+          <div class="choice-group mt-1">
+            <input type="radio" class="btn-check" name="stakeholder_type" id="stype_internal" value="Internal"
+                   {{ 'checked' if current_type == 'Internal' }}>
+            <label class="choice" for="stype_internal">
+              <i class="fas fa-building stakeholder-internal"></i>Internal
+            </label>
+            <input type="radio" class="btn-check" name="stakeholder_type" id="stype_external" value="External"
+                   {{ 'checked' if current_type != 'Internal' }}>
+            <label class="choice" for="stype_external">
+              <i class="fas fa-globe stakeholder-external"></i>External
+            </label>
+          </div>
+          <div class="form-text">Internal stakeholders are part of your own organisation.</div>
+        </div>
+
         <div class="row g-3">
           <div class="col-sm-6">
             <label class="form-label">Role</label>
@@ -54,34 +89,17 @@
             {% endif %}
           </div>
         </div>
-        <div class="mt-3">
-          <label class="form-label">Stakeholder type</label>
-          {% set current_type = stakeholder.stakeholder_type if is_edit else 'Internal' %}
-          <div class="d-flex gap-2 mt-1">
-            <input type="radio" class="btn-check" name="stakeholder_type" id="stype_internal" value="Internal"
-                   {{ 'checked' if current_type == 'Internal' }}>
-            <label class="btn btn-outline-primary" for="stype_internal">
-              <i class="fas fa-building me-1"></i>Internal
-            </label>
-            <input type="radio" class="btn-check" name="stakeholder_type" id="stype_external" value="External"
-                   {{ 'checked' if current_type != 'Internal' }}>
-            <label class="btn btn-outline-secondary" for="stype_external">
-              <i class="fas fa-globe me-1"></i>External
-            </label>
-          </div>
-          <div class="form-text">Internal stakeholders are part of your own organisation.</div>
-        </div>
+      </div>
+    </div>
 
-        <div class="mt-3">
-          {# The button sits next to the label, not inside it: a click anywhere
-             on a label is forwarded to the control it contains, so wrapping it
-             made "Contact details" add a row. #}
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <span class="form-label mb-0">Contact details</span>
-            <button type="button" class="btn btn-xs btn-outline-secondary" id="add-contact">
-              <i class="fas fa-plus me-1"></i>Add
-            </button>
-          </div>
+    <!-- Contact details -->
+    <div class="card content-card form-step mb-4" id="step-contacts" data-step='input[name="contact_value"]'>
+      <div class="card-header d-flex align-items-center">
+        <span class="step-num">2</span>Contact details
+        <span class="ms-auto small fw-normal text-muted">for reference, nothing is sent here</span>
+      </div>
+      <div class="card-body">
+        <div>
           <div id="contacts-list">
             {% set contact_list = (stakeholder.contacts if is_edit else []) or [] %}
             {% for c in contact_list %}
@@ -123,7 +141,10 @@
               </button>
             </div>
           </template>
-          <div class="form-text d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="add-contact">
+            <i class="fas fa-plus me-1"></i>Add a contact
+          </button>
+          <div class="form-text d-flex gap-2 mt-2">
             <i class="fas fa-circle-exclamation text-warning mt-1"></i>
             <span>
               Reference details only, for knowing who to reach and how.
@@ -132,48 +153,57 @@
             </span>
           </div>
         </div>
-
       </div>
     </div>
 
     <!-- Stakeholder positioning -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-chart-simple me-2"></i>Stakeholder positioning</div>
+    {% set influence = stakeholder.influence if is_edit else 5 %}
+    {% set interest = stakeholder.interest if is_edit else 5 %}
+    <div class="card content-card form-step mb-4" id="step-positioning"
+         data-step='textarea[name="engagement_strategy"], textarea[name="notes"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Positioning</div>
       <div class="card-body">
         <p class="text-muted small">
           Used to place this stakeholder on the <a href="{{ url_for('stakeholders.matrix') }}">stakeholder matrix</a>
           and to tailor how they are engaged.
         </p>
-        <div class="row g-3">
-          <div class="col-sm-6">
-            <label class="form-label d-flex justify-content-between align-items-center">
-              <span>Influence</span>
-              <span class="badge text-bg-light">{{ stakeholder.influence if is_edit else 5 }}/10</span>
-            </label>
-            <input type="range" class="form-range" name="influence" min="1" max="10"
-                   value="{{ stakeholder.influence if is_edit else 5 }}"
-                   oninput="this.parentNode.querySelector('.badge').textContent = this.value + '/10'">
-            <div class="form-text">How much power this stakeholder has over the CTI program's priorities and resources.</div>
+        <div class="row g-4 align-items-center">
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label d-flex justify-content-between align-items-center" for="sh-influence">
+                <span>Influence</span>
+                <span class="badge text-bg-light" data-scale-value>{{ influence }}/10</span>
+              </label>
+              <input type="range" class="form-range" name="influence" id="sh-influence" min="1" max="10" value="{{ influence }}">
+              <div class="form-text">How much power this stakeholder has over the CTI program's priorities and resources.</div>
+            </div>
+            <div>
+              <label class="form-label d-flex justify-content-between align-items-center" for="sh-interest">
+                <span>Interest</span>
+                <span class="badge text-bg-light" data-scale-value>{{ interest }}/10</span>
+              </label>
+              <input type="range" class="form-range" name="interest" id="sh-interest" min="1" max="10" value="{{ interest }}">
+              <div class="form-text">How closely this stakeholder follows and acts on the intelligence they receive.</div>
+            </div>
           </div>
-          <div class="col-sm-6">
-            <label class="form-label d-flex justify-content-between align-items-center">
-              <span>Interest</span>
-              <span class="badge text-bg-light">{{ stakeholder.interest if is_edit else 5 }}/10</span>
-            </label>
-            <input type="range" class="form-range" name="interest" min="1" max="10"
-                   value="{{ stakeholder.interest if is_edit else 5 }}"
-                   oninput="this.parentNode.querySelector('.badge').textContent = this.value + '/10'">
-            <div class="form-text">How closely this stakeholder follows and acts on the intelligence they receive.</div>
+          <div class="col-md-6">
+            <div class="matrix" id="sh-matrix">
+              {% for key, label in (('keep-satisfied', 'Keep satisfied'), ('manage-closely', 'Manage closely'), ('monitor', 'Monitor'), ('keep-informed', 'Keep informed')) %}
+              <div data-quadrant="{{ key }}">{{ label }}</div>
+              {% endfor %}
+              <span class="pin"></span>
+            </div>
+            <div class="form-text">The matrix follows the sliders.</div>
           </div>
         </div>
         <div class="mt-3">
-          <label class="form-label">Engagement strategy</label>
-          <div class="d-flex flex-wrap gap-1 mb-2" id="engagement-presets">
+          <label class="form-label" for="engagement-strategy">Engagement strategy</label>
+          <div class="choice-group mb-2" id="engagement-presets">
             {% for preset in ['Monthly call', 'Quarterly in-person threat briefing',
                               'Invite to the yearly PIR review', 'Direct call on a critical threat',
                               'Annual tabletop exercise'] %}
-            <button type="button" class="btn btn-xs btn-outline-secondary" data-preset="{{ preset }}">
-              <i class="fas fa-plus me-1"></i>{{ preset }}
+            <button type="button" class="choice chip" data-preset="{{ preset }}">
+              <i class="fas fa-plus text-muted"></i>{{ preset }}
             </button>
             {% endfor %}
           </div>
@@ -181,52 +211,48 @@
                     placeholder="e.g. Monthly briefing call, prioritise flash alerts, invite to the quarterly review...">{{ stakeholder.engagement_strategy if is_edit else '' }}</textarea>
           <div class="form-text">Specific notes on how to keep this stakeholder engaged, on top of the general guidance for their quadrant.</div>
         </div>
+        <div class="mt-3">
+          <label class="form-label" for="sh-notes">Notes</label>
+          <textarea name="notes" id="sh-notes" class="form-control" rows="3" placeholder="Any additional context about this stakeholder…">{{ stakeholder.notes if is_edit else '' }}</textarea>
+        </div>
       </div>
     </div>
-
-    <!-- Notes -->
-    <div class="card content-card">
-      <div class="card-header"><i class="fas fa-note-sticky me-2"></i>Notes</div>
-      <div class="card-body">
-        <textarea name="notes" class="form-control" rows="4" placeholder="Any additional context about this stakeholder…">{{ stakeholder.notes if is_edit else '' }}</textarea>
-      </div>
-    </div>
-
-  </div>
-
-  <div class="col-lg-5">
 
     <!-- Intelligence preferences -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Intelligence preferences</div>
+    <div class="card content-card form-step" id="step-preferences"
+         data-step='input[name="products"], input[name="notification_channels"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Intelligence preferences</div>
       <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">TLP clearance</label>
-          <select name="tlp_clearance" class="form-select">
+        {# A stored level the list no longer has falls back to the first one, as the drop-down did. #}
+        {% set current_tlp = stakeholder.tlp_clearance if is_edit else 'amber' %}
+        {% if current_tlp not in tlp_levels %}{% set current_tlp = tlp_levels[0] %}{% endif %}
+        <div class="mb-4">
+          <span class="form-label d-block">TLP clearance</span>
+          <div class="choice-group" role="radiogroup" aria-label="TLP clearance">
             {% for tlp in tlp_levels %}
-            <option value="{{ tlp }}" {{ 'selected' if is_edit and stakeholder.tlp_clearance == tlp else ('selected' if not is_edit and tlp == 'amber') }}>
-              TLP:{{ tlp | upper }}
-            </option>
+            <input type="radio" class="btn-check" name="tlp_clearance" id="tlp_{{ loop.index }}" value="{{ tlp }}"
+                   {{ 'checked' if tlp == current_tlp }}>
+            <label class="choice" for="tlp_{{ loop.index }}">
+              <span class="tlp-badge tlp-{{ tlp | slug }}">TLP:{{ tlp | upper }}</span>
+            </label>
             {% endfor %}
-          </select>
+          </div>
           <div class="form-text">Maximum TLP classification this stakeholder may receive.</div>
         </div>
 
         {% if notification_channels %}
         <div class="mb-4">
-          <label class="form-label">Notification channels</label>
-          <div class="d-flex flex-wrap gap-2">
+          <span class="form-label d-block">Notification channels</span>
+          <div class="choice-group">
             {% set current_channels = (stakeholder.notification_channels if is_edit else []) or [] %}
             {% for ch in notification_channels %}
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="notification_channels"
-                     value="{{ ch.id }}" id="nch_{{ loop.index }}"
-                     {{ 'checked' if ch.id in current_channels }}>
-              <label class="form-check-label" for="nch_{{ loop.index }}">
-                {% if ch.type == 'flowintel' %}<img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="Flowintel" style="height:14px;width:auto;" class="me-1">{% elif ch.type == 'email' %}<i class="fas fa-envelope me-1" style="color:#0078f1;"></i>{% elif ch.type == 'teams' %}<i class="fa-brands fa-microsoft me-1" style="color:#5b5fc7;"></i>{% endif %}
-                {{ ch.name }}
-              </label>
-            </div>
+            <input class="btn-check" type="checkbox" name="notification_channels"
+                   value="{{ ch.id }}" id="nch_{{ loop.index }}"
+                   {{ 'checked' if ch.id in current_channels }}>
+            <label class="choice chip" for="nch_{{ loop.index }}">
+              {% if ch.type == 'flowintel' %}<img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="" style="height:14px;width:auto;">{% elif ch.type == 'email' %}<i class="fas fa-envelope" style="color:#0078f1;"></i>{% elif ch.type == 'teams' %}<i class="fa-brands fa-microsoft" style="color:#5b5fc7;"></i>{% endif %}
+              <span class="channel-name">{{ ch.name }}</span>
+            </label>
             {% endfor %}
           </div>
           <div class="form-text">Select which channels should receive notifications for this stakeholder.</div>
@@ -234,43 +260,149 @@
         {% endif %}
 
         <div class="d-flex align-items-center gap-2 mb-2">
-          <label class="form-label mb-0">Products subscribed</label>
-          {{ toggle_all_button('.product-checklist input[name="products"]',
+          <span class="form-label mb-0">Products subscribed</span>
+          <span class="small text-muted">&middot; <span id="sh-product-count"></span> of {{ products | length }}</span>
+          {{ toggle_all_button('.product-tiles input[name="products"]',
                                'Subscribe to all products', 'Unsubscribe from all products') }}
         </div>
-        <div class="product-checklist">
+        <div class="product-tiles">
           {% for p in products | sort(case_sensitive=False) %}
           {% set current_mode = stakeholder.product_modes.get(p, default_subscription_mode) if is_edit else default_subscription_mode %}
-          <div class="form-check d-flex align-items-center gap-2 mb-2">
-            <input class="form-check-input mt-0" type="checkbox" name="products" value="{{ p }}" id="prod_{{ loop.index }}"
+          <label class="product-tile" for="prod_{{ loop.index }}">
+            <span class="tile-icon" aria-hidden="true"><i class="fas fa-{{ product_icons.get(p, 'cube') }} fa-fw"></i></span>
+            {{ p }}
+            <input class="form-check-input" type="checkbox" name="products" value="{{ p }}" id="prod_{{ loop.index }}"
               {{ 'checked' if is_edit and p in stakeholder.products }}>
-            <label class="form-check-label flex-grow-1" for="prod_{{ loop.index }}">{{ product_icon(p) }}{{ p }}</label>
             {# The mode picker is hidden for now, but the stored mode still has to
                survive a save, so it travels with the form. #}
             <input type="hidden" name="mode__{{ p }}" value="{{ current_mode }}">
-          </div>
+          </label>
           {% endfor %}
         </div>
       </div>
     </div>
 
-    <!-- Actions -->
-    <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary flex-grow-1">
-        <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create stakeholder' }}
-      </button>
-      <a href="{{ url_for('stakeholders.detail', id=stakeholder.id) if is_edit else url_for('stakeholders.list') }}" class="btn btn-outline-secondary">
-        Cancel
-      </a>
-    </div>
-
   </div>
+
+  <div class="col-lg-4">
+    <div class="form-aside d-flex flex-column gap-4">
+      <div class="card content-card">
+        <div class="card-header">As it will appear</div>
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="form-preview">
+            <span class="monogram" id="sh-preview-initial" aria-hidden="true"></span>
+            <div class="min-w-0">
+              <div class="fw-bold fs-6 text-break" id="sh-preview-name"></div>
+              <div class="small text-muted" id="sh-preview-line"></div>
+            </div>
+          </div>
+          <dl class="form-facts">
+            <dt>Clearance</dt><dd><span class="tlp-badge" id="sh-preview-tlp"></span></dd>
+            <dt>Quadrant</dt><dd id="sh-preview-quadrant"></dd>
+            <dt>Products</dt><dd id="sh-preview-products"></dd>
+            {% if notification_channels %}<dt>Channels</dt><dd id="sh-preview-channels"></dd>{% endif %}
+          </dl>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">
+              <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create stakeholder' }}
+            </button>
+            <a href="{{ url_for('stakeholders.detail', id=stakeholder.id) if is_edit else url_for('stakeholders.list') }}" class="btn btn-outline-secondary">
+              Cancel
+            </a>
+          </div>
+        </div>
+      </div>
+      {% if not is_edit %}
+      <div class="card content-card">
+        <div class="card-header">Next steps</div>
+        <div class="card-body">
+          <div class="form-note">
+            Once saved, the stakeholder's page offers "Add a PIR" and "Add a GIR" with this stakeholder
+            as owner and recipient.
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
 
 </form>
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
 <script>
+(function() {
+  // The positioning matrix and the preview follow the form.
+  var matrix = document.getElementById('sh-matrix');
+  var form = matrix.closest('form');
+  var influence = document.getElementById('sh-influence');
+  var interest = document.getElementById('sh-interest');
+  var pin = matrix.querySelector('.pin');
+  var labels = {'manage-closely': 'Manage closely', 'keep-satisfied': 'Keep satisfied',
+                'keep-informed': 'Keep informed', 'monitor': 'Monitor'};
+
+  function quadrant(inf, int) {
+    if (inf > 5) return int > 5 ? 'manage-closely' : 'keep-satisfied';
+    return int > 5 ? 'keep-informed' : 'monitor';
+  }
+  function pct(value) { return 5 + (value - 1) / 9 * 90; }
+  function selectedText(name) {
+    var sel = form.querySelector('select[name="' + name + '"]');
+    return sel && sel.value ? sel.options[sel.selectedIndex].text.trim() : '';
+  }
+
+  function update() {
+    var inf = Number(influence.value), int = Number(interest.value);
+    influence.closest('div').querySelector('[data-scale-value]').textContent = inf + '/10';
+    interest.closest('div').querySelector('[data-scale-value]').textContent = int + '/10';
+    var q = quadrant(inf, int);
+    matrix.querySelectorAll('[data-quadrant]').forEach(function(cell) {
+      cell.classList.toggle('here', cell.dataset.quadrant === q);
+    });
+    pin.style.left = pct(int) + '%';
+    pin.style.bottom = pct(inf) + '%';
+    matrix.setAttribute('aria-label', 'Influence ' + inf + ' of 10, interest ' + int + ' of 10: ' + labels[q]);
+
+    var name = form.querySelector('input[name="name"]').value.trim();
+    var type = form.querySelector('input[name="stakeholder_type"]:checked');
+    document.getElementById('sh-preview-name').textContent = name || 'New stakeholder';
+    document.getElementById('sh-preview-initial').textContent = (name || '?').charAt(0).toUpperCase();
+    document.getElementById('sh-preview-initial').classList.toggle('external', !!type && type.value === 'External');
+    document.getElementById('sh-preview-line').textContent =
+      [selectedText('role'), selectedText('organization'), type ? type.value : ''].filter(Boolean).join(' \u00b7 ');
+
+    var tlp = form.querySelector('input[name="tlp_clearance"]:checked');
+    var badge = document.getElementById('sh-preview-tlp');
+    badge.className = 'tlp-badge';
+    badge.textContent = '';
+    if (tlp) {
+      badge.classList.add('tlp-' + tlp.value.replace(/\+/g, '-'));
+      badge.textContent = 'TLP:' + tlp.value.toUpperCase();
+    }
+    document.getElementById('sh-preview-quadrant').textContent = labels[q];
+
+    var products = form.querySelectorAll('input[name="products"]');
+    var subscribed = form.querySelectorAll('input[name="products"]:checked').length;
+    document.getElementById('sh-product-count').textContent = subscribed;
+    document.getElementById('sh-preview-products').textContent = subscribed + ' of ' + products.length;
+
+    var channels = document.getElementById('sh-preview-channels');
+    if (channels) {
+      var names = Array.prototype.map.call(
+        form.querySelectorAll('input[name="notification_channels"]:checked'),
+        function(box) { return form.querySelector('label[for="' + box.id + '"] .channel-name').textContent.trim(); });
+      channels.textContent = names.length ? names.join(', ') : 'None';
+    }
+  }
+
+  form.addEventListener('input', update);
+  form.addEventListener('change', update);
+  form.addEventListener('click', function() { setTimeout(update, 0); });
+  update();
+})();
+
 (function() {
   var strategy = document.getElementById('engagement-strategy');
   document.querySelectorAll('#engagement-presets [data-preset]').forEach(function(btn) {

@@ -1,0 +1,54 @@
+{# The stakeholders a PIR or GIR is delivered to, as tiles, on its form. Set
+   before the include: record_kind ("PIR" or "GIR"), dist_step (the card's number),
+   dist_prefix (the checkboxes' id prefix) and sel_distribution. The owner
+   picked under Ownership is marked. #}
+<div class="card content-card form-step" id="step-distribution" data-step='input[name="distribution"]'>
+  <div class="card-header d-flex align-items-center">
+    <span class="step-num">{{ dist_step }}</span>Distribution
+    {% if stakeholders %}<span class="ms-auto small fw-normal text-muted"><span data-dist-count></span> of {{ stakeholders | length }} stakeholders</span>{% endif %}
+  </div>
+  <div class="card-body">
+    <div class="form-text mt-0 mb-2">Tick the stakeholders this {{ record_kind }} is delivered to.</div>
+    {% if stakeholders %}
+    <div class="dist-picker">
+      {% for s in stakeholders %}
+      <input class="btn-check dist-pick-input" type="checkbox" name="distribution" value="{{ s.uuid }}" id="{{ dist_prefix }}{{ loop.index }}"
+        {{ 'checked' if s.uuid in sel_distribution or s.name in sel_distribution }}>
+      <label class="dist-pick-card" for="{{ dist_prefix }}{{ loop.index }}">
+        <div class="dist-pick-avatar">{{ (s.name or '?')[0] | upper }}</div>
+        <div class="dist-pick-body">
+          <div class="dist-pick-name">{{ s.name }} <span class="badge text-bg-dark ms-1" data-owner-mark="{{ s.uuid }}" hidden>Owner</span></div>
+          {% set org = org_map.get(s.organization, s.organization) %}
+          {% if s.role or org %}
+          <div class="dist-pick-role">{{ s.role }}{% if s.role and org %} &middot; {% endif %}{{ org }}</div>
+          {% endif %}
+          <div class="dist-pick-meta">
+            {% if s.tlp_clearance %}<span class="tlp-badge tlp-{{ s.tlp_clearance | slug }}">TLP:{{ s.tlp_clearance | upper }}</span>{% endif %}
+            {% if s.email %}<span class="text-muted small"><i class="fas fa-envelope fa-xs me-1"></i>{{ s.email }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="dist-pick-tick"><i class="fas fa-check"></i></div>
+      </label>
+      {% endfor %}
+    </div>
+    <script>
+    (function () {
+      var card = document.getElementById('step-distribution');
+      var form = card.closest('form');
+      function update() {
+        card.querySelector('[data-dist-count]').textContent =
+          card.querySelectorAll('.dist-pick-input:checked').length;
+        var owner = form.querySelector('select[name="owner_id"]');
+        card.querySelectorAll('[data-owner-mark]').forEach(function (mark) {
+          mark.hidden = !owner || mark.dataset.ownerMark !== owner.value;
+        });
+      }
+      form.addEventListener('change', update);
+      document.addEventListener('DOMContentLoaded', update);
+    })();
+    </script>
+    {% else %}
+    <p class="text-muted small mb-0">No stakeholders registered yet. <a href="{{ url_for('stakeholders.new') }}">Add one</a> to set up distribution.</p>
+    {% endif %}
+  </div>
+</div>

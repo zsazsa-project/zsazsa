@@ -6,7 +6,8 @@ is a small SQLite table filled from MISP by hand and by every SSO request, and
 the stakeholder page and export read both. A product type removed under
 Settings > Products is not shown as a subscription, as the edit form does not
 offer it. The page puts the scope of the stakeholder's PIRs and GIRs beside the
-focus points, and lists its products without zsazsa's prefix. Where MISP is called it is an autospec
+focus points, and lists its products without zsazsa's prefix. The form asks the
+clearance as choices and keeps the subscription modes it does not show. Where MISP is called it is an autospec
 of PyMISP, and the databases are temporary.
 
     python -m unittest tests.test_stakeholders
@@ -551,6 +552,117 @@ class ScopeAndFocusPoints(_PageClient):
         titles = [s.get_text() for s in page.select(".req-text")][-3:]
         self.assertEqual(titles, ["Daily threat briefing 2026-11-13", "TAP-00001: Turla",
                                   "Ransomware on the grid [zsazsa:x]"])
+
+
+
+class RecordPages(_PageClient):
+    """The list is one table under a banner with its figures. A stakeholder's
+    page shows every product type with its icon, ticked when subscribed, its
+    recent products by type name, and offers a new PIR and a new GIR."""
+
+    def detail(self, stakeholder, products=(), owned=None):
+        found = {"pirs_for_stakeholder": [], "girs_for_stakeholder": [], "pirs_distributed_to_stakeholder": [],
+                 "girs_distributed_to_stakeholder": [], "products_for_stakeholder": list(products)}
+        with mock.patch.object(config, "PRODUCT_TYPES", ["Flash intel alert", "Hunt support", "Campaign profile"]), \
+             mock.patch.object(misp_store, "get_stakeholder", return_value=stakeholder), \
+             mock.patch.object(misp_store, "records_owned_by_stakeholders", return_value=owned or {}), \
+             mock.patch.multiple(misp_store, **{name: mock.Mock(return_value=value) for name, value in found.items()}):
+            response = self.client.get(f"/stakeholders/{UUID}")
+        self.assertEqual(response.status_code, 200)
+        return BeautifulSoup(response.data, "html.parser")
+
+    def test_every_product_type_with_its_icon(self):
+        page = self.detail(_stakeholder(products=["Hunt support"], product_modes={"Hunt support": "automated"}))
+        items = {i.select_one("span").get_text(): i for i in page.select(".sub-item")}
+        self.assertEqual(list(items), ["Flash intel alert", "Hunt support", "Campaign profile"])
+        self.assertEqual({name: i.i["class"][1] for name, i in items.items()},
+                         {"Flash intel alert": "fa-bolt", "Hunt support": "fa-binoculars", "Campaign profile": "fa-flag"})
+        self.assertEqual([name for name, i in items.items() if "off" not in i["class"]], ["Hunt support"])
+        self.assertIn("automated", items["Hunt support"].get_text())
+        self.assertIn("1 / 3 product types subscribed", page.select_one(".record-kpis").get_text(" ", strip=True))
+
+    def test_a_new_pir_or_gir_for_the_stakeholder(self):
+        page = self.detail(_stakeholder())
+        links = {a.get_text(strip=True): a["href"] for a in page.select(".card-header a")}
+        self.assertEqual(links["Add a PIR"], f"/pirs/new?from_stakeholder={UUID}")
+        self.assertEqual(links["Add a GIR"], f"/girs/new?from_stakeholder={UUID}")
+        text = page.get_text(" ", strip=True)
+        self.assertIn("Ada owns no PIR or GIR yet.", text)
+        self.assertIn("Ada is in no distribution yet.", text)
+
+    def test_the_banner_and_no_breadcrumbs(self):
+        page = self.detail(_stakeholder(influence=8, interest=3, tlp_clearance="red"))
+        hero = page.select_one(".record-hero")
+        self.assertEqual(hero.h1.get_text(), "Ada")
+        self.assertIn("TLP:RED", hero.select_one(".clearance").get_text())
+        self.assertEqual(hero.select_one(".matrix .here").get_text(), "Keep satisfied")
+        self.assertIsNone(page.select_one(".breadcrumb"))
+
+    def test_recent_products_by_type_name(self):
+        product = SimpleNamespace(info="[zsazsa:fia] Grid", uuid="f" * 36, product_type="flash-intel",
+                                  date="2026-11-13", misp_url="")
+        line = self.detail(_stakeholder(), products=[product]).select_one(".product-line")
+        self.assertEqual(line.select_one(".type").get_text(), "Flash intel alert")
+        self.assertIn("fa-bolt", line.i["class"])
+        self.assertEqual(line["href"], f"/products/flash-intel/{'f' * 36}")
+
+    def test_the_list_is_one_table_under_its_figures(self):
+        stakeholders = [_stakeholder(tlp_clearance="red", products=["Flash intel alert"]),
+                        _stakeholder(uuid="b" * 36, id="b" * 36, name="Bob", stakeholder_type="External")]
+        pirs = [SimpleNamespace(owner_uuid=UUID, pir_id="PIR-001", status="Active", distribution=[])]
+        with mock.patch.object(misp_store, "list_stakeholders", return_value=stakeholders), \
+             mock.patch.object(misp_store, "records_owned_by_stakeholders", return_value={}), \
+             mock.patch.multiple(misp_store, list_pirs=mock.Mock(return_value=pirs)):
+            page = BeautifulSoup(self.client.get("/stakeholders/").data, "html.parser")
+        kpis = page.select_one(".record-kpis").get_text(" ", strip=True)
+        for shown in ("2 stakeholders", "1 without a subscription", "1 cleared for TLP:RED", "1 with no active PIR or GIR"):
+            self.assertIn(shown, kpis)
+        self.assertEqual([tr.a.get_text() for tr in page.select("table tbody tr")], ["Ada", "Bob"])
+        self.assertEqual(len(page.select("tbody tr .product-ticks i.on")), 1)
+        kinds = [(tr.a.get_text(), tr.select_one(".who i")["class"]) for tr in page.select("tbody tr")]
+        self.assertEqual(kinds, [("Ada", ["fas", "fa-building", "ms-1", "stakeholder-internal"]),
+                                 ("Bob", ["fas", "fa-globe", "ms-1", "stakeholder-external"])])
+
+
+class FormPage(_PageClient):
+    """The form lists its sections as steps and asks the clearance and the
+    subscriptions as choices, posting the same fields the drop-down and the
+    checklist did."""
+
+    def form(self, stakeholder=None):
+        with mock.patch.object(config, "PRODUCT_TYPES", ["Flash intel alert", "Hunt support"]), \
+             mock.patch.object(misp_store, "get_stakeholder", return_value=stakeholder):
+            path = f"/stakeholders/{UUID}/edit" if stakeholder else "/stakeholders/new"
+            response = self.client.get(path)
+        self.assertEqual(response.status_code, 200)
+        return BeautifulSoup(response.data, "html.parser")
+
+    def clearance(self, page):
+        return [box["value"] for box in page.select('input[name="tlp_clearance"][checked]')]
+
+    def test_a_new_stakeholder_is_cleared_for_amber(self):
+        self.assertEqual(self.clearance(self.form()), ["amber"])
+
+    def test_an_edit_keeps_the_stored_clearance(self):
+        self.assertEqual(self.clearance(self.form(_stakeholder(tlp_clearance="red"))), ["red"])
+
+    def test_a_clearance_no_longer_offered_falls_back_to_the_first(self):
+        self.assertEqual(self.clearance(self.form(_stakeholder(tlp_clearance="white"))), ["clear"])
+
+    def test_a_product_tile_keeps_its_stored_mode(self):
+        page = self.form(_stakeholder(products=["Hunt support"], product_modes={"Hunt support": "automated"}))
+        tile = page.find("input", attrs={"name": "products", "value": "Hunt support"}).find_parent("label")
+        self.assertTrue(tile.find("input", attrs={"name": "products"}).has_attr("checked"))
+        self.assertEqual(tile.find("input", attrs={"name": "mode__Hunt support"})["value"], "automated")
+        self.assertIsNotNone(tile.select_one(".tile-icon i.fa-binoculars"))
+        toggle = page.select_one("[data-toggle-all]")["data-toggle-all"]
+        self.assertEqual(len(page.select(toggle)), 2)
+
+    def test_every_step_names_a_section(self):
+        page = self.form()
+        steps = [a["href"] for a in page.select(".form-steps a")]
+        self.assertEqual(steps, ["#" + card["id"] for card in page.select(".form-step")])
+        self.assertIsNotNone(page.select_one("#sh-matrix .pin"))
 
 
 if __name__ == "__main__":

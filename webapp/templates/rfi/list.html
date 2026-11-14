@@ -1,19 +1,22 @@
 {% extends "base.html" %}
 {% from "_sort.html" import sort_th %}
+{% from "_macros.html" import status_menu %}
 
 {% block title %}RFIs | zsazsa CTI{% endblock %}
 {% block page_title %}Requests for Information{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('rfi.rfi_new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New RFI
-</a>
-<a href="{{ url_for('export.rfis') }}" class="btn btn-sm btn-outline-secondary ms-2" title="Export as Markdown">
-  <i class="fas fa-download me-1"></i> Export
-</a>
-{% endblock %}
-
 {% block content %}
+<style>
+  .sla-cell b { display: block; font-size: 1.45rem; line-height: 1; letter-spacing: -.02em; }
+  .sla-cell span { font-size: .72rem; font-weight: 600; }
+  .sla-cell.late b, .sla-cell.late span { color: var(--accent-red); }
+  .sla-cell.soon b, .sla-cell.soon span { color: var(--accent-orange); }
+  .sla-cell.quiet b { font-size: 1rem; color: var(--text-muted); }
+  .sla-cell .track { height: .3rem; margin-top: .35rem; border-radius: 99px; overflow: hidden;
+                     background: color-mix(in srgb, var(--accent-red) 15%, transparent); }
+  .sla-cell .track i { display: block; height: 100%; background: var(--accent-red); }
+  .who-line { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .25rem; font-size: .8rem; color: var(--text-muted); }
+</style>
 {% set rfi_priority_class = {
   'High': 'must-have',
   'Medium': 'should-have',
@@ -26,120 +29,116 @@
   'Delivered': 'implemented',
   'Closed': 'retired'
 } %}
+{% set moves = ['Acknowledged', 'In Progress', 'Delivered', 'Closed'] %}
+{# The groups the rows are shown in, in the order of the statuses. #}
+{% set lanes = statuses | list %}
+{% for rfi in rfis if rfi.status not in lanes %}{% set _ = lanes.append(rfi.status) %}{% endfor %}
+{% set lane_hints = {'New': 'Triage before they move on', 'Delivered': 'Waiting for the requester\'s feedback',
+                     'Closed': 'Done with'} %}
 {% import "_charts.html" as charts with context %}
 {% set sla_colors = {'Overdue': 'var(--accent-red)', 'Due soon': 'var(--accent-orange)', 'No due date': 'var(--neutral-400)',
                      'On track': 'var(--accent-green)', 'Done': 'var(--neutral-600)'} %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-purple);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {% if show_closed %}<input type="hidden" name="closed" value="1">{% endif %}
-          {{ charts.filter_select('status', 'Status', 'fa-bars-progress', 'All statuses', statuses, status_filter) }}
-          {{ charts.filter_select('priority', 'Priority', 'fa-flag', 'All priorities', priorities, priority_filter) }}
-          {{ charts.filter_select('sla', 'SLA', 'fa-stopwatch', 'Any SLA', sla_labels, sla_filter) }}
-          {% if not status_filter and closed_count %}
-          <a href="{{ url_for('rfi.rfi_list', **dict(request.args.to_dict(), closed=None if show_closed else 1)) }}"
-             class="btn btn-xs btn-outline-secondary w-100 mb-2">
-            <i class="fas {{ 'fa-eye-slash' if show_closed else 'fa-box-archive' }} me-1"></i>
-            {{ 'Hide closed RFIs' if show_closed else 'Show closed RFIs (' ~ closed_count ~ ')' }}
-          </a>
-          {% endif %}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ rfis | length }} RFI{{ 's' if rfis|length != 1 }}{{ ' open' if hide_closed }}</span>
-            {% if status_filter or priority_filter or sla_filter %}
-            <a href="{{ url_for('rfi.rfi_list') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-      </div>
-      {% if priority_counts or sla_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-4">{{ charts.mix('Status', status_counts, charts.status_colors) }}</div>
-          <div class="col-md-4">{{ charts.mix('Priority', priority_counts, charts.priority_colors, param='priority', selected=priority_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('SLA', sla_counts, sla_colors, param='sla', selected=sla_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set kpi = namespace(late=0, high=0, triage=0, most=1) %}
+{% for rfi in rfis %}
+  {% set state, days = sla_map.get(rfi.id, ('amber', None)) %}
+  {% if state == 'red' %}{% set kpi.late = kpi.late + 1 %}{% set kpi.most = [kpi.most, -days] | max %}{% endif %}
+  {% if rfi.priority == 'High' and rfi.status != 'Closed' %}{% set kpi.high = kpi.high + 1 %}{% endif %}
+  {% if rfi.status == 'New' %}{% set kpi.triage = kpi.triage + 1 %}{% endif %}
+{% endfor %}
+
+<section class="record-hero rise mb-4">
+  <div class="hero-main">
+    <div class="d-flex align-items-center gap-3">
+      <span class="hero-icon" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
+      <p class="lead-text">One-off questions from stakeholders, each with an owner and a date it is due by.</p>
+    </div>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ rfis | length }}</b><span>RFI{{ 's' if rfis | length != 1 }}{{ ' open' if hide_closed }}{{ ', ' ~ closed_count ~ ' closed not shown' if hide_closed and closed_count }}</span></div>
+      <div class="record-kpi{{ ' warn' if kpi.late }}"><b>{{ kpi.late }}</b><span>past the due date</span></div>
+      <div class="record-kpi"><b>{{ kpi.high }}</b><span>high priority</span></div>
+      <div class="record-kpi"><b>{{ kpi.triage }}</b><span>waiting for triage</span></div>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('rfi.rfi_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New RFI</a>
+      <a href="{{ url_for('export.rfis') }}" class="btn btn-sm btn-hero-ghost" title="Export as Markdown"><i class="fas fa-download me-1"></i> Export</a>
     </div>
   </div>
-</div>
-
-<!-- Kanban board -->
-{% set kanban_statuses = ['New', 'Acknowledged', 'In Progress', 'Delivered', 'Closed'] %}
-<div class="card content-card mb-3">
-  <div class="card-header"><i class="fas fa-columns me-2"></i>Status board (drag to update status)</div>
-  <div class="card-body p-2">
-    <div class="kanban-board d-flex gap-2 overflow-auto pb-1">
-      {% for col_status in kanban_statuses %}
-      <div class="kanban-col flex-shrink-0" data-status="{{ col_status }}" style="min-width:160px;width:160px;">
-        <div class="kanban-col-header text-center fw-semibold small p-1 mb-1 rounded
-          {% if col_status == 'New' %}bg-secondary-subtle text-secondary-emphasis
-          {% elif col_status == 'Acknowledged' %}bg-info-subtle text-info-emphasis
-          {% elif col_status == 'In Progress' %}bg-primary-subtle text-primary-emphasis
-          {% elif col_status == 'Delivered' %}bg-success-subtle text-success-emphasis
-          {% else %}bg-light text-muted{% endif %}">
-          {{ col_status }}
-          <span class="badge bg-white text-dark ms-1" style="font-size:.65rem">
-            {{- closed_count if col_status == 'Closed' and hide_closed else rfis | selectattr('status', 'equalto', col_status) | list | length -}}
-          </span>
-        </div>
-        <div class="kanban-cards" style="min-height:60px;">
-          {% if col_status == 'Closed' and hide_closed %}
-          <a href="{{ url_for('rfi.rfi_list', **dict(request.args.to_dict(), closed=1)) }}" class="kanban-closed text-decoration-none" title="Show the closed RFIs">
-            <span class="fw-bold">{{ closed_count }}</span> closed
-            <i class="fas fa-eye ms-1"></i>
-          </a>
-          {% endif %}
-          {% for rfi in rfis %}
-          {% if rfi.status == col_status %}
-          {% set can_drag = rfi.status != 'New' %}
-          <div class="kanban-card card mb-1 p-1 shadow-sm" draggable="{{ 'true' if can_drag else 'false' }}"
-               data-id="{{ rfi.id }}"
-               data-update-url="{{ url_for('rfi.rfi_status_update', id=rfi.id) }}"
-               style="{{ 'cursor:grab' if can_drag else 'cursor:default' }};font-size:.75rem;">
-            <div class="fw-semibold"><a href="{{ url_for('rfi.rfi_detail', id=rfi.id) }}" class="text-decoration-none">{{ rfi.rfi_id }}</a></div>
-            <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ rfi.question }}">{{ rfi.question | truncate(30) | md_inline }}</div>
-            {% if not can_drag %}
-            <div class="mt-1">
-              <button type="button" class="btn btn-xs btn-outline-warning triage-open"
-                      data-target="rfi-triage-row-{{ rfi.id }}" title="Triage this RFI before moving it">
-                <i class="fas fa-gavel me-1"></i>Triage
-              </button>
-            </div>
-            {% endif %}
-          </div>
-          {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+  {% if priority_counts or sla_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Status', status_counts, charts.status_colors) }}</div>
+    <div>{{ charts.mix('Priority', priority_counts, charts.priority_colors, param='priority', selected=priority_filter) }}</div>
+    <div>{{ charts.mix('SLA', sla_counts, sla_colors, param='sla', selected=sla_filter) }}</div>
   </div>
-</div>
+  {% endif %}
+</section>
 
-<div class="card content-card">
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {% if show_closed %}<input type="hidden" name="closed" value="1">{% endif %}
+  {{ charts.filter_select('status', 'Status', 'fa-bars-progress', 'All statuses', statuses, status_filter) }}
+  {{ charts.filter_select('priority', 'Priority', 'fa-flag', 'All priorities', priorities, priority_filter) }}
+  {{ charts.filter_select('sla', 'SLA', 'fa-stopwatch', 'Any SLA', sla_labels, sla_filter) }}
+  {% if not status_filter and closed_count %}
+  <a href="{{ url_for('rfi.rfi_list', **dict(request.args.to_dict(), closed=None if show_closed else 1)) }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="fas {{ 'fa-eye-slash' if show_closed else 'fa-box-archive' }} me-1"></i>
+    {{ 'Hide closed RFIs' if show_closed else 'Show closed RFIs (' ~ closed_count ~ ')' }}
+  </a>
+  {% endif %}
+  <div class="shown">
+    <span>{{ rfis | length }} RFI{{ 's' if rfis|length != 1 }}{{ ' open' if hide_closed }}</span>
+    {% if status_filter or priority_filter or sla_filter %}
+    <a href="{{ url_for('rfi.rfi_list') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if rfis %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table mb-0">
       <thead>
         <tr>
+          {{ sort_th('SLA', 'sla', width='130px') }}
           {{ sort_th('ID', 'id', width='90px') }}
           {{ sort_th('Question', 'question') }}
           {{ sort_th('Requester', 'requester') }}
-          <th>Owner</th>
           <th>Priority</th>
           {{ sort_th('Status', 'status') }}
-          {{ sort_th('SLA', 'sla') }}
           <th class="text-end">Actions</th>
         </tr>
       </thead>
+      {% for lane in lanes %}
+      {% set rows = rfis | selectattr('status', 'equalto', lane) | list %}
+      {% if rows %}
       <tbody>
-        {% for rfi in rfis %}
+        <tr class="lane-head">
+          <th colspan="7">
+            <span class="lane-mark" style="background:{{ charts.status_colors.get(lane, 'var(--neutral-400)') }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} RFI{{ 's' if rows | length != 1 }}</span>
+            {% if lane_hints.get(lane) %}<span class="lane-hint">{{ lane_hints[lane] }}</span>{% endif %}
+          </th>
+        </tr>
+        {% for rfi in rows %}
         {% set sla_state, days = sla_map.get(rfi.id, ('amber', None)) %}
         {% set untriaged = rfi.status == 'New' %}
+        {% set at = statuses.index(rfi.status) if rfi.status in statuses else -1 %}
         <tr class="req-row {{ 'triage-pending-row' if untriaged }}" data-req-id="{{ rfi.id }}">
+          <td>
+            {% if sla_state == 'done' %}
+            <div class="sla-cell quiet"><b>Done</b></div>
+            {% elif sla_state == 'red' %}
+            <div class="sla-cell late" title="Overdue">
+              <b>{{ -days }}</b><span>day{{ 's' if days != -1 }} overdue</span>
+              <div class="track" aria-hidden="true"><i style="width:{{ ((-days) / kpi.most * 100) | round(1) }}%;"></i></div>
+            </div>
+            {% elif days is none %}
+            <div class="sla-cell quiet"><b>-</b><span class="text-muted">No due date</span></div>
+            {% else %}
+            <div class="sla-cell {{ 'soon' if sla_state == 'amber' }}"><b>{{ days }}</b><span>day{{ 's' if days != 1 }} left</span></div>
+            {% endif %}
+          </td>
           <td>
             <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ rfi.rfi_id }}</span>
@@ -149,16 +148,23 @@
             <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) }}" class="fw-semibold text-decoration-none">
               {{ rfi.question | truncate(80) | md_inline }}
             </a>
+            <div class="who-line">
+              <span>{{ rfi.owner_name or 'No stakeholder' }}</span>
+              <i class="fas fa-arrow-right fa-xs" aria-hidden="true"></i>
+              <span>{{ rfi.assigned_analyst or 'Nobody assigned' }}</span>
+            </div>
           </td>
-          <td class="text-muted small">
+          <td class="small">
             {{ rfi.requester_name or '-' }}
             {% if rfi.requester_team %}<div class="text-muted">{{ rfi.requester_team }}</div>{% endif %}
           </td>
-          <td class="text-muted small">{{ rfi.owner_name or '-' }}</td>
           <td>
             <span class="badge priority-badge priority-{{ rfi_priority_class.get(rfi.priority, 'should-have') }}">{{ rfi.priority }}</span>
           </td>
-          <td>
+          <td style="min-width:10rem;">
+            <div class="status-steps" aria-hidden="true">
+              {% for s in statuses %}<i class="{{ 'now' if loop.index0 == at else ('done' if loop.index0 < at) }}"></i>{% endfor %}
+            </div>
             <span class="badge status-badge status-{{ rfi_status_class.get(rfi.status, 'pending') }}">{{ rfi.status }}</span>
             {% if untriaged %}
             <div class="mt-1">
@@ -169,19 +175,11 @@
             </div>
             {% endif %}
           </td>
-          <td>
-            {% if sla_state == 'done' %}
-              <span class="badge text-bg-success">Done</span>
-            {% elif sla_state == 'red' %}
-              <span class="badge text-bg-danger" title="Overdue">{{ days }}d</span>
-            {% elif sla_state == 'amber' %}
-              <span class="badge text-bg-warning">{{ days if days is not none else '-' }}{% if days is not none %}d{% endif %}</span>
-            {% else %}
-              <span class="badge text-bg-success">{{ days }}d</span>
-            {% endif %}
-          </td>
           <td class="text-end">
             <div class="d-inline-flex flex-nowrap gap-1 justify-content-end">
+              {% if not untriaged %}
+              {{ status_menu(rfi.rfi_id, rfi.status, moves, url_for('rfi.rfi_status_update', id=rfi.id)) }}
+              {% endif %}
               <a href="{{ url_for('rfi.rfi_edit', id=rfi.id) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
                 <i class="fas fa-pen"></i>
               </a>
@@ -195,18 +193,21 @@
         </tr>
         {% if untriaged %}
         <tr id="rfi-triage-row-{{ rfi.id }}" class="triage-row d-none">
-          <td colspan="8" class="bg-body-secondary p-3">
+          <td colspan="7" class="bg-body-secondary p-3">
             {% include "rfi/_rfi_triage_form.html" %}
           </td>
         </tr>
         {% endif %}
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
+    </div>
     {% else %}
     <div class="empty-state py-5">
       <i class="fas fa-circle-question fa-2x text-muted mb-3 d-block"></i>
-      <p class="text-muted mb-3">No RFIs yet. Capture a stakeholder question to get started.</p>
+      <p class="text-muted mb-3">{{ 'No RFI matches these filters.' if status_filter or priority_filter or sla_filter else 'No RFIs yet. Capture a stakeholder question to get started.' }}</p>
       <a href="{{ url_for('rfi.rfi_new') }}" class="btn btn-primary btn-sm">
         <i class="fas fa-plus me-1"></i> New RFI
       </a>
@@ -217,32 +218,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function() {
-  var dragging = null;
-  document.querySelectorAll('.kanban-card').forEach(function(card) {
-    if (card.getAttribute('draggable') !== 'true') return;
-    card.addEventListener('dragstart', function(e) { dragging = card; card.style.opacity = '0.5'; });
-    card.addEventListener('dragend', function() { card.style.opacity = ''; dragging = null; });
-  });
-  document.querySelectorAll('.kanban-col').forEach(function(col) {
-    col.addEventListener('dragover', function(e) { e.preventDefault(); col.querySelector('.kanban-cards').classList.add('kanban-dragover'); });
-    col.addEventListener('dragleave', function() { col.querySelector('.kanban-cards').classList.remove('kanban-dragover'); });
-    col.addEventListener('drop', function(e) {
-      e.preventDefault();
-      col.querySelector('.kanban-cards').classList.remove('kanban-dragover');
-      if (!dragging) return;
-      var fd = new FormData();
-      fd.append('status', col.dataset.status);
-      var csrf = document.querySelector('meta[name="csrf-token"]');
-      fetch(dragging.dataset.updateUrl, {method: 'POST', body: fd, headers: csrf ? {'X-CSRF-Token': csrf.content} : {}})
-        .then(function(r) { return r.json(); })
-        .then(function(d) { if (d.ok) window.location.reload(); else alert('Could not update: ' + (d.error || '')); })
-        .catch(function() { alert('Status update failed.'); });
-    });
-  });
-})();
-</script>
-{% include "_kanban_hover.html" %}
 {% include "requirements/_triage_js.html" %}
+{% include "_status_move_js.html" %}
 {% endblock %}

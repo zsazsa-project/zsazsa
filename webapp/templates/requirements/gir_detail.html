@@ -1,36 +1,76 @@
 {% extends "base.html" %}
-{% from "_macros.html" import focus_mark, galaxy_multiselect %}
+{% from "_macros.html" import focus_mark, galaxy_multiselect, lifecycle %}
 
 {% block title %}{{ gir.gir_id }} | zsazsa CTI{% endblock %}
-{% block page_title %}<span class="req-id-badge me-2">{{ gir.gir_id }}</span> {{ gir.topic }}{% endblock %}
+{% block page_title %}<span class="req-id-badge me-2">{{ gir.gir_id }}</span>{% endblock %}
 
 {% block misp_object_url %}{{ gir.misp_url }}{% endblock %}
 {% block topbar_actions %}
 <a href="{{ url_for('requirements.gir_list') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
-<button class="btn btn-sm btn-outline-warning" id="notify-btn"
-        data-notify-url="{{ url_for('requirements.gir_notify', id=gir.id) }}">
-  <i class="fas fa-bell me-1"></i> Notify stakeholders
-</button>
 {% endblock %}
 
 {% block content %}
+{% set gir_statuses = ['Pending', 'Active', 'Retired'] %}
+{% set review_days = (gir.next_review - today).days if gir.next_review else none %}
+{% set shared = namespace(n=0) %}
+{% for fp in focus_points %}{% if fp.value | lower in org_focus.get(fp.category, {}) %}{% set shared.n = shared.n + 1 %}{% endif %}{% endfor %}
+<section class="record-hero rise mb-4">
+  <div class="hero-main">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <span class="hero-id"><i class="fas fa-list-check me-1"></i>{{ gir.gir_id }}</span>
+      <span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span>
+      {% for lvl in gir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
+    </div>
+    <h1 class="question">{{ gir.topic }}</h1>
+    {% if gir.description %}<p class="lead-text">{{ gir.description }}</p>{% endif %}
+    <div class="record-facts">
+      <div><span>Owner</span>
+        {% if gir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=gir.owner_stakeholder.id) }}">{{ gir.owner_stakeholder.name }}</a>
+        {% else %}{{ gir.owner_name or 'No owner yet' }}{% endif %}
+      </div>
+      {% if linked_pirs %}
+      <div class="related-links"><span>Related PIR{{ 's' if linked_pirs | length != 1 }}</span>
+        {% for p in linked_pirs %}<a href="{{ url_for('requirements.pir_detail', id=p.id) }}">{{ p.pir_id }}</a>{{ ', ' if not loop.last }}{% endfor %}
+      </div>
+      {% endif %}
+      {% if gir.collection_sources %}<div><span>Collection</span>{{ gir.collection_sources | join(', ') }}</div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('requirements.gir_edit', id=gir.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" id="notify-btn"
+              data-notify-url="{{ url_for('requirements.gir_notify', id=gir.id) }}">
+        <i class="fas fa-bell me-1"></i> Notify stakeholders
+      </button>
+      <a href="{{ url_for('requirements.gir_scope_preview', id=gir.id) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-eye me-1"></i> Preview matches</a>
+      <form method="post" action="{{ url_for('requirements.gir_delete', id=gir.id) }}"
+            data-submit-confirm="Delete {{ gir.gir_id }}?" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
+      </form>
+    </div>
+  </div>
+  <div class="hero-block{{ ' late' if review_days is not none and review_days < 0 and gir.status == 'Active' }}">
+    <span>{{ gir.review_cycle or 'No' }} review</span>
+    {% if review_days is none %}
+    <b>-</b><span>no review date set</span>
+    {% elif review_days < 0 %}
+    <b>{{ -review_days }}</b><span>day{{ 's' if review_days != -1 }} overdue</span>
+    {% else %}
+    <b>{{ review_days }}</b><span>day{{ 's' if review_days != 1 }} to go</span>
+    {% endif %}
+    {% if gir.next_review %}<span>due {{ gir.next_review.strftime('%d-%m-%Y') }}</span>{% endif %}
+  </div>
+  <div class="record-tiles" style="flex-basis:15rem;">
+    <div class="record-tile"><b>{{ focus_points | length }}</b><span>scope item{{ 's' if focus_points | length != 1 }}</span></div>
+    <div class="record-tile accent"><b>{{ shared.n }}</b><span>of them focus points</span></div>
+  </div>
+</section>
+
 <div class="row g-4">
 
   <div class="col-lg-8">
-
-    <!-- Description -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-list-check me-2"></i>General requirement</div>
-      <div class="card-body">
-        {% if gir.description %}
-        <p class="question-text">{{ gir.description }}</p>
-        {% else %}
-        <p class="text-muted fst-italic mb-0">No description provided.</p>
-        {% endif %}
-      </div>
-    </div>
 
     <!-- Scope -->
     <div class="card content-card fp-card mb-4">
@@ -218,12 +258,10 @@
 
     <!-- MITRE ATT&CK techniques -->
     {% if gir.mitre_attack_techniques %}
-    <div class="card content-card mb-4" style="border-color:var(--mitre-card-border);">
-      <div class="card-header" style="background:var(--tlp-red-bg);border-bottom-color:var(--mitre-card-border);">
-        <span style="color:var(--chip-mitre-fg);font-weight:600;">
-          <i class="fas fa-shield-halved me-2"></i>MITRE ATT&amp;CK techniques
-        </span>
-        <span class="badge ms-2" style="background:var(--chip-mitre-accent);font-size:.65rem;">{{ gir.mitre_attack_techniques | length }}</span>
+    <div class="card content-card attack-card mb-4">
+      <div class="card-header">
+        <i class="fas fa-shield-halved me-2"></i>MITRE ATT&amp;CK techniques
+        <span class="badge attack-count ms-2">{{ gir.mitre_attack_techniques | length }}</span>
       </div>
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2">
@@ -240,7 +278,7 @@
     {% endif %}
 
     <!-- Collection sources -->
-    <div class="card content-card">
+    <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Collection mapping</div>
       <div class="card-body">
         <p class="form-label small fw-semibold mb-2">Sources that can address this requirement</p>
@@ -268,14 +306,21 @@
 
   <div class="col-lg-4">
 
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-route me-2"></i>Lifecycle</div>
+      <div class="card-body">
+        {{ lifecycle(gir.gir_id, gir.status, gir_statuses, gir_statuses, url_for('requirements.gir_status_update', id=gir.id)) }}
+      </div>
+    </div>
+
     <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Details</div>
       <div class="card-body">
         <dl class="detail-list">
-          <dt>Status</dt>
-          <dd><span class="badge status-badge status-{{ gir.status | lower }}">{{ gir.status }}</span></dd>
           <dt>Review cycle</dt>
           <dd>{{ gir.review_cycle or '-' }}</dd>
+          <dt>Next review</dt>
+          <dd>{{ gir.next_review.strftime('%d-%m-%Y') if gir.next_review else '-' }}</dd>
           {# Set on the PIR form, so read-only here. #}
           <dt>Linked PIRs</dt>
           <dd>
@@ -293,8 +338,6 @@
           <dd>{{ gir.created_at.strftime('%d-%m-%Y') if gir.created_at else '-' }}</dd>
           <dt>Created by</dt>
           <dd>{{ gir.creator or '-' }}</dd>
-          <dt>Next review</dt>
-          <dd>{{ gir.next_review.strftime('%d-%m-%Y') if gir.next_review else '-' }}</dd>
           {% if gir.history_url %}
           <dt>History</dt>
           <dd>
@@ -305,41 +348,6 @@
           {% endif %}
         </dl>
       </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user-tie me-2"></i>Ownership</div>
-      <div class="card-body">
-        {% if gir.owner_stakeholder %}
-        <a href="{{ url_for('stakeholders.detail', id=gir.owner_stakeholder.id) }}" class="d-flex align-items-center gap-2 text-decoration-none">
-          <span class="owner-avatar">{{ gir.owner_stakeholder.name[0:1] | upper }}</span>
-          <span>
-            <div class="fw-semibold">{{ gir.owner_stakeholder.name }}</div>
-            <div class="text-muted small">{{ gir.owner_stakeholder.role or '' }}</div>
-          </span>
-        </a>
-        {% elif gir.owner_name %}
-        <div class="d-flex align-items-center gap-2">
-          <span class="owner-avatar owner-avatar-muted">{{ gir.owner_name[0:1] | upper }}</span>
-          <div class="fw-semibold">{{ gir.owner_name }}</div>
-        </div>
-        {% else %}
-        <p class="text-muted mb-0 small">No owner assigned.</p>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="d-flex gap-2 mb-2">
-      <a href="{{ url_for('requirements.gir_edit', id=gir.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
-      <form method="post" action="{{ url_for('requirements.gir_delete', id=gir.id) }}"
-            data-submit-confirm="Delete {{ gir.gir_id }}?" class="flex-fill">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete GIR
-        </button>
-      </form>
     </div>
 
   </div>
@@ -371,33 +379,7 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-.attack-technique-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .25rem .55rem;
-  background: var(--tlp-red-bg);
-  border: 1.5px solid var(--chip-mitre-border);
-  border-radius: .4rem;
-  font-size: .78rem;
-  line-height: 1.3;
-  max-width: 22rem;
-}
-.attack-tid {
-  font-family: monospace;
-  font-weight: 700;
-  color: var(--chip-mitre-accent);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.attack-tname {
-  color: var(--mitre-technique-name-fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>
+{% include "_status_move_js.html" %}
 <script>
 (function() {
   var btn = document.getElementById('notify-btn');

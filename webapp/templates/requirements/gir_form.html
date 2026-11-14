@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect, tag_input, product_icon, toggle_all_button, collection_source_checklist %}
+{% from "_macros.html" import galaxy_multiselect, tag_input, product_icons, toggle_all_button, collection_source_checklist %}
 
 {% set is_edit = gir is not none %}
 {% set prefill = prefill or {} %}
@@ -16,30 +16,30 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" class="row g-4" data-unsaved-warning>
+<form method="post" data-unsaved-warning>
 
+<section class="record-hero rise mb-4">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-list-check"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">
+      A GIR is a standing monitoring need rather than a one-time question: an area to watch
+      continuously, reviewed on a fixed cycle.
+    </p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      <a href="#step-topic">1 Topic</a>
+      <a href="#step-justification">2 Justification</a>
+      <a href="#step-scope">3 Scope</a>
+      <a href="#step-collection">4 Collection and deliverable</a>
+      <a href="#step-distribution">5 Distribution</a>
+    </nav>
+  </div>
+</section>
+
+<div class="row g-4">
   <div class="col-lg-8">
 
-    {% if not is_edit %}
-    <div class="card content-card mb-4 border-info">
-      <div class="card-header bg-info bg-opacity-10 text-info-emphasis">
-        <i class="fas fa-lightbulb me-2"></i>Writing a strong GIR
-      </div>
-      <div class="card-body small">
-        <p class="mb-2">A General Intelligence Requirement captures an ongoing monitoring need rather than a one-time question. It should:</p>
-        <ul class="mb-0">
-          <li><strong>Define a monitoring area.</strong> Describe the threat landscape, sector, or actor group to track continuously.</li>
-          <li><strong>Anchor it to stakeholders.</strong> Identify who benefits from this standing collection.</li>
-          <li><strong>Set a review cadence.</strong> GIRs should be revisited periodically to confirm they remain relevant.</li>
-          <li><strong>Plan the deliverable.</strong> Format and distribution should match the stakeholders' workflow.</li>
-          <li><strong>Bound the scope.</strong> Geography, sectors, threat actors, threat types and exclusions keep collection focused.</li>
-        </ul>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-list-check me-2"></i>General requirement</div>
+    <div class="card content-card form-step mb-4" id="step-topic" data-step='input[name="topic"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>General requirement</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Topic</label>
@@ -56,58 +56,57 @@
     </div>
 
     <!-- Priority justification -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-ranking-star me-2"></i>Priority justification</div>
+    <div class="card content-card form-step mb-4" id="step-justification"
+         data-step='textarea[name="priority_justification"], input[name="deadline"], input[name="sub_question_text"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Priority justification</div>
       <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Justification</label>
-          <textarea name="priority_justification" class="form-control" rows="2"
-            placeholder="Why this priority level? What is the business case or urgency driver?">{{ gir.priority_justification if is_edit else '' }}</textarea>
+        <div class="row g-3 mb-3">
+          <div class="col-md-8">
+            <label class="form-label">Justification</label>
+            <textarea name="priority_justification" class="form-control" rows="2"
+              placeholder="Why this priority level? What is the business case or urgency driver?">{{ gir.priority_justification if is_edit else '' }}</textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Deadline</label>
+            <input type="text" name="deadline" class="form-control"
+              value="{{ gir.deadline if is_edit else '' }}" placeholder="When must initial coverage begin?">
+          </div>
         </div>
         <div>
-          <label class="form-label">Deadline</label>
-          <input type="text" name="deadline" class="form-control"
-            value="{{ gir.deadline if is_edit else '' }}" placeholder="When must initial coverage begin?">
-        </div>
-      </div>
-    </div>
-
-    <!-- Decomposition -->
-    <div class="card content-card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-sitemap me-2"></i>Decomposition (sub-questions)</span>
-        <button type="button" class="btn btn-xs btn-outline-secondary" id="gir-add-sub-question">
-          <i class="fas fa-plus me-1"></i> Add
-        </button>
-      </div>
-      <div class="card-body">
-        <p class="form-text mt-0 mb-3">Break down the GIR into specific, answerable sub-questions.</p>
-        <div id="gir-sub-questions-list">
-          {% set sub_qs = (gir.sub_questions if is_edit else []) or [] %}
-          {% for sq in sub_qs %}
-          <div class="sub-question-row row g-2 mb-2">
-            <div class="col-md-6"><input type="text" name="sub_question_text" class="form-control form-control-sm" value="{{ sq.text }}" placeholder="Sub-question…"></div>
-            <div class="col-md-3"><input type="text" name="sub_question_assigned" class="form-control form-control-sm" value="{{ sq.assigned_to }}" placeholder="Assigned to"></div>
-            <div class="col-md-2"><input type="date" name="sub_question_due" class="form-control form-control-sm" value="{{ sq.due_date }}"></div>
-            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button></div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="form-label mb-0">Sub-questions <span class="small text-muted fw-normal">&middot; break the GIR down into specific, answerable parts</span></span>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="gir-add-sub-question">
+              <i class="fas fa-plus me-1"></i> Add
+            </button>
           </div>
-          {% endfor %}
-        </div>
-        <template id="gir-sub-question-template">
-          <div class="sub-question-row row g-2 mb-2">
-            <div class="col-md-6"><input type="text" name="sub_question_text" class="form-control form-control-sm" placeholder="Sub-question…"></div>
-            <div class="col-md-3"><input type="text" name="sub_question_assigned" class="form-control form-control-sm" placeholder="Assigned to"></div>
-            <div class="col-md-2"><input type="date" name="sub_question_due" class="form-control form-control-sm"></div>
-            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button></div>
+          <div id="gir-sub-questions-list">
+            {% set sub_qs = (gir.sub_questions if is_edit else []) or [] %}
+            {% for sq in sub_qs %}
+            <div class="sub-question-row row g-2 mb-2">
+              <div class="col-md-6"><input type="text" name="sub_question_text" class="form-control form-control-sm" value="{{ sq.text }}" placeholder="Sub-question…"></div>
+              <div class="col-md-3"><input type="text" name="sub_question_assigned" class="form-control form-control-sm" value="{{ sq.assigned_to }}" placeholder="Assigned to"></div>
+              <div class="col-md-2"><input type="date" name="sub_question_due" class="form-control form-control-sm" value="{{ sq.due_date }}"></div>
+              <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button></div>
+            </div>
+            {% endfor %}
           </div>
-        </template>
+          <template id="gir-sub-question-template">
+            <div class="sub-question-row row g-2 mb-2">
+              <div class="col-md-6"><input type="text" name="sub_question_text" class="form-control form-control-sm" placeholder="Sub-question…"></div>
+              <div class="col-md-3"><input type="text" name="sub_question_assigned" class="form-control form-control-sm" placeholder="Assigned to"></div>
+              <div class="col-md-2"><input type="date" name="sub_question_due" class="form-control form-control-sm"></div>
+              <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button></div>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
     <!-- Scope -->
-    <div class="card content-card mb-4">
+    <div class="card content-card form-step mb-4" id="step-scope"
+         data-step='[name="geographic_scope"], [name="sectors"], [name="threat_actors"], [name="mitre_attack_techniques"], [name="threat_types"], [name="technology"], [name="vendor"], [name="incident"], [name="campaign"], [name="out_of_scope"]'>
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-map me-2"></i>Scope</span>
+        <span class="d-flex align-items-center"><span class="step-num">3</span>Scope</span>
         <button type="button" class="btn btn-xs btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#scope-overlap"
                 aria-expanded="false" aria-controls="scope-overlap">
           <i class="fas fa-bullseye me-1"></i> Overlap with focus points
@@ -118,7 +117,7 @@
       <div class="card-body">
         <div class="row g-3">
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Geographic scope
               <span class="text-muted fw-normal small" title="Combined from the MISP Country galaxy (84668357…) and Target Information galaxy (709ed29c…). Both are matched at analysis time because event creators sometimes pick one over the other.">
                 <i class="fas fa-circle-info"></i> Country &amp; Target Information galaxies
@@ -129,7 +128,7 @@
                 items=galaxy_countries, focus=org_focus['Geography']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Sectors
               <span class="text-muted fw-normal small">(from MISP Sector galaxy)</span>
             </label>
@@ -138,7 +137,7 @@
                 items=galaxy_sectors, focus=org_focus['Sector']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Threat actors
               <span class="text-muted fw-normal small">(from MISP Threat Actor galaxy)</span>
             </label>
@@ -147,7 +146,7 @@
                 items=galaxy_threat_actors, focus=org_focus['Threat Actor']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">MITRE ATT&amp;CK techniques
               <span class="text-muted fw-normal small">(from MITRE ATT&amp;CK galaxy)</span>
             </label>
@@ -225,85 +224,54 @@
       </div>
     </div>
 
-    <!-- Collection mapping -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Collection mapping</div>
+    <!-- Collection and deliverable -->
+    <div class="card content-card form-step mb-4" id="step-collection"
+         data-step='input[name="collection_sources"], input[name="output_format"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Collection and deliverable</div>
       <div class="card-body">
         <label class="form-label">Sources that feed this requirement</label>
         {{ collection_source_checklist(collection_source_groups, gir.collection_sources if is_edit else []) }}
-        <div class="form-text mt-2">
+        <div class="form-text mt-2 mb-4">
           <i class="fas fa-circle-info fa-xs me-1"></i>Informational only. Event matching and filtering runs across all configured sources regardless of this mapping.
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="form-label mb-0">Output product format</span>
+          {{ toggle_all_button('#gir-output-format-list input[name="output_format"]',
+                               'Select all products', 'Clear all products') }}
+        </div>
+        <div class="product-tiles" id="gir-output-format-list">
+          {% for f in output_formats | sort(case_sensitive=False) %}
+          <label class="product-tile" for="gir_ofmt_{{ loop.index }}">
+            <span class="tile-icon" aria-hidden="true"><i class="fas fa-{{ product_icons.get(f, 'cube') }} fa-fw"></i></span>
+            {{ f }}
+            <input class="form-check-input" type="checkbox" name="output_format" value="{{ f }}" id="gir_ofmt_{{ loop.index }}"
+              {{ 'checked' if is_edit and f in (gir.output_format or []) }}>
+          </label>
+          {% endfor %}
         </div>
       </div>
     </div>
 
-    <!-- Deliverable -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-file-lines me-2"></i>Deliverable</div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-sm-6">
-            <div class="d-flex align-items-center gap-2 mb-2">
-              <label class="form-label mb-0">Output product format</label>
-              {{ toggle_all_button('#gir-output-format-list input[name="output_format"]',
-                                   'Select all products', 'Clear all products') }}
-            </div>
-            <div class="source-checklist" id="gir-output-format-list">
-              {% for f in output_formats | sort(case_sensitive=False) %}
-              <div class="form-check source-check">
-                <input class="form-check-input" type="checkbox" name="output_format" value="{{ f }}" id="gir_ofmt_{{ loop.index }}"
-                  {{ 'checked' if is_edit and f in (gir.output_format or []) }}>
-                <label class="form-check-label" for="gir_ofmt_{{ loop.index }}">{{ product_icon(f) }}{{ f }}</label>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Distribution</label>
-            <div class="form-text mb-2">Tick the stakeholders this GIR is delivered to.</div>
-            {% if stakeholders %}
-            <div class="dist-picker" id="gir-distribution-picker">
-              {% for s in stakeholders %}
-              <input class="btn-check dist-pick-input" type="checkbox" name="distribution" value="{{ s.uuid }}" id="gir_dist_{{ loop.index }}"
-                {{ 'checked' if s.uuid in sel_distribution or s.name in sel_distribution }}>
-              <label class="dist-pick-card" for="gir_dist_{{ loop.index }}"
-                >
-                <div class="dist-pick-avatar">{{ (s.name or '?')[0] | upper }}</div>
-                <div class="dist-pick-body">
-                  <div class="dist-pick-name">{{ s.name }}</div>
-                  {% set org = org_map.get(s.organization, s.organization) %}
-                  {% if s.role or org %}
-                  <div class="dist-pick-role">{{ s.role }}{% if s.role and org %} &middot; {% endif %}{{ org }}</div>
-                  {% endif %}
-                </div>
-                <div class="dist-pick-tick"><i class="fas fa-check"></i></div>
-              </label>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="text-muted small mb-0">No stakeholders registered yet. <a href="{{ url_for('stakeholders.new') }}">Add one</a> to set up distribution.</p>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Distribution -->
+    {% set record_kind, dist_step, dist_prefix = "GIR", 5, "gir_dist_" %}
+    {% include "requirements/_distribution_picker.html" %}
+
   </div>
 
   <div class="col-lg-4">
+    <div class="d-flex flex-column gap-4">
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Intelligence level</label>
           {% set current_intel = (gir.intel_level if is_edit else []) or [] %}
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <div class="choice-group">
             {% for lvl in intel_levels %}
-            <div class="form-check form-check-inline mb-0">
-              <input class="form-check-input intel-level" type="checkbox" name="intel_level" value="{{ lvl }}"
-                     id="gir_il_{{ loop.index }}" {{ 'checked' if lvl in current_intel }}>
-              <label class="form-check-label" for="gir_il_{{ loop.index }}">{{ lvl }}</label>
-            </div>
+            <input class="btn-check intel-level" type="checkbox" name="intel_level" value="{{ lvl }}"
+                   id="gir_il_{{ loop.index }}" {{ 'checked' if lvl in current_intel }}>
+            <label class="choice" for="gir_il_{{ loop.index }}"><span class="level-badge level-{{ lvl | slug }}">{{ lvl }}</span></label>
             {% endfor %}
           </div>
           <div id="intel-level-warn" class="text-danger small mt-1" style="display:none;">
@@ -312,42 +280,48 @@
           <div class="form-text small">Strategic (long-term, decision-support), Operational (campaigns, TTPs), Tactical (IOCs, signatures).</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Status</label>
+          <span class="form-label d-block">Status</span>
           {% if is_edit %}
-          <select name="status" class="form-select">
-            {% for s in statuses %}
-            <option value="{{ s }}" {{ 'selected' if gir.status == s }}>{{ s }}</option>
+          {# A stored status the list no longer has falls back to the first one, as the drop-down did. #}
+          {% set current_status = gir.status if gir.status in statuses else statuses[0] %}
+          <div class="choice-group" role="radiogroup" aria-label="Status">
+            {% for st in statuses %}
+            <input class="btn-check" type="radio" name="status" value="{{ st }}" id="gir_status_{{ loop.index }}"
+                   {{ 'checked' if st == current_status }}>
+            <label class="choice" for="gir_status_{{ loop.index }}"><span class="badge status-badge status-{{ st | slug }}">{{ st }}</span></label>
             {% endfor %}
-          </select>
-          {% else %}
-          <div class="form-control-plaintext ps-0">
-            <span class="badge status-badge status-pending">Pending</span>
           </div>
+          {% else %}
+          <span class="badge status-badge status-pending">Pending</span>
           <div class="form-text">New GIRs start as Pending. Status changes after review.</div>
           {% endif %}
         </div>
         <div class="mb-3">
-          <label class="form-label">Review cycle</label>
-          <select name="review_cycle" class="form-select">
+          <span class="form-label d-block">Review cycle</span>
+          {% set current_cycle = gir.review_cycle if is_edit else 'Quarterly' %}
+          {% if current_cycle not in review_cycles %}{% set current_cycle = review_cycles[0] %}{% endif %}
+          <div class="choice-group" role="radiogroup" aria-label="Review cycle">
             {% for r in review_cycles %}
-            <option value="{{ r }}" {{ 'selected' if is_edit and gir.review_cycle == r else ('selected' if not is_edit and r == 'Quarterly') }}>{{ r }}</option>
+            <input class="btn-check" type="radio" name="review_cycle" value="{{ r }}" id="gir_cycle_{{ loop.index }}"
+                   {{ 'checked' if r == current_cycle }}>
+            <label class="choice" for="gir_cycle_{{ loop.index }}">{{ r }}</label>
             {% endfor %}
-          </select>
+          </div>
         </div>
         <div>
-          <label class="form-label">Next review date</label>
-          <input type="date" name="next_review" class="form-control"
+          <label class="form-label" for="gir-next-review">Next review date</label>
+          <input type="date" name="next_review" id="gir-next-review" class="form-control"
             value="{{ gir.next_review.isoformat() if is_edit and gir.next_review else '' }}">
         </div>
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-user-tie me-2"></i>Ownership</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label">Owner (registered stakeholder)</label>
-          <select name="owner_id" class="form-select">
+          <label class="form-label" for="gir-owner">Owner (registered stakeholder)</label>
+          <select name="owner_id" id="gir-owner" class="form-select">
             <option value="">- Not registered -</option>
             {% for s in stakeholders %}
             <option value="{{ s.uuid }}" {{ 'selected' if sel_owner == s.uuid }}>
@@ -356,28 +330,47 @@
             {% endfor %}
           </select>
         </div>
-        <div>
-          <label class="form-label">Owner name <span class="text-muted fw-normal">(if not registered)</span></label>
-          <input type="text" name="owner_name" class="form-control"
+        <div class="mb-3">
+          <label class="form-label" for="gir-owner-name">Owner name <span class="text-muted fw-normal">(if not registered)</span></label>
+          <input type="text" name="owner_name" id="gir-owner-name" class="form-control"
             value="{{ gir.owner_name if is_edit and not gir.owner_uuid else '' }}" placeholder="Name and role">
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create GIR' }}
+          </button>
+          <a href="{{ url_for('requirements.gir_detail', id=gir.id) if is_edit else url_for('requirements.gir_list') }}" class="btn btn-outline-secondary">
+            Cancel
+          </a>
         </div>
       </div>
     </div>
 
-    <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary flex-grow-1">
-        <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create GIR' }}
-      </button>
-      <a href="{{ url_for('requirements.gir_detail', id=gir.id) if is_edit else url_for('requirements.gir_list') }}" class="btn btn-outline-secondary">
-        Cancel
-      </a>
+    {% if not is_edit %}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-lightbulb me-2"></i>Writing a strong GIR</div>
+      <div class="card-body">
+        <p class="small mb-2">A General Intelligence Requirement captures an ongoing monitoring need rather than a one-time question. It should:</p>
+        <ol class="form-tips">
+          <li><strong>Define a monitoring area.</strong> Describe the threat landscape, sector, or actor group to track continuously.</li>
+          <li><strong>Anchor it to stakeholders.</strong> Identify who benefits from this standing collection.</li>
+          <li><strong>Set a review cadence.</strong> GIRs should be revisited periodically to confirm they remain relevant.</li>
+          <li><strong>Plan the deliverable.</strong> Format and distribution should match the stakeholders' workflow.</li>
+          <li><strong>Bound the scope.</strong> Geography, sectors, threat actors, threat types and exclusions keep collection focused.</li>
+        </ol>
+      </div>
+    </div>
+    {% endif %}
+
     </div>
   </div>
+</div>
 
 </form>
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
 <script>
 // The intelligence level is required: block the submit and say so when none is
 // ticked. Added now rather than on DOMContentLoaded, so that it runs before the

@@ -4,8 +4,9 @@ Each list counts what it shows beside its filters, and each field it filters on
 by what the other filters let through, so that a bar still offers every choice;
 a click on one filters the list and sets its dropdown. The RFI list leaves the
 closed ones out until asked for them, or for their status, the PIR list the
-rejected ones and the GIR list the retired ones, and the status board says how
-many there are. An alert or advisory the analyser drafted says why under its
+rejected ones and the GIR list the retired ones, and the banner says how many
+it leaves out. The rows are grouped by status, the left out ones in a group of
+their own when they are shown. An alert or advisory the analyser drafted says why under its
 title.
 
 Records come from the store's own builders, so they have every field the
@@ -81,6 +82,11 @@ class _Page(unittest.TestCase):
     def stats(self, page):
         return page.select_one(".list-stats").get_text(" ", strip=True)
 
+    def lanes(self, page):
+        """The status groups of a list and how many rows each says it has."""
+        return [(th.select_one(".lane-name").get_text(), th.select_one(".lane-count").get_text())
+                for th in page.select("tr.lane-head th")]
+
 
 class Lists(_Page):
 
@@ -148,15 +154,14 @@ class Lists(_Page):
         self.assertEqual([a.get_text() for a in page.select("tbody .req-id-badge")], ["PIR-001"])
         show = page.select_one(".list-filters a.btn")
         self.assertEqual((show.get_text(" ", strip=True), show["href"]), ("Show rejected PIRs (2)", "/pirs?rejected=1"))
-        rejected = page.select(".kanban-col")[-1]
-        self.assertEqual(rejected.select_one(".badge").get_text(strip=True), "2")
-        self.assertEqual(rejected.select_one("a.kanban-closed")["href"], "/pirs?rejected=1")
-        self.assertEqual(rejected.select(".kanban-card"), [])
+        self.assertIn("1 PIR, 2 rejected not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertEqual(self.lanes(page), [("Active", "1 PIR")])
 
     def test_the_rejected_pirs_are_shown_when_asked_for(self):
         page = self.pirs("/pirs?rejected=1")
         self.assertEqual(len(page.select("tbody .req-id-badge")), 3)
-        self.assertEqual(len(page.select(".kanban-col")[-1].select(".kanban-card")), 2)
+        self.assertEqual(self.lanes(page), [("Active", "1 PIR"), ("Rejected", "2 PIRs")])
+        self.assertNotIn("not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
         self.assertEqual(page.select_one('.list-filters input[name="rejected"]')["value"], "1")
         self.assertIn("Hide rejected PIRs", page.select_one(".list-filters a.btn").get_text(" ", strip=True))
 
@@ -170,17 +175,13 @@ class Lists(_Page):
         self.assertEqual([a.get_text() for a in page.select("tbody .req-id-badge")], ["GIR-001"])
         show = page.select_one(".list-filters a.btn")
         self.assertEqual((show.get_text(" ", strip=True), show["href"]), ("Show retired GIRs (1)", "/girs?retired=1"))
-        retired = page.select_one('.kanban-col[data-status="Retired"]')
-        self.assertEqual(retired.select_one(".badge").get_text(strip=True), "1")
-        self.assertEqual(retired.select_one("a.kanban-closed")["href"], "/girs?retired=1")
-        self.assertEqual(retired.select(".kanban-card"), [])
+        self.assertIn("1 GIR, 1 retired not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertEqual(self.lanes(page), [("Active", "1 GIR")])
 
     def test_the_retired_girs_are_shown_when_asked_for(self):
         page = self.girs("/girs?retired=1")
         self.assertEqual(len(page.select("tbody .req-id-badge")), 2)
-        retired = page.select_one('.kanban-col[data-status="Retired"]')
-        self.assertEqual(len(retired.select(".kanban-card")), 1)
-        self.assertIsNone(retired.select_one("a.kanban-closed"))
+        self.assertEqual(self.lanes(page), [("Active", "1 GIR"), ("Retired", "1 GIR")])
         self.assertIn("Hide retired GIRs", page.select_one(".list-filters a.btn").get_text(" ", strip=True))
 
     def rfis(self, path):
@@ -194,19 +195,16 @@ class Lists(_Page):
         self.assertIn("1 RFI open", page.select_one(".list-filters").get_text(" ", strip=True))
         show = page.select_one(".list-filters a.btn")
         self.assertEqual((show.get_text(" ", strip=True), show["href"]), ("Show closed RFIs (2)", "/rfis/?closed=1"))
-        closed = page.select_one('.kanban-col[data-status="Closed"]')
-        self.assertEqual(closed.select_one(".badge").get_text(strip=True), "2")
-        self.assertEqual(closed.select_one("a.kanban-closed")["href"], "/rfis/?closed=1")
-        self.assertEqual(closed.select(".kanban-card"), [])
+        self.assertIn("1 RFI open, 2 closed not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
         self.assertIn("SLA No due date 1", self.stats(page))
 
     def test_they_are_shown_when_asked_for_or_filtered_on(self):
         for path in ("/rfis/?closed=1", "/rfis/?status=Closed"):
             with self.subTest(path):
                 page = self.rfis(path)
-                closed = page.select_one('.kanban-col[data-status="Closed"]')
-                self.assertEqual(len(closed.select(".kanban-card")), 2)
-                self.assertIsNone(closed.select_one("a.kanban-closed"))
+                shown = [a.get_text() for a in page.select("tbody .req-id-badge")]
+                self.assertEqual([i for i in shown if i != "RFI-001"], ["RFI-002", "RFI-003"])
+                self.assertNotIn("not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
         page = self.rfis("/rfis/?closed=1")
         self.assertEqual(page.select_one('.list-filters input[name="closed"]')["value"], "1")
         self.assertIn("Hide closed RFIs", page.select_one(".list-filters a.btn").get_text(" ", strip=True))

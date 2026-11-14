@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect, tag_input, product_icon, toggle_all_button, collection_source_checklist, triage_checklist_card %}
+{% from "_macros.html" import galaxy_multiselect, tag_input, product_icons, toggle_all_button, collection_source_checklist, triage_checklist_card %}
 
 {% set is_edit = pir is not none %}
 {% set prefill = prefill or {} %}
@@ -16,31 +16,30 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" class="row g-4" data-unsaved-warning>
+<form method="post" data-unsaved-warning>
 
+<section class="record-hero rise mb-4">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-star"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">
+      A PIR frames a question a decision depends on. It starts as Pending and becomes active through
+      triage; its scope tells the analyser what to look for.
+    </p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      <a href="#step-question">1 Question</a>
+      <a href="#step-decision">2 Decision</a>
+      <a href="#step-scope">3 Scope</a>
+      <a href="#step-collection">4 Collection and deliverable</a>
+      <a href="#step-distribution">5 Distribution</a>
+    </nav>
+  </div>
+</section>
+
+<div class="row g-4">
   <div class="col-lg-8">
 
-    {% if not is_edit %}
-    <div class="card content-card mb-4 border-info">
-      <div class="card-header bg-info bg-opacity-10 text-info-emphasis">
-        <i class="fas fa-lightbulb me-2"></i>Writing a strong PIR
-      </div>
-      <div class="card-body small">
-        <ul class="mb-0">
-          <li><strong>Tie it to a real decision.</strong> Capture the decision, the decision-maker and what happens if you don't answer.</li>
-          <li><strong>Anchor it in your organisation.</strong> Start from a stakeholder's mission, assets and adversarial operations they care about (ransomware, espionage, fraud, DoS, supply chain).</li>
-          <li><strong>Score it with appeal × impact.</strong> Use priority and time-sensitivity together to rank against other PIRs.</li>
-          <li><strong>Make it answerable, not yes/no.</strong> Specific, scoped questions yield collection that the analyser and your sources can act on.</li>
-          <li><strong>Bound the scope.</strong> Geography, sectors, threat actors, threat types, time-frame and exclusions keep it operational.</li>
-          <li><strong>Plan the deliverable.</strong> Format and distribution should match the decision-maker's workflow.</li>
-          <li><strong>Review periodically.</strong> Set a next-review date; PIRs should evolve as the threat landscape and the business change.</li>
-        </ul>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-question-circle me-2"></i>Intelligence question</div>
+    <div class="card content-card form-step mb-4" id="step-question" data-step='textarea[name="question"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Intelligence question</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Question</label>
@@ -55,17 +54,17 @@
         </div>
         {% if girs %}
         <div class="mt-3">
-          <label class="form-label">Related GIRs</label>
+          <span class="form-label d-block">Related GIRs</span>
           {% set linked_girs = pir.linked_gir_uuids if is_edit else [] %}
-          {% for g in girs %}
-          <div class="form-check mb-0">
-            <input class="form-check-input" type="checkbox" name="linked_gir_uuids" value="{{ g.uuid }}"
+          <div class="choice-group">
+            {% for g in girs %}
+            <input class="btn-check" type="checkbox" name="linked_gir_uuids" value="{{ g.uuid }}"
                    id="gir_{{ loop.index }}" {{ 'checked' if g.uuid in linked_girs }}>
-            <label class="form-check-label" for="gir_{{ loop.index }}">
-              <span class="req-id-badge me-1">{{ g.gir_id }}</span>{{ g.topic }}
+            <label class="choice chip text-start" for="gir_{{ loop.index }}" title="{{ g.topic }}">
+              <span class="req-id-badge">{{ g.gir_id }}</span>{{ g.topic | truncate(70) }}
             </label>
+            {% endfor %}
           </div>
-          {% endfor %}
           <div class="form-text">Optional. A linked GIR lists this PIR on its own page.</div>
         </div>
         {% endif %}
@@ -73,8 +72,12 @@
     </div>
 
     <!-- Decision support -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Decision support</div>
+    <div class="card content-card form-step mb-4" id="step-decision"
+         data-step='input[name="decision_supported"], input[name="decision_maker"], input[name="consequence"], input[name="deadline"], textarea[name="priority_justification"], input[name="sub_question_text"]'>
+      <div class="card-header d-flex align-items-center">
+        <span class="step-num">2</span>Decision support
+        <span class="ms-auto small fw-normal text-muted">the decision chain on the PIR's page</span>
+      </div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">What decision does this support?</label>
@@ -82,37 +85,37 @@
             value="{{ pir.decision_supported if is_edit else '' }}"
             placeholder="Whether to prioritise patching of VPN appliances…">
         </div>
-        <div class="mb-3">
-          <label class="form-label d-flex justify-content-between align-items-center">
-            Decision maker(s)
-            <button type="button" class="btn btn-xs btn-outline-secondary" id="add-decision-maker">
-              <i class="fas fa-plus me-1"></i> Add
-            </button>
-          </label>
-          <div id="decision-makers-list">
-            {% set dms = (pir.decision_maker if is_edit else []) or [] %}
-            {% for dm in dms %}
-            <div class="decision-maker-row d-flex gap-2 mb-2">
-              <input type="text" name="decision_maker" class="form-control" value="{{ dm }}" placeholder="Name and role">
-              <button type="button" class="btn btn-outline-danger remove-decision-maker" title="Remove"><i class="fas fa-trash"></i></button>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="form-label d-flex justify-content-between align-items-center">
+              Decision maker(s)
+              <button type="button" class="btn btn-xs btn-outline-secondary" id="add-decision-maker">
+                <i class="fas fa-plus me-1"></i> Add
+              </button>
             </div>
-            {% endfor %}
+            <div id="decision-makers-list">
+              {% set dms = (pir.decision_maker if is_edit else []) or [] %}
+              {% for dm in dms %}
+              <div class="decision-maker-row d-flex gap-2 mb-2">
+                <input type="text" name="decision_maker" class="form-control" value="{{ dm }}" placeholder="Name and role">
+                <button type="button" class="btn btn-outline-danger remove-decision-maker" title="Remove"><i class="fas fa-trash"></i></button>
+              </div>
+              {% endfor %}
+            </div>
+            <template id="decision-maker-template">
+              <div class="decision-maker-row d-flex gap-2 mb-2">
+                <input type="text" name="decision_maker" class="form-control" placeholder="Name and role">
+                <button type="button" class="btn btn-outline-danger remove-decision-maker" title="Remove"><i class="fas fa-trash"></i></button>
+              </div>
+            </template>
           </div>
-          <template id="decision-maker-template">
-            <div class="decision-maker-row d-flex gap-2 mb-2">
-              <input type="text" name="decision_maker" class="form-control" placeholder="Name and role">
-              <button type="button" class="btn btn-outline-danger remove-decision-maker" title="Remove"><i class="fas fa-trash"></i></button>
-            </div>
-          </template>
-        </div>
-        <div class="row g-3">
-          <div class="col-sm-6">
-            <label class="form-label d-flex justify-content-between align-items-center">
+          <div class="col-md-6">
+            <div class="form-label d-flex justify-content-between align-items-center">
               Consequence of not answering
               <button type="button" class="btn btn-xs btn-outline-secondary" id="add-consequence">
-                <i class="fas fa-plus me-1"></i>Add
+                <i class="fas fa-plus me-1"></i> Add
               </button>
-            </label>
+            </div>
             <div id="consequences-list">
               {% set consequences = (pir.consequence if is_edit else []) or [] %}
               {% for c in consequences %}
@@ -129,80 +132,68 @@
               </div>
             </template>
           </div>
-          <div class="col-sm-6">
+          <div class="col-md-6">
             <label class="form-label">Deadline for decision</label>
             <input type="text" name="deadline" class="form-control"
               value="{{ pir.deadline if is_edit else '' }}" placeholder="When must the decision be made?">
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Priority justification -->
-    <div class="card content-card mb-4">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <span><i class="fas fa-ranking-star me-2"></i>Priority justification</span>
-        <span id="moscow-badge" class="badge"></span>
-      </div>
-      <div class="card-body">
-        <label class="form-label">Justification</label>
-        <textarea name="priority_justification" class="form-control" rows="2"
-          placeholder="Why this priority level? What is the business case or urgency driver?">{{ pir.priority_justification if is_edit else '' }}</textarea>
-      </div>
-    </div>
-
-    <!-- Decomposition -->
-    <div class="card content-card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-sitemap me-2"></i>Decomposition (sub-questions)</span>
-        <button type="button" class="btn btn-xs btn-outline-secondary" id="add-sub-question">
-          <i class="fas fa-plus me-1"></i> Add
-        </button>
-      </div>
-      <div class="card-body">
-        <p class="form-text mt-0 mb-3">Break down the PIR into specific, answerable sub-questions.</p>
-        <div id="sub-questions-list">
-          {% set sub_qs = (pir.sub_questions if is_edit else []) or [] %}
-          {% for sq in sub_qs %}
-          <div class="sub-question-row row g-2 mb-2">
-            <div class="col-md-6">
-              <input type="text" name="sub_question_text" class="form-control form-control-sm" value="{{ sq.text }}" placeholder="Sub-question…">
-            </div>
-            <div class="col-md-3">
-              <input type="text" name="sub_question_assigned" class="form-control form-control-sm" value="{{ sq.assigned_to }}" placeholder="Assigned to">
-            </div>
-            <div class="col-md-2">
-              <input type="date" name="sub_question_due" class="form-control form-control-sm" value="{{ sq.due_date }}">
-            </div>
-            <div class="col-md-1">
-              <button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button>
-            </div>
-          </div>
-          {% endfor %}
+        <div class="mb-3">
+          <label class="form-label">Priority justification</label>
+          <textarea name="priority_justification" class="form-control" rows="2"
+            placeholder="Why this priority level? What is the business case or urgency driver?">{{ pir.priority_justification if is_edit else '' }}</textarea>
         </div>
-        <template id="sub-question-template">
-          <div class="sub-question-row row g-2 mb-2">
-            <div class="col-md-6">
-              <input type="text" name="sub_question_text" class="form-control form-control-sm" placeholder="Sub-question…">
-            </div>
-            <div class="col-md-3">
-              <input type="text" name="sub_question_assigned" class="form-control form-control-sm" placeholder="Assigned to">
-            </div>
-            <div class="col-md-2">
-              <input type="date" name="sub_question_due" class="form-control form-control-sm">
-            </div>
-            <div class="col-md-1">
-              <button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button>
-            </div>
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="form-label mb-0">Sub-questions <span class="small text-muted fw-normal">&middot; break the PIR down into specific, answerable parts</span></span>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="add-sub-question">
+              <i class="fas fa-plus me-1"></i> Add
+            </button>
           </div>
-        </template>
+          <div id="sub-questions-list">
+            {% set sub_qs = (pir.sub_questions if is_edit else []) or [] %}
+            {% for sq in sub_qs %}
+            <div class="sub-question-row row g-2 mb-2">
+              <div class="col-md-6">
+                <input type="text" name="sub_question_text" class="form-control form-control-sm" value="{{ sq.text }}" placeholder="Sub-question…">
+              </div>
+              <div class="col-md-3">
+                <input type="text" name="sub_question_assigned" class="form-control form-control-sm" value="{{ sq.assigned_to }}" placeholder="Assigned to">
+              </div>
+              <div class="col-md-2">
+                <input type="date" name="sub_question_due" class="form-control form-control-sm" value="{{ sq.due_date }}">
+              </div>
+              <div class="col-md-1">
+                <button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <template id="sub-question-template">
+            <div class="sub-question-row row g-2 mb-2">
+              <div class="col-md-6">
+                <input type="text" name="sub_question_text" class="form-control form-control-sm" placeholder="Sub-question…">
+              </div>
+              <div class="col-md-3">
+                <input type="text" name="sub_question_assigned" class="form-control form-control-sm" placeholder="Assigned to">
+              </div>
+              <div class="col-md-2">
+                <input type="date" name="sub_question_due" class="form-control form-control-sm">
+              </div>
+              <div class="col-md-1">
+                <button type="button" class="btn btn-sm btn-outline-danger w-100 remove-sub-question"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
     <!-- Scope -->
-    <div class="card content-card mb-4">
+    <div class="card content-card form-step mb-4" id="step-scope"
+         data-step='[name="geographic_scope"], [name="sectors"], [name="threat_actors"], [name="mitre_attack_techniques"], [name="threat_types"], [name="time_frame"], [name="technology"], [name="vendor"], [name="incident"], [name="campaign"], [name="out_of_scope"]'>
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-crosshairs me-2"></i>Scope</span>
+        <span class="d-flex align-items-center"><span class="step-num">3</span>Scope</span>
         <button type="button" class="btn btn-xs btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#scope-overlap"
                 aria-expanded="false" aria-controls="scope-overlap">
           <i class="fas fa-bullseye me-1"></i> Overlap with focus points
@@ -218,7 +209,7 @@
         </p>
         <div class="row g-3">
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Geographic scope items
               <span class="text-muted fw-normal small" title="Combined from the MISP Country galaxy (84668357…) and Target Information galaxy (709ed29c…). Both are matched at analysis time because event creators sometimes pick one over the other.">
                 <i class="fas fa-circle-info"></i> Country &amp; Target Information galaxies
@@ -229,7 +220,7 @@
                 items=galaxy_countries, focus=org_focus['Geography']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Sector scope items
               <span class="text-muted fw-normal small">(from MISP Sector galaxy)</span>
             </label>
@@ -238,7 +229,7 @@
                 items=galaxy_sectors, focus=org_focus['Sector']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">Threat actor scope items
               <span class="text-muted fw-normal small">(from MISP Threat Actor galaxy)</span>
             </label>
@@ -247,7 +238,7 @@
                 items=galaxy_threat_actors, focus=org_focus['Threat Actor']) }}
           </div>
 
-          <div class="col-12">
+          <div class="col-xl-6">
             <label class="form-label">MITRE ATT&amp;CK techniques
               <span class="text-muted fw-normal small">(from MITRE ATT&amp;CK galaxy)</span>
             </label>
@@ -337,75 +328,41 @@
       </div>
     </div>
 
-    <!-- Collection mapping -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Collection mapping</div>
+    <!-- Collection and deliverable -->
+    <div class="card content-card form-step mb-4" id="step-collection"
+         data-step='input[name="collection_sources"], input[name="output_format"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Collection and deliverable</div>
       <div class="card-body">
         <label class="form-label">Sources that can address this requirement</label>
         {{ collection_source_checklist(collection_source_groups, pir.collection_sources if is_edit else []) }}
-        <div class="form-text mt-2">
+        <div class="form-text mt-2 mb-4">
           <i class="fas fa-circle-info fa-xs me-1"></i>Informational only. Event matching and filtering runs across all configured sources regardless of this mapping.
         </div>
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="form-label mb-0">Output product format</span>
+          {{ toggle_all_button('#output-format-list input[name="output_format"]',
+                               'Select all products', 'Clear all products') }}
+        </div>
+        <div class="product-tiles" id="output-format-list">
+          {% for f in output_formats | sort(case_sensitive=False) %}
+          <label class="product-tile" for="ofmt_{{ loop.index }}">
+            <span class="tile-icon" aria-hidden="true"><i class="fas fa-{{ product_icons.get(f, 'cube') }} fa-fw"></i></span>
+            {{ f }}
+            <input class="form-check-input" type="checkbox" name="output_format" value="{{ f }}" id="ofmt_{{ loop.index }}"
+              {{ 'checked' if is_edit and f in (pir.output_format or []) }}>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="form-text">Select one or more deliverable formats.</div>
       </div>
     </div>
 
-    <!-- Deliverable -->
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-file-lines me-2"></i>Deliverable</div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-sm-6">
-            <div class="d-flex align-items-center gap-2 mb-2">
-              <label class="form-label mb-0">Output product format</label>
-              {{ toggle_all_button('#output-format-list input[name="output_format"]',
-                                   'Select all products', 'Clear all products') }}
-            </div>
-            <div class="source-checklist" id="output-format-list">
-              {% for f in output_formats | sort(case_sensitive=False) %}
-              <div class="form-check source-check">
-                <input class="form-check-input" type="checkbox" name="output_format" value="{{ f }}" id="ofmt_{{ loop.index }}"
-                  {{ 'checked' if is_edit and f in (pir.output_format or []) }}>
-                <label class="form-check-label" for="ofmt_{{ loop.index }}">{{ product_icon(f) }}{{ f }}</label>
-              </div>
-              {% endfor %}
-            </div>
-            <div class="form-text">Select one or more deliverable formats.</div>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Distribution</label>
-            <div class="form-text mb-2">Tick the stakeholders this PIR is delivered to.</div>
-            {% if stakeholders %}
-            <div class="dist-picker" id="pir-distribution-picker">
-              {% for s in stakeholders %}
-              <input class="btn-check dist-pick-input" type="checkbox" name="distribution" value="{{ s.uuid }}" id="dist_{{ loop.index }}"
-                {{ 'checked' if s.uuid in sel_distribution or s.name in sel_distribution }}>
-              <label class="dist-pick-card" for="dist_{{ loop.index }}"
-                >
-                <div class="dist-pick-avatar">{{ (s.name or '?')[0] | upper }}</div>
-                <div class="dist-pick-body">
-                  <div class="dist-pick-name">{{ s.name }}</div>
-                  {% set org = org_map.get(s.organization, s.organization) %}
-                  {% if s.role or org %}
-                  <div class="dist-pick-role">{{ s.role }}{% if s.role and org %} &middot; {% endif %}{{ org }}</div>
-                  {% endif %}
-                  <div class="dist-pick-meta">
-                    {% if s.email %}<span class="text-muted small"><i class="fas fa-envelope fa-xs me-1"></i>{{ s.email }}</span>{% endif %}
-                  </div>
-                </div>
-                <div class="dist-pick-tick"><i class="fas fa-check"></i></div>
-              </label>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="text-muted small mb-0">No stakeholders registered yet. <a href="{{ url_for('stakeholders.new') }}">Add one</a> to set up distribution.</p>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Distribution -->
+    {% set record_kind, dist_step, dist_prefix = "PIR", 5, "dist_" %}
+    {% include "requirements/_distribution_picker.html" %}
 
     {% if is_edit %}
-    <div class="card content-card">
+    <div class="card content-card mt-4">
       <div class="card-header"><i class="fas fa-circle-check me-2"></i>Resolution note</div>
       <div class="card-body">
         <textarea name="resolution_note" class="form-control" rows="2"
@@ -417,21 +374,20 @@
   </div>
 
   <div class="col-lg-4">
+    <div class="d-flex flex-column gap-4">
 
     <!-- Classification -->
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Intelligence level</label>
           {% set current_intel = (pir.intel_level if is_edit else []) or [] %}
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <div class="choice-group">
             {% for lvl in intel_levels %}
-            <div class="form-check form-check-inline mb-0">
-              <input class="form-check-input intel-level" type="checkbox" name="intel_level" value="{{ lvl }}"
-                     id="intel_{{ loop.index }}" {{ 'checked' if lvl in current_intel }}>
-              <label class="form-check-label" for="intel_{{ loop.index }}">{{ lvl }}</label>
-            </div>
+            <input class="btn-check intel-level" type="checkbox" name="intel_level" value="{{ lvl }}"
+                   id="intel_{{ loop.index }}" {{ 'checked' if lvl in current_intel }}>
+            <label class="choice" for="intel_{{ loop.index }}"><span class="level-badge level-{{ lvl | slug }}">{{ lvl }}</span></label>
             {% endfor %}
           </div>
           <div id="intel-level-warn" class="text-danger small mt-1" style="display:none;">
@@ -440,33 +396,38 @@
           <div class="form-text small">Strategic (long-term, decision-support), Operational (campaigns, TTPs), Tactical (IOCs, signatures).</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Priority (MoSCoW)</label>
-          <select name="priority" class="form-select">
+          <span class="form-label d-block">Priority (MoSCoW)</span>
+          {# A stored priority the list no longer has falls back to the first one, as the drop-down did. #}
+          {% set current_priority = pir.priority if is_edit else 'Should have' %}
+          {% if current_priority not in priorities %}{% set current_priority = priorities[0] %}{% endif %}
+          <div class="choice-group" role="radiogroup" aria-label="Priority">
             {% for p in priorities %}
-            <option value="{{ p }}" {{ 'selected' if is_edit and pir.priority == p else ('selected' if not is_edit and p == 'Should have') }}>{{ p }}</option>
+            <input class="btn-check" type="radio" name="priority" value="{{ p }}" id="prio_{{ loop.index }}"
+                   {{ 'checked' if p == current_priority }}>
+            <label class="choice" for="prio_{{ loop.index }}"><span class="priority-badge priority-{{ p | slug }}">{{ p }}</span></label>
             {% endfor %}
-          </select>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Status</label>
-          {% set _status = pir.status if is_edit else 'Pending' %}
-          <div class="form-control-plaintext ps-0">
-            <span class="badge status-badge status-{{ _status | slug }}">{{ _status }}</span>
           </div>
-          <div class="form-text">New PIRs start as Pending. Status changes through triage and the status board, not here.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Time sensitivity</label>
-          <select name="time_sensitivity" class="form-select">
-            {% for t in time_sensitivities %}
-            <option value="{{ t }}" {{ 'selected' if is_edit and pir.time_sensitivity == t else ('selected' if not is_edit and t == 'Standard (<1 month)') }}>{{ t }}</option>
-            {% endfor %}
-          </select>
+          <span class="form-label d-block">Status</span>
+          {% set _status = pir.status if is_edit else 'Pending' %}
+          <span class="badge status-badge status-{{ _status | slug }}">{{ _status }}</span>
+          <div class="form-text">New PIRs start as Pending. Status changes through triage, then from the PIR list or the PIR's page, not here.</div>
         </div>
-        <div>
-          <label class="form-label">Next review date</label>
-          <input type="date" name="next_review" class="form-control"
-            value="{{ pir.next_review.isoformat() if is_edit and pir.next_review else '' }}">
+        <div class="row g-3">
+          <div class="col-sm-6 col-lg-12 col-xxl-6">
+            <label class="form-label" for="pir-time-sensitivity">Time sensitivity</label>
+            <select name="time_sensitivity" id="pir-time-sensitivity" class="form-select">
+              {% for t in time_sensitivities %}
+              <option value="{{ t }}" {{ 'selected' if is_edit and pir.time_sensitivity == t else ('selected' if not is_edit and t == 'Standard (<1 month)') }}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-6 col-lg-12 col-xxl-6">
+            <label class="form-label" for="pir-next-review">Next review date</label>
+            <input type="date" name="next_review" id="pir-next-review" class="form-control"
+              value="{{ pir.next_review.isoformat() if is_edit and pir.next_review else '' }}">
+          </div>
         </div>
       </div>
     </div>
@@ -474,12 +435,12 @@
     {% if is_edit %}{{ triage_checklist_card(triage_checklist, pir.triage_checklist) }}{% endif %}
 
     <!-- Ownership -->
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-user-tie me-2"></i>Ownership</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label">Owner (registered stakeholder)</label>
-          <select name="owner_id" class="form-select">
+          <label class="form-label" for="pir-owner">Owner (registered stakeholder)</label>
+          <select name="owner_id" id="pir-owner" class="form-select">
             <option value="">- Not registered -</option>
             {% for s in stakeholders %}
             <option value="{{ s.uuid }}" {{ 'selected' if sel_owner == s.uuid }}>
@@ -488,29 +449,48 @@
             {% endfor %}
           </select>
         </div>
-        <div>
-          <label class="form-label">Owner name <span class="text-muted fw-normal">(if not registered)</span></label>
-          <input type="text" name="owner_name" class="form-control"
+        <div class="mb-3">
+          <label class="form-label" for="pir-owner-name">Owner name <span class="text-muted fw-normal">(if not registered)</span></label>
+          <input type="text" name="owner_name" id="pir-owner-name" class="form-control"
             value="{{ pir.owner_name if is_edit and not pir.owner_uuid else '' }}" placeholder="Name and role">
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create PIR' }}
+          </button>
+          <a href="{{ url_for('requirements.pir_detail', id=pir.id) if is_edit else url_for('requirements.pir_list') }}" class="btn btn-outline-secondary">
+            Cancel
+          </a>
         </div>
       </div>
     </div>
 
-    <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary flex-grow-1">
-        <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create PIR' }}
-      </button>
-      <a href="{{ url_for('requirements.pir_detail', id=pir.id) if is_edit else url_for('requirements.pir_list') }}" class="btn btn-outline-secondary">
-        Cancel
-      </a>
+    {% if not is_edit %}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-lightbulb me-2"></i>Writing a strong PIR</div>
+      <div class="card-body">
+        <ol class="form-tips">
+          <li><strong>Tie it to a real decision.</strong> Capture the decision, the decision-maker and what happens if you don't answer.</li>
+          <li><strong>Anchor it in your organisation.</strong> Start from a stakeholder's mission, assets and adversarial operations they care about (ransomware, espionage, fraud, DoS, supply chain).</li>
+          <li><strong>Score it with appeal × impact.</strong> Use priority and time-sensitivity together to rank against other PIRs.</li>
+          <li><strong>Make it answerable, not yes/no.</strong> Specific, scoped questions yield collection that the analyser and your sources can act on.</li>
+          <li><strong>Bound the scope.</strong> Geography, sectors, threat actors, threat types, time-frame and exclusions keep it operational.</li>
+          <li><strong>Plan the deliverable.</strong> Format and distribution should match the decision-maker's workflow.</li>
+          <li><strong>Review periodically.</strong> Set a next-review date; PIRs should evolve as the threat landscape and the business change.</li>
+        </ol>
+      </div>
     </div>
+    {% endif %}
 
+    </div>
   </div>
+</div>
 
 </form>
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
 <script>
 // The intelligence level is required: block the submit and say so when none is
 // ticked. Added now rather than on DOMContentLoaded, so that it runs before the
@@ -635,26 +615,6 @@ document.addEventListener('DOMContentLoaded', function() {
       bindRemoveConsequence(node);
       node.querySelector('input').focus();
     });
-  }
-
-  // MoSCoW priority badge
-  var prioritySel  = document.querySelector('select[name="priority"]');
-  var moscowBadge  = document.getElementById('moscow-badge');
-  var moscowStyles = {
-    'Must have':   'text-bg-danger',
-    'Should have': 'text-bg-warning',
-    'Could have':  'text-bg-info',
-    "Won't have":  'text-bg-secondary',
-  };
-  function updateMoscowBadge() {
-    if (!prioritySel || !moscowBadge) return;
-    var val = prioritySel.value;
-    moscowBadge.textContent = val;
-    moscowBadge.className = 'badge ' + (moscowStyles[val] || 'text-bg-secondary');
-  }
-  if (prioritySel) {
-    prioritySel.addEventListener('change', updateMoscowBadge);
-    updateMoscowBadge();
   }
 });
 </script>

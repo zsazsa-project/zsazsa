@@ -33,18 +33,29 @@ def _page():
         return BeautifulSoup(create_app().test_client().get("/config/sources/").get_data(as_text=True), "html.parser")
 
 
+def _servers_then_new(page, css):
+    """The matches in the cards of the saved servers, then those in the form
+    for a new one.
+
+    The form is a <template>. soupsieve 4 leaves a template's contents out of a
+    select on the page, as a browser does, while the 2.x that Python older than
+    3.11.5 installs does not, so the two parts are selected separately."""
+    saved = [el for el in page.select(css) if el.find_parent("template") is None]
+    return saved + page.find("template", id="misp-server-template").select(css)
+
+
 class AnalyseSwitch(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.page = _page()
 
     def test_it_is_on_only_for_a_server_it_was_switched_on_for(self):
-        ticked = [box.has_attr("checked") for box in self.page.select("input.server-analyse-switch")]
+        ticked = [box.has_attr("checked") for box in _servers_then_new(self.page, "input.server-analyse-switch")]
         # The two servers, then the form for a new one.
         self.assertEqual(ticked, [False, True, False])
 
     def test_each_server_says_what_switching_it_on_sends(self):
-        notes = [row for row in self.page.select("div.small.text-muted") if "whatever their TLP" in str(row)]
+        notes = [row for row in _servers_then_new(self.page, "div.small.text-muted") if "whatever their TLP" in str(row)]
         self.assertEqual(len(notes), 3)
 
 

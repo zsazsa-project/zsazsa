@@ -310,6 +310,17 @@ class Pages(unittest.TestCase):
         targets = [o["value"] for o in page.select("select[name=target] option")]
         self.assertEqual(targets, ["", UUID])
         self.assertIn("Energy", [o.get_text() for o in page.select("select[name=sector] option")])
+        remove = page.select_one("#tlr-remove-btn")
+        self.assertEqual(remove["formaction"], "/products/threat-landscape/remove-from-queue")
+        self.assertTrue(remove.has_attr("disabled"))
+        self.assertTrue(remove.has_attr("data-submit-confirm"))
+        self.assertIsNotNone(remove.select_one(".fa-arrow-rotate-left"))
+        self.assertIs(remove.find_previous_sibling("button"), page.select_one("#tlr-build-btn"))
+        self.assertEqual(remove.select_one("#tlr-remove-count").get_text(), "0")
+        footer = page.select_one("#tlr-build-form .card-footer")
+        self.assertIn("d-flex", footer["class"])
+        self.assertNotIn("col-12", remove.parent["class"])
+        self.assertIn("width:10rem", page.select_one("#tlr-build-target").parent["style"])
 
     def test_a_full_queue_says_more_events_are_waiting(self):
         queued = [_cached(f"e{i}") for i in range(3)]

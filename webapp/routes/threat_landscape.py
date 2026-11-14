@@ -6,6 +6,7 @@ from collections import Counter
 
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
+from analyser import tagger
 from webapp import audit, branding, collection_cache, matching, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import INTEL_LEVELS
 from webapp.rate_limit import rate_limited
@@ -23,6 +24,7 @@ def _queued_events(tlrs, limit=QUEUE_SIZE):
 
     An event leaves the queue when it becomes an entry of a report, and comes
     back if that report is deleted. Its tag stays, as the mark that it fed one.
+    Removing an unused event from the queue takes that tag off instead.
     """
     held = {e.event_uuid for t in tlrs for e in t.entries}
     return collection_cache.get_events(collection_cache.source_ids(), [_TLR_QUEUE_TAG], limit, exclude=held)
@@ -301,6 +303,71 @@ def build():
     audit.record("update", "tlr", entity_id=uuid, entity_label=label, details=f"added {added} event(s)")
     flash(f"{added} event(s) added to {label}. Triage them below.", "success")
     return redirect(url_for("threat_landscape.entries", id=uuid))
+
+
+def _remove_queued_event(ev):
+    """Remove the queue tag, returning a warning if its workflow could not reset."""
+    from webapp.routes.data_collection import _misp_for_source
+
+    uuid = ev["uuid"]
+    misp, error = _misp_for_source(ev["source_id"])
+    if misp is None:
+        raise RuntimeError(error or "Could not connect to the source")
+    event = misp.get_event(uuid, pythonify=True)
+    if not event or isinstance(event, dict) or misp_store._is_own_record(t.name for t in event.tags):
+        raise RuntimeError("Not a readable collection event")
+    names = {t.name for t in event.tags}
+    misp_store._check(misp.untag(uuid, _TLR_QUEUE_TAG), "remove threat landscape queue tag")
+    collection_cache.patch_event_tags(uuid, [], [_TLR_QUEUE_TAG])
+    other_products = {name for name in names if name.startswith("zsazsa:product=")
+                      and name != _TLR_QUEUE_TAG}
+    if ('workflow:state="ongoing"' in names and 'workflow:state="complete"' not in names
+            and not other_products):
+        try:
+            reset = tagger.set_workflow_state(misp, event, "incomplete")
+        except Exception as exc:
+            logger.warning("TLR: removed %s from queue but could not reset its workflow: %s", uuid, exc)
+            reset = False
+        if not reset:
+            return "The story was removed, but its workflow could not be reset. The log says why."
+        collection_cache.patch_event_tags(
+            uuid, ['workflow:state="incomplete"'],
+            [name for name in names if name.startswith("workflow:state=")],
+        )
+    return ""
+
+
+@bp.route("/remove-from-queue", methods=["POST"])
+def remove_from_queue():
+    """Return selected, unused queue events to regular data collection."""
+    queued = {ev["uuid"]: ev for ev in _queued_events(misp_store.list_tlrs())}
+    selected = set(request.form.getlist("event"))
+    events = [queued[uuid] for uuid in selected if uuid in queued]
+    if not events:
+        flash("Select at least one event from the queue.", "warning")
+        return redirect(url_for("threat_landscape.review"))
+
+    removed = 0
+    failed = len(selected - queued.keys())
+    for ev in events:
+        try:
+            warning = _remove_queued_event(ev)
+        except Exception as exc:
+            logger.warning("TLR: could not remove %s from the queue: %s", ev["uuid"], exc)
+            failed += 1
+            continue
+        removed += 1
+        audit.record("untag", "collection-tlr-queue", entity_id=ev["uuid"],
+                     entity_label=ev["info"], details="removed from threat landscape queue")
+        if warning:
+            flash(warning, "warning")
+    if removed:
+        flash(f"{removed} stor{'y' if removed == 1 else 'ies'} removed from the queue. "
+              "They remain in Data collection.", "success")
+    if failed:
+        flash(f"{failed} selected event(s) could not be removed. "
+              "They may no longer be in the queue, or MISP refused the change.", "warning")
+    return redirect(url_for("threat_landscape.review"))
 
 
 @bp.route("/new", methods=["GET", "POST"])

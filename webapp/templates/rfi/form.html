@@ -20,31 +20,29 @@
 {# Response and feedback can only be captured once the RFI has been triaged
    (acknowledged). A brand-new RFI starts as 'New' and is not yet triaged. #}
 {% set triaged = is_edit and rfi.status != 'New' %}
-<form method="post" class="row g-4" data-unsaved-warning>
+<form method="post" data-unsaved-warning>
 
+<section class="record-hero rise mb-4">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">
+      An RFI is a one-off question from a stakeholder. Capture who asks, for which decision and by
+      when; it starts as New and is triaged on the RFI list.
+    </p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      <a href="#step-request">1 Request</a>
+      <a href="#step-requester">2 Requester</a>
+      <a href="#step-response">3 {{ 'Response' if triaged else 'Output formats' }}</a>
+      <a href="#step-linked">4 Linked requirements</a>
+    </nav>
+  </div>
+</section>
+
+<div class="row g-4">
   <div class="col-lg-8">
 
-    {% if not is_edit %}
-    <div class="card content-card mb-4 border-info">
-      <div class="card-header bg-info bg-opacity-10 text-info-emphasis">
-        <i class="fas fa-lightbulb me-2"></i>Capturing a good RFI
-      </div>
-      <div class="card-body small">
-        <p class="mb-2">An RFI is an ad-hoc question from a stakeholder. Capture
-          enough context to triage and respond:</p>
-        <ul class="mb-0">
-          <li><strong>Who is asking, and for what decision?</strong> The same question from a SOC lead vs. a CISO has a different answer.</li>
-          <li><strong>Tie it to a PIR or GIR if possible.</strong> Recurring RFIs hint at missing standing requirements.</li>
-          <li><strong>Set a realistic due date.</strong> SLA hints: High {{ sla_days.High }}BD, Medium {{ sla_days.Medium }}BD, Low {{ sla_days.Low }}BD.</li>
-          <li><strong>Always close the loop.</strong> Record the response and capture feedback to feed the metrics dashboard.</li>
-          <li><strong>Attachments and notes</strong> can be added from the RFI's own page once it is created (after you save).</li>
-        </ul>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-question-circle me-2"></i>The request</div>
+    <div class="card content-card form-step mb-4" id="step-request" data-step='textarea[name="question"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>The request</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label required-label">Question</label>
@@ -59,100 +57,25 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-paper-plane me-2"></i>Response</div>
+    <div class="card content-card form-step mb-4" id="step-requester"
+         data-step='input[name="requester_name"], input[name="requester_team"], select[name="owner_uuid"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Requester</div>
       <div class="card-body">
-        {% include "rfi/_response_fields.html" %}
-      </div>
-    </div>
-
-    {% if not is_edit %}
-    <div class="card content-card mb-4 opacity-50">
-      <div class="card-header"><i class="fas fa-paperclip me-2"></i>Attachments <span class="badge bg-secondary ms-1" style="font-size:.7rem;">Available after saving</span></div>
-      <div class="card-body">
-        <div class="d-flex gap-2 align-items-end">
-          <div class="flex-grow-1">
-            <input type="file" class="form-control form-control-sm" disabled>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label" for="rfi-requester-name">Name</label>
+            <input type="text" name="requester_name" id="rfi-requester-name" class="form-control"
+              value="{{ rfi.requester_name if is_edit else '' }}">
           </div>
-          <button class="btn btn-sm btn-secondary" type="button" disabled>Upload</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card content-card mb-4 opacity-50">
-      <div class="card-header"><i class="fas fa-sticky-note me-2"></i>Notes <span class="badge bg-secondary ms-1" style="font-size:.7rem;">Available after saving</span></div>
-      <div class="card-body">
-        <div class="mb-2">
-          <input type="text" class="form-control form-control-sm" placeholder="Note title" disabled>
-        </div>
-        <div class="mb-2">
-          <textarea class="form-control form-control-sm" rows="3" placeholder="Markdown content…" disabled></textarea>
-        </div>
-        <button class="btn btn-sm btn-secondary" type="button" disabled>Add note</button>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback (after delivery)</div>
-      <div class="card-body">
-        {% if not triaged %}
-        <div class="alert alert-light border small d-flex align-items-center mb-3">
-          <i class="fas fa-lock me-2 text-muted"></i>
-          Feedback can only be captured once the RFI has been triaged (acknowledged) and delivered.
-        </div>
-        {% endif %}
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Did the response meet the requirement?</label>
-            <select name="feedback_requirement_met" class="form-select" {{ 'disabled' if not triaged }}>
-              {% for opt in feedback_requirement %}
-              <option value="{{ opt }}" {{ 'selected' if is_edit and rfi.feedback_requirement_met == opt }}>{{ opt or '-' }}</option>
-              {% endfor %}
-            </select>
+          <div class="col-md-6">
+            <label class="form-label" for="rfi-requester-team">Team / unit</label>
+            <input type="text" name="requester_team" id="rfi-requester-team" class="form-control"
+              value="{{ rfi.requester_team if is_edit else '' }}">
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Delivered on time?</label>
-            <select name="feedback_on_time" class="form-select" {{ 'disabled' if not triaged }}>
-              {% for opt in feedback_on_time %}
-              <option value="{{ opt }}" {{ 'selected' if is_edit and rfi.feedback_on_time == opt }}>{{ opt or '-' }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Usefulness</label>
-            <select name="feedback_usefulness" class="form-select" {{ 'disabled' if not triaged }}>
-              {% for opt in feedback_usefulness %}
-              <option value="{{ opt }}" {{ 'selected' if is_edit and rfi.feedback_usefulness == opt }}>{{ opt or '-' }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Suggestions</label>
-            <textarea name="feedback_suggestions" class="form-control" rows="2" {{ 'disabled' if not triaged }}>{{ rfi.feedback_suggestions if is_edit else '' }}</textarea>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-lg-4">
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user me-2"></i>Requester</div>
-      <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Name</label>
-          <input type="text" name="requester_name" class="form-control"
-            value="{{ rfi.requester_name if is_edit else '' }}">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Team / unit</label>
-          <input type="text" name="requester_team" class="form-control"
-            value="{{ rfi.requester_team if is_edit else '' }}">
         </div>
         <div>
-          <label class="form-label">Stakeholder</label>
-          <select name="owner_uuid" class="form-select">
+          <label class="form-label" for="rfi-stakeholder">Stakeholder</label>
+          <select name="owner_uuid" id="rfi-stakeholder" class="form-select">
             <option value="">- none -</option>
             {% for s in stakeholders %}
             <option value="{{ s.id }}" {{ 'selected' if sel_owner == s.id }}>{{ s.name }}</option>
@@ -162,74 +85,167 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card form-step mb-4" id="step-response"
+         data-step='textarea[name="response"], select[name="output_format_item"]'>
+      <div class="card-header d-flex align-items-center">
+        <span class="step-num">3</span>{{ 'Response' if triaged else 'Preferred output formats' }}
+      </div>
+      <div class="card-body">
+        {% with show_response = triaged %}{% include "rfi/_response_fields.html" %}{% endwith %}
+      </div>
+    </div>
+
+    <div class="card content-card form-step mb-4" id="step-linked"
+         data-step='select[name="linked_pir_uuid"], select[name="linked_gir_uuid"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Linked requirements</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="rfi-linked-pir">Linked PIR</label>
+            <select name="linked_pir_uuid" id="rfi-linked-pir" class="form-select">
+              <option value="">- none -</option>
+              {% for p in pirs %}
+              <option value="{{ p.id }}" {{ 'selected' if sel_pir == p.id }}>{{ p.pir_id }} - {{ p.question | truncate(50) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="rfi-linked-gir">Linked GIR</label>
+            <select name="linked_gir_uuid" id="rfi-linked-gir" class="form-select">
+              <option value="">- none -</option>
+              {% for g in girs %}
+              <option value="{{ g.id }}" {{ 'selected' if sel_gir == g.id }}>{{ g.gir_id }} - {{ g.topic | truncate(50) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if triaged %}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback (after delivery)</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Did the response meet the requirement?</label>
+            <select name="feedback_requirement_met" class="form-select">
+              {% for opt in feedback_requirement %}
+              <option value="{{ opt }}" {{ 'selected' if rfi.feedback_requirement_met == opt }}>{{ opt or '-' }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Delivered on time?</label>
+            <select name="feedback_on_time" class="form-select">
+              {% for opt in feedback_on_time %}
+              <option value="{{ opt }}" {{ 'selected' if rfi.feedback_on_time == opt }}>{{ opt or '-' }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Usefulness</label>
+            <select name="feedback_usefulness" class="form-select">
+              {% for opt in feedback_usefulness %}
+              <option value="{{ opt }}" {{ 'selected' if rfi.feedback_usefulness == opt }}>{{ opt or '-' }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Suggestions</label>
+            <textarea name="feedback_suggestions" class="form-control" rows="2">{{ rfi.feedback_suggestions or "" }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    {# Before triage the response and the feedback cannot be recorded, so they
+       are named here rather than shown as fields that do nothing. #}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-lock me-2"></i>{{ 'Once it is triaged' if is_edit else 'After it is saved' }}</div>
+      <div class="card-body d-flex flex-column gap-2 small">
+        <div><i class="fas fa-paper-plane fa-fw text-muted me-2"></i><strong>Response</strong> and its confidence, once the RFI has been triaged (acknowledged) from the RFI list.</div>
+        {% if not is_edit %}
+        <div><i class="fas fa-paperclip fa-fw text-muted me-2"></i><strong>Attachments and notes</strong>, on the RFI's own page.</div>
+        {% endif %}
+        <div><i class="fas fa-comment-dots fa-fw text-muted me-2"></i><strong>Feedback</strong> from the requester, once it has been triaged and delivered.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-4">
+    <div class="d-flex flex-column gap-4">
+
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-tasks me-2"></i>Triage</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label">Priority</label>
-          <select name="priority" class="form-select">
+          <span class="form-label d-block">Priority</span>
+          {# A stored priority the list no longer has falls back to the first one, as the drop-down did. #}
+          {% set current_priority = rfi.priority if is_edit else 'Medium' %}
+          {% if current_priority not in priorities %}{% set current_priority = priorities[0] %}{% endif %}
+          {% set priority_class = {'High': 'must-have', 'Medium': 'should-have', 'Low': 'could-have'} %}
+          <div class="choice-group" role="radiogroup" aria-label="Priority">
             {% for p in priorities %}
-            <option value="{{ p }}" {{ 'selected' if (is_edit and rfi.priority == p) or (not is_edit and p == 'Medium') }}>{{ p }}</option>
+            <input class="btn-check" type="radio" name="priority" value="{{ p }}" id="rfi_prio_{{ loop.index }}"
+                   {{ 'checked' if p == current_priority }}>
+            <label class="choice" for="rfi_prio_{{ loop.index }}">
+              <span class="priority-badge priority-{{ priority_class.get(p, 'wont-have') }}">{{ p }}</span>
+            </label>
             {% endfor %}
-          </select>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Status</label>
-          {% set _status = rfi.status if is_edit else 'New' %}
-          <div class="form-control-plaintext ps-0">
-            <span class="badge status-badge status-{{ _status | slug }}">{{ _status }}</span>
           </div>
-          <div class="form-text">New RFIs start as New. Status changes through triage and the status board, not here.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Assigned analyst</label>
-          <input type="text" name="assigned_analyst" class="form-control"
-            value="{{ rfi.assigned_analyst if is_edit else '' }}">
-        </div>
-        <div>
-          <label class="form-label">Due date</label>
-          <input type="date" name="due_date" class="form-control"
+          <label class="form-label" for="rfi-due-date">Due date</label>
+          <input type="date" name="due_date" id="rfi-due-date" class="form-control"
             value="{{ rfi.due_date.isoformat() if is_edit and rfi.due_date else '' }}">
           <div class="form-text">Leave blank to auto-set from priority.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="rfi-analyst">Assigned analyst</label>
+          <input type="text" name="assigned_analyst" id="rfi-analyst" class="form-control"
+            value="{{ rfi.assigned_analyst if is_edit else '' }}">
+        </div>
+        <div class="mb-3">
+          <span class="form-label d-block">Status</span>
+          {% set _status = rfi.status if is_edit else 'New' %}
+          <span class="badge status-badge status-{{ _status | slug }}">{{ _status }}</span>
+          <div class="form-text">New RFIs start as New. Status changes through triage, then from the RFI list or the RFI's page, not here.</div>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create RFI' }}
+          </button>
+          <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) if is_edit else url_for('rfi.rfi_list') }}" class="btn btn-outline-secondary">
+            Cancel
+          </a>
         </div>
       </div>
     </div>
 
     {% if is_edit %}{{ triage_checklist_card(triage_checklist, rfi.triage_checklist) }}{% endif %}
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-link me-2"></i>Linked requirements</div>
+    {% if not is_edit %}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-lightbulb me-2"></i>Capturing a good RFI</div>
       <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Linked PIR</label>
-          <select name="linked_pir_uuid" class="form-select">
-            <option value="">- none -</option>
-            {% for p in pirs %}
-            <option value="{{ p.id }}" {{ 'selected' if sel_pir == p.id }}>{{ p.pir_id }} - {{ p.question | truncate(50) }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="form-label">Linked GIR</label>
-          <select name="linked_gir_uuid" class="form-select">
-            <option value="">- none -</option>
-            {% for g in girs %}
-            <option value="{{ g.id }}" {{ 'selected' if sel_gir == g.id }}>{{ g.gir_id }} - {{ g.topic | truncate(50) }}</option>
-            {% endfor %}
-          </select>
-        </div>
+        <p class="small mb-2">An RFI is an ad-hoc question from a stakeholder. Capture
+          enough context to triage and respond:</p>
+        <ol class="form-tips">
+          <li><strong>Who is asking, and for what decision?</strong> The same question from a SOC lead vs. a CISO has a different answer.</li>
+          <li><strong>Tie it to a PIR or GIR if possible.</strong> Recurring RFIs hint at missing standing requirements.</li>
+          <li><strong>Set a realistic due date.</strong> SLA hints: High {{ sla_days.High }}BD, Medium {{ sla_days.Medium }}BD, Low {{ sla_days.Low }}BD.</li>
+          <li><strong>Always close the loop.</strong> Record the response and capture feedback to feed the metrics dashboard.</li>
+          <li><strong>Attachments and notes</strong> can be added from the RFI's own page once it is created (after you save).</li>
+        </ol>
       </div>
     </div>
+    {% endif %}
 
-    <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary flex-grow-1">
-        <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create RFI' }}
-      </button>
-      <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) if is_edit else url_for('rfi.rfi_list') }}" class="btn btn-outline-secondary">
-        Cancel
-      </a>
     </div>
   </div>
+</div>
 </form>
 
 {# Attachments and notes are managed outside the main form (their own POST
@@ -248,6 +264,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
 {% include "rfi/_response_fields_js.html" %}
 {% if is_edit %}
 {% include "_markdown_js.html" %}

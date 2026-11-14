@@ -2,7 +2,7 @@
 
 Products, RFIs and stakeholders point at a requirement by UUID, so an update of
 one that has gone fails rather than making a new one. The status of a PIR and an
-RFI changes through triage and the status board only, never through the edit
+RFI changes through triage and the status route only, never through the edit
 form, and a triage is taken once. A PIR or a GIR is not saved from its form
 without an intelligence level. A product or an RFI is linked to an agreed PIR. Matching reads only Active requirements, so a
 change of status refreshes it. A product records the PIR it answers on its
@@ -346,7 +346,7 @@ class PirGirLinks(unittest.TestCase):
              mock.patch.object(misp_store, "pir_collection_gap", return_value={}):
             pir_page = BeautifulSoup(self.client.get(f"/pirs/{UUID}").data, "html.parser")
             gir_page = BeautifulSoup(self.client.get(f"/girs/{OTHER}").data, "html.parser")
-        self.assertEqual([a["href"] for a in pir_page.select(".question-banner a")], [f"/girs/{OTHER}"])
+        self.assertEqual([a["href"] for a in pir_page.select(".record-hero .related-links a")], [f"/girs/{OTHER}"])
         linked = gir_page.find("dt", string="Linked PIRs").find_next_sibling("dd")
         self.assertEqual([a["href"] for a in linked.select("a")], [f"/pirs/{UUID}"])
 

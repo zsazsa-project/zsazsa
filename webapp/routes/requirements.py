@@ -392,6 +392,7 @@ def pir_list():
     return render_template(
         "requirements/pir_list.html",
         pirs=pirs,
+        today=date.today(),
         linked_girs=linked_girs,
         scope_counts={p.uuid: _scope_item_count(p) for p in pirs},
         status_counts=ordered_counts(("Rejected" if p.intake_status == "rejected" else p.status for p in pirs),
@@ -481,6 +482,7 @@ def pir_detail(id):
     return render_template(
         "requirements/pir_detail.html",
         org_focus=_org_focus_points(),
+        today=date.today(),
         pir=pir,
         focus_points=pir.focus_points,
         categories=FOCUS_CATEGORIES,
@@ -723,6 +725,7 @@ def gir_list():
     return render_template(
         "requirements/gir_list.html",
         girs=girs,
+        today=date.today(),
         linked_pirs=linked_pirs,
         scope_counts={g.uuid: _scope_item_count(g) for g in girs},
         status_counts=ordered_counts((g.status for g in girs), GIR_STATUS_ORDER),
@@ -790,6 +793,7 @@ def gir_detail(id):
     return render_template(
         "requirements/gir_detail.html",
         org_focus=_org_focus_points(),
+        today=date.today(),
         gir=gir,
         linked_pirs=[p for p in misp_store.list_pirs() if gir.uuid in p.linked_gir_uuids],
         focus_points=gir.focus_points,
