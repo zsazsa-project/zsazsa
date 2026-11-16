@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import read_again_note %}
-{% from "_macros.html" import review_state_badge %}
+{% from "_product_actions.html" import hero_resend, read_again_note %}
+{% from "_macros.html" import audience_badges, review_state_badge %}
 
 {% block title %}{{ fia.fia_id }} | Flash intel{% endblock %}
 {% block page_title %}{{ fia.fia_id }} - {{ fia.title or '(untitled)' }}{% endblock %}
@@ -11,53 +11,152 @@
 <a href="{{ url_for('flash_intel.review') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
-<a href="{{ url_for('flash_intel.pdf', id=fia.uuid) }}" class="btn btn-sm btn-outline-secondary" title="Download PDF">
-  <i class="fas fa-file-pdf me-1"></i> PDF
-</a>
 {% endblock %}
 
 {% macro bullets(items) %}
-  {% if items %}<ul class="mb-0">{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>{% else %}<span class="text-muted">none recorded</span>{% endif %}
+  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>{% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}
+{% endmacro %}
+
+{% macro technique_badges(values) %}
+  {% if values %}<div class="d-flex flex-wrap gap-1">{% for t in values %}{% set tid, tname = t | technique_parts %}
+    <span class="attack-technique-badge" title="{{ t }}">{% if tid %}<span class="attack-tid">{{ tid }}</span>{% endif %}{% if tname %}<span class="attack-tname">{{ tname }}</span>{% endif %}</span>
+  {% endfor %}</div>{% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}
 {% endmacro %}
 
 {% block content %}
-<div class="row g-3">
-  <div class="col-md-8">
-    <div class="card content-card mb-3">
-      <div class="card-body">
-        <div class="d-flex gap-2 mb-2">
-          <span class="tlp-badge tlp-{{ fia.tlp | slug }}">TLP:{{ fia.tlp | upper }}</span>
-          {{ review_state_badge(fia.review_state) }}
-          {% if fia.published %}<span class="badge bg-primary">published</span>{% endif %}
+{% set state = fia.review_state %}
+{% set approved = state == 'approved' %}
+{% set audiences = (fia.audience or '').split(',') | map('trim') | select | list %}
+{% set techniques = (fia.mitre_attack_techniques or []) %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Flash intel alert · {{ fia.fia_id }} · {{ review_state_badge(state) }}
+            {% if fia.published and not approved %}<span class="badge bg-primary">published</span>{% endif %}</div>
+          <h1>{{ fia.title or 'No title' }}</h1>
+          <div class="record-facts">
+            <div><span>Author</span>{{ fia.author or '-' }}</div>
+            <div><span>Created</span>{{ fia.created_at.strftime('%Y-%m-%d %H:%M UTC') if fia.created_at else '-' }}</div>
+            <div><span>Created by</span>{{ fia.creator or '-' }}</div>
+            {% if fia.feedback_deadline %}<div><span>Feedback by</span>{{ fia.feedback_deadline.strftime('%d-%m-%Y') }}</div>{% endif %}
+          </div>
         </div>
-        <h5>Summary</h5>
+      </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ audiences | length }}</b><span>audience{{ 's' if audiences | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ techniques | length }}</b><span>ATT&amp;CK technique{{ 's' if techniques | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ fia.attachments | length }}</b><span>attachment{{ 's' if fia.attachments | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ feedback | length }}</b><span>feedback</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      {% if approved %}
+      {{ hero_resend(url_for('flash_intel.resend', id=fia.uuid), can_publish) }}
+      {% else %}
+      <a href="{{ url_for('flash_intel.wizard_edit', id=fia.uuid) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="modal" data-bs-target="#recipientsModal"
+              title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
+      <a href="{{ url_for('flash_intel.pdf', id=fia.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      {% if fia.history_url %}
+      <a href="{{ fia.history_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-hero-ghost"><i class="fas fa-clock-rotate-left me-1"></i> MISP event history</a>
+      {% endif %}
+      {% if approved %}
+      <span title="Published alerts cannot be edited" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-pen me-1"></i> Edit</button>
+      </span>
+      <span title="Published alerts cannot be deleted" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete FIA</button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('flash_intel.delete', id=fia.uuid) }}"
+            data-submit-confirm="Delete {{ fia.fia_id }}?{{ read_again_note(state) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete FIA</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ fia.tlp | slug }}">TLP:{{ fia.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel delivery" aria-label="From draft to the audience">
+    <span class="chart-label">{{ 'Delivery' if approved else 'Review' }}</span>
+    <div class="leg done"><i></i>Drafted<small>{{ fia.creator or fia.author or '-' }}</small></div>
+    {% if approved %}
+    <div class="leg done"><i></i>Approved<small>{{ fia.approved_by or '-' }}</small></div>
+    <div class="leg done"><i></i>Published<small>{{ fia.published_at.strftime('%Y-%m-%d') if fia.published_at else '-' }}</small></div>
+    {% elif state == 'rejected' %}
+    <div class="leg done"><i></i>Submitted for review<small></small></div>
+    <div class="leg off"><i></i>Rejected<small>not sent</small></div>
+    {% else %}
+    <div class="leg{{ ' done' if state == 'pending-review' }}"><i></i>Submitted for review<small>{{ 'waiting' if state == 'pending-review' else '-' }}</small></div>
+    <div class="leg"><i></i>Approved<small>-</small></div>
+    {% endif %}
+    {% if state != 'rejected' %}
+    <div class="leg{{ ' done' if notify_status }}"><i></i>Notified<small>{% if notify_status %}<span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span> {{ notify_status.timestamp }}{% else %}-{% endif %}</small></div>
+    {% if notify_status and notify_status.details %}<div class="details" title="{{ notify_status.details }}">{{ notify_status.details }}</div>{% endif %}
+    {% endif %}
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+
+    {% if fia.rejection_reason %}
+    <div class="card content-card border-danger mb-4 rise rise-1" id="rejection-card">
+      <div class="card-header text-danger"><i class="fas fa-xmark me-2"></i>Rejected</div>
+      <div class="card-body"><p class="mb-0" style="white-space:pre-wrap;">{{ fia.rejection_reason }}</p></div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2">
+        <span><i class="fas fa-circle-check me-2"></i>Summary</span>
+        <span>{{ audience_badges(fia.audience) }}</span>
+      </div>
+      <div class="card-body">
         {% if fia.summary %}
         <div class="report-md-body" data-md="{{ fia.summary | e }}"></div>
         {% else %}
-        <p class="text-muted">No summary.</p>
+        <p class="text-muted mb-0"><em>No summary.</em></p>
         {% endif %}
         {% if fia.action_required %}
         <p class="mt-2 mb-1"><span class="pretext">Action required:</span></p>
         <div class="report-md-body" data-md="{{ fia.action_required | e }}"></div>
         {% endif %}
-        <hr>
-        <h5>What happened</h5>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-magnifying-glass me-2"></i>What happened</div>
+      <div class="card-body">
         {% if fia.what_happened %}
         <div class="report-md-body" data-md="{{ fia.what_happened | join('\n') | e }}"></div>
         {% else %}
-        <span class="text-muted">none recorded</span>
+        <p class="text-muted mb-0"><em>None recorded.</em></p>
         {% endif %}
-        <p class="mt-3 mb-0 small">
+        <p class="mt-2 mb-0 small text-muted">
           <span class="pretext">Source:</span> {{ (fia.source_description or 'unspecified') | md_inline }} &middot;
           <span class="pretext">Reliability:</span> {{ fia.source_reliability or '-' }} &middot;
           <span class="pretext">Credibility:</span> {{ fia.information_credibility or '-' }}
         </p>
-        {% set assessments = fia | assessment_rows %}
-        {% if assessments or fia.write_up %}
-        <hr>
-        <h5>Why it matters</h5>
+      </div>
+    </div>
+
+    {% set assessments = fia | assessment_rows %}
+    {% if assessments or fia.write_up %}
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Why it matters</div>
+      <div class="card-body">
         {% if assessments %}
-        <ul>
+        <ul class="ps-3{{ ' mb-2' if fia.write_up else ' mb-0' }}">
           {% for label, value in assessments %}
           <li><span class="pretext">{{ label }}:</span> {{ value | md_inline }}</li>
           {% endfor %}
@@ -66,42 +165,54 @@
         {% if fia.write_up %}
         <div class="report-md-body" data-md="{{ fia.write_up | e }}"></div>
         {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if fia.geographic_scope or fia.sectors or fia.threat_actors or techniques
+          or fia.threat_types or fia.technology or fia.vendor or fia.incident or fia.campaign %}
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-layer-group me-2"></i>Scope</div>
+      <div class="card-body small">
+        {% for label, values in [('Geographic scope', fia.geographic_scope), ('Sector', fia.sectors), ('Threat actor', fia.threat_actors),
+                                 ('Threat types', fia.threat_types), ('Technology', fia.technology), ('Vendor', fia.vendor),
+                                 ('Incident', fia.incident), ('Campaign', fia.campaign)] if values %}
+        <div class="scope-row"><span class="pretext">{{ label }}:</span>
+          {% for v in values %}<span class="scope-chip">{{ v }}</span>{% endfor %}</div>
+        {% endfor %}
+        {% if techniques %}
+        <div class="scope-row d-flex flex-wrap align-items-center gap-1"><span class="pretext">Techniques:</span> {{ technique_badges(techniques) }}</div>
         {% endif %}
-        {% set techniques = (fia.mitre_attack_techniques or []) | map('mitre') | list %}
-        {% if fia.geographic_scope or fia.sectors or fia.threat_actors or techniques
-              or fia.threat_types or fia.technology or fia.vendor or fia.incident or fia.campaign %}
-        <hr>
-        <h5>Scope</h5>
-        <ul>
-          {% if fia.geographic_scope %}<li><span class="pretext">Geographic scope:</span> {{ fia.geographic_scope | join(', ') }}</li>{% endif %}
-          {% if fia.sectors %}<li><span class="pretext">Sector:</span> {{ fia.sectors | join(', ') }}</li>{% endif %}
-          {% if fia.threat_actors %}<li><span class="pretext">Threat actor:</span> {{ fia.threat_actors | join(', ') }}</li>{% endif %}
-          {% if techniques %}<li><span class="pretext">Techniques:</span> {{ techniques | join(', ') }}</li>{% endif %}
-          {% if fia.threat_types %}<li><span class="pretext">Threat types:</span> {{ fia.threat_types | join(', ') }}</li>{% endif %}
-          {% if fia.technology %}<li><span class="pretext">Technology:</span> {{ fia.technology | join(', ') }}</li>{% endif %}
-          {% if fia.vendor %}<li><span class="pretext">Vendor:</span> {{ fia.vendor | join(', ') }}</li>{% endif %}
-          {% if fia.incident %}<li><span class="pretext">Incident:</span> {{ fia.incident | join(', ') }}</li>{% endif %}
-          {% if fia.campaign %}<li><span class="pretext">Campaign:</span> {{ fia.campaign | join(', ') }}</li>{% endif %}
-        </ul>
-        {% endif %}
-        <hr>
-        <h5>Recommended actions</h5>
-        <h6 class="mt-3">Immediate (0-24h)</h6>
-        {{ bullets(fia.actions_immediate) }}
-        <h6 class="mt-3">Near-term (1-7d)</h6>
-        {{ bullets(fia.actions_near_term) }}
-        <hr>
-        <h5>Detection guidance</h5>
-        <h6 class="mt-3">Techniques</h6>
-        {{ bullets((fia.mitre_techniques or []) | map('mitre') | list) }}
-        <h6 class="mt-3">Hunting hypotheses</h6>
-        {{ bullets(fia.hunting_hypotheses) }}
-        <h6 class="mt-3">Detection rules</h6>
-        <div data-rulezet-rules>{{ bullets(fia.detection_rules) }}</div>
-        <hr>
-        <h5>References &amp; feedback</h5>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Immediate (0-24h)</div>{{ bullets(fia.actions_immediate) }}</div>
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Near-term (1-7d)</div>{{ bullets(fia.actions_near_term) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection guidance</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4"><div class="fw-semibold small mb-1">Techniques</div>{{ technique_badges(fia.mitre_techniques or []) }}</div>
+          <div class="col-md-4"><div class="fw-semibold small mb-1">Hunting hypotheses</div>{{ bullets(fia.hunting_hypotheses) }}</div>
+          <div class="col-md-4"><div class="fw-semibold small mb-1">Detection rules</div><div data-rulezet-rules>{{ bullets(fia.detection_rules) }}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
+      <div class="card-body">
         {% if reference_items %}
-          <ul class="mb-0">
+          <ul class="mb-0 ps-3">
             {% for ref in reference_items %}
               <li>
                 <a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer">{{ ref.url }}</a>
@@ -116,10 +227,10 @@
             {% endfor %}
           </ul>
         {% else %}
-          <span class="text-muted">none recorded</span>
+          <p class="text-muted mb-0"><em>None recorded.</em></p>
         {% endif %}
         {% if fia.intelligence_gaps %}
-        <h6 class="mt-3">Intelligence gaps</h6>
+        <div class="fw-semibold small mt-3 mb-1">Intelligence gaps</div>
         <div class="report-md-body" data-md="{{ fia.intelligence_gaps | e }}"></div>
         {% endif %}
         {% if fia.feedback_deadline %}
@@ -130,62 +241,10 @@
     </div>
   </div>
 
-  <div class="col-md-4">
-    <div class="card content-card mb-3">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <strong>Metadata</strong>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                data-bs-toggle="modal" data-bs-target="#recipientsModal"
-                title="Preview recipients">
-          <i class="fas fa-users me-1"></i> Recipients
-        </button>
-      </div>
-      <div class="card-body">
-        <dl class="row small mb-0">
-          <dt class="col-5">FIA</dt>
-          <dd class="col-7">{{ fia.fia_id }}</dd>
-          <dt class="col-5">Audience</dt>
-          <dd class="col-7">{{ fia.audience or '-' }}</dd>
-          <dt class="col-5">Author</dt>
-          <dd class="col-7">{{ fia.author or '-' }}</dd>
-          <dt class="col-5">Created</dt>
-          <dd class="col-7">{{ fia.created_at.strftime('%Y-%m-%d %H:%M UTC') if fia.created_at else '-' }}</dd>
-          <dt class="col-5">Created by</dt>
-          <dd class="col-7">{{ fia.creator or '-' }}</dd>
-          {% if fia.approved_by %}
-          <dt class="col-5">Approved by</dt>
-          <dd class="col-7">{{ fia.approved_by }}</dd>
-          {% endif %}
-          {% if notify_status %}
-          <dt class="col-5">Last notification</dt>
-          <dd class="col-7">
-            <span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span>
-            <span class="text-muted">{{ notify_status.timestamp }}</span>
-            {% if notify_status.details %}<div class="text-muted" style="font-size:.78rem;">{{ notify_status.details }}</div>{% endif %}
-          </dd>
-          {% endif %}
-          {% if fia.feedback_deadline %}
-          <dt class="col-5">Feedback by</dt>
-          <dd class="col-7">{{ fia.feedback_deadline.strftime('%d-%m-%Y') }}</dd>
-          {% endif %}
-        </dl>
-        {% if fia.rejection_reason %}
-        <hr>
-        <p class="mb-0 small text-danger"><strong>Rejection reason:</strong><br>{{ fia.rejection_reason }}</p>
-        {% endif %}
-        {% if fia.history_url %}
-        <p class="mb-0 mt-2 small">
-          <a href="{{ fia.history_url }}" target="_blank" rel="noopener" class="text-decoration-none">
-            <i class="fas fa-clock-rotate-left me-1"></i>MISP event history
-          </a>
-        </p>
-        {% endif %}
-      </div>
-    </div>
-
+  <div class="col-lg-4">
     {% if fia.review_state in ('draft', 'pending-review') %}
     <div class="card content-card mb-3">
-      <div class="card-header"><strong>Review actions</strong></div>
+      <div class="card-header"><i class="fas fa-gavel me-2"></i>Review</div>
       <div class="card-body">
         <div class="qa-review-block">
           <button type="button" class="btn btn-outline-info w-100 mb-2 qa-review-btn"
@@ -319,46 +378,6 @@
       </div>
     </div>
 
-    <div class="d-flex gap-2 mb-2">
-      {% if fia.review_state == 'approved' %}
-      <span title="Published alerts cannot be edited" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-pen me-1"></i> Edit
-        </button>
-      </span>
-      {% else %}
-      <a href="{{ url_for('flash_intel.wizard_edit', id=fia.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
-      {% endif %}
-      {% if fia.review_state == 'approved' %}
-      <span title="Published alerts cannot be deleted" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-trash me-1"></i> Delete FIA
-        </button>
-      </span>
-      {% else %}
-      <form method="post" action="{{ url_for('flash_intel.delete', id=fia.uuid) }}"
-            data-submit-confirm="Delete {{ fia.fia_id }}?{{ read_again_note(fia.review_state) }}" class="flex-fill">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete FIA
-        </button>
-      </form>
-      {% endif %}
-    </div>
-
-    {% if fia.review_state == 'approved' %}
-    <div class="mb-2">
-      <form method="post" action="{{ url_for('flash_intel.resend', id=fia.uuid) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="next" value="detail">
-        <button class="btn btn-sm btn-outline-primary w-100" title="Resend to stakeholders">
-          <i class="fas fa-paper-plane me-1"></i> Resend
-        </button>
-      </form>
-    </div>
-    {% endif %}
   </div>
 </div>
 

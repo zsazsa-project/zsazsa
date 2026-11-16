@@ -101,11 +101,18 @@ class BriefingComposeForm(unittest.TestCase):
                          self.story_count())
         self.assertEqual(self.visible_pane(), "pane-story-1")
 
-    def test_only_one_pane_is_ever_on_screen(self):
-        for pane in ("details", "summary", "story-1"):
+    def test_only_one_story_is_ever_on_screen(self):
+        for pane in ("story-2", "story-1"):
             self.open_pane(pane)
             self.assertEqual(self.page.locator(".wb-pane.active").count(), 1)
             self.assertEqual(self.visible_pane(), f"pane-{pane}")
+
+    def test_the_details_and_the_summary_are_always_on_screen(self):
+        """Numbered cards above the stories, as on the other forms, rather than
+        panes the rail has to open."""
+        self.open_pane("story-1")
+        for card in ("#step-details", "#step-summary", "#step-scope", "#step-notes"):
+            self.assertTrue(self.page.locator(card).is_visible(), card)
 
     def test_deleting_the_open_story_opens_the_one_that_took_its_place(self):
         self.open_pane("story-2")
@@ -114,12 +121,13 @@ class BriefingComposeForm(unittest.TestCase):
         self.assertEqual(self.story_count(), before - 1)
         self.assertEqual(self.visible_pane(), "pane-story-2")
 
-    def test_deleting_the_last_story_falls_back_to_the_briefing_details(self):
+    def test_deleting_the_last_story_says_how_to_add_one(self):
         while self.story_count():
             self.page.locator("#rail-stories .wb-item").first.click()
             self.page.wait_for_timeout(150)
             self.remove_open_story()
-        self.assertEqual(self.visible_pane(), "pane-details")
+        self.assertIsNone(self.visible_pane())
+        self.assertTrue(self.page.locator(".wb-empty").is_visible())
         self.assertEqual(self.page.locator("#count-stories").inner_text(), "0")
 
     def test_ticked_stories_are_deleted_together(self):
@@ -183,7 +191,6 @@ class BriefingComposeForm(unittest.TestCase):
     # ── the summary and its staleness ────────────────────────────────────────
 
     def test_changing_a_story_marks_an_existing_summary_out_of_date(self):
-        self.open_pane("summary")
         self.page.locator("#briefing-summary").fill("A summary written earlier.")
         self.open_pane("story-1")
         self.page.locator("#pane-story-1 .story-content").first.type(" x")
@@ -191,7 +198,6 @@ class BriefingComposeForm(unittest.TestCase):
         self.assertEqual(self.page.locator("#summary-stale").input_value(), "true")
 
     def test_an_empty_summary_never_goes_out_of_date(self):
-        self.open_pane("summary")
         self.page.locator("#briefing-summary").fill("")
         self.open_pane("story-1")
         self.page.locator("#pane-story-1 .story-content").first.type(" x")
@@ -200,7 +206,6 @@ class BriefingComposeForm(unittest.TestCase):
 
     def test_rewriting_the_summary_clears_the_warning(self):
         self.page.evaluate("() => setSummaryStale(true)")
-        self.open_pane("summary")
         self.assertTrue(self.page.locator("#summary-stale-warning").is_visible())
         self.page.locator("#briefing-summary").type(" reworded")
         self.page.wait_for_timeout(200)
@@ -208,7 +213,7 @@ class BriefingComposeForm(unittest.TestCase):
         self.assertFalse(self.page.locator("#summary-stale-warning").is_visible())
 
     def test_both_draft_buttons_go_quiet_while_one_is_running(self):
-        """The action sits in the shell and on the pane. Leaving the other live
+        """The action sits in the AI assistance card and on the summary. Leaving the other live
         starts a second model call over the same stories."""
         self.page.route("**/api/draft-briefing-summary", lambda route: route.fulfill(
             status=200, content_type="application/json",
@@ -287,7 +292,7 @@ class BriefingComposeForm(unittest.TestCase):
         self.assertEqual(self.visible_pane(), "pane-story-2")
         self.page.keyboard.press("Home")
         self.page.wait_for_timeout(150)
-        self.assertEqual(self.visible_pane(), "pane-details")
+        self.assertEqual(self.visible_pane(), "pane-story-1")
 
     def test_arrow_keys_inside_a_field_still_move_the_caret(self):
         """The tablist must not swallow arrows meant for the text being typed."""

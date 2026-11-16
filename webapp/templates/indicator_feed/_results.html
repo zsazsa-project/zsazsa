@@ -5,14 +5,15 @@
    Sorting is client-side (see _query_js.html) so re-sorting never re-queries
    MISP. Rows arrive sorted by attribute timestamp, newest first. #}
 {% from "_macros.html" import feed_downloads %}
-<div id="results-stale" class="alert alert-warning d-none mt-4 mb-0 d-flex align-items-center gap-2">
+<div id="results-stale" class="alert alert-warning d-none mb-3 d-flex align-items-center gap-2">
   <i class="fas fa-triangle-exclamation"></i>
   <span>Filters changed, these results may be outdated.</span>
 </div>
-<div class="card content-card mt-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span>
-      <i class="fas fa-table me-2"></i>
+<div class="card content-card form-step mb-4" id="step-results">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="d-flex align-items-center flex-wrap">
+      <span class="step-num">4</span><span class="me-2">Indicators</span>
+      <span>
       {% if error %}
       <span class="badge bg-danger-subtle text-danger-emphasis fw-normal" title="{{ error }}">
         <i class="fas fa-triangle-exclamation me-1"></i>search failed
@@ -41,6 +42,7 @@
         <i class="fas fa-bolt me-1"></i>live
       </span>
       {% endif %}
+      </span>
     </span>
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-sm btn-outline-primary" title="Run the query again">
@@ -66,23 +68,23 @@
       <table class="table table-hover zsazsa-table mb-0" id="results-table" style="font-size:.725rem;">
         <thead>
           <tr>
-            <th data-sort="0">Server <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
-            <th data-sort="1" data-numeric="1">Event ID <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
-            <th data-sort="2">Event title <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
-            <th data-sort="3">Creator org <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
+            {# Sorting is by cell index, so a column moved here keeps its data-sort
+               in step. The value comes early, so a long event title does not
+               push it out of view. #}
+            <th data-sort="0" data-numeric="1">Event ID <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
+            <th data-sort="1">Event title <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
+            <th data-sort="2">Creator org <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
+            <th data-sort="3">Value <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
             <th data-sort="4">Event date <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
             <th data-sort="5" data-numeric="1" data-dir="desc">Attribute timestamp <i class="fas fa-sort-down fa-xs sort-ind"></i></th>
             <th data-sort="6">Type <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
             <th>to_ids</th>
-            {# Sorting is by cell index, so Value keeps step with the column
-               inserted before it. #}
-            <th data-sort="8">Value <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
+            <th data-sort="8">Server <i class="fas fa-sort fa-xs sort-idle sort-ind"></i></th>
           </tr>
         </thead>
         <tbody>
           {% for r in rows %}
           <tr>
-            <td class="text-muted">{{ r.server_label }}</td>
             <td style="white-space:nowrap;">
               {% if r.event_url %}<a href="{{ r.event_url }}" target="_blank" rel="noopener" class="text-decoration-none">{{ r.event_id }}</a>
               {% else %}{{ r.event_id }}{% endif %}
@@ -93,7 +95,7 @@
                       data-field="events_exclude" data-value="{{ r.event_uuid }}"><i class="fas fa-circle-minus"></i></button>
               {% endif %}
             </td>
-            <td class="text-truncate" style="max-width:240px;" title="{{ r.event_title }}">{{ r.event_title }}</td>
+            <td class="text-truncate" style="max-width:200px;" title="{{ r.event_title }}">{{ r.event_title }}</td>
             <td class="text-muted" style="white-space:nowrap;">
               {{ r.creator_org }}
               {% if r.creator_org %}
@@ -103,6 +105,8 @@
                       data-field="orgs_exclude" data-value="{{ r.creator_org }}"><i class="fas fa-circle-minus"></i></button>
               {% endif %}
             </td>
+            <td style="min-width:10rem;max-width:22rem;word-break:break-all;"><strong>{{ r.value }}</strong></td>
+
             <td class="text-muted">{{ r.event_date }}</td>
             <td class="text-muted" data-v="{{ r._ts }}">{{ r.attribute_timestamp }}</td>
             <td><span class="badge text-bg-light text-muted">{{ r.type }}</span></td>
@@ -110,7 +114,7 @@
               {% if r.to_ids %}<i class="fas fa-check text-success" title="to_ids"></i>
               {% else %}<i class="fas fa-xmark text-muted" title="not to_ids"></i>{% endif %}
             </td>
-            <td><strong>{{ r.value }}</strong></td>
+            <td class="text-muted">{{ r.server_label }}</td>
           </tr>
           {% endfor %}
         </tbody>

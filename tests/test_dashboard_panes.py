@@ -4,7 +4,10 @@ and what loading them asks of MISP. Above them, the products waiting for a
 review or still a draft, per kind, which the scheduled analyser's alerts would
 otherwise wait unseen in.
 
-Each pane still shows everything it did before it had charts: the rows, their
+What waits on the analyst (the email sources, the products to review and
+those awaiting feedback) is one card, or says that nothing does, and the
+four counts are one strip of links to their lists, named in the singular for
+one. Each pane still shows everything it did before it had charts: the rows, their
 numbers and links, and an empty state. The requirement panes add the mix of
 priorities or review cycles. A load reads the alerts once for the two panes
 that use them and the advisories once for the two that use those, counts
@@ -16,6 +19,7 @@ autospec of PyMISP, and the database and log are temporary.
     python -m unittest tests.test_dashboard_panes
 """
 
+import datetime
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,11 +76,37 @@ class Panes(unittest.TestCase):
         with self.app.test_request_context("/"):
             lists = [url_for(e) for e in ("stakeholders.list", "requirements.pir_list", "requirements.gir_list",
                                           "rfi.rfi_list")]
-        cards = page.select(".stat-card")
+        cards = page.select(".count-strip a")
         self.assertEqual([self.text(c) for c in cards],
                          ["4 Stakeholders", "3 Priority Intelligence Requirements",
                           "2 General Intelligence Requirements", "5 Requests for Information"])
-        self.assertEqual([c.select_one("a.stat-label")["href"] for c in cards], lists)
+        self.assertEqual([c["href"] for c in cards], lists)
+
+    def test_one_of_each_is_not_called_many(self):
+        page = self.render(stakeholder_count=1, pir_count=1, gir_count=1, rfi_count=1)
+        self.assertEqual([self.text(c) for c in page.select(".count-strip a")],
+                         ["1 Stakeholder", "1 Priority Intelligence Requirement",
+                          "1 General Intelligence Requirement", "1 Request for Information"])
+
+    def test_what_waits_is_one_card(self):
+        """The email sources, the products to review and those awaiting feedback,
+        which were a banner and two cards of their own."""
+        rows = [SimpleNamespace(kind="briefing", review=0, drafts=5, total=5)]
+        feedback = [SimpleNamespace(kind="flash-intel", uuid="u1", product_id="FIA-1", title="Alert",
+                                    overdue=True, days_left=-3, deadline=datetime.date(2026, 6, 17))]
+        card = self.render(pending_email_sources=46, oldest_email_source="2026-06-28", to_review=rows,
+                           pending_feedback=feedback).select_one("#waiting-on-you")
+        items = card.select(".needs > li")
+        self.assertEqual(len(items), 3)
+        self.assertIn("46 email sources", self.text(items[0]))
+        self.assertIn("the oldest since 2026-06-28", self.text(items[0]))
+        self.assertEqual(items[1]["id"], "products-to-review")
+        self.assertIn("Overdue 3d", self.text(items[2]))
+
+    def test_when_nothing_waits_the_card_says_so(self):
+        card = self.render(pending_email_sources=0, to_review=[], pending_feedback=[]).select_one("#waiting-on-you")
+        self.assertIsNone(card.select_one(".needs"))
+        self.assertIn("Nothing waits on you", self.text(card))
 
     def test_active_pirs_with_their_priority_mix(self):
         pirs = [_pir(1, "Must have"), _pir(2, "Should have", "In Development"), _pir(3, "Should have")]
@@ -148,6 +178,26 @@ class Panes(unittest.TestCase):
 
     def test_nothing_is_shown_when_nothing_waits(self):
         self.assertIsNone(self.render(to_review=[]).select_one("#products-to-review"))
+
+
+class Shell(unittest.TestCase):
+    """The page that loads the panes."""
+
+    setUp = Panes.setUp
+
+    def shell(self):
+        with self.app.test_request_context("/"):
+            return render_template("dashboard.html")
+
+    def test_what_waits_has_its_place_beside_the_pipeline(self):
+        page = BeautifulSoup(self.shell(), "html.parser")
+        row = page.select_one("#waiting-slot").find_parent(class_="row")
+        self.assertIsNotNone(row.select_one("#pipeline-stats-mount"))
+        self.assertEqual([h.get_text() for h in page.select(".dash-head h2")], ["Start something"])
+
+    def test_a_failed_load_stops_both_spinners(self):
+        """The slot beside the pipeline kept its spinner when the panes did not come."""
+        self.assertIn("[mount, document.querySelector('#waiting-slot .card-body')].forEach", self.shell())
 
 
 class Loading(unittest.TestCase):

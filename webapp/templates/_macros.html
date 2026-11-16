@@ -58,6 +58,7 @@
 {# Build an ordered list with case-insensitive dedup.
    Selected items come first, using the canonical galaxy casing where possible.
    Then unmatched stored values (no canonical equivalent), then remaining items. #}
+{% set values = values | galaxy_values(items) %}
 {% set values_lower = values | map('lower') | list %}
 {% set ordered = [] %}
 {% set ordered_lower = [] %}
@@ -93,34 +94,18 @@
 {% endmacro %}
 
 
-{% macro audience_badges(audience) %}
-{# The roles a product is for, under its title on the product lists. #}
-{% if audience %}
+{% macro audience_badges(audience, limit=None) %}
+{# The roles a product is for, under its title on the product lists. A list
+   passes ``limit`` so a product for every role does not make its row tall. #}
+{% set roles = (audience or '').split(',') | map('trim') | select | list %}
+{% if roles %}
 <div class="mt-1">
-  {% for role in audience.split(',') if role.strip() %}
-  <span class="badge chip-source" style="font-size:.63rem;">{{ role.strip() }}</span>
+  {% for role in roles[:limit] %}
+  <span class="badge chip-source" style="font-size:.63rem;">{{ role }}</span>
   {% endfor %}
+  {% if limit and roles | length > limit %}<span class="text-muted small" title="{{ roles[limit:] | join(', ') }}">+{{ roles | length - limit }} more</span>{% endif %}
 </div>
 {% endif %}
-{% endmacro %}
-
-{% macro product_identity(icon, label, product_id, source_count, review_state, tlp) %}
-{# The strip above a product wizard: what is being written and where it stands.
-   Read-only, mirroring fields that stay in the form below it. Include
-   _tlp_mirror_js.html to keep the badge in step with the form's TLP select. #}
-<div class="action-panel mb-3">
-  <div class="action-panel-head" style="padding:.5rem .9rem;">
-    <span class="action-panel-title"><i class="fas {{ icon }} me-1"></i>
-      {{ label }}{% if product_id %} {{ product_id }}{% endif %}
-    </span>
-    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end" style="font-size:.78rem;">
-      <span class="zs-counter"><strong>{{ source_count }}</strong> source events</span>
-      <span class="zs-sep">·</span>
-      {{ review_state_badge(review_state) }}
-      <span class="tlp-badge tlp-mirror tlp-{{ tlp }}">TLP:{{ tlp | upper }}</span>
-    </div>
-  </div>
-</div>
 {% endmacro %}
 
 {% macro story_scope(story, chip_class='scope-chip') %}
@@ -286,4 +271,46 @@
   {% endfor %}
 </ol>
 {% if note %}<p class="small text-muted mb-0 mt-2">{{ note }}</p>{% endif %}
+{% endmacro %}
+
+{# A daily briefing's date (YYYY-MM-DD) as a calendar leaf: the month on a band
+   in the colour of its review state ('draft', 'rejected', or published), the
+   day under it. #}
+{% macro date_leaf(date, state='') -%}
+{%- set parts = (date or '').split('-') -%}
+{%- set month = parts[1] | int if parts | length == 3 else 0 -%}
+<span class="date-leaf {{ state }}" aria-hidden="true"><b>{{ ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1] if 1 <= month <= 12 else '' }}</b><span>{{ parts[2] | int if parts | length == 3 else '?' }}</span></span>
+{%- endmacro %}
+
+{# The last delivery of a product, one line per step of its trail. The trail is
+   the audit entry notify_jobs writes, its messages joined with "; ". #}
+{% macro notify_card(status, resend_url='') %}
+<div class="card content-card mb-3" id="notify-card">
+  <div class="card-header"><i class="fas fa-bell me-2"></i>Last notification</div>
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <span class="badge bg-{{ status.tone }}">{{ status.label }}</span>
+      <span class="small text-muted">{{ status.timestamp }}</span>
+    </div>
+    {% if status.details %}
+    <ul class="list-unstyled small mb-2 notify-trail">
+      {% for line in status.details.split('; ') if line.strip() %}
+      {% set bad = 'fail' in line.lower() or 'could not' in line.lower() or 'error' in line.lower() %}
+      <li title="{{ line }}"><i class="fas {{ 'fa-xmark text-danger' if bad else 'fa-check text-success' }} me-2"></i>{{ line | truncate(110) }}</li>
+      {% endfor %}
+    </ul>
+    {% if status.details | length > 200 %}
+    <details class="small mb-2"><summary class="text-muted">The full message</summary>
+      <div class="mt-1 text-muted" style="word-break:break-word;">{{ status.details }}</div></details>
+    {% endif %}
+    {% endif %}
+    {% if resend_url %}
+    <form method="post" action="{{ resend_url }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="detail">
+      <button class="btn btn-sm btn-outline-primary w-100 mt-1"><i class="fas fa-paper-plane me-1"></i> Resend</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
 {% endmacro %}

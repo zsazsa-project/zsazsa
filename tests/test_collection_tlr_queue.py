@@ -113,7 +113,9 @@ class QueueSelection(unittest.TestCase):
         self.assertIn("reloadTable(d.message, d.ok ? 'success' : 'warning', true)", script)
         self.assertIn("if (clearSelection) clearEventSelection();", script)
         self.assertIn("clearSelection: !!clearSelection", script)
-        self.assertIn("if (note.clearSelection) clearEventSelection();", script)
+        # After the reload the selection is the one the note kept: none when cleared.
+        self.assertIn("selected: clearSelection ? [] : getSelectedEvents()", script)
+        self.assertIn("clearEventSelection();\n      (note.selected || []).forEach", script)
         clear = script.split("function clearEventSelection() {", 1)[1].split(
             "document.querySelectorAll('.event-row-cb').forEach(function(cb) { cb.addEventListener", 1
         )[0]

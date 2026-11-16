@@ -15,142 +15,47 @@
 </div>
 {% endif %}
 
-{# Action bar: quick-action tiles (left) and collection-pipeline controls (right). #}
-<style>
-  /* Shared panel look lives in app.css; the two panels sit side by side here,
-     so they stretch to a common height. No overflow clipping: the Start
-     analyser menu drops out of the panel and would be cut off at its edge. */
-  .action-bar { margin-bottom: 1.5rem; }
-  .action-panel {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-  .action-panel-head { padding: .65rem .9rem; }
-  .action-panel-body { padding: .9rem; flex: 1; }
+{# Four sections, each answering one question: what to start, what waits on
+   the analyst, how the program stands and where its intelligence comes from.
+   The shell paints the first two straight away; the data arrives after. #}
+<div class="dash-head"><h2>Start something</h2><span class="rule"></span></div>
+<div class="quick-tiles rise mb-4">
+  {% for label, sub, icon, color, href in [
+       ('Review data collection', 'Triage incoming events', 'fa-layer-group', 'var(--accent-blue)', url_for('data_collection.index')),
+       ('Add news story', 'Capture a source manually', 'fa-newspaper', 'var(--accent-green)', url_for('data_collection.manual_new')),
+       ('New RFI', 'Log a request for information', 'fa-circle-question', 'var(--accent-orange)', url_for('rfi.rfi_new')),
+       ('New PIR', 'Define an intelligence requirement', 'fa-star', 'var(--accent-purple)', url_for('requirements.pir_new'))] %}
+  <a href="{{ href }}" class="quick-tile" style="--t:{{ color }};">
+    <span class="ico" aria-hidden="true"><i class="fas {{ icon }}"></i></span>
+    <span><b>{{ label }}</b><small>{{ sub }}</small></span>
+  </a>
+  {% endfor %}
+</div>
 
-  /* Primary action tiles (left, 75%) */
-  .action-tiles { display: flex; flex-wrap: wrap; gap: .75rem; }
-  .action-tile {
-    flex: 1 1 180px;
-    display: flex;
-    align-items: center;
-    gap: .8rem;
-    padding: .9rem 1rem;
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border-light);
-    background: var(--surface-muted);
-    text-decoration: none;
-    color: var(--text-primary);
-    transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease;
-  }
-  .action-tile:hover {
-    transform: translateY(-2px);
-    background: var(--card-bg);
-    border-color: var(--tile-accent);
-    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--tile-accent) 55%, transparent);
-  }
-  .action-tile-icon {
-    flex-shrink: 0;
-    width: 42px; height: 42px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 10px;
-    font-size: 1.05rem;
-    color: #fff;
-    background: var(--tile-accent);
-    box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--tile-accent) 70%, transparent);
-  }
-  .action-tile-text { display: flex; flex-direction: column; line-height: 1.2; }
-  .action-tile-label { font-weight: 600; font-size: .95rem; }
-  .action-tile-sub { font-size: .76rem; color: var(--text-muted); margin-top: 1px; }
-
-  /* Pipeline panel (right, 25%) */
-  .pipeline-actions { display: flex; flex-wrap: nowrap; gap: .35rem; }
-  .pipeline-actions .btn-group { flex: 0 1 auto; }
-  .pipeline-actions .btn {
-    padding: .2rem .5rem;
-    font-size: .72rem;
-    white-space: nowrap;
-  }
-  .pipeline-dot {
-    display: inline-flex; align-items: center; gap: .35rem;
-    font-size: .72rem; font-weight: 600;
-  }
-  .pipeline-dot::before {
-    content: ""; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent-green);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-green) 22%, transparent);
-  }
-  .pipeline-stats {
-    margin-top: .75rem;
-    padding-top: .65rem;
-    border-top: 1px solid var(--border-faint);
-    display: flex; flex-wrap: wrap; gap: .2rem .9rem;
-    font-size: .78rem;
-  }
-  .pipeline-stat { display: inline-flex; align-items: baseline; gap: .3rem; white-space: nowrap; }
-  .pipeline-stat .label { color: var(--text-muted); }
-  .pipeline-stat .value { font-weight: 600; }
-  .pipeline-stat.full { flex-basis: 100%; }
-  .pipeline-stat .sub { color: var(--text-muted); font-weight: 400; font-size: .72rem; }
-
-  @media (max-width: 575.98px) {
-    .action-tiles { flex-direction: column; }
-  }
-</style>
-
-<div class="row g-3 action-bar">
-  <!-- Left 75%: primary actions -->
-  <div class="col-lg-9">
-    <div class="action-panel">
-      <div class="action-panel-head">
-        <span class="action-panel-title"><i class="fas fa-bolt me-1"></i> Quick actions</span>
-      </div>
-      <div class="action-panel-body">
-        <div class="action-tiles">
-          <a href="{{ url_for('data_collection.index') }}" class="action-tile" style="--tile-accent: var(--accent-blue);">
-            <span class="action-tile-icon"><i class="fas fa-layer-group"></i></span>
-            <span class="action-tile-text">
-              <span class="action-tile-label">Review data collection</span>
-              <span class="action-tile-sub">Triage incoming events</span>
-            </span>
-          </a>
-          <a href="{{ url_for('data_collection.manual_new') }}" class="action-tile" style="--tile-accent: var(--accent-green);">
-            <span class="action-tile-icon"><i class="fas fa-newspaper"></i></span>
-            <span class="action-tile-text">
-              <span class="action-tile-label">Add news story</span>
-              <span class="action-tile-sub">Capture a source manually</span>
-            </span>
-          </a>
-          <a href="{{ url_for('rfi.rfi_new') }}" class="action-tile" style="--tile-accent: var(--accent-orange);">
-            <span class="action-tile-icon"><i class="fas fa-circle-question"></i></span>
-            <span class="action-tile-text">
-              <span class="action-tile-label">New RFI</span>
-              <span class="action-tile-sub">Log a request for information</span>
-            </span>
-          </a>
-          <a href="{{ url_for('requirements.pir_new') }}" class="action-tile" style="--tile-accent: #7c5cd6;">
-            <span class="action-tile-icon"><i class="fas fa-star"></i></span>
-            <span class="action-tile-text">
-              <span class="action-tile-label">New PIR</span>
-              <span class="action-tile-sub">Define an intelligence requirement</span>
-            </span>
-          </a>
-        </div>
+<div class="row g-4">
+  <div class="col-lg-8" id="waiting-slot">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-inbox me-2"></i>Waiting on you</div>
+      <div class="card-body text-center text-muted py-4">
+        <i class="fas fa-circle-notch fa-spin"></i>
+        <div class="small mt-2">Loading…</div>
       </div>
     </div>
   </div>
 
-  <!-- Right 25%: collection pipeline -->
-  <div class="col-lg-3">
-    <div class="action-panel">
-      <div class="action-panel-head">
-        <span class="action-panel-title"><i class="fas fa-arrows-rotate me-1"></i> Collection pipeline</span>
+  <div class="col-lg-4">
+    {# No overflow clipping: the Start analyser menu drops out of the card. #}
+    <div class="card content-card rise rise-1">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fas fa-arrows-rotate me-2"></i>Collection pipeline</span>
         <span id="pipeline-health"></span>
       </div>
-      <div class="action-panel-body">
-        <div class="pipeline-actions">
-          <div class="btn-group">
+      <div class="card-body d-flex flex-column gap-3">
+        <div id="pipeline-stats-mount" class="pipe-legs">
+          <div class="leg"><i></i>Last run<small>&hellip;</small></div>
+        </div>
+        <div class="pipeline-actions d-flex flex-wrap gap-2">
+          <div class="btn-group flex-grow-1">
             <button class="btn btn-sm btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown"
                     data-bs-auto-close="outside" aria-expanded="false">
               <i class="fas fa-play me-1"></i> Start analyser
@@ -176,18 +81,15 @@
             <i class="fas fa-clock-rotate-left me-1"></i> History
           </a>
         </div>
-        <div id="pipeline-action-status" class="alert alert-info py-1 px-2 mt-2 mb-0 small d-none" role="status"></div>
-        <div id="pipeline-stats-mount" class="pipeline-stats">
-          <div class="pipeline-stat"><span class="label">Last run</span><span class="value text-muted">&hellip;</span></div>
-        </div>
+        <div id="pipeline-action-status" class="alert alert-info py-1 px-2 mb-0 small d-none" role="status"></div>
       </div>
     </div>
   </div>
 </div>
 
-{# Data-dependent sections load asynchronously so the action bar paints
+{# Data-dependent sections load asynchronously so the shell paints
    immediately; see /dashboard/widgets and the loader script below. #}
-<div id="dashboard-data">
+<div id="dashboard-data" class="mt-4">
   <div class="text-center text-muted py-5">
     <i class="fas fa-circle-notch fa-spin fa-lg"></i>
     <div class="small mt-2">Loading dashboard…</div>
@@ -497,30 +399,35 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
     return Math.round(mins / 1440) + 'd ago';
   }
 
+  function leg(state, name, value, title) {
+    var el = document.createElement('div');
+    el.className = 'leg' + (state ? ' ' + state : '');
+    if (title) el.title = title;
+    var small = document.createElement('small');
+    small.textContent = value;
+    el.append(document.createElement('i'), name, small);
+    return el;
+  }
+
   function renderPipeline(p) {
     if (!p) return;
     if (healthEl) {
-      if (p.has_run && !p.stale) {
-        healthEl.innerHTML = '<span class="pipeline-dot text-success">Healthy</span>';
-      } else if (p.has_run && p.stale) {
-        healthEl.innerHTML = '<span class="pipeline-dot text-warning" style="--accent-green: var(--accent-orange);">Stale</span>';
-      } else {
-        healthEl.innerHTML = '<span class="text-muted small">No runs yet</span>';
-      }
+      var badge = document.createElement('span');
+      if (p.has_run && !p.stale) { badge.className = 'badge bg-success'; badge.textContent = 'healthy'; }
+      else if (p.has_run) { badge.className = 'badge bg-warning text-dark'; badge.textContent = 'stale'; }
+      else { badge.className = 'small text-muted'; badge.textContent = 'No runs yet'; }
+      healthEl.replaceChildren(badge);
     }
     if (statsEl) {
       var pr = p.processed_24h || {};
       var errors = (pr.http_error || 0) + (pr.no_content || 0) + (pr.error || 0);
-      var lastRun = p.has_run ? humanizeMinutes(p.minutes_since) : 'never';
-      var pending = (p.pending === null || p.pending === undefined) ? '-' : p.pending;
-      statsEl.innerHTML =
-        '<div class="pipeline-stat"><span class="label">Last run</span>'
-        + '<span class="value" title="' + (p.last_run_title || '') + '">' + lastRun + '</span></div>'
-        + '<div class="pipeline-stat" title="Scraper events still incomplete that the analyser has not judged yet">'
-        + '<span class="label">Pending</span><span class="value">' + pending + '</span></div>'
-        + '<div class="pipeline-stat"><span class="label">Processed 24h</span><span class="value">' + (p.total_24h || 0) + '</span></div>'
-        + '<div class="pipeline-stat full"><span class="sub">' + (pr.product_created || 0) + ' product, '
-        + (pr.not_relevant || 0) + ' skipped, ' + errors + ' errors</span></div>';
+      var pending = (p.pending === null || p.pending === undefined) ? '-' : p.pending + ' events';
+      statsEl.replaceChildren(
+        leg(!p.has_run || p.stale ? 'off' : 'done', 'Last run', p.has_run ? humanizeMinutes(p.minutes_since) : 'never', p.last_run_title || ''),
+        leg('', 'Pending', pending, 'Scraper events still incomplete that the analyser has not judged yet'),
+        leg(p.total_24h ? 'done' : '', 'Processed, 24h', (p.total_24h || 0) + ' events'),
+        leg(errors ? 'off' : 'done', 'Outcome', (pr.product_created || 0) + ' product · ' + (pr.not_relevant || 0)
+            + ' skipped · ' + errors + ' error' + (errors === 1 ? '' : 's')));
     }
   }
 
@@ -528,6 +435,10 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (mount && data.html) mount.innerHTML = data.html;
+      // Waiting on you sits beside the collection pipeline.
+      var waiting = mount && mount.querySelector('#waiting-on-you');
+      var slot = document.getElementById('waiting-slot');
+      if (waiting && slot) slot.replaceChildren(waiting);
       renderPipeline(data.pipeline);
       // Native title tooltips on chart bars are fine; init Bootstrap tooltips
       // for any info icons that arrived with the fragment.
@@ -538,9 +449,14 @@ document.querySelectorAll('.analyser-info-icon').forEach(function(el) {
       }
     })
     .catch(function(err) {
-      if (mount) {
-        mount.innerHTML = '<div class="alert alert-warning">Could not load dashboard data: ' + err + '</div>';
-      }
+      // Both places that wait for the data say it did not come.
+      [mount, document.querySelector('#waiting-slot .card-body')].forEach(function(el) {
+        if (!el) return;
+        var alert = document.createElement('div');
+        alert.className = 'alert alert-warning mb-0';
+        alert.textContent = 'Could not load dashboard data: ' + err;
+        el.replaceChildren(alert);
+      });
     });
 })();
 </script>

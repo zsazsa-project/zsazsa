@@ -1,0 +1,7 @@
+{# Under the scope items of a PIR or GIR (``record``): what it leaves out. #}
+{% if record.out_of_scope %}
+<div class="fp-out">
+  <span class="fp-category fp-cat-out">Out of scope</span>
+  <span class="d-flex flex-wrap gap-1">{% for v in record.out_of_scope %}<span class="source-tag scope-out">{{ v }}</span>{% endfor %}</span>
+</div>
+{% endif %}

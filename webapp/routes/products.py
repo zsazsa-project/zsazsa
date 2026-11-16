@@ -14,7 +14,8 @@ import config
 from webapp import misp_store
 from webapp.models import cti_products
 from webapp.utils import (
-    PRODUCT_TAG_PREFIX, product_detail_url, product_type_label, product_type_tag_value,
+    PRODUCT_TAG_PREFIX, ordered_counts, product_detail_url, product_list_url, product_type_label,
+    product_type_tag_value, record_title, TLP_NAMES,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,15 @@ def _product_type_from_tags(tags):
         if t.startswith(PRODUCT_TAG_PREFIX):
             return product_type_label(t.split('=', 1)[1].strip('"'))
     return ""
+
+
+def _tag_columns(tags):
+    """The TLP and the workflow state read out of a product's tags, and the
+    tags left over once those and the product tag are taken out."""
+    tlp = next((t[4:].upper() for t in tags if t.lower().startswith("tlp:")), "")
+    state = next((t.split("=", 1)[1].strip('"') for t in tags if t.startswith("workflow:state=")), "")
+    rest = [t for t in tags if not t.lower().startswith(("tlp:", "workflow:state=", PRODUCT_TAG_PREFIX))]
+    return tlp, state, rest
 
 
 # An indicator feed keeps a query, not a write-up, so it never carries an event
@@ -77,12 +87,18 @@ def _list_product_events(type_filter: str | None, linked_pir=None):
         if linked_pir and not (linked_pir.uuid in misp_store.linked_pir_uuids(e)
                                or linked_pir.pir_id in (e.info or "")):
             continue
+        tlp, state, other_tags = _tag_columns(ev_tags)
         rows.append({
             "uuid": e.uuid,
             "id": e.id,
             "info": e.info or '',
+            # The products are listed by type, so the type in front of the title says nothing.
+            "title": record_title(e.info),
             "date": str(e.date) if e.date else '',
             "tags": ev_tags,
+            "tlp": tlp,
+            "workflow": state,
+            "other_tags": other_tags,
             "product_type": ptype,
             "report_count": None if ptype in _PRODUCTS_WITHOUT_REPORTS
             else _non_feedback_report_count(misp, e),
@@ -113,6 +129,10 @@ def index():
         "products/list.html",
         events=events,
         grouped=grouped,
+        list_urls={ptype: product_list_url(ptype) for ptype in grouped},
+        workflow_counts=ordered_counts((ev["workflow"] or "no tag" for ev in events),
+                                       ["draft", "ongoing", "complete", "rejected"]),
+        tlp_counts=ordered_counts((ev["tlp"] or "none" for ev in events), TLP_NAMES),
         type_counter=type_counter,
         product_types=cti_products(),
         pirs=pirs,

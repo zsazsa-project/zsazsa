@@ -74,17 +74,21 @@
 </div>
 {% endif %}
 
-{% if pending_email_sources %}
-<a href="{{ url_for('data_collection.newsletter_pending') }}"
-   class="alert alert-warning d-flex align-items-center justify-content-between text-decoration-none mb-4">
-  <span class="text-dark">
-    <i class="fas fa-inbox me-2"></i>
-    {{ pending_email_sources }} email source{{ 's' if pending_email_sources != 1 }} awaiting review
-  </span>
-  <span class="btn btn-sm btn-warning">Review</span>
-</a>
-{% endif %}
-
+{# What waits on the analyst. The dashboard moves this card beside the
+   collection pipeline as it arrives. #}
+{% set waits = pending_email_sources or to_review or pending_feedback %}
+<div class="card content-card rise rise-1" id="waiting-on-you">
+  <div class="card-header"><i class="fas fa-inbox me-2"></i>Waiting on you</div>
+  {% if waits %}
+  <ul class="needs">
+    {% if pending_email_sources %}
+    <li style="--t:var(--accent-orange);">
+      <span class="stat-icon icon-sm"><i class="fas fa-envelope-open-text"></i></span>
+      <span class="min-w-0"><span class="what d-block">{{ pending_email_sources }} email source{{ 's' if pending_email_sources != 1 }}</span>
+        <span class="why">archived by the IMAP collector and awaiting review{% if oldest_email_source %}, the oldest since {{ oldest_email_source }}{% endif %}</span></span>
+      <a href="{{ url_for('data_collection.newsletter_pending') }}" class="btn btn-sm btn-outline-primary">Review</a>
+    </li>
+    {% endif %}
 {% if to_review %}
 {# What the analyser and the analysts left for a review, per kind of product:
    its label, icon, list and the state its list filters a count on. A threat
@@ -100,15 +104,17 @@
 {% set review_color = charts.review_colors['pending-review'] %}
 {% set draft_color = charts.review_colors['draft'] %}
 {% set most = to_review | map(attribute='total') | max %}
-<div class="card content-card chart-card mb-4" id="products-to-review" style="--icon-color:var(--accent-blue);">
-  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span class="d-flex align-items-center gap-2"><span class="stat-icon icon-sm"><i class="fas fa-clipboard-check"></i></span>Products to review</span>
+<li id="products-to-review" style="--t:var(--accent-blue);">
+  <span class="stat-icon icon-sm"><i class="fas fa-clipboard-check"></i></span>
+  <div class="min-w-0">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="what">Products to review</span>
     <span class="chart-legend">
       <span><span class="chart-swatch" style="background:{{ review_color }};"></span>To review <strong>{{ to_review | sum(attribute='review') }}</strong></span>
       <span><span class="chart-swatch" style="background:{{ draft_color }};"></span>Draft <strong>{{ to_review | sum(attribute='drafts') }}</strong></span>
     </span>
-  </div>
-  <div class="card-body py-2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(22rem,100%),1fr));column-gap:1.5rem;">
+    </div>
+    <div class="needs-rows">
     {% for row in to_review %}
     {% set label, icon, endpoint, states = review_kinds[row.kind] %}
     {% set counts = [] %}
@@ -130,18 +136,16 @@
       <span class="chart-pill">{{ row.total }}</span>
     </div>
     {% endfor %}
+    </div>
   </div>
-</div>
+</li>
 {% endif %}
-
 {% if pending_feedback %}
-<!-- Products awaiting feedback -->
-<div class="card content-card mb-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="fas fa-comment-dots me-2 text-primary"></i>Awaiting feedback</span>
-    <span class="badge rounded-pill bg-primary">{{ pending_feedback | length }}</span>
-  </div>
-  <div class="list-group list-group-flush">
+<li id="awaiting-feedback" style="--t:var(--accent-red);">
+  <span class="stat-icon icon-sm"><i class="fas fa-comment-dots"></i></span>
+  <div class="min-w-0">
+  <span class="what">Awaiting feedback <span class="badge rounded-pill bg-primary ms-1">{{ pending_feedback | length }}</span></span>
+  <div class="list-group list-group-flush mt-1">
     {% for p in pending_feedback %}
     <a href="{{ url_for('flash_intel.detail', id=p.uuid) if p.kind == 'flash-intel' else url_for('vea.detail', id=p.uuid) }}"
        class="list-group-item list-group-item-action d-flex align-items-center justify-content-between gap-3">
@@ -167,54 +171,30 @@
     </a>
     {% endfor %}
   </div>
-</div>
+  </div>
+</li>
 {% endif %}
+  </ul>
+  {% else %}
+  <div class="card-body d-flex align-items-center gap-2 text-muted small">
+    <i class="fas fa-circle-check text-success"></i>
+    Nothing waits on you: no email sources to review, no products to approve and no feedback due.
+  </div>
+  {% endif %}
+</div>
 
-<div class="row g-3 mb-4">
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card" style="--icon-color: var(--accent-orange);">
-      <div class="stat-icon">
-        <i class="fas fa-users"></i>
-      </div>
-      <div class="stat-body">
-        <div class="stat-number">{{ stakeholder_count }}</div>
-        <a href="{{ url_for('stakeholders.list') }}" class="stat-label stretched-link d-block text-decoration-none">Stakeholders</a>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card" style="--icon-color: var(--accent-blue);">
-      <div class="stat-icon">
-        <i class="fas fa-star"></i>
-      </div>
-      <div class="stat-body">
-        <div class="stat-number">{{ pir_count }}</div>
-        <a href="{{ url_for('requirements.pir_list') }}" class="stat-label stretched-link d-block text-decoration-none">Priority Intelligence Requirements</a>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card" style="--icon-color: var(--accent-green);">
-      <div class="stat-icon">
-        <i class="fas fa-list-check"></i>
-      </div>
-      <div class="stat-body">
-        <div class="stat-number">{{ gir_count }}</div>
-        <a href="{{ url_for('requirements.gir_list') }}" class="stat-label stretched-link d-block text-decoration-none">General Intelligence Requirements</a>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="stat-card" style="--icon-color: var(--accent-purple);">
-      <div class="stat-icon">
-        <i class="fas fa-circle-question"></i>
-      </div>
-      <div class="stat-body">
-        <div class="stat-number">{{ rfi_count }}</div>
-        <a href="{{ url_for('rfi.rfi_list') }}" class="stat-label stretched-link d-block text-decoration-none">Requests for Information</a>
-      </div>
-    </div>
-  </div>
+<div class="dash-head mt-4"><h2>The program</h2><span class="rule"></span></div>
+<div class="card content-card count-strip rise rise-2 mb-4">
+  {% for n, label, icon, color, endpoint in [
+       (stakeholder_count, 'Stakeholder' ~ ('s' if stakeholder_count != 1 else ''), 'fa-users', 'var(--accent-orange)', 'stakeholders.list'),
+       (pir_count, 'Priority Intelligence Requirement' ~ ('s' if pir_count != 1 else ''), 'fa-star', 'var(--accent-blue)', 'requirements.pir_list'),
+       (gir_count, 'General Intelligence Requirement' ~ ('s' if gir_count != 1 else ''), 'fa-list-check', 'var(--accent-green)', 'requirements.gir_list'),
+       (rfi_count, 'Request' ~ ('s' if rfi_count != 1 else '') ~ ' for Information', 'fa-circle-question', 'var(--accent-purple)', 'rfi.rfi_list')] %}
+  <a href="{{ url_for(endpoint) }}" style="--icon-color:{{ color }};">
+    <span class="stat-icon icon-sm" aria-hidden="true"><i class="fas {{ icon }}"></i></span>
+    <span><b>{{ n }}</b><span class="lbl">{{ label }}</span></span>
+  </a>
+  {% endfor %}
 </div>
 
 <div class="row g-4">
@@ -299,7 +279,8 @@
 
 </div>
 
-<div class="row g-4 mt-0">
+<div class="dash-head mt-4"><h2>Where it comes from</h2><span class="rule"></span></div>
+<div class="row g-4">
 
   <!-- Products by threat actor type -->
   <div class="col-xl-4 col-lg-6">

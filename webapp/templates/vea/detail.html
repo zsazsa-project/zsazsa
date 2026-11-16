@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import read_again_note %}
-{% from "_macros.html" import review_state_badge %}
+{% from "_product_actions.html" import hero_resend, read_again_note %}
+{% from "_macros.html" import audience_badges, review_state_badge, notify_card %}
 
 {% block title %}{{ vea.vea_id }} | VEA{% endblock %}
 {% block page_title %}{{ vea.vea_id }}{% if vea.cve_id %}: {{ vea.cve_id }}{% endif %}{% endblock %}
@@ -11,80 +11,163 @@
 <a href="{{ url_for('vea.review') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
-<a href="{{ url_for('vea.pdf', id=vea.uuid) }}" class="btn btn-sm btn-outline-secondary" title="Download PDF">
-  <i class="fas fa-file-pdf me-1"></i> PDF
-</a>
 {% endblock %}
 
 {% macro bullets(items) %}
-  {% if items %}<ul class="mb-0">{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>{% else %}<span class="text-muted small">none recorded</span>{% endif %}
+  {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li>{{ i | md_inline }}</li>{% endfor %}</ul>{% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}
+{% endmacro %}
+
+{% macro cvss_badge(cvss) %}
+  {% set sev = cvss | upper %}
+  {% if 'CRITICAL' in sev %}<span class="badge bg-danger">{{ cvss }}</span>
+  {% elif 'HIGH' in sev %}<span class="badge cvss-high">{{ cvss }}</span>
+  {% elif 'MEDIUM' in sev %}<span class="badge bg-warning text-dark">{{ cvss }}</span>
+  {% elif 'LOW' in sev %}<span class="badge bg-info text-dark">{{ cvss }}</span>
+  {% else %}<span class="badge bg-secondary">{{ cvss }}</span>{% endif %}
 {% endmacro %}
 
 {% block content %}
-<div class="row g-3">
-  <div class="col-md-8">
-
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-circle-info me-2"></i>Summary</div>
-      <div class="card-body">
-        <div class="d-flex gap-2 mb-3">
-          <span class="tlp-badge tlp-{{ vea.tlp | slug }}">TLP:{{ vea.tlp | upper }}</span>
-          {{ review_state_badge(vea.review_state) }}
-          {% if vea.published %}<span class="badge bg-primary">published</span>{% endif %}
-          {% if vea.cisa_kev == 'Yes' %}<span class="badge bg-danger">CISA KEV</span>{% endif %}
+{% set state = vea.review_state %}
+{% set approved = state == 'approved' %}
+{% set audiences = (vea.audience or '').split(',') | map('trim') | select | list %}
+{% set has_risk = vea.worst_case or vea.most_likely %}
+{% set has_actions = vea.immediate_actions or vea.patch_sla_internet or vea.patch_sla_internal or vea.target_patch_version %}
+{% set has_detection = vea.exploitation_indicators or vea.detection_rules %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-bug"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Vulnerability advisory · {{ vea.vea_id }} · {{ review_state_badge(state) }}
+            {% if vea.published and not approved %}<span class="badge bg-primary">published</span>{% endif %}
+            {% if vea.cisa_kev == 'Yes' %}<span class="badge bg-danger">CISA KEV</span>{% endif %}</div>
+          <h1>{{ vea.title or vea.cve_id or 'No title' }}</h1>
+          <div class="record-facts">
+            {% if vea.cve_id %}<div><span>CVE</span><code class="text-reset">{{ vea.cve_id }}</code></div>{% endif %}
+            {% if vea.cvss %}<div><span>CVSS</span>{{ vea.cvss }}</div>{% endif %}
+            <div><span>Author</span>{{ vea.author or '-' }}</div>
+            <div><span>Created</span>{{ vea.created_at.strftime('%d-%m-%Y') if vea.created_at else '-' }}</div>
+            {% if vea.linked_pir_uuid %}<div><span>Answers</span><a href="{{ url_for('requirements.pir_detail', id=vea.linked_pir_uuid) }}"
+              {% if linked_pir and linked_pir.question %}title="{{ linked_pir.question }}"{% endif %}>{{ linked_pir.pir_id if linked_pir else 'a PIR' }}</a></div>{% endif %}
+          </div>
         </div>
-        {% if vea.title %}
-        <h6>{{ vea.title }}</h6>
-        {% endif %}
-        <p class="mb-0 text-muted small">
-          Audience: {{ vea.audience or '(none)' }} · Author: {{ vea.author or '(none)' }}
-        </p>
+      </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ audiences | length }}</b><span>audience{{ 's' if audiences | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ (vea.detection_rules or []) | length }}</b><span>detection rule{{ 's' if (vea.detection_rules or []) | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ reference_items | length }}</b><span>reference{{ 's' if reference_items | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ feedback | length }}</b><span>feedback</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      {% if approved %}
+      {{ hero_resend(url_for('vea.resend', id=vea.uuid), can_publish) }}
+      {% else %}
+      <a href="{{ url_for('vea.wizard_edit', id=vea.uuid) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="modal" data-bs-target="#recipientsModal"
+              title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
+      <a href="{{ url_for('vea.pdf', id=vea.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      {% if vea.history_url %}
+      <a href="{{ vea.history_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-hero-ghost"><i class="fas fa-clock-rotate-left me-1"></i> MISP event history</a>
+      {% endif %}
+      {% if approved %}
+      <span title="Published advisories cannot be edited" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-pen me-1"></i> Edit</button>
+      </span>
+      <span title="Published advisories cannot be deleted" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete VEA</button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('vea.delete', id=vea.uuid) }}"
+            data-submit-confirm="Delete {{ vea.vea_id }}?{{ read_again_note(state) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete VEA</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ vea.tlp | slug }}">TLP:{{ vea.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel delivery" aria-label="From draft to the audience">
+    <span class="chart-label">{{ 'Delivery' if approved else 'Review' }}</span>
+    <div class="leg done"><i></i>Drafted<small>{{ vea.creator or vea.author or '-' }}</small></div>
+    {% if approved %}
+    <div class="leg done"><i></i>Approved<small>{{ vea.approved_by or '-' }}</small></div>
+    <div class="leg done"><i></i>Published<small>{{ vea.published_at.strftime('%Y-%m-%d') if vea.published_at else '-' }}</small></div>
+    {% elif state == 'rejected' %}
+    <div class="leg done"><i></i>Submitted for review<small></small></div>
+    <div class="leg off"><i></i>Rejected<small>not sent</small></div>
+    {% else %}
+    <div class="leg{{ ' done' if state == 'pending-review' }}"><i></i>Submitted for review<small>{{ 'waiting' if state == 'pending-review' else '-' }}</small></div>
+    <div class="leg"><i></i>Approved<small>-</small></div>
+    {% endif %}
+    {% if state != 'rejected' %}
+    <div class="leg{{ ' done' if notify_status and notify_status.tone == 'success' }}{{ ' off' if notify_status and notify_status.tone == 'danger' }}"><i></i>Notified<small>{% if notify_status %}<span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span> {{ notify_status.timestamp }}{% else %}-{% endif %}</small></div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+
+    {% if vea.rejection_reason %}
+    <div class="card content-card border-danger mb-4 rise rise-1" id="rejection-card">
+      <div class="card-header text-danger"><i class="fas fa-xmark me-2"></i>Rejected</div>
+      <div class="card-body"><p class="mb-0" style="white-space:pre-wrap;">{{ vea.rejection_reason }}</p></div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2">
+        <span><i class="fas fa-circle-info me-2"></i>Summary</span>
+        <span>{{ audience_badges(vea.audience) }}</span>
+      </div>
+      <div class="card-body">
         {% if vea.cvss or vea.cwe %}
-        <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
-          {% if vea.cvss %}
-          {% set _sev = vea.cvss | upper %}
-          {% if 'CRITICAL' in _sev %}<span class="badge rounded-pill bg-danger">{{ vea.cvss }}</span>
-          {% elif 'HIGH' in _sev %}<span class="badge rounded-pill cvss-high">{{ vea.cvss }}</span>
-          {% elif 'MEDIUM' in _sev %}<span class="badge rounded-pill bg-warning text-dark">{{ vea.cvss }}</span>
-          {% elif 'LOW' in _sev %}<span class="badge rounded-pill bg-info text-dark">{{ vea.cvss }}</span>
-          {% else %}<span class="badge rounded-pill bg-secondary">{{ vea.cvss }}</span>{% endif %}
-          {% endif %}
-          {% if vea.cwe %}<span class="badge rounded-pill bg-light text-secondary border" style="font-size:.78rem;">{{ vea.cwe }}</span>{% endif %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          {% if vea.cvss %}{{ cvss_badge(vea.cvss) }}{% endif %}
+          {% for c in (vea.cwe or '').split(',') | map('trim') | select %}<span class="badge chip-tag-generic">{{ c }}</span>{% endfor %}
         </div>
         {% endif %}
         {% if vea.summary %}
-        <div class="report-md-body mt-2" data-md="{{ vea.summary | e }}" style="font-size:.88rem;"></div>
+        <div class="report-md-body" data-md="{{ vea.summary | e }}"></div>
+        {% else %}
+        <p class="text-muted mb-0"><em>No summary.</em></p>
         {% endif %}
       </div>
     </div>
 
-    <div class="card content-card mb-3">
+    <div class="card content-card mb-4 rise rise-1">
       <div class="card-header"><i class="fas fa-microchip me-2"></i>Affected technology</div>
       <div class="card-body">
-        <dl class="detail-list">
-          <dt>Product</dt><dd>{{ (vea.affected_product or '(none)') | md_inline }}</dd>
-          <dt>Affected versions</dt><dd>{{ (vea.affected_versions or '(none)') | md_inline }}</dd>
-          <dt>Fixed version</dt><dd>{{ (vea.fixed_version or '(none)') | md_inline }}</dd>
-          <dt>CVSS</dt><dd>{{ vea.cvss or '(none)' }}</dd>
-          <dt>CWE</dt><dd>{{ vea.cwe or '(none)' }}</dd>
-          <dt>Our exposure</dt><dd>{{ (vea.exposure or '(none)') | md_inline }}</dd>
+        <dl class="detail-list mb-0">
+          <dt>Product</dt><dd>{% if vea.affected_product %}{{ vea.affected_product | md_inline }}{% else %}<span class="text-muted">Not recorded</span>{% endif %}</dd>
+          <dt>Affected versions</dt><dd>{% if vea.affected_versions %}{{ vea.affected_versions | md_inline }}{% else %}<span class="text-muted">Not recorded</span>{% endif %}</dd>
+          <dt>Fixed version</dt><dd>{% if vea.fixed_version %}{{ vea.fixed_version | md_inline }}{% else %}<span class="text-muted">Not recorded</span>{% endif %}</dd>
+          <dt>Our exposure</dt><dd>{% if vea.exposure %}{{ vea.exposure | md_inline }}{% else %}<span class="text-muted">Not recorded</span>{% endif %}</dd>
         </dl>
       </div>
     </div>
 
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-triangle-exclamation me-2 text-danger"></i>Exploitation status</div>
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Exploitation status</div>
       <div class="card-body">
-        <table class="table table-sm mb-3">
-          <tbody>
-            <tr><th style="width:40%">Observed exploitation</th><td>{{ (vea.observed_exploitation or '-') | md_inline }}</td></tr>
-            <tr><th>Exploit availability</th><td>{{ (vea.exploit_availability or '-') | md_inline }}</td></tr>
-            <tr><th>Exploitation complexity</th><td>{{ (vea.exploitation_complexity or '-') | md_inline }}</td></tr>
-            <tr><th>Threat actor interest</th><td>{{ (vea.threat_actor_interest or '-') | md_inline }}</td></tr>
-            <tr><th>CISA KEV listed</th><td>{% if vea.cisa_kev == 'Yes' %}<strong class="text-danger">Yes</strong>{% else %}{{ vea.cisa_kev or '-' }}{% endif %}</td></tr>
-          </tbody>
-        </table>
-        <p class="mb-0 small">
+        <div class="row g-3">
+          {% for label, value in [('Observed exploitation', vea.observed_exploitation), ('Exploit availability', vea.exploit_availability),
+                                  ('Complexity', vea.exploitation_complexity), ('Threat actor interest', vea.threat_actor_interest)] %}
+          <div class="col-md-4"><div class="chart-label mb-1">{{ label }}</div>
+            <div>{% if value %}{{ value | md_inline }}{% else %}<span class="text-muted">-</span>{% endif %}</div></div>
+          {% endfor %}
+          <div class="col-md-4"><div class="chart-label mb-1">CISA KEV</div>
+            <div>{% if vea.cisa_kev == 'Yes' %}<strong class="text-danger">Listed</strong>{% else %}{{ vea.cisa_kev or '-' }}{% endif %}</div></div>
+        </div>
+        <p class="mt-3 mb-0 small text-muted">
           <span class="pretext">Source:</span> {{ (vea.source_description or 'unspecified') | md_inline }} &middot;
           <span class="pretext">Reliability:</span> {{ vea.source_reliability or '-' }} &middot;
           <span class="pretext">Credibility:</span> {{ vea.information_credibility or '-' }}
@@ -92,46 +175,53 @@
       </div>
     </div>
 
-    <div class="card content-card mb-3">
+    {% if has_risk %}
+    <div class="card content-card mb-4 rise rise-2">
       <div class="card-header"><i class="fas fa-scale-balanced me-2"></i>Risk assessment</div>
       <div class="card-body">
-        <p class="mb-1"><span class="pretext">Worst case:</span> {{ (vea.worst_case or '-') | md_inline }}</p>
-        <p class="mb-0"><span class="pretext">Most likely:</span> {{ (vea.most_likely or '-') | md_inline }}</p>
-      </div>
-    </div>
-
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
-      <div class="card-body">
-        <h6>Immediate</h6>
-        {{ bullets(vea.immediate_actions) }}
-        <hr>
-        <div class="row g-2 mt-0">
-          <div class="col-md-4"><span class="pretext">Internet-facing SLA:</span> {{ (vea.patch_sla_internet or '-') | md_inline }}</div>
-          <div class="col-md-4"><span class="pretext">Internal SLA:</span> {{ (vea.patch_sla_internal or '-') | md_inline }}</div>
-          <div class="col-md-4"><span class="pretext">Target version:</span> {{ (vea.target_patch_version or '-') | md_inline }}</div>
+        <div class="row g-3">
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Worst case</div>{% if vea.worst_case %}{{ vea.worst_case | md_inline }}{% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}</div>
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Most likely</div>{% if vea.most_likely %}{{ vea.most_likely | md_inline }}{% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}</div>
         </div>
       </div>
     </div>
+    {% endif %}
 
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-radar me-2"></i>Detection guidance</div>
+    {% if has_actions %}
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
       <div class="card-body">
-        <h6>Exploitation indicators</h6>
-        {{ bullets(vea.exploitation_indicators) }}
-        <h6 class="mt-3">Detection rules</h6>
-        <div data-rulezet-rules>{{ bullets(vea.detection_rules) }}</div>
+        <div class="fw-semibold small mb-1">Immediate</div>
+        {{ bullets(vea.immediate_actions) }}
+        <div class="row g-3 small mt-1">
+          <div class="col-md-4"><span class="text-muted">Internet-facing SLA</span><div>{{ (vea.patch_sla_internet or '-') | md_inline }}</div></div>
+          <div class="col-md-4"><span class="text-muted">Internal SLA</span><div>{{ (vea.patch_sla_internal or '-') | md_inline }}</div></div>
+          <div class="col-md-4"><span class="text-muted">Target version</span><div>{{ (vea.target_patch_version or '-') | md_inline }}</div></div>
+        </div>
       </div>
     </div>
+    {% endif %}
 
-    <div class="card content-card mb-3">
+    {% if has_detection %}
+    <div class="card content-card mb-4 rise rise-3">
+      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection guidance</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Exploitation indicators</div>{{ bullets(vea.exploitation_indicators) }}</div>
+          <div class="col-md-6"><div class="fw-semibold small mb-1">Detection rules</div><div data-rulezet-rules>{{ bullets(vea.detection_rules) }}</div></div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card mb-4 rise rise-3">
       <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
       <div class="card-body">
         {% if reference_items %}
-        <ul class="mb-0">
+        <ul class="mb-0 ps-3">
           {% for ref in reference_items %}
             <li>
-              <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.url }}</a>
+              <a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer">{{ ref.url }}</a>
               {% if ref.kind == 'source-event' and (ref.info or ref.date or ref.orgc) %}
               <div class="small">
                 {% if ref.info %}<span><span class="pretext">Title:</span> {{ ref.info }}</span>{% endif %}
@@ -143,7 +233,7 @@
           {% endfor %}
         </ul>
         {% else %}
-        <span class="text-muted">none recorded</span>
+        <p class="text-muted mb-0"><em>None recorded.</em></p>
         {% endif %}
         {% if vea.feedback_deadline %}
         <p class="mt-3 mb-0 small"><i class="fas fa-clock me-1 text-muted"></i><span class="pretext">Feedback requested by:</span>
@@ -152,70 +242,23 @@
       </div>
     </div>
 
-  </div>
-
-  <div class="col-md-4">
-    <div class="card content-card mb-3">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <strong>Metadata</strong>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                data-bs-toggle="modal" data-bs-target="#recipientsModal"
-                title="Preview recipients">
-          <i class="fas fa-users me-1"></i> Recipients
-        </button>
-      </div>
-      <div class="card-body">
-        <dl class="row small mb-0">
-          <dt class="col-5">VEA</dt>
-          <dd class="col-7">{{ vea.vea_id }}</dd>
-          {% if vea.cve_id %}
-          <dt class="col-5">CVE</dt>
-          <dd class="col-7"><code>{{ vea.cve_id }}</code></dd>
-          {% endif %}
-          <dt class="col-5">Author</dt>
-          <dd class="col-7">{{ vea.author or '-' }}</dd>
-          <dt class="col-5">Created</dt>
-          <dd class="col-7">{{ vea.created_at.strftime('%d-%m-%Y') if vea.created_at else '-' }}</dd>
-          <dt class="col-5">Created by</dt>
-          <dd class="col-7">{{ vea.creator or '-' }}</dd>
-          {% if vea.approved_by %}
-          <dt class="col-5">Approved by</dt>
-          <dd class="col-7">{{ vea.approved_by }}</dd>
-          {% endif %}
-          {% if notify_status %}
-          <dt class="col-5">Last notification</dt>
-          <dd class="col-7">
-            <span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span>
-            <span class="text-muted">{{ notify_status.timestamp }}</span>
-            {% if notify_status.details %}<div class="text-muted" style="font-size:.78rem;">{{ notify_status.details }}</div>{% endif %}
-          </dd>
-          {% endif %}
-          {% if vea.linked_pir_uuid %}
-          <dt class="col-5">Linked PIR</dt>
-          <dd class="col-7">
-            <a href="{{ url_for('requirements.pir_detail', id=vea.linked_pir_uuid) }}">
-              {% if linked_pir %}{{ linked_pir.pir_id }}{% if linked_pir.question %}: {{ linked_pir.question }}{% endif %}{% else %}view{% endif %}
-            </a>
-          </dd>
-          {% endif %}
-        </dl>
-        {% if vea.rejection_reason %}
-        <hr>
-        <p class="mb-0 small text-danger"><strong>Rejection reason:</strong><br>{{ vea.rejection_reason }}</p>
-        {% endif %}
-        {% if vea.history_url %}
-        <p class="mb-0 mt-2 small">
-          <a href="{{ vea.history_url }}" target="_blank" rel="noopener" class="text-decoration-none">
-            <i class="fas fa-clock-rotate-left me-1"></i>MISP event history
-          </a>
-        </p>
-        {% endif %}
+    {% set missing = [('Risk assessment', has_risk), ('Recommended actions', has_actions), ('Detection guidance', has_detection)]
+                     | rejectattr(1) | map(attribute=0) | list %}
+    {% if missing %}
+    <div class="card content-card mb-4 rise rise-3" id="empty-sections">
+      <div class="card-body py-2 small text-muted">
+        <i class="fas fa-circle-minus me-2"></i>Nothing recorded for
+        {% for name in missing %}<strong>{{ name }}</strong>{{ ', ' if not loop.last and loop.revindex > 2 }}{{ ' and ' if loop.revindex == 2 }}{% endfor %}.
+        {{ 'It is' if missing | length == 1 else 'They are' }} left out of the e-mail and the PDF too.
       </div>
     </div>
+    {% endif %}
+  </div>
 
-    {% if vea.review_state in ('draft', 'pending-review') %}
+  <div class="col-lg-4">
+    {% if state in ('draft', 'pending-review') %}
     <div class="card content-card mb-3">
-      <div class="card-header"><strong>Review actions</strong></div>
+      <div class="card-header"><i class="fas fa-gavel me-2"></i>Review</div>
       <div class="card-body">
         <div class="qa-review-block">
           <button type="button" class="btn btn-outline-info w-100 mb-2 qa-review-btn"
@@ -249,6 +292,10 @@
         </form>
       </div>
     </div>
+    {% endif %}
+
+    {% if notify_status %}
+    {{ notify_card(notify_status, url_for('vea.resend', id=vea.uuid) if approved and can_publish and notify_status.tone == 'danger' else '') }}
     {% endif %}
 
     <div class="card content-card mb-3">
@@ -292,47 +339,6 @@
         </form>
       </div>
     </div>
-
-    <div class="d-flex gap-2 mb-2">
-      {% if vea.review_state == 'approved' %}
-      <span title="Published advisories cannot be edited" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-pen me-1"></i> Edit
-        </button>
-      </span>
-      {% else %}
-      <a href="{{ url_for('vea.wizard_edit', id=vea.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
-      {% endif %}
-      {% if vea.review_state == 'approved' %}
-      <span title="Published advisories cannot be deleted" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-trash me-1"></i> Delete VEA
-        </button>
-      </span>
-      {% else %}
-      <form method="post" action="{{ url_for('vea.delete', id=vea.uuid) }}"
-            data-submit-confirm="Delete {{ vea.vea_id }}?{{ read_again_note(vea.review_state) }}" class="flex-fill">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete VEA
-        </button>
-      </form>
-      {% endif %}
-    </div>
-
-    {% if vea.review_state == 'approved' %}
-    <div class="mb-2">
-      <form method="post" action="{{ url_for('vea.resend', id=vea.uuid) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="next" value="detail">
-        <button class="btn btn-sm btn-outline-primary w-100" title="Resend to stakeholders">
-          <i class="fas fa-paper-plane me-1"></i> Resend
-        </button>
-      </form>
-    </div>
-    {% endif %}
   </div>
 </div>
 

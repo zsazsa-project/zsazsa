@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form, read_again_note,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
@@ -8,12 +7,6 @@
 {% block title %}Flash intel alerts | zsazsa CTI{% endblock %}
 {% block page_title %}Flash intel alerts{% endblock %}
 {% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
-
-{% block topbar_actions %}
-<a href="{{ url_for('flash_intel.wizard_new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New flash intel alert
-</a>
-{% endblock %}
 
 {# Short fields are Markdown and render server-side, as they do on the detail
    page. Prose (the summary) goes through report-md-body instead, so it is
@@ -25,42 +18,68 @@
 
 {% block content %}
 {% import "_charts.html" as charts with context %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-orange);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ fias | length }} alert{{ 's' if fias|length != 1 }}</span>
-            {% if state_filter or tlp_filter or audience_filter %}
-            <a href="{{ url_for('flash_intel.review') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How a flash intel alert is made') }}
-      </div>
-      {% if state_counts or tlp_counts or audience_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-4">{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set count = namespace(waiting=0, draft=0, approved=0, rejected=0) %}
+{% for f in fias %}
+  {% if f.review_state == 'pending-review' %}{% set count.waiting = count.waiting + 1 %}
+  {% elif f.review_state == 'draft' %}{% set count.draft = count.draft + 1 %}
+  {% elif f.review_state == 'approved' %}{% set count.approved = count.approved + 1 %}
+  {% elif f.review_state == 'rejected' %}{% set count.rejected = count.rejected + 1 %}{% endif %}
+{% endfor %}
+{% set published_dates = fias | selectattr('published_at') | map(attribute='published_at') | list %}
+{% set filtered = state_filter or tlp_filter or audience_filter %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ fias | length }}</b><span>alert{{ 's' if fias | length != 1 }}{{ ' shown' if filtered }}</span></div>
+      <a href="{{ charts.filtered_url('state', 'pending-review', state_filter) }}" class="record-kpi{{ ' warn' if count.waiting }}"
+         title="{{ 'Show all again' if state_filter == 'pending-review' else 'Show only those waiting for review' }}"><b>{{ count.waiting }}</b><span>waiting for review</span></a>
+      {% if count.draft %}<div class="record-kpi"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }}</span></div>{% endif %}
+      <div class="record-kpi"><b>{{ count.approved }}</b><span>approved</span></div>
+      <div class="record-kpi"><b>{{ count.rejected }}</b><span>rejected</span></div>
+      {% if published_dates %}<div class="record-kpi"><b>{{ (published_dates | max).strftime('%d-%m') }}</b><span>last published</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('flash_intel.wizard_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New flash intel alert</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How a flash intel alert is made
+      </button>
     </div>
   </div>
-</div>
+  {% if state_counts or tlp_counts or audience_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+    {# The widest legend, so it takes more of the row and the banner stays low. #}
+    <div style="flex-grow:2.2;">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter, top=4) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
+  {% if filtered %}
+  <a href="{{ url_for('flash_intel.review') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "flash_intel/_flow.html" %}
 
-<div class="card content-card">
+{% set lanes = [('pending-review', 'Waiting for review', 'Approve and publish, or reject', 'var(--accent-blue)'),
+                ('draft', 'Draft', 'Submit for review when it is ready', 'var(--neutral-500)'),
+                ('approved', 'Approved', 'Sent to their audience', 'var(--accent-green)'),
+                ('rejected', 'Rejected', 'Kept until deleted', 'var(--accent-red)')] %}
+{% set steps = {'draft': ['now', '', ''], 'pending-review': ['done', 'now', ''], 'approved': ['done', 'done', 'now'],
+                'rejected': ['done', 'done', '']} %}
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if fias %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
           {{ select_all_th() }}
@@ -75,23 +94,40 @@
           </th>
         </tr>
       </thead>
+      {% for state, lane, hint, color in lanes %}
+      {# A state none of the lanes has, set by hand in MISP, is shown as a draft rather than not at all. #}
+      {% set others = lanes | map(attribute=0) | reject('equalto', 'draft') | list %}
+      {% set rows = (fias | selectattr('review_state', 'equalto', state) | list) if state != 'draft'
+                     else (fias | rejectattr('review_state', 'in', others) | list) %}
+      {% if rows %}
       <tbody>
-        {% for f in fias %}
+        <tr class="lane-head">
+          <th colspan="8">
+            <span class="lane-mark" style="background:{{ color }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} alert{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for f in rows %}
         {# ── Main row ── #}
-        <tr id="fia-row-{{ f.uuid }}">
+        <tr id="fia-row-{{ f.uuid }}" class="{{ 'draft-row' if state == 'pending-review' }}">
           {{ select_cell(f.uuid, f.fia_id, f.review_state in ('draft', 'pending-review')) }}
-          <td>
+          <td style="white-space:nowrap;">
             <a href="{{ url_for('flash_intel.detail', id=f.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ f.fia_id }}</span>
             </a>
           </td>
           <td>
-            {{ f.title or '(untitled)' }}
-            {{ audience_badges(f.audience) }}
+            <a href="{{ url_for('flash_intel.detail', id=f.uuid) }}" class="title{{ ' untitled' if not f.title }}">{{ f.title or 'No title' }}</a>
+            {{ audience_badges(f.audience, limit=3) }}
             {% if f.analyser_reason %}<div class="small text-muted">{{ f.analyser_reason | md_inline }}</div>{% endif %}
           </td>
           <td><span class="tlp-badge tlp-{{ f.tlp | slug }}">TLP:{{ f.tlp | upper }}</span></td>
           <td>
+            <div class="status-steps" aria-hidden="true" style="max-width:6rem;">
+              {% for step in steps[state] %}<i class="{{ step }}"></i>{% endfor %}
+            </div>
             {% if f.review_state == 'approved' %}<span class="badge bg-success">approved</span>
             {% elif f.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
             {% elif f.review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
@@ -331,8 +367,11 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
-    {% elif state_filter or tlp_filter or audience_filter %}
+    </div>
+    {% elif filtered %}
     <div class="p-4 text-muted">No flash intel alerts match these filters.</div>
     {% else %}
     <div class="p-4 text-muted">No flash intel alerts yet.</div>

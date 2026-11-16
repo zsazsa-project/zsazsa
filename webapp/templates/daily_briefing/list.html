@@ -1,55 +1,73 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_product_actions.html" import read_again_note, preview_button, approval_form, rejection_button, delete_rejected_form,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_sort_header.html" import sort_th with context %}
-{% from "_macros.html" import ai_job_badge, story_scope %}
+{% from "_macros.html" import ai_job_badge, date_leaf, story_scope %}
 
 {% block title %}Daily briefings | zsazsa CTI{% endblock %}
 {% block page_title %}Daily briefings{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('data_collection.index', briefing_mode=1) }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New briefing
-</a>
-{% endblock %}
-
 {% block content %}
 {% import "_charts.html" as charts with context %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-blue);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ briefings | length }} briefing{{ 's' if briefings|length != 1 }}</span>
-            {% if state_filter or tlp_filter %}
-            <a href="{{ url_for('daily_briefing.list_briefings') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How a daily briefing is made') }}
-      </div>
-      {% if state_counts or tlp_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-6">{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
-          <div class="col-md-6">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+<style>
+  .story-ticks { display: flex; gap: 2px; margin-bottom: .2rem; }
+  .story-ticks i { width: .55rem; height: .35rem; border-radius: 2px; background: var(--accent-blue); }
+</style>
+{% set count = namespace(draft=0, published=0, rejected=0) %}
+{% for b in briefings %}
+  {% if b.review_state == 'draft' %}{% set count.draft = count.draft + 1 %}
+  {% elif b.review_state == 'published' %}{% set count.published = count.published + 1 %}
+  {% else %}{% set count.rejected = count.rejected + 1 %}{% endif %}
+{% endfor %}
+{% set published_dates = briefings | selectattr('published_at') | map(attribute='published_at') | list %}
+{% set latest = published_dates | max if published_dates else none %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-newspaper"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ briefings | length }}</b><span>briefing{{ 's' if briefings | length != 1 }}{{ ' shown' if state_filter or tlp_filter }}</span></div>
+      <a href="{{ charts.filtered_url('state', 'draft', state_filter) }}" class="record-kpi{{ ' warn' if count.draft }}"
+         title="{{ 'Show all again' if state_filter == 'draft' else 'Show only the drafts' }}"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }} waiting for approval</span></a>
+      <div class="record-kpi"><b>{{ count.published }}</b><span>published</span></div>
+      <div class="record-kpi"><b>{{ count.rejected }}</b><span>rejected</span></div>
+      {% if latest %}<div class="record-kpi"><b>{{ latest.strftime('%d-%m') }}</b><span>last published</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('data_collection.index', briefing_mode=1) }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New briefing</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How a daily briefing is made
+      </button>
     </div>
   </div>
-</div>
+  {% if state_counts or tlp_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {% if state_filter or tlp_filter %}
+  <a href="{{ url_for('daily_briefing.list_briefings') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "daily_briefing/_flow.html" %}
 
-<div class="card content-card">
+{% set lanes = [('draft', 'Draft', 'Approve or reject before it goes out'),
+                ('published', 'Published', 'Sent to the stakeholders'),
+                ('rejected', 'Rejected', 'Kept until deleted')] %}
+{% set lane_colors = {'draft': 'var(--neutral-500)', 'published': 'var(--accent-green)', 'rejected': 'var(--accent-red)'} %}
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if briefings %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
           {{ select_all_th("Select all drafts") }}
@@ -65,23 +83,46 @@
           </th>
         </tr>
       </thead>
+      {% for state, lane, hint in lanes %}
+      {# A state none of the lanes has, set by hand in MISP, is shown as a draft rather than not at all. #}
+      {% set others = lanes | map(attribute=0) | reject('equalto', 'draft') | list %}
+      {% set rows = (briefings | selectattr('review_state', 'equalto', state) | list) if state != 'draft'
+                     else (briefings | rejectattr('review_state', 'in', others) | list) %}
+      {% if rows %}
       <tbody>
-        {% for b in briefings %}
+        <tr class="lane-head">
+          <th colspan="9">
+            <span class="lane-mark" style="background:{{ lane_colors[state] }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} briefing{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for b in rows %}
         {% set story_count = b.story_count or (b.stories | length) %}
-        <tr id="briefing-row-{{ b.uuid }}">
-          {{ select_cell(b.uuid, 'briefing ' ~ (b.date or b.uuid), b.review_state == 'draft') }}
-          <td>
-            <a href="{{ url_for('daily_briefing.detail', id=b.uuid) }}" class="text-decoration-none fw-semibold">
-              {{ b.date or '-' }}
-            </a>
+        <tr id="briefing-row-{{ b.uuid }}" class="{{ 'draft-row' if state == 'draft' }}">
+          {{ select_cell(b.uuid, 'briefing ' ~ (b.date or b.uuid), state == 'draft') }}
+          <td style="white-space:nowrap;">
+            <div class="who">
+              {{ date_leaf(b.date, '' if state == 'published' else state) }}
+              <a href="{{ url_for('daily_briefing.detail', id=b.uuid) }}" class="text-decoration-none fw-semibold">{{ b.date or '-' }}</a>
+            </div>
           </td>
-          <td>{{ b.title or '-' }}</td>
-          <td>{{ story_count }} stor{{ 'y' if story_count == 1 else 'ies' }}</td>
+          <td>
+            <a href="{{ url_for('daily_briefing.detail', id=b.uuid) }}" class="title{{ ' untitled' if not b.title }}">{{ b.title or 'No title' }}</a>
+          </td>
+          <td>
+            <div class="story-ticks" aria-hidden="true">{% for _ in range(story_count) %}<i></i>{% endfor %}</div>
+            <span class="text-muted small">{{ story_count }} stor{{ 'y' if story_count == 1 else 'ies' }}</span>
+          </td>
           <td>{{ b.author or '-' }}</td>
           <td><span class="tlp-badge tlp-{{ b.tlp | slug }}">TLP:{{ b.tlp | upper }}</span></td>
           <td>
-            {% if b.review_state == 'published' %}<span class="badge bg-success">published</span>
-            {% elif b.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
+            <div class="status-steps" aria-hidden="true" style="max-width:5rem;">
+              <i class="{{ 'now' if state == 'draft' else 'done' }}"></i><i class="{{ 'now' if state == 'published' }}"></i>
+            </div>
+            {% if state == 'published' %}<span class="badge bg-success">published</span>
+            {% elif state == 'rejected' %}<span class="badge bg-danger">rejected</span>
             {% else %}<span class="badge bg-secondary">draft</span>{% endif %}
             {{ ai_job_badge(ai_jobs.get(b.uuid)) }}
           </td>
@@ -166,7 +207,7 @@
                       <i class="fas fa-newspaper me-1 text-muted"></i>Story {{ loop.index }}: {{ story.title or '(untitled)' }}
                     </div>
                     <div class="report-md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ story.content | e }}"></div>
-                    {% if story.source_url %}
+                    {% if story.source_url and story.source_url.startswith(('https://', 'http://')) %}
                     <div class="scope-row" style="font-size:.75rem;">
                       <a href="{{ story.source_url }}" target="_blank" rel="noopener">{{ story.source_url | truncate(80) }}</a>
                     </div>
@@ -209,7 +250,10 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
+    </div>
     {% elif state_filter or tlp_filter %}
     <div class="p-4 text-muted">No briefings match these filters.</div>
     {% else %}

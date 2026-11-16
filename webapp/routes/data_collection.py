@@ -12,6 +12,7 @@ import logging
 import re
 import threading
 import time
+import urllib.parse
 from collections import Counter
 
 import urllib3
@@ -26,7 +27,7 @@ from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
                     misp_session, misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
 from webapp.rate_limit import rate_limited
-from webapp.utils import json_body as _json_object, scraper_enabled
+from webapp.utils import json_body as _json_object, matching, ordered_counts, record_title, scraper_enabled
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -73,6 +74,12 @@ def _misp_response_errors(resp) -> str | None:
     return None
 
 
+def _text_on(colour):
+    """Black or white, whichever reads on a tag of this colour, as MISP picks it."""
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    return "#000000" if (r * 299 + g * 587 + b * 114) / 1000 > 128 else "#ffffff"
+
+
 def _extract_event_detail(event) -> dict:
     """Pull rich display fields from a fully-loaded MISPEvent object."""
     org_name = orgc_name = ""
@@ -85,7 +92,10 @@ def _extract_event_detail(event) -> dict:
 
     tags = []
     for t in getattr(event, "tags", []) or []:
-        tags.append({"name": t.name, "colour": getattr(t, "colour", "#aaa") or "#aaa"})
+        colour = getattr(t, "colour", "") or ""
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", colour):
+            colour = "#aaaaaa"
+        tags.append({"name": t.name, "colour": colour, "text": _text_on(colour)})
 
     galaxies = []
     for g in getattr(event, "galaxies", []) or []:
@@ -433,6 +443,25 @@ def _event_with_reports(src, uuid):
     return event, report_views, None
 
 
+def _standing(tags):
+    """Where an event stands, read from its tags: its TLP and workflow state,
+    the product queues it is tagged for (zsazsa:product="<label>"), and the
+    Admiralty reliability of its source."""
+    names = [t["name"] for t in tags]
+
+    def value(prefix):
+        found = next((n for n in names if n.lower().startswith(prefix)), "")
+        return found[len(prefix):].strip('"')
+
+    queues = [n[len("zsazsa:product="):].strip('"') for n in names if n.startswith("zsazsa:product=")]
+    return {
+        "tlp": value("tlp:"),
+        "workflow": value("workflow:state="),
+        "queues": queues,
+        "reliability": value("admiralty-scale:source-reliability=").upper(),
+    }
+
+
 @bp.route("/<string:uuid>")
 def detail(uuid):
     source_id = request.args.get("source") or _SCRAPER_SOURCE_ID
@@ -440,9 +469,13 @@ def detail(uuid):
     event, reports, error = _event_with_reports(src, uuid)
     if error:
         return error
+    detail = _extract_event_detail(event)
+    article_url = misp_store.extract_source_url(event)
     return render_template(
         "data_collection/detail.html",
-        event=_extract_event_detail(event),
+        event=detail,
+        standing=_standing(detail["tags"]),
+        article_url=article_url if article_url.startswith(("https://", "http://")) else "",
         reports=reports,
         misp_url=f"{src['url'].rstrip('/')}/events/view/{event.uuid}",
         source_label=src["label"],
@@ -799,6 +832,16 @@ def manual_new():
     return render_template("data_collection/manual_entry.html", **ctx)
 
 
+def _number_articles(articles: list) -> list:
+    """Each article with the index its form fields are named by and the site its
+    address is on, which the review page shows and filters by."""
+    for idx, article in enumerate(articles):
+        article["idx"] = idx
+        host = urllib.parse.urlsplit(article.get("primary_url") or "").hostname or ""
+        article["site"] = host.removeprefix("www.")
+    return articles
+
+
 def _group_by_section(articles: list) -> list:
     """Group articles into [(section, [articles])], preserving first-seen order."""
     groups = {}
@@ -832,8 +875,7 @@ def newsletter_new():
                 if not parsed["articles"]:
                     flash("No articles found in the pasted text.", "warning")
                 else:
-                    for idx, article in enumerate(parsed["articles"]):
-                        article["idx"] = idx
+                    _number_articles(parsed["articles"])
                     return render_template(
                         "data_collection/newsletter_review.html",
                         source=source,
@@ -844,15 +886,55 @@ def newsletter_new():
                         sections=_group_by_section(parsed["articles"]),
                     )
 
-    return render_template("data_collection/newsletter_new.html", sources=sources)
+    return render_template("data_collection/newsletter_new.html", sources=sources,
+                           pending=misp_store.list_pending_newsletters())
 
 
 # The queue arrives newest first. These are what the column headers offer on
 # top of that; anything else leaves the order alone.
 _PENDING_SORT_KEYS = {
-    "title": lambda n: n["info"].lower(),
+    "title": lambda n: n["title"].lower(),
     "date": lambda n: n["date"],
 }
+
+
+# A mail's subject opens with the list it came through, "[IT-ISAC] Open Source
+# News", which names the newsletter for one archived before the parser was tagged.
+_LIST_LABEL = re.compile(r"^\[([^\]]+)\]\s*")
+# What "Ignore those older than" on a newsletter's lane takes out of the queue.
+_STALE_DAYS = 60
+# How long a newsletter has waited, as the bar above the queue splits it. Its
+# last part is what that button takes out.
+_WAITING = (("under 30 days", 0, 30), ("30 to 60 days", 30, _STALE_DAYS + 1),
+            ("over 60 days", _STALE_DAYS + 1, None))
+
+
+def _waiting_days(date, today):
+    try:
+        return (today - datetime.date.fromisoformat(date)).days
+    except ValueError:
+        return None
+
+
+def _pending_view(n, today):
+    """A queue entry with its newsletter, its subject without the list name and
+    the zsazsa marker, the month it came in and how many days it has waited."""
+    title = record_title(n["info"])
+    label = _LIST_LABEL.match(title)
+    if label:
+        title = title[label.end():]
+    return {**n, "title": title or n["info"], "month": n["date"][:7],
+            "newsletter": n.get("parser") or (label.group(1) if label else "Other newsletters"),
+            "waiting": _waiting_days(n["date"], today)}
+
+
+def _is_stale(n):
+    return n["waiting"] is not None and n["waiting"] > _STALE_DAYS
+
+
+def _waiting_bucket(days):
+    return next((name for name, low, high in _WAITING
+                 if days is not None and days >= low and (high is None or days < high)), "")
 
 
 @bp.route("/newsletter/pending")
@@ -860,12 +942,65 @@ def newsletter_pending():
     """List newsletters archived by the IMAP collector that await manual review."""
     sort = (request.args.get("sort") or "").strip()
     direction = (request.args.get("dir") or "asc").strip()
-    pending = misp_store.list_pending_newsletters()
+    newsletter_filter = (request.args.get("newsletter") or "").strip()
+    month_filter = (request.args.get("month") or "").strip()
+    today = datetime.date.today()
+    everything = [_pending_view(n, today) for n in misp_store.list_pending_newsletters()]
+    tests = {}
+    if newsletter_filter:
+        tests["newsletter"] = lambda n: n["newsletter"] == newsletter_filter
+    if month_filter:
+        tests["month"] = lambda n: n["month"] == month_filter
+    pending = matching(everything, tests)
     key = _PENDING_SORT_KEYS.get(sort)
     if key:
         pending.sort(key=key, reverse=(direction == "desc"))
-    return render_template("data_collection/newsletter_pending.html",
-                           pending=pending, sort=sort, dir=direction)
+    lanes = {}
+    for n in pending:
+        lanes.setdefault(n["newsletter"], []).append(n)
+    return render_template(
+        "data_collection/newsletter_pending.html",
+        pending=pending, total=len(everything), sort=sort, dir=direction,
+        lanes=sorted(lanes.items(), key=lambda lane: -len(lane[1])),
+        newsletter_filter=newsletter_filter, month_filter=month_filter,
+        newsletters=sorted({n["newsletter"] for n in everything}),
+        months=sorted({n["month"] for n in everything}, reverse=True),
+        newsletter_counts=ordered_counts(n["newsletter"] for n in matching(everything, tests, skip="newsletter")),
+        month_counts=sorted(Counter(n["month"] for n in matching(everything, tests, skip="month")).items(), reverse=True),
+        waiting_counts=ordered_counts((_waiting_bucket(n["waiting"]) for n in pending if n["waiting"] is not None),
+                                      [name for name, _low, _high in _WAITING]),
+        stale_days=_STALE_DAYS,
+        # From the whole queue, not the rows shown: the button takes every one.
+        stale_counts=Counter(n["newsletter"] for n in everything if _is_stale(n)),
+    )
+
+
+@bp.route("/newsletter/pending/ignore-stale", methods=["POST"])
+def newsletter_ignore_stale():
+    """Drop the newsletters of one newsletter that have waited too long, collecting none of them."""
+    newsletter = (request.form.get("newsletter") or "").strip()
+    today = datetime.date.today()
+    stale = [n for n in (_pending_view(n, today) for n in misp_store.list_pending_newsletters())
+             if n["newsletter"] == newsletter and _is_stale(n)]
+    if not stale:
+        flash(f"No {newsletter or 'such'} newsletters have waited longer than {_STALE_DAYS} days.", "info")
+        return redirect(url_for("data_collection.newsletter_pending"))
+    ignored = 0
+    for n in stale:
+        try:
+            misp_store.ignore_newsletter(n["uuid"])
+        except Exception:
+            logger.exception("could not ignore newsletter %s", n["uuid"])
+            continue
+        audit.record("ignore", "newsletter-import", entity_id=n["uuid"], entity_label=n["info"])
+        ignored += 1
+    if ignored < len(stale):
+        flash(f"{ignored} of {len(stale)} {newsletter} newsletters were taken out of the queue; "
+              "the others could not be, see the application log.", "warning")
+    else:
+        flash(f"{ignored} {newsletter} newsletter{'s' if ignored != 1 else ''} older than {_STALE_DAYS} days "
+              "no longer waiting for review.", "info")
+    return redirect(url_for("data_collection.newsletter_pending"))
 
 
 @bp.route("/newsletter/pending/<string:uuid>/ignore", methods=["POST"])
@@ -938,10 +1073,16 @@ def newsletter_review_pending(uuid):
         logger.exception("could not parse pending newsletter %s (%s)", uuid, item["parser"])
         flash("Could not parse this newsletter.", "warning")
         return redirect(url_for("data_collection.newsletter_pending"))
-    for idx, article in enumerate(parsed["articles"]):
-        article["idx"] = idx
+    _number_articles(parsed["articles"])
+    # Where it stands in the queue: when it came in, and the one after it.
+    queue = [_pending_view(n, datetime.date.today()) for n in misp_store.list_pending_newsletters()]
+    here = next((i for i, n in enumerate(queue) if n["uuid"] == uuid), None)
     return render_template(
         "data_collection/newsletter_review.html",
+        queued=queue[here] if here is not None else None,
+        next_waiting=queue[here + 1] if here is not None and here + 1 < len(queue) else None,
+        misp_url=f"{config.MISP_WEBAPP_URL.rstrip('/')}/events/view/{uuid}",
+        ignore_url=url_for("data_collection.newsletter_ignore", uuid=uuid),
         source=feed,
         raw=item["raw_email"],
         report_title=parsed.get("report_title", ""),

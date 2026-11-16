@@ -72,6 +72,7 @@ class _App(unittest.TestCase):
             mock.patch.object(collection_cache, "start_worker"),
             mock.patch.multiple(config, create=True, **FOCUS),
             mock.patch.multiple(misp_store, **galaxies),
+            mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
             mock.patch.object(misp_session, "current_user_is_admin", return_value=self.admin),
         ):
             patcher.start()
@@ -97,7 +98,6 @@ class RequirementPages(_App):
             mock.patch.object(misp_store, "list_stakeholders", return_value=[]),
             mock.patch.object(misp_store, "list_pirs", return_value=[]),
             mock.patch.object(misp_store, "list_girs", return_value=[]),
-            mock.patch.object(misp_store, "pir_collection_gap", return_value={}),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -156,11 +156,6 @@ class RequirementPages(_App):
             marked = [v.get_text(strip=True) for v in page.select(".fp-value") if v.select_one(".focus-mark")]
             self.assertEqual(marked, ["Belgium", "fortinet"], kind)
             self.assertEqual(page.select_one(".fp-value .focus-mark")["title"], "Also a focus point of the organisation")
-
-    def test_the_second_scope_card_of_a_gir_marks_them_too(self):
-        page = self.soup(f"/girs/{UUID}")
-        tags = [t.get_text(strip=True) for t in page.select(".detail-list .source-tag") if t.select_one(".focus-mark")]
-        self.assertEqual(tags, ["Belgium", "fortinet"])
 
     def test_the_pickers_mark_the_focus_points(self):
         """The detail page's add form and the edit form, galaxy and free text."""

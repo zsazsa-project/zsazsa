@@ -319,16 +319,43 @@ class Pages(_PageClient):
     def test_the_list_counts_types_roles_and_subscriptions(self):
         page = self.listed()
         strip = page.select_one(".list-stats").get_text(" ", strip=True)
-        for shown in ("2 Internal 1 External", "SOC 2", "Unspecified 1", "1 without any",
-                      "Flash intel alert 2", "Vulnerability advisory 1"):
+        for shown in ("SOC 2", "Unspecified 1", "1 without any", "Flash intel alert 2", "Vulnerability advisory 1"):
             self.assertIn(shown, strip)
+        self.assertIn("2 Internal 1 External", page.select_one(".record-kpis").get_text(" ", strip=True))
         self.assertEqual(len(page.select("tbody tr")), 3)
+
+    def test_the_banner_is_the_compact_one(self):
+        """The banner took the top of the page before the list: it is now the
+        figures and actions on one line and the roles and subscriptions in one
+        panel under them, without the sentence on what the page is."""
+        page = self.listed()
+        hero = page.select_one("section.record-hero")
+        self.assertIn("record-hero-compact", hero["class"])
+        self.assertIsNone(hero.select_one(".lead-text"))
+        panel = hero.select_one(".record-panel.list-stats")
+        self.assertEqual([part.select_one(".chart-label").get_text() for part in panel.find_all("div", recursive=False)],
+                         ["Roles", "Product subscriptions"])
+        chip = panel.select_one("a.subscription")
+        self.assertEqual(chip["style"], "--share:100.0%;")
+
+    def test_the_filters_leave_the_count_to_the_banner(self):
+        """The bar under the banner said "3 stakeholders" again; it only offers
+        Clear, and only once a filter is set."""
+        bar = self.listed().select_one("form.stakeholder-filters")
+        self.assertNotIn("stakeholder", bar.get_text(" ", strip=True))
+        self.assertIsNone(bar.select_one("a.clear"))
+        bar = self.listed("?type=Internal").select_one("form.stakeholder-filters")
+        self.assertEqual(bar.select_one("a.clear")["href"], "/stakeholders/")
+
+    def test_the_filters_look_like_those_of_the_pirs_girs_and_rfis(self):
+        """The same card, so the same small type in the drop-downs."""
+        self.assertIn("record-filters", self.listed().select_one("form.stakeholder-filters")["class"])
 
     def test_a_click_on_a_bar_filters_the_list_and_sets_the_dropdown(self):
         page = self.listed()
         role = page.select_one('.list-stats a.chart-filter[href*="role="]')
         product = page.select_one(".list-stats a.subscription")
-        internal = page.select_one(".list-stats a.stakeholder-type")
+        internal = page.select_one(".record-kpis a.stakeholder-type")
         self.assertEqual((role["href"], product["href"], internal["href"]),
                          ("/stakeholders/?role=SOC", "/stakeholders/?product=Flash+intel+alert",
                           "/stakeholders/?type=Internal"))
@@ -345,12 +372,11 @@ class Pages(_PageClient):
         choice made, and no other could be picked."""
         page = self.listed("?type=External&role=SOC")
         self.assertEqual(self.names(page), [])
-        strip = page.select_one(".list-stats").get_text(" ", strip=True)
-        self.assertIn("2 Internal 0 External", strip)
-        self.assertIn("Unspecified 1", strip)
+        self.assertIn("2 Internal 0 External", page.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertIn("Unspecified 1", page.select_one(".list-stats").get_text(" ", strip=True))
         page = self.listed("?type=External")
-        self.assertIn("2 Internal 1 External", page.select_one(".list-stats").get_text(" ", strip=True))
-        external = page.select(".list-stats a.stakeholder-type")[1]
+        self.assertIn("2 Internal 1 External", page.select_one(".record-kpis").get_text(" ", strip=True))
+        external = page.select(".record-kpis a.stakeholder-type")[1]
         self.assertIn("selected", external["class"])
         self.assertEqual(external["href"], "/stakeholders/")
 
@@ -382,7 +408,7 @@ class Pages(_PageClient):
             page = BeautifulSoup(self.client.get(f"/stakeholders/?organization={ORG_UUID}").data, "html.parser")
         chosen = page.select_one('select[name="organization"] option[selected]')
         self.assertEqual((chosen["value"], chosen.get_text()), (ORG_UUID, "CIRCL"))
-        self.assertIn("1 stakeholder", page.select_one(".list-filters").get_text(" ", strip=True))
+        self.assertIn("1 stakeholder shown", page.select_one(".record-kpis").get_text(" ", strip=True))
 
     def test_the_list_disables_delete_for_an_owner_and_says_why(self):
         bob = _stakeholder(uuid="b" * 36, id="b" * 36, name="Bob")
@@ -396,9 +422,9 @@ class Pages(_PageClient):
         forms = [f["action"] for f in page.select("form[data-submit-confirm]")]
         self.assertEqual(forms, [f"/stakeholders/{'b' * 36}/delete"])
 
-    def test_the_list_counts_the_active_requirements_owned_and_listed(self):
+    def test_the_list_counts_the_requirements_owned_and_listed(self):
         """Owned first, then listed in the distribution and owned by someone
-        else. A stakeholder with neither is shown in red."""
+        else, whatever the status. A stakeholder with neither is shown in red."""
         bob, cy = "b" * 36, "c" * 36
         pirs = [SimpleNamespace(owner_uuid=UUID, pir_id="PIR-001", status="Active", distribution=[UUID, bob]),
                 SimpleNamespace(owner_uuid=cy, pir_id="PIR-002", status="Active", distribution=[UUID]),
@@ -412,11 +438,28 @@ class Pages(_PageClient):
         pir, gir = columns.index("PIR"), columns.index("GIR")
         rows = {tr.a.get_text(): tr.find_all("td") for tr in page.select("tbody tr")}
         self.assertEqual({name: (cells[pir].get_text(), cells[gir].get_text()) for name, cells in rows.items()},
-                         {"Ada": ("1/1", "1/0"), "Bob": ("0/1", "0/0"), "Cy": ("1/0", "0/0")})
+                         {"Ada": ("1/2", "1/0"), "Bob": ("1/1", "0/0"), "Cy": ("1/0", "0/0")})
         self.assertEqual([name for name, cells in rows.items() if "text-danger" in cells[gir].span["class"]],
                          ["Bob", "Cy"])
         self.assertNotIn("text-danger", rows["Ada"][pir].span["class"])
         self.assertEqual(rows["Bob"][gir].span["title"], "0 owned; 0 in distribution")
+
+    def test_the_list_counts_what_the_stakeholder_page_lists(self):
+        """A PIR under evaluation, implemented or pending counts as much as an
+        active one: the list showed 0/0 for a stakeholder whose page listed one
+        PIR owned and three followed."""
+        other = "c" * 36
+        pirs = [SimpleNamespace(owner_uuid=UUID, pir_id="PIR-010", status="Implemented", distribution=[]),
+                SimpleNamespace(owner_uuid=other, pir_id="PIR-005", status="Under Evaluation", distribution=[UUID]),
+                SimpleNamespace(owner_uuid=other, pir_id="PIR-008", status="Pending", distribution=[UUID]),
+                SimpleNamespace(owner_uuid=other, pir_id="PIR-009", status="Under Evaluation", distribution=[UUID])]
+        with mock.patch.object(misp_store, "list_stakeholders", return_value=[_stakeholder()]), \
+             mock.patch.multiple(misp_store, list_pirs=mock.Mock(return_value=pirs),
+                                 list_girs=mock.Mock(return_value=[]), list_rfis=mock.Mock(return_value=[])):
+            page = BeautifulSoup(self.client.get("/stakeholders/").data, "html.parser")
+        columns = [th.get_text(strip=True) for th in page.select("thead th")]
+        self.assertEqual(page.select("tbody tr td")[columns.index("PIR")].get_text(strip=True), "1/3")
+        self.assertIn("0 with no PIR or GIR", page.select_one(".record-kpis").get_text(" ", strip=True))
 
     def test_the_distribution_of_a_requirement_marks_its_owner(self):
         """Whether or not the owner is also a recipient."""
@@ -593,6 +636,12 @@ class RecordPages(_PageClient):
     def test_the_banner_and_no_breadcrumbs(self):
         page = self.detail(_stakeholder(influence=8, interest=3, tlp_clearance="red"))
         hero = page.select_one(".record-hero")
+        self.assertIn("record-hero-compact", hero["class"])
+        self.assertIn("record-hero-detail", hero["class"])
+        body = hero.select_one(".hero-body")
+        self.assertEqual([c["class"][0] for c in body.find_all(recursive=False)], ["hero-main", "hero-actions"])
+        self.assertEqual([b.get_text(strip=True) for b in body.select(".hero-actions .btn")], ["Edit", "Delete"])
+        self.assertEqual(hero.select_one(".positioning a")["href"], "/stakeholders/matrix")
         self.assertEqual(hero.h1.get_text(), "Ada")
         self.assertIn("TLP:RED", hero.select_one(".clearance").get_text())
         self.assertEqual(hero.select_one(".matrix .here").get_text(), "Keep satisfied")
@@ -615,7 +664,7 @@ class RecordPages(_PageClient):
              mock.patch.multiple(misp_store, list_pirs=mock.Mock(return_value=pirs)):
             page = BeautifulSoup(self.client.get("/stakeholders/").data, "html.parser")
         kpis = page.select_one(".record-kpis").get_text(" ", strip=True)
-        for shown in ("2 stakeholders", "1 without a subscription", "1 cleared for TLP:RED", "1 with no active PIR or GIR"):
+        for shown in ("2 stakeholders", "1 without a subscription", "1 cleared for TLP:RED", "1 with no PIR or GIR"):
             self.assertIn(shown, kpis)
         self.assertEqual([tr.a.get_text() for tr in page.select("table tbody tr")], ["Ada", "Bob"])
         self.assertEqual(len(page.select("tbody tr .product-ticks i.on")), 1)
@@ -663,6 +712,7 @@ class FormPage(_PageClient):
         steps = [a["href"] for a in page.select(".form-steps a")]
         self.assertEqual(steps, ["#" + card["id"] for card in page.select(".form-step")])
         self.assertIsNotNone(page.select_one("#sh-matrix .pin"))
+        self.assertIn("record-hero-compact", page.select_one("section.record-hero")["class"])
 
 
 if __name__ == "__main__":

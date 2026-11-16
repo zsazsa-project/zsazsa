@@ -5,6 +5,8 @@ old pages had in their cards, and a review that is past is said to be. Each list
 shows where a record stands as a row of steps, and the badges have the colours
 of their status, priority and level. The forms ask the classification as
 choices, and an RFI form shows the response and feedback only once triaged.
+Every banner is the compact one of the stakeholder list, a record's with its
+buttons at the bottom left, and a form keeps its Save button in view.
 
 Records come from the store's own builders, so they have every field the
 templates read; the database and log are temporary.
@@ -69,7 +71,6 @@ class _Pages(unittest.TestCase):
                         mock.patch.object(misp_store, "list_stakeholders", return_value=[]),
                         mock.patch.object(misp_store, "list_pirs", return_value=[]),
                         mock.patch.object(misp_store, "list_girs", return_value=[]),
-                        mock.patch.object(misp_store, "pir_collection_gap", return_value={}),
                         mock.patch.object(misp_store, "list_product_feedback", return_value=[]),
                         mock.patch.multiple(misp_store, **galaxies)):
             patcher.start()
@@ -205,6 +206,133 @@ class DetailLooks(_Pages):
             page = self.page(f"/rfis/{_uuid(1)}")
         self.assertEqual([b["class"][-1] for b in page.select_one(".record-hero").select(".badge")],
                          ["status-in-progress", "priority-must-have"])
+
+
+class CompactBanners(_Pages):
+    """Every list, record and form opens on the compact banner of the
+    stakeholder list, so the page starts higher. A list's banner has no
+    sentence on what the page is, and its breakdowns are in a panel of their
+    own under the figures."""
+
+    def hero(self, page):
+        hero = page.select_one("section.record-hero")
+        self.assertIn("record-hero-compact", hero["class"])
+        return hero
+
+    def test_the_lists(self):
+        with mock.patch.object(misp_store, "list_rfis", return_value=[_rfi(1, "New")]), \
+             mock.patch.object(misp_store, "list_pirs", return_value=[_pir(2, status="Active", priority="Must have")]), \
+             mock.patch.object(misp_store, "list_girs", return_value=[_gir(3, status="Active", review_cycle="Weekly")]):
+            for path in ("/pirs", "/girs", "/rfis/"):
+                with self.subTest(path):
+                    hero = self.hero(self.page(path))
+                    self.assertIsNone(hero.select_one(".lead-text"))
+                    self.assertIsNotNone(hero.select_one(".hero-main > .hero-icon"))
+                    self.assertIsNotNone(hero.select_one(".record-panel.list-stats"))
+
+    def test_the_records_and_the_forms(self):
+        for path, getter, record in ((f"/pirs/{_uuid(1)}", "get_pir", _pir(1)),
+                                     (f"/girs/{_uuid(2)}", "get_gir", _gir(2)),
+                                     (f"/rfis/{_uuid(3)}", "get_rfi", _rfi(3, "New")),
+                                     ("/pirs/new", None, None), ("/girs/new", None, None), ("/rfis/new", None, None)):
+            with self.subTest(path):
+                if getter:
+                    with mock.patch.object(misp_store, getter, return_value=record):
+                        self.hero(self.page(path))
+                else:
+                    self.hero(self.page(path))
+
+
+class RecordPages(_Pages):
+    """A record's page has its buttons at the bottom left of the banner, its
+    out of scope in the Scope card and no second card repeating the scope,
+    each technique by id and name, and a way to its triage on the list."""
+
+    def record_page(self, path, getter, record):
+        with mock.patch.object(misp_store, getter, return_value=record):
+            return self.page(path)
+
+    def test_the_buttons_are_under_what_the_record_says(self):
+        for path, getter, record in ((f"/pirs/{_uuid(1)}", "get_pir", _pir(1, status="Active")),
+                                     (f"/girs/{_uuid(2)}", "get_gir", _gir(2)),
+                                     (f"/rfis/{_uuid(3)}", "get_rfi", _rfi(3, "In Progress"))):
+            with self.subTest(path):
+                hero = self.record_page(path, getter, record).select_one("section.record-hero")
+                self.assertIn("record-hero-detail", hero["class"])
+                body = hero.select_one(".hero-body")
+                self.assertEqual([c["class"][0] for c in body.find_all(recursive=False)], ["hero-main", "hero-actions"])
+                self.assertIn("Edit", body.select_one(".hero-actions").get_text())
+
+    def test_out_of_scope_is_in_the_scope_card(self):
+        for path, getter, record in ((f"/pirs/{_uuid(1)}", "get_pir", _pir(1, out_of_scope=["Consumer fraud"])),
+                                     (f"/girs/{_uuid(2)}", "get_gir", _gir(2, out_of_scope=["Consumer fraud"]))):
+            with self.subTest(path):
+                page = self.record_page(path, getter, record)
+                self.assertEqual([t.get_text() for t in page.select(".fp-card .fp-out .source-tag")], ["Consumer fraud"])
+                headers = [h.get_text(" ", strip=True) for h in page.select(".card-header")]
+                self.assertEqual(len([h for h in headers if h.startswith("Scope")]), 1)
+                self.assertNotIn("Boundaries", headers)
+
+    def test_no_out_of_scope_line_without_any(self):
+        self.assertIsNone(self.record_page(f"/pirs/{_uuid(1)}", "get_pir", _pir(1)).select_one(".fp-out"))
+
+    def test_a_pir_has_no_collection_coverage_card(self):
+        page = self.record_page(f"/pirs/{_uuid(1)}", "get_pir", _pir(1, geographic_scope=["Belgium"]))
+        self.assertNotIn("Collection coverage", page.get_text())
+
+    def test_a_technique_shows_its_id_and_its_name(self):
+        """However it was stored: the form stores "Phishing - T1566", and the
+        name was shown where the id goes. The demo seed stored a bare id."""
+        techniques = ["Phishing - T1566", "T1190", "T0885", "Watering holes"]
+        with mock.patch.object(misp_store, "galaxy_mitre_attack_patterns",
+                               return_value=["Exploit Public-Facing Application - T1190"]), \
+             mock.patch.dict(misp_store._mitre_name_cache, clear=True), \
+             mock.patch.object(misp_store, "_mitre_name_ts", 0.0):
+            for path, getter, record in ((f"/pirs/{_uuid(1)}", "get_pir", _pir(1, mitre_attack_techniques=techniques)),
+                                         (f"/girs/{_uuid(2)}", "get_gir", _gir(2, mitre_attack_techniques=techniques))):
+                with self.subTest(path):
+                    badges = self.record_page(path, getter, record).select(".attack-technique-badge")
+                    shown = [(b.select_one(".attack-tid") and b.select_one(".attack-tid").get_text(),
+                              b.select_one(".attack-tname") and b.select_one(".attack-tname").get_text()) for b in badges]
+                    self.assertEqual(shown, [("T1566", "Phishing"), ("T1190", "Exploit Public-Facing Application"),
+                                             ("T0885", None), (None, "Watering holes")])
+
+    def test_triage_on_the_list_names_the_record(self):
+        pir = self.record_page(f"/pirs/{_uuid(1)}", "get_pir", _pir(1, status="Pending"))
+        rfi = self.record_page(f"/rfis/{_uuid(3)}", "get_rfi", _rfi(3, "New"))
+        links = [[a["href"] for a in page.select("a") if "Triage it on the" in a.get_text()] for page in (pir, rfi)]
+        self.assertEqual(links, [[f"/pirs?triage={_uuid(1)}"], [f"/rfis/?triage={_uuid(3)}"]])
+
+
+class FormSaveCard(_Pages):
+    """Save and Cancel are in an "As it will appear" card at the top of the
+    side column, as on the stakeholder form, which the stylesheet keeps in
+    view, rather than at the end of a card further down that scrolled away.
+    The card shows the record as the form has it."""
+
+    def test_the_card_shows_the_record(self):
+        rfi = _rfi(3, "Acknowledged", requester_name="Ada", requester_team="SOC")
+        with mock.patch.object(misp_store, "get_pir", return_value=_pir(1)), \
+             mock.patch.object(misp_store, "get_rfi", return_value=rfi):
+            pir, new, edit_rfi = self.page(f"/pirs/{_uuid(1)}/edit"), self.page("/pirs/new"), self.page(f"/rfis/{_uuid(3)}/edit")
+        for page, record in ((pir, "PIR-001"), (new, "New PIR"), (edit_rfi, "RFI-003")):
+            card = page.select_one(".form-save")
+            self.assertEqual(card.select_one(".card-header").get_text(strip=True), "As it will appear")
+            self.assertEqual(card.select_one(".req-id-badge").get_text(strip=True), record)
+        self.assertEqual(pir.select_one(".form-preview-title")["data-preview-text"], "question")
+        self.assertEqual([dt.get_text() for dt in edit_rfi.select(".form-save dt")], ["Priority", "Asked by", "Assigned to", "Due"])
+        self.assertTrue(any("data-preview-choice" in script.get_text() for script in pir.select("script")))
+
+    def test_the_forms(self):
+        for path, label in (("/pirs/new", "Create PIR"), ("/girs/new", "Create GIR"), ("/rfis/new", "Create RFI")):
+            with self.subTest(path):
+                page = self.page(path)
+                card = page.select_one(".col-lg-4 > .form-save")
+                self.assertEqual(card.find_previous_sibling(), None)
+                self.assertEqual([b.get_text(strip=True) for b in page.select("button[type=submit]")
+                                  if b.get_text(strip=True) in (label, "Save changes")], [label])
+                self.assertIsNotNone(card.select_one("button[type=submit]"))
+                self.assertEqual(card.select_one("a.btn")["href"], path.replace("/new", "") + ("/" if "rfis" in path else ""))
 
 
 class DetailLifecycles(_Pages):

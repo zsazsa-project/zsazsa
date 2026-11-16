@@ -469,12 +469,6 @@ def pir_detail(id):
         fp_by_category.setdefault(fp.category, []).append(fp.value)
     stakeholders = misp_store.list_stakeholders()
     distribution = _distribution_entries(pir.distribution or [], stakeholders)
-    scope_terms = _scope_terms(pir)
-    coverage = {}
-    try:
-        coverage = misp_store.pir_collection_gap(scope_terms)
-    except Exception as exc:
-        logger.warning("collection gap check failed for %s: %s", id, exc)
     linked_girs = []
     if pir.linked_gir_uuids:
         linked_girs = [g for g in misp_store.list_girs() if g.uuid in pir.linked_gir_uuids]
@@ -490,8 +484,6 @@ def pir_detail(id):
         misp_url=misp_url,
         distribution=distribution,
         selected_count=sum(1 for stakeholder in distribution if stakeholder.in_distribution),
-        scope_terms=scope_terms,
-        coverage=coverage,
         linked_girs=linked_girs,
         **_galaxy_context(),
     )

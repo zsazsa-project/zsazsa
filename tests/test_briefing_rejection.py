@@ -264,7 +264,7 @@ class BriefingRejectionRoutes(unittest.TestCase):
             page = BeautifulSoup(self.client.get("/briefing/").data, "html.parser")
         self.assertTrue(page.select_one('th form[action="/briefing/rejected/delete"] button').has_attr("disabled"))
 
-    def test_metadata_displays_the_saved_reason_as_text(self):
+    def test_the_page_displays_the_saved_reason_as_text(self):
         reason = '<script>alert("no")</script>'
         with mock.patch.object(misp_store, "get_briefing",
                                return_value=misp_store._briefing_ns(_event("rejected", reason))), \
@@ -273,11 +273,10 @@ class BriefingRejectionRoutes(unittest.TestCase):
              mock.patch.object(audit, "latest_notify_status", return_value=None):
             page = BeautifulSoup(self.client.get(f"/briefing/{UUID}", headers=self.headers).data,
                                  "html.parser")
-        metadata = next(card for card in page.select(".card") if card.select_one(".card-header")
-                        and "Metadata" in card.select_one(".card-header").get_text())
-        self.assertIn(reason, metadata.get_text())
-        self.assertIsNone(metadata.select_one("script"))
-        self.assertEqual(metadata.select_one(".bg-danger").text, "rejected")
+        card = page.select_one("#rejection-card")
+        self.assertIn(reason, card.get_text())
+        self.assertIsNone(card.select_one("script"))
+        self.assertEqual(page.select_one(".record-hero .eyebrow .bg-danger").text, "rejected")
         self.assertIsNone(page.select_one(f'form[action="/zsazsa/briefing/{UUID}/publish"]'))
         self.assertIsNone(page.select_one(f'form[action="/zsazsa/briefing/{UUID}/reject"]'))
 

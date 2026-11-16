@@ -4,16 +4,200 @@
 {% block title %}Threat landscapes | zsazsa CTI{% endblock %}
 {% block page_title %}Threat landscapes{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('threat_landscape.wizard_new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New threat landscape
-</a>
-{% endblock %}
-
 {% block content %}
+{% set count = namespace(draft=0, review=0, published=0) %}
+{% for t in tlrs %}
+  {% if t.review_state == 'draft' %}{% set count.draft = count.draft + 1 %}
+  {% elif t.review_state in ('internal-review', 'stakeholder-review') %}{% set count.review = count.review + 1 %}
+  {% elif t.review_state == 'published' %}{% set count.published = count.published + 1 %}{% endif %}
+{% endfor %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-map"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ tlrs | length }}</b><span>report{{ 's' if tlrs | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ count.review }}</b><span>in review</span></div>
+      <div class="record-kpi"><b>{{ count.published }}</b><span>published</span></div>
+      {% if queued %}
+      <a href="#queue" class="record-kpi warn"><b>{{ queued | length }}{{ '+' if more_waiting }}</b><span>event{{ 's' if queued | length != 1 }} in the queue</span></a>
+      {% else %}
+      <div class="record-kpi"><b>0</b><span>events in the queue</span></div>
+      {% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('threat_landscape.wizard_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New threat landscape</a>
+    </div>
+  </div>
+</section>
 
+
+
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
+  <i class="fas fa-triangle-exclamation fa-lg flex-shrink-0"></i>
+  <span>
+    <strong>Work in progress.</strong>
+    The threat landscape report is still being developed. Features and output may be incomplete or change without notice.
+  </span>
+</div>
+{% set lanes = [('draft', 'Draft', 'Submit for internal review when it is ready', 'var(--neutral-500)'),
+                ('internal-review', 'Internal review', 'Waiting for the team', 'var(--accent-blue)'),
+                ('stakeholder-review', 'Stakeholder review', 'Waiting for the stakeholders', 'var(--accent-orange)'),
+                ('approved', 'Approved', 'Ready to publish', 'var(--accent-green)'),
+                ('published', 'Published', 'Sent to the audience', 'var(--misp-navy)')] %}
+{% set states = lanes | map(attribute=0) | list %}
+<div class="card content-card rise rise-1 mb-4">
+  <div class="card-body p-0">
+    {% if tlrs %}
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
+      <thead>
+        <tr>
+          <th style="width:110px;">ID</th>
+          <th>Title</th>
+          <th>Period</th>
+          <th>Events</th>
+          <th>TLP</th>
+          <th>State</th>
+          <th>Author</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      {% for state, lane, hint, color in lanes %}
+      {# A state none of the lanes has, set by hand in MISP, is shown as a draft rather than not at all. #}
+      {% set others = lanes | map(attribute=0) | reject('equalto', 'draft') | list %}
+      {% set rows = (tlrs | selectattr('review_state', 'equalto', state) | list) if state != 'draft'
+                     else (tlrs | rejectattr('review_state', 'in', others) | list) %}
+      {% if rows %}
+      <tbody>
+        <tr class="lane-head">
+          <th colspan="8">
+            <span class="lane-mark" style="background:{{ color }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} report{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for t in rows %}
+        {% set published = t.review_state == 'published' %}
+        {% set locked = t.review_state in locked_states %}
+        {% set at = states.index(state) %}
+        <tr>
+          <td style="white-space:nowrap;">
+            <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="text-decoration-none">
+              <span class="req-id-badge">{{ t.tlr_id }}</span>
+            </a>
+          </td>
+          <td>
+            <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="title{{ ' untitled' if not t.title }}">{{ t.title or 'No title' }}</a>
+            {% if t.scope_sectors or t.scope_geography %}
+            <div class="mt-1">{% for v in t.scope_sectors + t.scope_geography %}<span class="badge chip-source me-1" style="font-size:.63rem;">{{ v }}</span>{% endfor %}</div>
+            {% endif %}
+          </td>
+          <td>{{ t.reporting_period or '-' }}</td>
+          <td>{{ t.entries | rejectattr('excluded') | list | length }}</td>
+          <td><span class="tlp-badge tlp-{{ t.tlp | slug }}">TLP:{{ t.tlp | upper }}</span></td>
+          <td>
+            <div class="status-steps" aria-hidden="true" style="max-width:8rem;">
+              {% for _ in states %}<i class="{{ 'now' if loop.index0 == at else ('done' if loop.index0 < at) }}"></i>{% endfor %}
+            </div>
+            {{ review_state_badge(t.review_state) }}
+          </td>
+          <td>{{ t.author or '-' }}</td>
+          <td class="text-end">
+            <div class="d-inline-flex flex-nowrap align-items-center justify-content-end gap-2">
+              <span class="d-inline-flex flex-nowrap gap-1">
+                <button type="button" class="btn btn-xs btn-outline-secondary preview-toggle-btn"
+                        data-target="tlr-preview-{{ t.uuid }}" title="Preview">
+                  <i class="fas fa-eye"></i>
+                </button>
+                <button type="button" class="btn btn-xs btn-outline-secondary feedback-btn"
+                        data-action="{{ url_for('threat_landscape.add_feedback', id=t.uuid) }}" data-label="{{ t.tlr_id }}"
+                        data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
+                  <i class="fas fa-comment-dots"></i>
+                </button>
+                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Dataset">
+                  <i class="fas fa-table-list"></i>
+                </a>
+                <a href="{{ url_for('threat_landscape.pdf', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">
+                  <i class="fas fa-file-pdf"></i>
+                </a>
+                {% if published and can_publish %}
+                <form method="post" action="{{ url_for('threat_landscape.resend', id=t.uuid) }}"
+                      class="d-inline" data-submit-confirm="Resend {{ t.tlr_id }} to its recipients?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-xs btn-outline-primary" title="Resend to recipients">
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                </form>
+                {% else %}
+                <span class="btn btn-xs btn-outline-primary btn-ghost" aria-hidden="true"><i class="fas fa-paper-plane"></i></span>
+                {% endif %}
+              </span>
+              <span class="vr"></span>
+              <span class="d-inline-flex flex-nowrap gap-1">
+                {% if locked %}
+                <span class="btn btn-xs btn-outline-secondary btn-ghost" aria-hidden="true"><i class="fas fa-pen"></i></span>
+                {% else %}
+                <a href="{{ url_for('threat_landscape.wizard_edit', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
+                  <i class="fas fa-pen"></i>
+                </a>
+                {% endif %}
+                {% if published %}
+                <span class="btn btn-xs btn-outline-danger btn-ghost" aria-hidden="true"><i class="fas fa-trash"></i></span>
+                {% else %}
+                <form method="post" action="{{ url_for('threat_landscape.delete', id=t.uuid) }}" data-busy="Deleting…"
+                      class="d-inline" data-submit-confirm="Delete {{ t.tlr_id }}? Its events go back to the queue.">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-xs btn-outline-danger" title="Delete">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </span>
+            </div>
+          </td>
+        </tr>
+        <tr id="tlr-preview-{{ t.uuid }}" style="display:none;">
+          <td colspan="8" class="p-0">
+            <div style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
+              {% if t.purpose %}<div class="report-md-body mb-2" data-md="{{ t.purpose | e }}"></div>{% endif %}
+              <p class="small mb-2">
+                <strong>Scope:</strong>
+                {{ (t.scope_sectors + t.scope_geography) | join(', ') if t.scope_sectors or t.scope_geography else 'the whole organisation' }}
+                {% if t.audience_level %} · <strong>Level:</strong> {{ t.audience_level }}{% endif %}
+                {% if t.threat_sections %} · <strong>Threat assessments:</strong> {{ t.threat_sections | length }}{% endif %}
+              </p>
+              {% if t.top_threats %}
+              <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Top threats</div>
+              <div class="report-md-body small" data-md="{{ t.top_threats | e }}"></div>
+              {% endif %}
+              <div class="mt-3 d-flex gap-2">
+                <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="btn btn-sm btn-outline-primary">Open full report</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-recipients-url="{{ url_for('threat_landscape.recipients_fragment', id=t.uuid) }}">
+                  <i class="fas fa-users me-1"></i>Recipients
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% endif %}
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}
+    <div class="p-4 text-center text-muted">
+      No threat landscape reports yet.
+      <a href="{{ url_for('threat_landscape.wizard_new') }}">Create the first one</a>.
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% if queued %}
-<div class="card content-card mb-4">
+<div class="card content-card mb-4 rise rise-2" id="queue">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="fas fa-map me-2"></i>Queue <span class="badge text-bg-secondary ms-1">{{ queued | length }}{{ '+' if more_waiting }}</span></span>
     <span class="text-muted small">An event leaves the queue once a report holds it, or you remove it.</span>
@@ -118,135 +302,6 @@
   </form>
 </div>
 {% endif %}
-
-<div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
-  <i class="fas fa-triangle-exclamation fa-lg flex-shrink-0"></i>
-  <span>
-    <strong>Work in progress.</strong>
-    The threat landscape report is still being developed. Features and output may be incomplete or change without notice.
-  </span>
-</div>
-<div class="card content-card">
-  <div class="card-body p-0">
-    {% if tlrs %}
-    <table class="table table-hover zsazsa-table mb-0">
-      <thead>
-        <tr>
-          <th style="width:110px;">ID</th>
-          <th>Title</th>
-          <th>Period</th>
-          <th>Events</th>
-          <th>TLP</th>
-          <th>State</th>
-          <th>Author</th>
-          <th class="text-end">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in tlrs %}
-        {% set published = t.review_state == 'published' %}
-        {% set locked = t.review_state in locked_states %}
-        <tr>
-          <td>
-            <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="text-decoration-none">
-              <span class="req-id-badge">{{ t.tlr_id }}</span>
-            </a>
-          </td>
-          <td>{{ t.title or '(untitled)' }}</td>
-          <td>{{ t.reporting_period or '-' }}</td>
-          <td>{{ t.entries | rejectattr('excluded') | list | length }}</td>
-          <td><span class="tlp-badge tlp-{{ t.tlp | slug }}">TLP:{{ t.tlp | upper }}</span></td>
-          <td>{{ review_state_badge(t.review_state) }}</td>
-          <td>{{ t.author or '-' }}</td>
-          <td class="text-end">
-            <div class="d-inline-flex flex-nowrap align-items-center justify-content-end gap-2">
-              <span class="d-inline-flex flex-nowrap gap-1">
-                <button type="button" class="btn btn-xs btn-outline-secondary preview-toggle-btn"
-                        data-target="tlr-preview-{{ t.uuid }}" title="Preview">
-                  <i class="fas fa-eye"></i>
-                </button>
-                <button type="button" class="btn btn-xs btn-outline-secondary feedback-btn"
-                        data-action="{{ url_for('threat_landscape.add_feedback', id=t.uuid) }}" data-label="{{ t.tlr_id }}"
-                        data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
-                  <i class="fas fa-comment-dots"></i>
-                </button>
-                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Dataset">
-                  <i class="fas fa-table-list"></i>
-                </a>
-                <a href="{{ url_for('threat_landscape.pdf', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">
-                  <i class="fas fa-file-pdf"></i>
-                </a>
-                {% if published and can_publish %}
-                <form method="post" action="{{ url_for('threat_landscape.resend', id=t.uuid) }}"
-                      class="d-inline" data-submit-confirm="Resend {{ t.tlr_id }} to its recipients?">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn btn-xs btn-outline-primary" title="Resend to recipients">
-                    <i class="fas fa-paper-plane"></i>
-                  </button>
-                </form>
-                {% else %}
-                <span class="btn btn-xs btn-outline-primary btn-ghost" aria-hidden="true"><i class="fas fa-paper-plane"></i></span>
-                {% endif %}
-              </span>
-              <span class="vr"></span>
-              <span class="d-inline-flex flex-nowrap gap-1">
-                {% if locked %}
-                <span class="btn btn-xs btn-outline-secondary btn-ghost" aria-hidden="true"><i class="fas fa-pen"></i></span>
-                {% else %}
-                <a href="{{ url_for('threat_landscape.wizard_edit', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Edit">
-                  <i class="fas fa-pen"></i>
-                </a>
-                {% endif %}
-                {% if published %}
-                <span class="btn btn-xs btn-outline-danger btn-ghost" aria-hidden="true"><i class="fas fa-trash"></i></span>
-                {% else %}
-                <form method="post" action="{{ url_for('threat_landscape.delete', id=t.uuid) }}" data-busy="Deleting…"
-                      class="d-inline" data-submit-confirm="Delete {{ t.tlr_id }}? Its events go back to the queue.">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-xs btn-outline-danger" title="Delete">
-                    <i class="fas fa-trash"></i>
-                  </button>
-                </form>
-                {% endif %}
-              </span>
-            </div>
-          </td>
-        </tr>
-        <tr id="tlr-preview-{{ t.uuid }}" style="display:none;">
-          <td colspan="8" class="p-0">
-            <div style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
-              {% if t.purpose %}<div class="report-md-body mb-2" data-md="{{ t.purpose | e }}"></div>{% endif %}
-              <p class="small mb-2">
-                <strong>Scope:</strong>
-                {{ (t.scope_sectors + t.scope_geography) | join(', ') if t.scope_sectors or t.scope_geography else 'the whole organisation' }}
-                {% if t.audience_level %} · <strong>Level:</strong> {{ t.audience_level }}{% endif %}
-                {% if t.threat_sections %} · <strong>Threat assessments:</strong> {{ t.threat_sections | length }}{% endif %}
-              </p>
-              {% if t.top_threats %}
-              <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Top threats</div>
-              <div class="report-md-body small" data-md="{{ t.top_threats | e }}"></div>
-              {% endif %}
-              <div class="mt-3 d-flex gap-2">
-                <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="btn btn-sm btn-outline-primary">Open full report</a>
-                <button type="button" class="btn btn-sm btn-outline-secondary"
-                        data-recipients-url="{{ url_for('threat_landscape.recipients_fragment', id=t.uuid) }}">
-                  <i class="fas fa-users me-1"></i>Recipients
-                </button>
-              </div>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <div class="p-4 text-center text-muted">
-      No threat landscape reports yet.
-      <a href="{{ url_for('threat_landscape.wizard_new') }}">Create the first one</a>.
-    </div>
-    {% endif %}
-  </div>
-</div>
 {% include "_published_delete_note.html" %}
 {% include "_recipients_modal.html" %}
 

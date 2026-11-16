@@ -3,92 +3,120 @@
 {% block title %}Users | zsazsa CTI{% endblock %}
 {% block page_title %}Users{% endblock %}
 
-{% block content %}
-<div class="row g-4">
-
-  <div class="col-lg-8">
-    <div class="card content-card">
-      <div class="card-header"><i class="fas fa-users me-2"></i>Users seen via MISP SSO</div>
-      <div class="card-body p-0">
-        {% if sso_users %}
-        <table class="table table-hover zsazsa-table mb-0">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>User ID</th>
-              <th>Organisation</th>
-              <th>Role</th>
-              <th>First seen</th>
-              <th>Last seen</th>
-              <th class="text-end">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for u in sso_users %}
-            <tr class="{{ 'table-warning' if u.possible_duplicate }}">
-              <td class="fw-semibold">
-                {{ u.email }}
-                {% if u.possible_duplicate %}
-                <i class="fas fa-triangle-exclamation text-warning ms-1"
-                   title="Same MISP user ID as the adjacent row, possibly the same user under a different email"></i>
-                {% endif %}
-              </td>
-              <td class="text-muted font-monospace">{{ u.misp_user_id }}</td>
-              <td class="text-muted">
-                {% if u.organisation_uuid %}
-                <a href="{{ url_for('community.organisations') }}#org-{{ u.organisation_uuid }}">{{ u.organisation or u.organisation_uuid }}</a>
-                {% else %}
-                {{ u.organisation or '-' }}
-                {% endif %}
-              </td>
-              <td class="text-muted">{{ u.role or '-' }}</td>
-              <td class="text-muted small font-monospace">{{ u.first_seen }}</td>
-              <td class="text-muted small font-monospace">{{ u.last_seen }}</td>
-              <td class="text-end">
-                <div class="d-inline-flex gap-2">
-                  <a class="btn btn-xs btn-outline-secondary" title="View in MISP"
-                     href="{{ misp_webapp_url }}/admin/users/view/{{ u.misp_user_id }}"
-                     target="_blank" rel="noopener">
-                    <i class="fas fa-eye"></i>
-                  </a>
-                  <a class="btn btn-xs btn-outline-secondary" title="Edit in MISP"
-                     href="{{ misp_webapp_url }}/admin/users/edit/{{ u.misp_user_id }}"
-                     target="_blank" rel="noopener">
-                    <i class="fas fa-pen"></i>
-                  </a>
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="empty-state py-5">
-          <i class="fas fa-users fa-2x text-muted mb-3 d-block"></i>
-          <p class="text-muted mb-0 small">No MISP users have signed in to zsazsa via SSO yet.</p>
-        </div>
+{% macro user_row(u) %}
+<tr class="{{ 'dup' if u.same_user_as }}">
+  <td>
+    <div class="who">
+      <span class="monogram" aria-hidden="true">{{ (u.email or '?')[:1] | upper }}</span>
+      <div class="min-w-0">
+        <span class="name">{{ u.email }}</span>
+        {% if u.same_user_as %}
+        <span class="dup-note" title="The same MISP user ID, possibly the same user under another email address">
+          <i class="fas fa-triangle-exclamation"></i>Same MISP user as {{ u.same_user_as | join(', ') }}
+        </span>
         {% endif %}
       </div>
     </div>
-  </div>
+  </td>
+  <td class="mono-id">{{ u.misp_user_id or '-' }}</td>
+  <td>
+    {% if u.organisation_uuid %}
+    <a class="use-chip" href="{{ url_for('community.organisations') }}#org-{{ u.organisation_uuid }}"><i class="fas fa-building"></i>{{ u.organisation or u.organisation_uuid }}</a>
+    {% else %}
+    <span class="use-none">{{ u.organisation or '-' }}</span>
+    {% endif %}
+  </td>
+  <td><span class="role-badge{{ ' admin' if (u.role or '') | lower == 'admin' }}{{ ' none' if not u.role }}">{{ u.role or 'unknown' }}</span></td>
+  <td class="seen" title="UTC">{{ u.first_seen_at.strftime('%d-%m-%Y %H:%M') if u.first_seen_at else '-' }}</td>
+  <td class="seen" title="UTC">
+    {{ u.last_seen_at.strftime('%d-%m-%Y %H:%M') if u.last_seen_at else '-' }}
+    {% if u.last_seen_ago %}<small>{{ u.last_seen_ago }}</small>{% endif %}
+  </td>
+  <td class="text-end">
+    {% if u.misp_user_id %}
+    <div class="d-inline-flex flex-nowrap gap-1">
+      <a class="btn btn-xs btn-outline-secondary" title="View in MISP" aria-label="View in MISP"
+         href="{{ misp_webapp_url }}/admin/users/view/{{ u.misp_user_id }}" target="_blank" rel="noopener">
+        <i class="fas fa-eye"></i>
+      </a>
+      <a class="btn btn-xs btn-outline-secondary" title="Edit in MISP" aria-label="Edit in MISP"
+         href="{{ misp_webapp_url }}/admin/users/edit/{{ u.misp_user_id }}" target="_blank" rel="noopener">
+        <i class="fas fa-pen"></i>
+      </a>
+    </div>
+    {% else %}
+    <span class="small text-muted">no MISP ID</span>
+    {% endif %}
+  </td>
+</tr>
+{% endmacro %}
 
-  <div class="col-lg-4">
-    <div class="card content-card">
-      <div class="card-header"><i class="fas fa-circle-info me-2"></i>About users</div>
-      <div class="card-body">
-        <p class="small text-muted">
-          zsazsa does not have its own user management. Accounts cannot be added here.
-        </p>
-        <p class="small text-muted mb-0">
-          A user must already exist in MISP and sign in there; zsazsa then recognises
-          them through the shared MISP session. If single sign-on is not enabled, every
-          visitor instead shares the single static <code>admin@admin.test</code> identity.
-          The table on the left lists every MISP user zsazsa has recognised through an
-          SSO session.
-        </p>
-      </div>
+{% macro lane(colour, name, users, hint) %}
+<tr class="lane-head">
+  <th colspan="7"><span class="lane-mark" style="background:{{ colour }};"></span><span class="lane-name">{{ name }}</span><span class="lane-count">{{ users | length }} user{{ 's' if users | length != 1 }}</span><span class="lane-hint">{{ hint }}</span></th>
+</tr>
+{% for u in users %}{{ user_row(u) }}{% endfor %}
+{% endmacro %}
+
+{% block content %}
+{% import "_charts.html" as charts with context %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
+    <p class="lead-text">MISP users known by zsazsa.</p>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ sso_users | length }}</b><span>user{{ 's' if sso_users | length != 1 }} seen</span></div>
+      <div class="record-kpi"><b>{{ recent | length }}</b><span>in the last 7 days</span></div>
+      <div class="record-kpi"><b>{{ organisations }}</b><span>organisation{{ 's' if organisations != 1 }}</span></div>
+      {% if shared_ids %}
+      <div class="record-kpi warn"><b>{{ shared_ids }}</b><span>possibly the same user twice</span></div>
+      {% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ misp_webapp_url }}/admin/users/index" class="btn btn-sm btn-hero" target="_blank" rel="noopener">
+        <i class="fas fa-arrow-up-right-from-square me-1"></i> Users in MISP
+      </a>
+      <a href="{{ url_for('community.organisations') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-building me-1"></i> Organisations</a>
     </div>
   </div>
+  {% if sso_users %}
+  <div class="record-panel list-stats">
+    <div style="flex-grow:1.4;">{{ charts.mix('Role', by_role, {'unknown': 'var(--neutral-400)'}) }}</div>
+    <div>{{ charts.mix('Organisation', by_organisation, {'none': 'var(--neutral-400)'}) }}</div>
+  </div>
+  {% endif %}
+</section>
 
+<div class="card content-card rise rise-1">
+  <div class="card-body p-0">
+    {% if sso_users %}
+    <table class="table table-hover zsazsa-table community-table mb-0">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>MISP ID</th>
+          <th>Organisation</th>
+          <th>Role</th>
+          <th>First seen</th>
+          <th>Last seen</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if recent %}{{ lane('var(--accent-green)', 'Seen in the last 7 days', recent, 'Signed in to zsazsa this week') }}{% endif %}
+        {% if earlier %}{{ lane('var(--neutral-400)', 'Earlier', earlier, 'Not seen for over a week') }}{% endif %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state py-5">
+      <i class="fas fa-users fa-2x text-muted mb-3 d-block"></i>
+      <p class="text-muted mb-0 small">No MISP users have signed in to zsazsa via SSO yet.</p>
+    </div>
+    {% endif %}
+  </div>
 </div>
+<p class="small text-muted mt-2 mb-0">
+  <i class="fas fa-circle-info me-1"></i>A user signs in to MISP and zsazsa knows them from the shared MISP session.
+  Without single sign-on, every visitor shares the one identity <code>admin@admin.test</code>.
+</p>
 {% endblock %}

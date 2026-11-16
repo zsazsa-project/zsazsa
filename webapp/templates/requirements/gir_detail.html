@@ -16,26 +16,28 @@
 {% set review_days = (gir.next_review - today).days if gir.next_review else none %}
 {% set shared = namespace(n=0) %}
 {% for fp in focus_points %}{% if fp.value | lower in org_focus.get(fp.category, {}) %}{% set shared.n = shared.n + 1 %}{% endif %}{% endfor %}
-<section class="record-hero rise mb-4">
-  <div class="hero-main">
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <span class="hero-id"><i class="fas fa-list-check me-1"></i>{{ gir.gir_id }}</span>
-      <span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span>
-      {% for lvl in gir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
-    </div>
-    <h1 class="question">{{ gir.topic }}</h1>
-    {% if gir.description %}<p class="lead-text">{{ gir.description }}</p>{% endif %}
-    <div class="record-facts">
-      <div><span>Owner</span>
-        {% if gir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=gir.owner_stakeholder.id) }}">{{ gir.owner_stakeholder.name }}</a>
-        {% else %}{{ gir.owner_name or 'No owner yet' }}{% endif %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <span class="hero-id"><i class="fas fa-list-check me-1"></i>{{ gir.gir_id }}</span>
+        <span class="badge status-badge status-{{ gir.status | slug }}">{{ gir.status }}</span>
+        {% for lvl in gir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
       </div>
-      {% if linked_pirs %}
-      <div class="related-links"><span>Related PIR{{ 's' if linked_pirs | length != 1 }}</span>
-        {% for p in linked_pirs %}<a href="{{ url_for('requirements.pir_detail', id=p.id) }}">{{ p.pir_id }}</a>{{ ', ' if not loop.last }}{% endfor %}
+      <div class="record-facts">
+        <div><span>Owner</span>
+          {% if gir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=gir.owner_stakeholder.id) }}">{{ gir.owner_stakeholder.name }}</a>
+          {% else %}{{ gir.owner_name or 'No owner yet' }}{% endif %}
+        </div>
+        {% if linked_pirs %}
+        <div class="related-links"><span>Related PIR{{ 's' if linked_pirs | length != 1 }}</span>
+          {% for p in linked_pirs %}<a href="{{ url_for('requirements.pir_detail', id=p.id) }}">{{ p.pir_id }}</a>{{ ', ' if not loop.last }}{% endfor %}
+        </div>
+        {% endif %}
+        {% if gir.collection_sources %}<div><span>Collection</span>{{ gir.collection_sources | join(', ') }}</div>{% endif %}
       </div>
-      {% endif %}
-      {% if gir.collection_sources %}<div><span>Collection</span>{{ gir.collection_sources | join(', ') }}</div>{% endif %}
+      <h1 class="question">{{ gir.topic }}</h1>
+      {% if gir.description %}<p class="lead-text">{{ gir.description }}</p>{% endif %}
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('requirements.gir_edit', id=gir.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
@@ -205,56 +207,9 @@
           <p class="text-muted mb-0 small">No scope items yet. Add them to guide ongoing collection for this GIR.</p>
         </div>
         {% endif %}
+        {% include "requirements/_out_of_scope.html" %}
       </div>
     </div>
-
-    <!-- Scope -->
-    {% if gir.geographic_scope or gir.sectors or gir.threat_actors or gir.threat_types
-          or gir.technology or gir.vendor or gir.incident or gir.campaign or gir.out_of_scope %}
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-map me-2"></i>Scope</div>
-      <div class="card-body">
-        <dl class="detail-list">
-          {% if gir.geographic_scope %}
-          <dt>Geography</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.geographic_scope %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Geography"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.sectors %}
-          <dt>Sectors</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.sectors %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Sector"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.threat_actors %}
-          <dt>Threat actors</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.threat_actors %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Threat Actor"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.threat_types %}
-          <dt>Threat types</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.threat_types %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Threat Type"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.technology %}
-          <dt>Technology</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.technology %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Technology"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.vendor %}
-          <dt>Vendor</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.vendor %}<span class="source-tag">{{ v }}{{ focus_mark(org_focus["Vendor"], v) }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.incident %}
-          <dt>Incident</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.incident %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.campaign %}
-          <dt>Campaign</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.campaign %}<span class="source-tag">{{ v }}</span>{% endfor %}</div></dd>
-          {% endif %}
-          {% if gir.out_of_scope %}
-          <dt>Out of scope</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in gir.out_of_scope %}<span class="source-tag" style="background:var(--tlp-red-bg);border-color:var(--scope-out-border);color:var(--tlp-red-fg);">{{ v }}</span>{% endfor %}</div></dd>
-          {% endif %}
-        </dl>
-      </div>
-    </div>
-    {% endif %}
 
     <!-- MITRE ATT&CK techniques -->
     {% if gir.mitre_attack_techniques %}
@@ -266,10 +221,10 @@
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2">
           {% for t in gir.mitre_attack_techniques %}
-            {% set parts = t.split(' - ', 1) %}
+            {% set tid, tname = t | technique_parts %}
             <span class="attack-technique-badge" title="{{ t }}">
-              <span class="attack-tid">{{ parts[0] }}</span>
-              {% if parts | length > 1 %}<span class="attack-tname">{{ parts[1] }}</span>{% endif %}
+              {% if tid %}<span class="attack-tid">{{ tid }}</span>{% endif %}
+              {% if tname %}<span class="attack-tname">{{ tname }}</span>{% endif %}
             </span>
           {% endfor %}
         </div>

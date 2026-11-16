@@ -28,7 +28,7 @@
    script tells a filter change from an edit to the feed's own fields. The
    server picker is drawn elsewhere on the page and carries the same marker. #}
 <div data-query-part>
-  <div class="card content-card mb-4">
+  <div class="card content-card form-step mb-4" id="step-query">
     <div class="card-header d-flex align-items-center justify-content-between">
       {# The summary follows the filters as they are edited, so it is written
          once here and rewritten by the script. Whether the editor starts folded
@@ -43,10 +43,10 @@
       {# The whole title opens the editor; the button beside it does the same. #}
       <button class="btn btn-link p-0 text-decoration-none text-reset fw-semibold text-start" type="button"
               data-bs-toggle="collapse" data-bs-target="#query-body" aria-controls="query-body">
-        <i class="fas fa-filter me-2"></i>Query{{ summary() }}
+        <span class="step-num">3</span>Query{{ summary() }}
       </button>
       {% else %}
-      <span><i class="fas fa-filter me-2"></i>Query{{ summary() }}</span>
+      <span class="d-flex align-items-center"><span class="step-num">3</span>Query{{ summary() }}</span>
       {% endif %}
       <span class="d-flex align-items-center gap-2">
         {% if query_summary %}

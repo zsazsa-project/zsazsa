@@ -342,8 +342,7 @@ class PirGirLinks(unittest.TestCase):
         with mock.patch.object(misp_store, "list_girs", return_value=self.girs()), \
              mock.patch.object(misp_store, "list_pirs", return_value=[pir, _pir(self.RETIRED)]), \
              mock.patch.object(misp_store, "get_pir", return_value=pir), \
-             mock.patch.object(misp_store, "get_gir", return_value=self.girs()[0]), \
-             mock.patch.object(misp_store, "pir_collection_gap", return_value={}):
+             mock.patch.object(misp_store, "get_gir", return_value=self.girs()[0]):
             pir_page = BeautifulSoup(self.client.get(f"/pirs/{UUID}").data, "html.parser")
             gir_page = BeautifulSoup(self.client.get(f"/girs/{OTHER}").data, "html.parser")
         self.assertEqual([a["href"] for a in pir_page.select(".record-hero .related-links a")], [f"/girs/{OTHER}"])

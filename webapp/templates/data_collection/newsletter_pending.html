@@ -1,74 +1,161 @@
 {% extends "base.html" %}
 {% from "_sort_header.html" import sort_th with context %}
+{% from "_macros.html" import date_leaf %}
 
 {% block title %}Email sources | zsazsa CTI{% endblock %}
 {% block page_title %}Email sources{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary">
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to collection
 </a>
 {% endblock %}
 
+{# The newest few of a newsletter, the rest behind "Show all", unless one is picked. #}
+{% set shown = 8 %}
+
 {% block content %}
-<div class="card content-card">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="fas fa-envelope-open-text me-2"></i>Email sources awaiting review</span>
-    <span class="text-muted small">{{ pending | length }} source{{ 's' if pending | length != 1 }}</span>
+{% import "_charts.html" as charts with context %}
+{% set filtered = newsletter_filter or month_filter %}
+{% set waits = pending | map(attribute='waiting') | select('number') | list %}
+{% set waiting_colors = {'under 30 days': 'var(--accent-green)', '30 to 60 days': 'var(--accent-orange)',
+                         'over 60 days': 'var(--accent-red)'} %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-inbox"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ pending | length }}</b><span>waiting for review{{ ' shown' if filtered }}</span></div>
+      <div class="record-kpi"><b>{{ lanes | length }}</b><span>newsletter{{ 's' if lanes | length != 1 }}</span></div>
+      {% set empty = pending | selectattr('empty') | list %}
+      <div class="record-kpi{{ ' warn' if empty }}"><b>{{ empty | length }}</b><span>without articles</span></div>
+      {% if waits %}
+      <div class="record-kpi{{ ' warn' if waits | max > 30 }}"><b>{{ waits | max }} d</b><span>oldest waiting</span></div>
+      <div class="record-kpi"><b>{{ waits | min }} d</b><span>newest waiting</span></div>
+      {% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('data_collection.newsletter_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-paste me-1"></i> Paste a newsletter</a>
+      <a href="{{ url_for('data_collection.manual_new') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-pen-to-square me-1"></i> Add manual entry</a>
+    </div>
   </div>
-  <div class="card-body pb-0">
-    <p class="text-muted small">
-      These were collected from a mailbox and archived in MISP, but their articles have not
-      been pushed to the scraper yet. Review one to choose which articles to collect, or
-      ignore it to take it out of this queue without collecting anything.
-    </p>
+  {% if total %}
+  <div class="record-panel list-stats">
+    <div style="flex-grow:1.6;">{{ charts.mix('Newsletter', newsletter_counts, param='newsletter', selected=newsletter_filter) }}</div>
+    <div>{{ charts.mix('Received', month_counts, param='month', selected=month_filter) }}</div>
+    <div>{{ charts.mix('Waiting', waiting_counts, waiting_colors) }}</div>
   </div>
+  {% endif %}
+</section>
+
+{% if total %}
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('newsletter', 'Newsletter', 'fa-envelope-open-text', 'All newsletters', newsletters, newsletter_filter) }}
+  {{ charts.filter_select('month', 'Received', 'fa-calendar', 'Any month', months, month_filter) }}
+  {% if sort %}<input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+  {% if filtered %}
+  <a href="{{ url_for('data_collection.newsletter_pending') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
+{% endif %}
+
+<div class="card content-card rise rise-2">
   {% if pending %}
   <div class="table-responsive">
-    <table class="table table-hover zsazsa-table mb-0">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
+          {{ sort_th('Received', 'date', sort, dir, 'data_collection.newsletter_pending', width='7rem') }}
           {{ sort_th('Title', 'title', sort, dir, 'data_collection.newsletter_pending') }}
-          {{ sort_th('Date', 'date', sort, dir, 'data_collection.newsletter_pending', width='150px') }}
-          <th class="text-end" style="width:1%;"></th>
+          <th>Waiting</th>
+          <th class="text-end" style="width:1%;">Actions</th>
         </tr>
       </thead>
+      {% for newsletter, rows in lanes %}
+      {% set group = loop.index %}
+      {% set stale = stale_counts[newsletter] %}
       <tbody>
-        {% for n in pending %}
-        <tr>
+        <tr class="lane-head">
+          <th colspan="4">
+            <span class="monogram product-mark me-2" aria-hidden="true"><i class="fas fa-envelope-open-text"></i></span>
+            <span class="lane-name">{{ newsletter }}</span>
+            <span class="lane-count">{{ rows | length }} waiting</span>
+            {% if stale %}
+            <form method="post" class="lane-hint" action="{{ url_for('data_collection.newsletter_ignore_stale') }}"
+                  data-submit-confirm="Take the {{ stale }} older than {{ stale_days }} days out of the queue? None of their articles are collected; the mails stay archived in MISP.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="newsletter" value="{{ newsletter }}">
+              <button type="submit" class="btn btn-xs btn-outline-danger"><i class="fas fa-eye-slash me-1"></i>Ignore the {{ stale }} older than {{ stale_days }} days</button>
+            </form>
+            {% endif %}
+          </th>
+        </tr>
+        {% for n in rows %}
+        {% set hidden = not filtered and loop.index > shown %}
+        <tr{% if hidden %} class="d-none" data-more="{{ group }}"{% endif %}>
+          <td>{{ date_leaf(n.date) }}</td>
           <td>
-            <a href="{{ url_for('data_collection.newsletter_review_pending', uuid=n.uuid) }}"
-               class="text-decoration-none">
-              <i class="fas fa-envelope me-2 text-muted"></i>{{ n.info }}
-            </a>
+            <a href="{{ url_for('data_collection.newsletter_review_pending', uuid=n.uuid) }}" class="title">{{ n.title }}</a>
             {% if n.empty %}
-            <span class="badge text-bg-warning ms-2"
-                  title="The parser found no articles in this mail.">no articles</span>
+            <span class="badge text-bg-warning ms-2" title="The parser found no articles in this mail.">no articles</span>
             {% endif %}
           </td>
-          <td class="text-muted small" style="white-space:nowrap;">{{ n.date }}</td>
+          <td>{% if n.waiting is not none %}<span class="wait{{ ' old' if n.waiting > 30 }}"><i class="fas fa-hourglass-half" aria-hidden="true"></i>{{ n.waiting }} day{{ 's' if n.waiting != 1 }}</span>{% endif %}</td>
           <td class="text-end">
-            {# The subject is not put in the confirmation: a mail subject carries
-               quotes often enough to break out of it. #}
-            <form method="post" class="d-inline"
-                  action="{{ url_for('data_collection.newsletter_ignore', uuid=n.uuid) }}"
-                  data-submit-confirm="Ignore this email source? It leaves the review queue and none of its articles are collected.">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-xs btn-outline-danger" aria-label="Ignore"
-                      title="Ignore this email source. It leaves the review queue and none of its articles are collected. The mail stays archived in MISP.">
-                <i class="fas fa-eye-slash"></i>
-              </button>
-            </form>
+            <div class="d-inline-flex flex-nowrap gap-1">
+              <a href="{{ url_for('data_collection.newsletter_review_pending', uuid=n.uuid) }}" class="btn btn-xs btn-outline-primary text-nowrap">
+                <i class="fas fa-list-check me-1"></i>Review
+              </a>
+              {# The subject is not put in the confirmation: a mail subject has
+                 quotes in it often enough to break out of it. #}
+              <form method="post" class="d-inline"
+                    action="{{ url_for('data_collection.newsletter_ignore', uuid=n.uuid) }}"
+                    data-submit-confirm="Ignore this email source? It leaves the review queue and none of its articles are collected.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-xs btn-outline-danger" aria-label="Ignore"
+                        title="Ignore this email source. It leaves the review queue and none of its articles are collected. The mail stays archived in MISP.">
+                  <i class="fas fa-eye-slash"></i>
+                </button>
+              </form>
+            </div>
           </td>
         </tr>
         {% endfor %}
+        {% if not filtered and rows | length > shown %}
+        <tr class="show-more-row">
+          <td></td>
+          <td colspan="3" class="small">
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-show-more="{{ group }}">
+              Show all {{ rows | length }} <i class="fas fa-chevron-down ms-1"></i>
+            </button>
+          </td>
+        </tr>
+        {% endif %}
       </tbody>
+      {% endfor %}
     </table>
   </div>
+  {% elif filtered %}
+  <div class="card-body"><p class="text-muted small mb-0">No email sources match these filters.</p></div>
   {% else %}
-  <div class="card-body pt-0">
-    <p class="text-muted small mb-0">No email sources are waiting for review.</p>
-  </div>
+  <div class="card-body"><p class="text-muted small mb-0">No email sources are waiting for review.</p></div>
   {% endif %}
 </div>
+<p class="small text-muted mt-2 mb-0"><i class="fas fa-circle-info me-1"></i>The IMAP collector archives each mail in MISP. Its articles reach the scraper only once you review it; ignoring it collects nothing.</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  // The rows past the newest few of a newsletter, shown on request.
+  document.querySelectorAll('[data-show-more]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('[data-more="' + btn.dataset.showMore + '"]').forEach(function(row) {
+        row.classList.remove('d-none');
+      });
+      btn.closest('tr').remove();
+    });
+  });
+})();
+</script>
 {% endblock %}

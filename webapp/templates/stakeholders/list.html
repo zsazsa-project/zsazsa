@@ -6,22 +6,22 @@
 
 {% block content %}
 <style>
-  .list-stats .figure { font-size: 1rem; font-weight: 700; line-height: 1; }
-  .stakeholder-type { color: inherit; text-decoration: none; white-space: nowrap; }
-  .stakeholder-type:hover .figure { color: var(--accent-blue); }
-  .stakeholder-type.selected .figure { color: var(--accent-blue); text-decoration: underline; }
+  /* Internal and external are figures in the banner that filter the list. */
+  .stakeholder-type { white-space: nowrap; }
+  .stakeholder-type:hover b, .stakeholder-type.selected b { text-decoration: underline; }
   .stakeholder-type.faded, .subscription.faded { opacity: .45; }
-  .subscriptions { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .05rem 1.2rem; }
-  .subscription { color: inherit; text-decoration: none; border-radius: 4px; display: grid; grid-template-columns: minmax(0, 1fr) 2.8rem 1.2rem; gap: .4rem; align-items: center; font-size: .74rem; }
-  .subscription:hover { background: var(--surface-hover); }
+  .record-hero-compact .list-stats .subscription-mix { flex-grow: 1.7; }
+  /* A product is a chip, filled as far as its share of the most subscribed. */
+  .subscriptions { display: flex; flex-wrap: wrap; gap: .25rem; }
+  .subscription { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; padding: .05rem .5rem;
+    border: 1px solid var(--border-light); border-radius: 999px; color: inherit; text-decoration: none; font-size: .7rem;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent-orange) 22%, transparent) var(--share), transparent var(--share)); }
+  .subscription:hover, .subscription.selected { border-color: var(--accent-orange); }
   .subscription.selected .name { font-weight: 600; text-decoration: underline; }
   .subscription .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .subscription .chart-bar { margin-top: 0; }
-  .subscription .n { text-align: right; font-weight: 600; }
+  .subscription .n { font-weight: 600; }
 
-  .stakeholder-filters { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .8rem 1rem; }
-  .stakeholder-filters .filter { flex: 1 1 13rem; max-width: 17rem; margin-bottom: 0; }
-  .stakeholder-filters .shown { margin-left: auto; display: flex; align-items: center; gap: .6rem; font-size: .82rem; color: var(--text-muted); }
+  .stakeholder-filters .clear { margin-left: auto; }
   .stakeholder-table td { padding-top: .75rem; padding-bottom: .75rem; }
   .stakeholder-table .who { display: flex; align-items: center; gap: .75rem; }
   .stakeholder-table .name { font-weight: 600; text-decoration: none; }
@@ -37,17 +37,23 @@
   {% if not (pirs | sum or girs | sum) %}{% set totals.uncovered = totals.uncovered + 1 %}{% endif %}
 {% endfor %}
 
-<section class="record-hero rise mb-4">
+<section class="record-hero record-hero-compact rise mb-3">
   <div class="hero-main">
-    <div class="d-flex align-items-center gap-3">
-      <span class="hero-icon" aria-hidden="true"><i class="fas fa-people-group"></i></span>
-      <p class="lead-text">Who receives the products, at which TLP, and which requirements they own or follow.</p>
-    </div>
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-people-group"></i></span>
     <div class="record-kpis">
       <div class="record-kpi"><b>{{ stakeholders | length }}</b><span>stakeholder{{ 's' if stakeholders | length != 1 }}{{ ' shown' if type_filter or org_filter or role_filter or product_filter }}</span></div>
+      {% if type_counts %}
+      {% for kind in ('Internal', 'External') %}
+      <a href="{{ charts.filtered_url('type', kind, type_filter) }}"
+         class="record-kpi stakeholder-type{{ ' selected' if type_filter == kind }}{{ ' faded' if type_filter and type_filter != kind }}"
+         title="{{ 'Show all again' if type_filter == kind else 'Show only ' ~ kind | lower ~ ' stakeholders' }}">
+        <b>{{ type_counts[kind] }}</b><span><i class="fas fa-{{ 'building' if kind == 'Internal' else 'globe' }} me-1"></i>{{ kind }}</span>
+      </a>
+      {% endfor %}
+      {% endif %}
       <div class="record-kpi"><b>{{ unsubscribed }}</b><span>without a subscription</span></div>
       <div class="record-kpi"><b>{{ totals.red }}</b><span>cleared for TLP:RED</span></div>
-      <div class="record-kpi{{ ' warn' if totals.uncovered }}"><b>{{ totals.uncovered }}</b><span>with no active PIR or GIR</span></div>
+      <div class="record-kpi{{ ' warn' if totals.uncovered }}"><b>{{ totals.uncovered }}</b><span>with no PIR or GIR</span></div>
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('stakeholders.new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> Add stakeholder</a>
@@ -56,31 +62,10 @@
     </div>
   </div>
 
-  {% if type_counts or role_counts or subscription_counts %}
-  <div class="record-panel list-stats" style="flex:1 1 40rem;max-width:52rem;">
-    <div class="d-flex flex-wrap gap-4">
-    <div style="flex:0 0 auto;">
-      <div class="chart-label mb-1">Internal | External</div>
-      <div class="d-flex flex-wrap gap-3 mb-1">
-        {% for kind, color in (('Internal', 'var(--accent-blue)'), ('External', 'var(--accent-purple)')) %}
-        <a href="{{ charts.filtered_url('type', kind, type_filter) }}"
-           class="stakeholder-type{{ ' selected' if type_filter == kind }}{{ ' faded' if type_filter and type_filter != kind }}"
-           title="{{ 'Show all again' if type_filter == kind else 'Show only ' ~ kind | lower ~ ' stakeholders' }}">
-          <span class="figure">{{ type_counts[kind] }}</span>
-          <span class="small text-muted"><i class="fas fa-{{ 'building' if kind == 'Internal' else 'globe' }} ms-1 me-1" style="color:{{ color }};"></i>{{ kind }}</span>
-        </a>
-        {% endfor %}
-      </div>
-      <div class="chart-segbar">
-        {% for kind, color in (('Internal', 'var(--accent-blue)'), ('External', 'var(--accent-purple)')) if type_counts[kind] %}
-        <a href="{{ charts.filtered_url('type', kind, type_filter) }}" title="{{ kind }}: {{ type_counts[kind] }}"
-           style="flex:{{ type_counts[kind] }};background:{{ color }};{{ 'opacity:.3;' if type_filter and type_filter != kind }}"></a>
-        {% endfor %}
-      </div>
-    </div>
-    <div style="flex:1 1 14rem;min-width:0;">{{ charts.mix('Roles', role_counts, param='role', selected=role_filter) }}</div>
-    </div>
-    <div>
+  {% if role_counts or subscription_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Roles', role_counts, param='role', selected=role_filter) }}</div>
+    <div class="subscription-mix">
       <div class="d-flex justify-content-between align-items-baseline mb-1">
         <span class="chart-label">Product subscriptions</span>
         {% if unsubscribed %}<span class="text-muted" style="font-size:.72rem;">{{ unsubscribed }} without any</span>{% endif %}
@@ -91,9 +76,9 @@
         {% for product, n in subscription_counts %}
         <a href="{{ charts.filtered_url('product', product, product_filter) }}"
            class="subscription{{ ' selected' if product_filter == product }}{{ ' faded' if product_filter and product_filter != product }}"
+           style="--share:{{ (n / most * 100) | round(1) }}%;"
            title="{{ 'Show all again' if product_filter == product else 'Show only the subscribers to ' ~ product }}">
           <span class="name">{{ product }}</span>
-          <span class="chart-bar" style="width:{{ (n / most * 100) | round(1) }}%;"><span style="flex:1;background:var(--accent-orange);"></span></span>
           <span class="n">{{ n }}</span>
         </a>
         {% endfor %}
@@ -106,17 +91,14 @@
   {% endif %}
 </section>
 
-<form method="get" class="card content-card list-filters stakeholder-filters rise rise-1 mb-4">
+<form method="get" class="card content-card list-filters record-filters stakeholder-filters rise rise-1 mb-4">
   {{ charts.filter_select('type', 'Type', 'fa-circle-half-stroke', 'All types', ['Internal', 'External'], type_filter) }}
   {{ charts.filter_select('organization', 'Organisation', 'fa-sitemap', 'All organisations', org_options, org_filter) }}
   {{ charts.filter_select('role', 'Role', 'fa-user-tag', 'All roles', role_options, role_filter) }}
   {{ charts.filter_select('product', 'Product subscription', 'fa-cubes', 'All subscriptions', product_options, product_filter) }}
-  <div class="shown">
-    <span>{{ stakeholders | length }} stakeholder{{ 's' if stakeholders|length != 1 }}</span>
-    {% if type_filter or org_filter or role_filter or product_filter %}
-    <a href="{{ url_for('stakeholders.list') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-    {% endif %}
-  </div>
+  {% if type_filter or org_filter or role_filter or product_filter %}
+  <a href="{{ url_for('stakeholders.list') }}" class="btn btn-xs btn-outline-secondary clear">Clear</a>
+  {% endif %}
 </form>
 
 <div class="card content-card rise rise-2">
@@ -131,8 +113,8 @@
           <th>Organisation</th>
           <th>TLP clearance</th>
           <th>Products</th>
-          <th title="Active PIRs it owns / active PIRs with it in their distribution">PIR</th>
-          <th title="Active GIRs it owns / active GIRs with it in their distribution">GIR</th>
+          <th title="PIRs it owns / PIRs with it in their distribution">PIR</th>
+          <th title="GIRs it owns / GIRs with it in their distribution">GIR</th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>

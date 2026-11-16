@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_product_actions.html" import approval_form with context %}
 {% from "_macros.html" import audience_badges %}
 {% from "_sort_header.html" import sort_th with context %}
@@ -7,12 +6,6 @@
 {% block title %}Detection engineering requests | zsazsa CTI{% endblock %}
 {% block page_title %}Detection engineering requests{% endblock %}
 {% block head_extra %}{% include "_rulezet_viewer_assets.html" %}{% endblock %}
-
-{% block topbar_actions %}
-<a href="{{ url_for('detection_eng.wizard_new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New detection engineering request
-</a>
-{% endblock %}
 
 {% macro bullets(items) %}
   {% if items %}<ul class="mb-0 ps-3">{% for i in items %}<li style="font-size:.82rem;">{{ i | md_inline }}</li>{% endfor %}</ul>
@@ -29,76 +22,85 @@
 {% import "_charts.html" as charts with context %}
 {% set priority_colors = {'Critical': 'var(--priority-must-fg)', 'High': 'var(--accent-orange)',
                           'Medium': 'var(--accent-blue)', 'Low': 'var(--neutral-400)'} %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--misp-navy);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
-          {{ charts.filter_select('priority', 'Priority', 'fa-flag', 'All priorities', priorities, priority_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ ders | length }} request{{ 's' if ders|length != 1 }}</span>
-            {% if state_filter or tlp_filter or audience_filter or priority_filter %}
-            <a href="{{ url_for('detection_eng.review') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How a detection engineering request is made') }}
-      </div>
-      {% if state_counts or priority_counts or tlp_counts or audience_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-4">{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('Status', status_counts, charts.status_colors) }}</div>
-          <div class="col-md-4">{{ charts.mix('Priority', priority_counts, priority_colors, param='priority', selected=priority_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set count = namespace(waiting=0, draft=0, approved=0, rejected=0, testing=0, active=0) %}
+{% for d in ders %}
+  {% if d.review_state == 'pending-review' %}{% set count.waiting = count.waiting + 1 %}
+  {% elif d.review_state == 'draft' %}{% set count.draft = count.draft + 1 %}
+  {% elif d.review_state == 'approved' %}{% set count.approved = count.approved + 1 %}
+  {% elif d.review_state == 'rejected' %}{% set count.rejected = count.rejected + 1 %}{% endif %}
+  {% if d.status == 'In Test' %}{% set count.testing = count.testing + 1 %}{% elif d.status == 'Active' %}{% set count.active = count.active + 1 %}{% endif %}
+{% endfor %}
+{% set filtered = state_filter or tlp_filter or audience_filter or priority_filter %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-crosshairs"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ ders | length }}</b><span>request{{ 's' if ders | length != 1 }}{{ ' shown' if filtered }}</span></div>
+      <a href="{{ charts.filtered_url('state', 'pending-review', state_filter) }}" class="record-kpi{{ ' warn' if count.waiting }}"
+         title="{{ 'Show all again' if state_filter == 'pending-review' else 'Show only those waiting for review' }}"><b>{{ count.waiting }}</b><span>waiting for review</span></a>
+      {% if count.draft %}<div class="record-kpi"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }}</span></div>{% endif %}
+      <div class="record-kpi"><b>{{ count.approved }}</b><span>approved</span></div>
+      <div class="record-kpi"><b>{{ count.testing }}</b><span>in test</span></div>
+      <div class="record-kpi"><b>{{ count.active }}</b><span>active</span></div>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('detection_eng.wizard_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New detection engineering request</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How a request is made
+      </button>
     </div>
   </div>
-</div>
+  {% if state_counts or status_counts or priority_counts or tlp_counts or audience_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
+    <div>{{ charts.mix('Engineering', status_counts, charts.status_colors) }}</div>
+    <div>{{ charts.mix('Priority', priority_counts, priority_colors, param='priority', selected=priority_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+    <div style="flex-grow:1.6;">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter, top=4) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
+  {{ charts.filter_select('priority', 'Priority', 'fa-flag', 'All priorities', priorities, priority_filter) }}
+  {% if filtered %}
+  <a href="{{ url_for('detection_eng.review') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "detection_eng/_flow.html" %}
 
-<!-- Kanban board -->
-{% set kanban_statuses = ['Pending', 'In Dev', 'In Test', 'Active', 'Retired'] %}
-<div class="card content-card mb-3">
-  <div class="card-header"><i class="fas fa-columns me-2"></i>Status board (drag to update status)</div>
+{# The engineering board. Its script finds the columns, cards, spinner and
+   count by their kanban-* classes, so those stay as they are. #}
+{% set kanban_statuses = [('Pending', 'var(--neutral-400)'), ('In Dev', 'var(--accent-blue)'), ('In Test', 'var(--accent-orange)'),
+                          ('Active', 'var(--accent-green)'), ('Retired', 'var(--text-muted)')] %}
+<div class="card content-card mb-4 rise rise-2">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <span><i class="fas fa-table-columns me-2"></i>Engineering board</span>
+    <span class="small text-muted fw-normal">Drag a request to change its status. Leaving Pending needs approval first.</span>
+  </div>
   <div class="card-body p-2">
     <div id="kanban-msg" class="alert alert-danger py-2 px-3 mb-2" style="display:none;font-size:.85rem;"></div>
-    <div class="kanban-board d-flex gap-2 overflow-auto pb-1">
-      {% for col_status in kanban_statuses %}
-      <div class="kanban-col flex-shrink-0" data-status="{{ col_status }}" style="min-width:160px;width:160px;">
-        <div class="kanban-col-header text-center fw-semibold small p-1 mb-1 rounded
-          {% if col_status == 'Active' %}bg-success-subtle text-success-emphasis
-          {% elif col_status == 'Pending' %}bg-secondary-subtle text-secondary-emphasis
-          {% elif col_status == 'In Dev' %}bg-primary-subtle text-primary-emphasis
-          {% elif col_status == 'In Test' %}bg-warning-subtle text-warning-emphasis
-          {% else %}bg-light text-muted{% endif %}">
-          {{ col_status }}
-          <span class="badge bg-white text-dark ms-1" style="font-size:.65rem">
-            {%- if col_status == 'Pending' -%}
-              {{ ders | selectattr('status', 'equalto', col_status) | rejectattr('review_state', 'equalto', 'rejected') | list | length }}
-            {%- else -%}
-              {{ ders | selectattr('status', 'equalto', col_status) | list | length }}
-            {%- endif -%}
-          </span>
-        </div>
-        <div class="kanban-cards" style="min-height:60px;">
-          {% for d in ders %}
-          {% if d.status == col_status and (col_status != 'Pending' or d.review_state != 'rejected') %}
+    <div class="kanban-board eng-board">
+      {% for col_status, color in kanban_statuses %}
+      {% set cards = ders | selectattr('status', 'equalto', col_status) | list %}
+      {% if col_status == 'Pending' %}{% set cards = cards | rejectattr('review_state', 'equalto', 'rejected') | list %}{% endif %}
+      <div class="kanban-col" data-status="{{ col_status }}">
+        <div class="kanban-col-header"><i style="background:{{ color }};"></i>{{ col_status }}<span class="badge">{{ cards | length }}</span></div>
+        <div class="kanban-cards">
+          {% for d in cards %}
           {% set can_drag = d.review_state == 'approved' %}
-          <div class="kanban-card card mb-1 p-1 shadow-sm"
+          <div class="kanban-card{{ ' locked' if not can_drag }}"
                draggable="{{ 'true' if can_drag else 'false' }}"
                data-id="{{ d.uuid }}"
-               data-update-url="{{ url_for('detection_eng.status_update', id=d.uuid) }}"
-               style="{{ 'cursor:grab' if can_drag else 'cursor:default' }};font-size:.75rem;">
-            <div class="fw-semibold d-flex justify-content-between align-items-center">
-              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">{{ d.der_id }}</a>
+               data-update-url="{{ url_for('detection_eng.status_update', id=d.uuid) }}">
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="req-id-badge text-decoration-none">{{ d.der_id }}</a>
               <span class="kanban-card-spin" style="display:none;"><i class="fas fa-spinner fa-spin fa-xs"></i></span>
               <span class="kanban-card-icon">
                 {% if d.review_state == 'draft' %}<i class="fas fa-pencil fa-xs" style="color:var(--neutral-600);" title="Review: draft"></i>
@@ -107,44 +109,36 @@
                 {% endif %}
               </span>
             </div>
-            <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ d.title }}">{{ d.title | truncate(30) }}</div>
+            <div class="t" title="{{ d.title }}">{{ d.title }}</div>
             {% if d.review_state in ('draft', 'pending-review') %}
-            <div class="mt-1">
-              <button type="button" class="btn btn-xs btn-outline-warning approval-open"
-                      data-target="der-preview-{{ d.uuid }}" aria-controls="der-preview-{{ d.uuid }}"
-                      aria-expanded="false" title="Review and approve this request before tracking engineering status">
-                <i class="fas fa-gavel me-1"></i>Approve first
-              </button>
-            </div>
+            <button type="button" class="btn btn-xs btn-outline-warning approval-open mt-1"
+                    data-target="der-preview-{{ d.uuid }}" aria-controls="der-preview-{{ d.uuid }}"
+                    aria-expanded="false" title="Review and approve this request before tracking engineering status">
+              <i class="fas fa-gavel me-1"></i>Approve first
+            </button>
             {% endif %}
           </div>
-          {% endif %}
+          {% else %}
+          <div class="eng-empty">{{ 'Drop a request here' if col_status != 'Pending' else 'None pending' }}</div>
           {% endfor %}
         </div>
       </div>
       {% endfor %}
 
-      <!-- Rejected column -->
-      <div class="kanban-col flex-shrink-0" style="min-width:160px;width:160px;">
-        <div class="kanban-col-header text-center fw-semibold small p-1 mb-1 rounded bg-danger-subtle text-danger-emphasis">
-          Rejected
-          <span class="badge bg-white text-dark ms-1" style="font-size:.65rem">{{ ders | selectattr('review_state', 'equalto', 'rejected') | list | length }}</span>
-        </div>
-        <div class="kanban-cards" style="min-height:60px;">
-          {% for d in ders %}
-          {% if d.review_state == 'rejected' %}
-          <div class="kanban-card card mb-1 p-1 shadow-sm" draggable="false"
-               data-id="{{ d.uuid }}" style="cursor:default;font-size:.75rem;opacity:.75;">
-            <div class="fw-semibold d-flex justify-content-between align-items-center">
-              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">{{ d.der_id }}</a>
+      {% set rejected = ders | selectattr('review_state', 'equalto', 'rejected') | list %}
+      <div class="kanban-col">
+        <div class="kanban-col-header"><i style="background:var(--accent-red);"></i>Rejected<span class="badge">{{ rejected | length }}</span></div>
+        <div class="kanban-cards">
+          {% for d in rejected %}
+          <div class="kanban-card locked" draggable="false" data-id="{{ d.uuid }}" style="opacity:.75;">
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="req-id-badge text-decoration-none">{{ d.der_id }}</a>
               <i class="fas fa-ban fa-xs" style="color:var(--status-rejected-fg);" title="Review: rejected"></i>
             </div>
-            <div class="text-muted" style="font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ d.title }}">{{ d.title | truncate(30) }}</div>
-            <div class="mt-1">
-              <span class="badge" style="font-size:.6rem;background:var(--danger-red);color:var(--text-on-accent);">rejected</span>
-            </div>
+            <div class="t" title="{{ d.title }}">{{ d.title }}</div>
           </div>
-          {% endif %}
+          {% else %}
+          <div class="eng-empty">None rejected</div>
           {% endfor %}
         </div>
       </div>
@@ -152,10 +146,17 @@
   </div>
 </div>
 
-<div class="card content-card">
+{% set lanes = [('pending-review', 'Waiting for review', 'Approve and publish, or reject', 'var(--accent-blue)'),
+                ('draft', 'Draft', 'Submit for review when it is ready', 'var(--neutral-500)'),
+                ('approved', 'Approved', 'Published; their engineering is tracked on the board', 'var(--accent-green)'),
+                ('rejected', 'Rejected', 'Kept until deleted', 'var(--accent-red)')] %}
+{% set steps = {'draft': ['now', '', ''], 'pending-review': ['done', 'now', ''], 'approved': ['done', 'done', 'now'],
+                'rejected': ['done', 'done', '']} %}
+<div class="card content-card rise rise-3">
   <div class="card-body p-0">
     {% if ders %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
           {{ sort_th('DER', 'id', sort, dir, 'detection_eng.review', '120px') }}
@@ -168,18 +169,32 @@
           <th class="text-end">Actions</th>
         </tr>
       </thead>
+      {% for state, lane, hint, color in lanes %}
+      {# A state none of the lanes has, set by hand in MISP, is shown as a draft rather than not at all. #}
+      {% set others = lanes | map(attribute=0) | reject('equalto', 'draft') | list %}
+      {% set rows = (ders | selectattr('review_state', 'equalto', state) | list) if state != 'draft'
+                     else (ders | rejectattr('review_state', 'in', others) | list) %}
+      {% if rows %}
       <tbody>
-        {% for d in ders %}
+        <tr class="lane-head">
+          <th colspan="8">
+            <span class="lane-mark" style="background:{{ color }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} request{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for d in rows %}
         {# ── Main row ── #}
-        <tr id="der-row-{{ d.uuid }}">
-          <td>
+        <tr id="der-row-{{ d.uuid }}" class="{{ 'draft-row' if state == 'pending-review' }}">
+          <td style="white-space:nowrap;">
             <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ d.der_id }}</span>
             </a>
           </td>
           <td>
-            {{ d.title or '(untitled)' }}
-            {{ audience_badges(d.audience) }}
+            <a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="title{{ ' untitled' if not d.title }}">{{ d.title or 'No title' }}</a>
+            {{ audience_badges(d.audience, limit=3) }}
           </td>
           <td>
             {% for t in d.technique[:3] %}<span class="badge bg-secondary me-1" style="font-size:.68rem;">{{ t }}</span>{% endfor %}
@@ -195,6 +210,9 @@
             {% endif %}
           </td>
           <td>
+            <div class="status-steps" aria-hidden="true" style="max-width:6rem;">
+              {% for step in steps[state] %}<i class="{{ step }}"></i>{% endfor %}
+            </div>
             {% if d.review_state == 'approved' %}<span class="badge bg-success">approved</span>
             {% elif d.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
             {% elif d.review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
@@ -327,8 +345,11 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
-    {% elif state_filter or tlp_filter or audience_filter or priority_filter %}
+    </div>
+    {% elif filtered %}
     <div class="p-4 text-muted">No detection engineering requests match these filters.</div>
     {% else %}
     <div class="p-4 text-muted">No detection engineering requests yet. <a href="{{ url_for('detection_eng.wizard_new') }}">Create one</a>.</div>

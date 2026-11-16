@@ -14,120 +14,145 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" data-unsaved-warning>
+{% set steps = [('source', 'Source'), ('article', 'Article'), ('scope', 'Scope'), ('references', 'References')] %}
+{% set reliability_names = {'A': 'Completely', 'B': 'Usually', 'C': 'Fairly', 'D': 'Rarely', 'E': 'Unreliable', 'F': 'Unknown'} %}
+{% set reliability_titles = {'A': 'Completely reliable', 'B': 'Usually reliable', 'C': 'Fairly reliable',
+                             'D': 'Not usually reliable', 'E': 'Unreliable', 'F': 'Reliability cannot be judged'} %}
+{% set credibility_names = {'1': 'Confirmed', '2': 'Probably', '3': 'Possibly', '4': 'Doubtful', '5': 'Improbable', '6': 'Unknown'} %}
+{% set credibility_titles = {'1': 'Confirmed by other sources', '2': 'Probably true', '3': 'Possibly true',
+                             '4': 'Doubtful', '5': 'Improbable', '6': 'Truth cannot be judged'} %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-pen-to-square"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A manual entry records intelligence that did not come in through a feed: a partner's message, a call, a report. Give the source reference first; fetching it fills the article.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
 
+<form method="post" data-unsaved-warning>
   <div class="row g-4">
 
-    <!-- Left column: main fields -->
     <div class="col-lg-8">
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-circle-info me-2"></i>Basic information</div>
+      <div class="card content-card form-step mb-4" id="step-source" data-step='input[name="source"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Source</div>
         <div class="card-body">
-
-          <div class="mb-3">
-            <label class="form-label required-label">Source</label>
-            <select name="source" class="form-select" required>
-              <option value="">- select source -</option>
-              {% for s in manual_sources %}
-              <option value="{{ s | e }}">{{ s }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">
-              <i class="fas fa-circle-info me-1"></i>Where this came from, such as a newsletter, a partner or a phone call.
-              Not in the list? A site admin adds manual sources under Settings,
-              <a href="{{ url_for('collection_sources.index') }}">Collection sources</a>.
-            </div>
+          <span class="form-label d-block required-label">Source</span>
+          <div class="product-tiles source-tiles mb-1">
+            {% for s in manual_sources %}
+            <label class="product-tile" for="source-{{ loop.index }}">
+              <span class="tile-icon" aria-hidden="true"><i class="fas fa-inbox fa-fw"></i></span>
+              {{ s }}
+              <input class="form-check-input" type="radio" name="source" value="{{ s | e }}" id="source-{{ loop.index }}" required>
+            </label>
+            {% endfor %}
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Source provider</label>
-            <input type="text" name="source_provider" class="form-control"
-                   placeholder="e.g. CTI Robot by ETDA Cyber Threat Intelligence">
-            <div class="form-text">The specific provider within the source category, e.g. the newsletter or publication name.</div>
+          <div class="form-text mb-3">
+            Where this came from, such as a newsletter, a partner or a phone call. Not in the list? A site admin adds
+            manual sources under Settings, <a href="{{ url_for('collection_sources.index') }}">Collection sources</a>.
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Source reference</label>
-            <div class="input-group">
-              <input type="url" name="source_reference" id="source_reference" class="form-control font-monospace"
-                     placeholder="https://…">
-              <button type="button" class="btn btn-outline-secondary" id="btn-fetch-url">
-                <i class="fas fa-download me-1"></i>Fetch &amp; convert to Markdown
-              </button>
-            </div>
-            <div id="fetch-url-status" class="form-text" style="display:none"></div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label required-label">Title</label>
-            <input type="text" name="title" class="form-control" required
-                   placeholder="Brief descriptive title for this event">
-          </div>
-
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">Date</label>
-              <input type="date" name="date" class="form-control" value="{{ today }}">
+              <label class="form-label" for="source-provider">Provider</label>
+              <input type="text" name="source_provider" id="source-provider" class="form-control"
+                     placeholder="e.g. CTI Robot by ETDA Cyber Threat Intelligence">
+              <div class="form-text">The newsletter, partner or person within the source.</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">TLP</label>
-              <select name="tlp" class="form-select">
-                {% for t in tlp_levels %}
-                <option value="{{ t }}" {{ 'selected' if t == 'green' }}>TLP:{{ t | upper }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-file-lines me-2"></i>Content</div>
-        <div class="card-body">
-
-          <div class="mb-3">
-            <div class="d-flex align-items-center justify-content-between mb-1">
-              <label class="form-label mb-0">Summary</label>
-              <button type="button" class="btn btn-xs btn-outline-info" id="btn-llm-summary">
-                <i class="fas fa-wand-magic-sparkles me-1"></i>Generate LLM summary
-              </button>
-            </div>
-            <textarea name="summary" id="summary" class="form-control" rows="4"
-                      placeholder="AI-generated or manually written summary of the intelligence."></textarea>
-            <div id="llm-summary-status" class="form-text" style="display:none"></div>
-          </div>
-
-          <div class="mb-2">
-            <label class="form-label">Content (Markdown)</label>
-            <div class="d-flex gap-2 mb-2">
-              <button type="button" class="btn btn-xs btn-secondary" id="md-tab-edit">Edit</button>
-              <button type="button" class="btn btn-xs btn-outline-secondary" id="md-tab-preview">Preview</button>
-              <button type="button" class="btn btn-xs btn-outline-secondary" id="md-tab-split">Split</button>
-            </div>
-            <div id="md-panes" class="d-flex gap-2">
-              <div id="md-editor-pane" style="flex:1;">
-                <textarea name="description" id="description" class="form-control font-monospace" rows="16"
-                          placeholder="Article content in Markdown. Use 'Fetch &amp; convert to Markdown' to populate this automatically."></textarea>
+              <label class="form-label" for="source_reference">Source reference</label>
+              <div class="input-group">
+                <input type="url" name="source_reference" id="source_reference" class="form-control font-monospace"
+                       placeholder="https://…">
+                <button type="button" class="btn btn-outline-primary" id="btn-fetch-url" title="Fetch the article and convert it to Markdown">
+                  <i class="fas fa-download me-1"></i>Fetch
+                </button>
               </div>
-              <div id="md-preview-pane" class="border rounded p-3 report-md-body"
-                   style="flex:1;display:none;min-height:10rem;overflow-y:auto;"></div>
+              <div class="form-text">The address of the article. Fetching it fills the content below.</div>
+              <div id="fetch-url-status" class="form-text" style="display:none"></div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-link me-2"></i>External references</div>
+      <div class="card content-card form-step mb-4" id="step-article" data-step='input[name="title"], textarea[name="description"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Article</div>
+        <div class="card-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-9">
+              <label class="form-label required-label" for="entry-title">Title</label>
+              <input type="text" name="title" id="entry-title" class="form-control" required
+                     placeholder="Brief descriptive title for this event">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="entry-date">Date</label>
+              <input type="date" name="date" id="entry-date" class="form-control" value="{{ today }}">
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <label class="form-label mb-0" for="description">Content</label>
+            <span class="md-tabs" role="group" aria-label="How to show the content">
+              <button type="button" id="md-tab-edit">Write</button>
+              <button type="button" id="md-tab-preview">Preview</button>
+              <button type="button" id="md-tab-split">Side by side</button>
+            </span>
+          </div>
+          <div id="md-panes" class="d-flex gap-2">
+            <div id="md-editor-pane" style="flex:1;">
+              <textarea name="description" id="description" class="form-control font-monospace" rows="14"
+                        placeholder="Article content in Markdown. Fetching the source reference fills this."></textarea>
+            </div>
+            <div id="md-preview-pane" class="border rounded p-3 report-md-body"
+                 style="flex:1;display:none;min-height:10rem;overflow-y:auto;"></div>
+          </div>
+          <div class="form-text mb-3">Markdown. Kept as the event report, so it reads the same in MISP.</div>
+
+          <label class="form-label" for="summary">Summary</label>
+          <textarea name="summary" id="summary" class="form-control" rows="3"
+                    placeholder="Two or three lines a reader of the briefing sees first. Leave it empty and ask for an AI summary."></textarea>
+          <div id="llm-summary-status" class="form-text" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="card content-card form-step mb-4" id="step-scope"
+           data-step='[name="geographic_scope"], [name="sectors"], [name="threat_actors"], [name="mitre_attack_techniques"], [name="threat_types"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Scope</div>
+        <div class="card-body">
+          <p class="small text-muted mb-3">What it is about, from the MISP galaxies. The scope decides which PIRs it answers and which briefing picks it up.</p>
+          <div class="scope-grid">
+            <div>
+              <label class="form-label">Geographic scope</label>
+              {{ galaxy_multiselect("geographic_scope", values=[], items=galaxy_countries) }}
+            </div>
+            <div>
+              <label class="form-label">Sectors</label>
+              {{ galaxy_multiselect("sectors", values=[], items=galaxy_sectors) }}
+            </div>
+            <div>
+              <label class="form-label">Threat actors</label>
+              {{ galaxy_multiselect("threat_actors", values=[], items=galaxy_threat_actors) }}
+            </div>
+            <div>
+              <label class="form-label">MITRE ATT&amp;CK techniques</label>
+              {{ galaxy_multiselect("mitre_attack_techniques", values=[], items=galaxy_mitre_attack) }}
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label">Threat types</label>
+            {{ tag_input("threat_types", values=[], placeholder="e.g. Ransomware, Phishing, APT") }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card content-card form-step mb-4" id="step-references" data-step='input[name="reference"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">4</span>References</div>
         <div class="card-body">
           <div id="ref-list">
             <div class="ref-row d-flex gap-2 mb-2">
-              <input type="text" name="reference" class="form-control form-control-sm font-monospace"
-                     placeholder="https://">
-              <button type="button" class="btn btn-sm btn-outline-danger ref-remove">
-                <i class="fas fa-minus"></i>
-              </button>
+              <input type="text" name="reference" class="form-control font-monospace" placeholder="https://" aria-label="Reference">
+              <button type="button" class="btn btn-outline-danger ref-remove" title="Remove"><i class="fas fa-minus"></i></button>
             </div>
           </div>
           <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="ref-add">
@@ -138,98 +163,121 @@
 
     </div>
 
-    <!-- Right column: scope & metadata -->
     <div class="col-lg-4">
-
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-globe me-2"></i>Scope</div>
-        <div class="card-body">
-
-          <div class="mb-3">
-            <label class="form-label">Geographic scope</label>
-            {{ galaxy_multiselect("geographic_scope", values=[], items=galaxy_countries) }}
+      {# In the column rather than in its stack of cards, so it stays in view to the
+         end of the form as the stack scrolls away under it. #}
+      <div class="card content-card form-save mb-4">
+        <div class="card-header">As it will appear</div>
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="form-preview">
+            <span class="monogram" aria-hidden="true"><i class="fas fa-pen-to-square"></i></span>
+            <div class="min-w-0">
+              <span class="req-id-badge">Manual entry</span>
+              <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+            </div>
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Sectors</label>
-            {{ galaxy_multiselect("sectors", values=[], items=galaxy_sectors) }}
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Threat actors</label>
-            {{ galaxy_multiselect("threat_actors", values=[], items=galaxy_threat_actors) }}
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">MITRE ATT&amp;CK techniques</label>
-            {{ galaxy_multiselect("mitre_attack_techniques", values=[], items=galaxy_mitre_attack) }}
-          </div>
-
-          <div>
-            <label class="form-label">Threat types</label>
-            {{ tag_input("threat_types", values=[],
-                         placeholder="e.g. Ransomware, Phishing, APT") }}
-          </div>
-
-        </div>
-      </div>
-
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
-        <div class="card-body">
-          <div class="mb-3">
-            <label class="form-label">Source reliability
-              <span class="text-muted small">(Admiralty A–F)</span>
-            </label>
-            <select name="source_reliability" class="form-select">
-              <option value="">-</option>
-              {% for r in reliabilities %}
-              <option value="{{ r }}">{{ r }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label class="form-label">Information credibility
-              <span class="text-muted small">(Admiralty 1–6)</span>
-            </label>
-            <select name="information_credibility" class="form-select">
-              <option value="">-</option>
-              {% for c in credibilities %}
-              <option value="{{ c }}">{{ c }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-floppy-disk me-2"></i>Save</div>
-        <div class="card-body">
-          <p class="text-muted small mb-3">
-            Creates a MISP event on the webapp server. After saving you can add file attachments.
-          </p>
+          <dl class="form-facts">
+            <dt>Source</dt><dd data-preview-choice="source" data-required data-empty="None picked yet"></dd>
+            <dt>Date</dt><dd data-preview-text="date" data-empty="Today"></dd>
+            <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+            <dt>Admiralty</dt><dd id="admiralty-preview" class="text-muted">Not rated</dd>
+          </dl>
           <input type="hidden" name="summary_job" id="summary-job" autocomplete="off">
-          <button type="submit" class="btn btn-primary w-100" id="create-event-btn">
-            <i class="fas fa-floppy-disk me-1"></i> Create event
-          </button>
-          <div class="form-text text-center" id="create-event-wait" hidden>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1" id="create-event-btn">
+              <i class="fas fa-floppy-disk me-1"></i> Create event
+            </button>
+            <a href="{{ url_for('data_collection.index') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+          <div class="form-text text-center mt-0" id="create-event-wait" hidden>
             <i class="fas fa-spinner fa-spin me-1"></i>The AI summary is still being written.
             It goes into the event when it is done.
           </div>
-          <a href="{{ url_for('data_collection.index') }}" class="btn btn-outline-secondary w-100 mt-2">
-            Cancel
-          </a>
+          <div class="form-text mt-0">Creates a MISP event on the webapp server. Attachments are added on its page after saving.</div>
         </div>
       </div>
 
-    </div>
-  </div>
+      <div class="d-flex flex-column gap-4">
+      <div class="card content-card">
+        <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
+        <div class="card-body">
+          <span class="form-label d-block">TLP</span>
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
+            {% for t in tlp_levels %}
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="entry-tlp-{{ loop.index }}" {{ 'checked' if t == 'green' }}>
+            <label class="choice" for="entry-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
+            {% endfor %}
+          </div>
+          <hr class="my-3">
+          {% for name, label, values, names, titles in [
+               ('source_reliability', 'Source reliability', reliabilities, reliability_names, reliability_titles),
+               ('information_credibility', 'Information credibility', credibilities, credibility_names, credibility_titles)] %}
+          <div class="d-flex align-items-baseline justify-content-between">
+            <span class="form-label">{{ label }}</span>
+            <button type="button" class="btn btn-link btn-sm p-0 admiralty-clear" data-field="{{ name }}">Not rated</button>
+          </div>
+          <div class="choice-group admiralty mb-3" role="radiogroup" aria-label="{{ label }}">
+            {% for v in values %}
+            <input class="btn-check" type="radio" name="{{ name }}" value="{{ v }}" id="{{ name }}-{{ v }}">
+            <label class="choice" for="{{ name }}-{{ v }}" title="{{ titles.get(v, v) }}"><b>{{ v }}</b><small>{{ names.get(v, '') }}</small></label>
+            {% endfor %}
+          </div>
+          {% endfor %}
+          <div class="form-text mt-0">Saved on the event as admiralty-scale tags.</div>
+        </div>
+      </div>
 
+      <div class="card content-card">
+        <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>Assistance</div>
+        <div class="ai-actions">
+          <button type="button" class="btn-ai" id="btn-llm-summary">
+            <i class="fas fa-wand-magic-sparkles"></i>
+            <span>Write the summary with AI<small>From the content. Save before it is done and it goes into the event when ready.</small></span>
+          </button>
+        </div>
+      </div>
+      </div>
+    </div>
+
+  </div>
 </form>
 {% endblock %}
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
+<script>
+/* The Admiralty code in "As it will appear", such as B2, and the buttons that
+   take a rating off again. */
+(function() {
+  var preview = document.getElementById('admiralty-preview');
+  var names = {source_reliability: 'reliability', information_credibility: 'credibility'};
+  function picked(name) {
+    var box = document.querySelector('input[name="' + name + '"]:checked');
+    return box ? box.value : '';
+  }
+  function show() {
+    var code = picked('source_reliability') + picked('information_credibility');
+    preview.replaceChildren();
+    preview.classList.toggle('text-muted', !code);
+    if (!code) { preview.textContent = 'Not rated'; return; }
+    var badge = document.createElement('span');
+    badge.className = 'admiralty-code';
+    badge.textContent = code;
+    preview.appendChild(badge);
+  }
+  document.querySelectorAll('.admiralty-clear').forEach(function(btn) {
+    btn.setAttribute('aria-label', 'No ' + names[btn.dataset.field] + ' rating');
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('input[name="' + btn.dataset.field + '"]').forEach(function(box) { box.checked = false; });
+      show();
+    });
+  });
+  document.querySelectorAll('.admiralty input').forEach(function(box) { box.addEventListener('change', show); });
+  show();
+})();
+</script>
 <script>
 function tiRender(field) {
   var display = document.getElementById('ti-display-' + field);
@@ -292,13 +340,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function setTab(mode) {
     currentMode = mode;
-    [editTab, previewTab, splitTab].forEach(function(b) {
-      b.classList.remove('btn-secondary');
-      b.classList.add('btn-outline-secondary');
-    });
     var active = mode === 'edit' ? editTab : mode === 'preview' ? previewTab : splitTab;
-    active.classList.remove('btn-outline-secondary');
-    active.classList.add('btn-secondary');
+    [editTab, previewTab, splitTab].forEach(function(b) {
+      b.classList.toggle('on', b === active);
+      b.setAttribute('aria-pressed', b === active ? 'true' : 'false');
+    });
 
     if (mode === 'edit') {
       editorPane.style.display  = '';
@@ -406,10 +452,11 @@ document.addEventListener('DOMContentLoaded', function() {
         status.className = 'form-text text-danger';
       } else {
         document.getElementById('description').value = data.content || '';
-        document.getElementById('description').dispatchEvent(new Event('input'));
+        document.getElementById('description').dispatchEvent(new Event('input', {bubbles: true}));
         var titleInput = document.querySelector('input[name="title"]');
         if (titleInput && !titleInput.value.trim() && data.title) {
           titleInput.value = data.title;
+          titleInput.dispatchEvent(new Event('input', {bubbles: true}));
         }
         status.textContent = 'Content loaded.';
         status.className = 'form-text text-success';
@@ -476,7 +523,7 @@ document.addEventListener('DOMContentLoaded', function() {
        Creating it asks first, since the summary is not in the box yet. */
     function busy(on) {
       btn.disabled = on;
-      btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin me-1"></i>Generating summary' : originalHtml;
+      btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i><span>Writing the summary…</span>' : originalHtml;
       summary.readOnly = on;
       createWait.hidden = !on;
       if (on) {
@@ -516,7 +563,7 @@ document.addEventListener('DOMContentLoaded', function() {
         summary.value = result.summary || '';
         var ticked = tickScope(result.scope || {});
         status.textContent = ticked
-          ? 'Summary generated. ' + ticked + ' scope item' + (ticked === 1 ? '' : 's') + ' from its MISP context ticked on the right.'
+          ? 'Summary generated. ' + ticked + ' scope item' + (ticked === 1 ? '' : 's') + ' from its MISP context ticked under Scope.'
           : 'Summary generated.';
         status.className = 'form-text text-success';
         busy(false);

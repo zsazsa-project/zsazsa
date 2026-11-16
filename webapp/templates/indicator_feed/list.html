@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_macros.html" import audience_badges, feed_downloads %}
 
 {# Indicator feeds as a product list, in the shape the other CTI products use:
@@ -9,54 +8,61 @@
 {% block title %}Indicator feeds | zsazsa CTI{% endblock %}
 {% block page_title %}Indicator feeds{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('indicator_feed.new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i>New feed
-</a>
-{% endblock %}
-
 {% block content %}
 
 {% import "_charts.html" as charts with context %}
 {% set caching_colors = {'Not cached': 'var(--neutral-400)', 'Hourly': 'var(--accent-green)',
                          'Daily': 'var(--accent-blue)', 'Weekly': 'var(--misp-navy)'} %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-green);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('caching', 'Caching', 'fa-box-archive', 'Cached or not', caching_choices, caching_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ feeds | length }} indicator feed{{ 's' if feeds|length != 1 }}</span>
-            {% if caching_filter or tlp_filter or audience_filter %}
-            <a href="{{ url_for('indicator_feed.index') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How an indicator feed is made') }}
-      </div>
-      {% if caching_counts or tlp_counts or audience_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-4">{{ charts.mix('Caching', caching_counts, caching_colors, param='caching', selected=caching_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set cached = feeds | selectattr('cache_interval') | list %}
+{% set failing = feeds | selectattr('cache_error') | list %}
+{% set next_runs = cached | selectattr('next_refresh') | map(attribute='next_refresh') | list %}
+{% set filtered = caching_filter or tlp_filter or audience_filter %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ feeds | length }}</b><span>feed{{ 's' if feeds | length != 1 }}{{ ' shown' if filtered }}</span></div>
+      <div class="record-kpi"><b>{{ cached | length }}</b><span>cached</span></div>
+      <div class="record-kpi"><b>{{ feeds | length - cached | length }}</b><span>on request</span></div>
+      {% if failing %}<div class="record-kpi warn"><b>{{ failing | length }}</b><span>refresh failed</span></div>{% endif %}
+      {% if next_runs %}<div class="record-kpi"><b>{{ (next_runs | min).strftime('%H:%M') }}</b><span>next refresh</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('indicator_feed.new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New indicator feed</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How an indicator feed is made
+      </button>
     </div>
   </div>
-</div>
+  {% if caching_counts or tlp_counts or audience_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Caching', caching_counts, caching_colors, param='caching', selected=caching_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+    <div style="flex-grow:2.2;">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter, top=4) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('caching', 'Caching', 'fa-box-archive', 'Cached or not', caching_choices, caching_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
+  {% if filtered %}
+  <a href="{{ url_for('indicator_feed.index') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "indicator_feed/_flow.html" %}
 
-<div class="card content-card">
+{% set lanes = [(cached, 'Cached on a schedule', 'Read from the cache, refreshed at the next run', 'var(--accent-blue)'),
+                (feeds | rejectattr('cache_interval') | list, 'Run on request', 'Each request searches MISP', 'var(--neutral-500)')] %}
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if feeds %}
     <div class="table-responsive">
-      <table class="table table-hover zsazsa-table mb-0">
+      <table class="table table-hover zsazsa-table req-table product-table mb-0">
         <thead>
           <tr>
             <th style="width:100px;">ID</th>
@@ -67,18 +73,27 @@
             <th class="text-end" style="width:1%;">Actions</th>
           </tr>
         </thead>
+        {% for rows, lane, hint, color in lanes if rows %}
         <tbody>
-          {% for f in feeds %}
+          <tr class="lane-head">
+            <th colspan="6">
+              <span class="lane-mark" style="background:{{ color }};"></span>
+              <span class="lane-name">{{ lane }}</span>
+              <span class="lane-count">{{ rows | length }} feed{{ 's' if rows | length != 1 }}</span>
+              <span class="lane-hint">{{ hint }}</span>
+            </th>
+          </tr>
+          {% for f in rows %}
           <tr>
-            <td>
+            <td style="white-space:nowrap;">
               <a href="{{ url_for('indicator_feed.detail', id=f.id) }}" class="text-decoration-none">
                 <span class="req-id-badge">{{ f.feed_id }}</span>
               </a>
             </td>
             <td>
-              <a href="{{ url_for('indicator_feed.detail', id=f.id) }}" class="text-decoration-none fw-semibold">{{ f.name }}</a>
+              <a href="{{ url_for('indicator_feed.detail', id=f.id) }}" class="title{{ ' untitled' if not f.name }}">{{ f.name or 'No name' }}</a>
               {% if f.description %}<div class="text-muted small">{{ f.description | truncate(70) }}</div>{% endif %}
-              {{ audience_badges(f.audience) }}
+              {{ audience_badges(f.audience, limit=3) }}
             </td>
             <td><span class="tlp-badge tlp-{{ f.tlp | slug }}">TLP:{{ f.tlp | upper }}</span></td>
             <td class="small" style="white-space:nowrap;">
@@ -142,11 +157,12 @@
           </tr>
           {% endfor %}
         </tbody>
+        {% endfor %}
       </table>
     </div>
     {% else %}
     <p class="text-muted small m-3 mb-0">
-      {% if caching_filter or tlp_filter or audience_filter %}
+      {% if filtered %}
       No indicator feeds match these filters.
       {% else %}
       No indicator feeds yet. Build a query on the

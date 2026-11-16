@@ -290,7 +290,8 @@ def _pir_data(item, pir_id):
         "rejection_reason": item.get("rejection_reason", ""),
         "deferral_reason": "",
         "linked_pir_uuid": "",
-        "mitre_attack_techniques": ["T1190", "T1486", "T1562", "T1041"],
+        "mitre_attack_techniques": ["Exploit Public-Facing Application - T1190", "Data Encrypted for Impact - T1486",
+                                   "Impair Defenses - T1562", "Exfiltration Over C2 Channel - T1041"],
         "focus_points": [
             {"category": "Sector", "value": "Energy", "notes": "Demo"},
             {"category": "Geography", "value": "Belgium", "notes": "Demo"},
@@ -331,7 +332,8 @@ def _gir_data(item, gir_id):
         ],
         "next_review": _iso(30),
         "intel_level": ["Strategic", "Operational"],
-        "mitre_attack_techniques": ["T1190", "T0885", "T0869"],
+        "mitre_attack_techniques": ["Exploit Public-Facing Application - T1190", "Commonly Used Port - T0885",
+                                   "Standard Application Layer Protocol - T0869"],
     }
 
 

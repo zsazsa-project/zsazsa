@@ -11,16 +11,16 @@
   <div class="card-header d-flex align-items-center gap-2 px-3 py-2">
     <i class="{{ icon }}" style="color:{{ color }};"></i>
     <span class="fw-semibold channel-display-name">{{ ch.name }}</span>
-    <span class="badge {{ 'bg-success' if ch.enabled else 'bg-secondary' }} ms-1 channel-display-enabled">
+    <span class="settings-state {{ 'settings-state-on' if ch.enabled else 'settings-state-off' }} channel-display-enabled">
       {{ 'Enabled' if ch.enabled else 'Disabled' }}
     </span>
     <div class="ms-auto d-flex gap-2 align-items-center">
-      <button type="button" class="btn btn-sm btn-outline-secondary toggle-channel-form">Edit</button>
-      <button type="button" class="btn btn-sm btn-outline-secondary ping-channel-btn" title="Send a test message to this channel">
+      <button type="button" class="btn btn-xs btn-outline-secondary toggle-channel-form" title="Edit" aria-label="Edit" aria-pressed="false"><i class="fas fa-pen"></i></button>
+      <button type="button" class="btn btn-xs btn-outline-secondary ping-channel-btn" title="Send a test message to this channel">
         <i class="fas fa-bell"></i>
       </button>
       <span class="ping-channel-result small"></span>
-      <button type="button" class="btn btn-sm btn-outline-danger delete-channel-btn">Delete</button>
+      <button type="button" class="btn btn-xs btn-outline-danger delete-channel-btn" title="Delete" aria-label="Delete"><i class="fas fa-trash"></i></button>
     </div>
   </div>
   <div class="card-body channel-form" style="display:none;">
@@ -178,7 +178,7 @@
 {% endmacro %}
 
 {# A tile of a tab's overview, linking to its section, with its state: green
-   when ``on``, red when not, and a plain count or word when ``on`` is none. #}
+   when ``on``, grey when not, and a plain count or word when ``on`` is none. #}
 {% macro settings_tile(anchor, label, what, state, on=none, icon='', logo='') %}
 <a href="#{{ anchor }}" class="settings-tile">
   {% if logo %}<img src="{{ logo }}" alt="" style="height: 16px;">{% else %}<i class="{{ icon }}"></i>{% endif %}
@@ -246,10 +246,10 @@
    before, matched by their place in the form, over what is configured now.
    Once the page has changed, those are the wrong values in the wrong fields,
    and a save would write them. #}
-<form method="post" id="cfg-form" autocomplete="off">
+<form method="post" id="cfg-form" class="settings-look" autocomplete="off">
   <input type="hidden" name="active_tab" id="cfg-active-tab-input" value="{{ active_tab }}">
 
-  <ul class="nav nav-tabs mb-4" id="cfg-tabs" role="tablist">
+  <ul class="nav settings-tabs" id="cfg-tabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button class="nav-link {{ 'active' if active_tab == 'tab-connections' else '' }}" data-bs-toggle="tab" data-bs-target="#tab-connections" type="button" role="tab">
         <i class="fas fa-plug me-1"></i> Connections
@@ -304,7 +304,7 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-connections' else '' }}" id="tab-connections" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
@@ -314,7 +314,7 @@
       {% set rulezet_on = cfg.RULEZET_ENABLED and cfg.RULEZET_URL %}
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Connections sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Connections sections">
             <a href="#connections-overview"><i class="fas fa-plug"></i>What zsazsa connects to</a>
             <a href="#connections-misp"><i class="fas fa-server"></i>MISP webapp store</a>
             <a href="#connections-rulezet"><i class="fas fa-shield-halved"></i>Rulezet</a>
@@ -407,7 +407,7 @@
                     separated, values in quotes. A header line is skipped. A path that does not start with
                     <code>/</code> is read from the zsazsa directory.</div>
                   <div class="mt-2">
-                    {% if asset_error %}<span class="settings-state settings-state-off ms-0">{{ asset_error }}</span>
+                    {% if asset_error %}<span class="settings-state settings-state-error ms-0">{{ asset_error }}</span>
                     {% else %}<span class="settings-state settings-state-on ms-0">{{ asset_count }} asset{{ '' if asset_count == 1 else 's' }} in the file</span>{% endif %}
                   </div>
                 </div>
@@ -429,14 +429,14 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-products' else '' }}" id="tab-products" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
 
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Products sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Products sections">
             <a href="#products-types"><i class="fas fa-boxes-stacked"></i>Product types</a>
             <a href="#products-focus"><i class="fas fa-bullseye"></i>Focus points</a>
             <a href="#products-exclusions"><i class="fas fa-filter"></i>Title exclusions</a>
@@ -625,7 +625,7 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-analyser' else '' }}" id="tab-analyser" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
@@ -633,7 +633,7 @@
       {% set misp_logo = url_for('static', filename='misp-logo.png') %}
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Analyser sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Analyser sections">
             <a href="#analyser-overview"><i class="fas fa-diagram-project"></i>How the analyser works</a>
             <a href="#analyser-sources"><i class="fas fa-satellite-dish"></i>What it reads</a>
             <a href="#analyser-judging"><i class="fas fa-scale-balanced"></i>How it judges an article</a>
@@ -905,7 +905,7 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-system' else '' }}" id="tab-system" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
@@ -913,7 +913,7 @@
       {% set own_org_only = cfg.MISP_EVENT_DISTRIBUTION == 0 %}
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="System sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="System sections">
             <a href="#system-overview"><i class="fas fa-gauge"></i>At a glance</a>
             <a href="#system-distribution"><i class="fas fa-share-nodes"></i>MISP event distribution</a>
             <a href="#system-logging"><i class="fas fa-file-lines"></i>Logging</a>
@@ -1210,7 +1210,7 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-ai' else '' }}" id="tab-ai" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button class="btn btn-primary flex-shrink-0" id="save-ai-btn" type="button">
+        <button class="btn btn-primary settings-save flex-shrink-0" id="save-ai-btn" type="button">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
@@ -1221,7 +1221,7 @@
       {% set features = cfg.ai_features.values() | list %}
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="AI sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="AI sections">
             <a href="#ai-overview"><i class="fas fa-robot"></i>How zsazsa uses AI</a>
             <a href="#ai-openai"><i class="fas fa-cloud"></i>OpenAI</a>
             <a href="#ai-local"><i class="fas fa-server"></i>Local LLM</a>
@@ -1567,14 +1567,14 @@
                              'fa-' ~ product_icons['Threat landscape report'])] %}
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
 
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Context elements sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Context elements sections">
             <a href="#context-overview"><i class="fas fa-tags"></i>How zsazsa tags MISP</a>
             <a href="#context-records"><i class="fas fa-tag"></i>Records</a>
             <a href="#context-products"><i class="fas fa-boxes-stacked"></i>Products</a>
@@ -1702,7 +1702,7 @@
     <div class="tab-pane fade settings-tab {{ 'show active' if active_tab == 'tab-notifications' else '' }}" id="tab-notifications" role="tabpanel">
 
       <div class="d-flex justify-content-end mb-3">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary settings-save">
           <i class="fas fa-floppy-disk me-1"></i> Save configuration
         </button>
       </div>
@@ -1714,7 +1714,7 @@
       {% set flowintel_logo = url_for('static', filename='flowintel-icon.png') %}
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Notifications sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Notifications sections">
             <a href="#notifications-overview"><i class="fas fa-paper-plane"></i>How products go out</a>
             <a href="#notifications-mattermost"><i class="fas fa-comment-dots"></i>Mattermost</a>
             <a href="#notifications-teams"><i class="fa-brands fa-microsoft"></i>Teams</a>
@@ -1844,16 +1844,16 @@
                     <i class="fas fa-envelope" style="color:#0078f1;"></i>
                     <span class="fw-semibold ec-display-name">{{ ch.name }}</span>
                     <span class="badge bg-light text-dark ms-1 ec-display-recipient">{{ ch.recipient }}</span>
-                    <span class="badge {{ 'bg-success' if ch.enabled else 'bg-secondary' }} ms-1 ec-display-enabled">
+                    <span class="settings-state {{ 'settings-state-on' if ch.enabled else 'settings-state-off' }} ec-display-enabled">
                       {{ 'Enabled' if ch.enabled else 'Disabled' }}
                     </span>
                     <div class="ms-auto d-flex gap-2 align-items-center">
-                      <button type="button" class="btn btn-sm btn-outline-secondary toggle-ec-form">Edit</button>
-                      <button type="button" class="btn btn-sm btn-outline-secondary ping-ec-btn" title="Send a test email to this recipient">
+                      <button type="button" class="btn btn-xs btn-outline-secondary toggle-ec-form" title="Edit" aria-label="Edit" aria-pressed="false"><i class="fas fa-pen"></i></button>
+                      <button type="button" class="btn btn-xs btn-outline-secondary ping-ec-btn" title="Send a test email to this recipient">
                         <i class="fas fa-paper-plane"></i>
                       </button>
                       <span class="ping-ec-result small"></span>
-                      <button type="button" class="btn btn-sm btn-outline-danger delete-ec-btn">Delete</button>
+                      <button type="button" class="btn btn-xs btn-outline-danger delete-ec-btn" title="Delete" aria-label="Delete"><i class="fas fa-trash"></i></button>
                     </div>
                   </div>
                   <div class="card-body ec-form" style="display:none;">
@@ -1926,16 +1926,16 @@
                   <div class="card-header d-flex align-items-center gap-2 px-3 py-2">
                     <img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="Flowintel" style="height:16px;width:auto;">
                     <span class="fw-semibold fi-display-name">{{ fi.name }}</span>
-                    <span class="badge {{ 'bg-success' if fi.enabled else 'bg-secondary' }} ms-1 fi-display-enabled">
+                    <span class="settings-state {{ 'settings-state-on' if fi.enabled else 'settings-state-off' }} fi-display-enabled">
                       {{ 'Enabled' if fi.enabled else 'Disabled' }}
                     </span>
                     <div class="ms-auto d-flex gap-2 align-items-center">
-                      <button type="button" class="btn btn-sm btn-outline-secondary toggle-fi-form">Edit</button>
-                      <button type="button" class="btn btn-sm btn-outline-secondary test-fi-connection-btn" title="Check connectivity to this Flowintel instance">
+                      <button type="button" class="btn btn-xs btn-outline-secondary toggle-fi-form" title="Edit" aria-label="Edit" aria-pressed="false"><i class="fas fa-pen"></i></button>
+                      <button type="button" class="btn btn-xs btn-outline-secondary test-fi-connection-btn" title="Check connectivity to this Flowintel instance">
                         <i class="fas fa-plug"></i>
                       </button>
                       <span class="test-fi-connection-result small"></span>
-                      <button type="button" class="btn btn-sm btn-outline-danger delete-fi-btn">Delete</button>
+                      <button type="button" class="btn btn-xs btn-outline-danger delete-fi-btn" title="Delete" aria-label="Delete"><i class="fas fa-trash"></i></button>
                     </div>
                   </div>
                   <div class="card-body fi-form" style="display:none;">
@@ -2091,7 +2091,7 @@
 
       <div class="row g-4">
         <div class="col-lg-3">
-          <nav class="card content-card settings-menu" aria-label="Styling sections">
+          <nav class="card content-card settings-menu" data-section-nav aria-label="Styling sections">
             <a href="#styling-preview"><i class="fas fa-file-pdf"></i>How a report looks</a>
             <a href="#styling-theme"><i class="fas fa-swatchbook"></i>Theme</a>
             <a href="#styling-organisation"><i class="fas fa-building"></i>Organisation</a>
@@ -2617,7 +2617,7 @@
   function setBadge(row, enabled) {
     const badge = row.querySelector('.channel-display-enabled');
     badge.textContent = enabled ? 'Enabled' : 'Disabled';
-    badge.className = 'badge ms-1 channel-display-enabled ' + (enabled ? 'bg-success' : 'bg-secondary');
+    badge.className = 'settings-state channel-display-enabled ' + (enabled ? 'settings-state-on' : 'settings-state-off');
   }
 
   function bindSection(section) {
@@ -2635,7 +2635,8 @@
       toggleBtn.addEventListener('click', () => {
         const open = form.style.display !== 'none';
         form.style.display = open ? 'none' : '';
-        toggleBtn.textContent = open ? 'Edit' : 'Close';
+        toggleBtn.classList.toggle('active', !open);
+        toggleBtn.setAttribute('aria-pressed', String(!open));
       });
 
       const urlToggle = row.querySelector('.api-key-toggle');
@@ -2819,7 +2820,8 @@
       toggleBtn.addEventListener('click', () => {
         const open = form.style.display !== 'none';
         form.style.display = open ? 'none' : '';
-        toggleBtn.textContent = open ? 'Edit' : 'Close';
+        toggleBtn.classList.toggle('active', !open);
+        toggleBtn.setAttribute('aria-pressed', String(!open));
       });
     }
 
@@ -2874,7 +2876,7 @@
           row.querySelector('.ec-display-recipient').textContent = recipient;
           const badge = row.querySelector('.ec-display-enabled');
           badge.textContent = enabled ? 'Enabled' : 'Disabled';
-          badge.className = 'badge ms-1 ec-display-enabled ' + (enabled ? 'bg-success' : 'bg-secondary');
+          badge.className = 'settings-state ec-display-enabled ' + (enabled ? 'settings-state-on' : 'settings-state-off');
           saveResult.textContent = 'Saved';
           saveResult.className = 'save-ec-result small text-success';
           setTimeout(() => { saveResult.textContent = ''; }, 3000);
@@ -2912,24 +2914,29 @@
         tpl.innerHTML = `
           <div class="card-header d-flex align-items-center gap-2 px-3 py-2">
             <i class="fas fa-envelope" style="color:#0078f1;"></i>
-            <span class="fw-semibold ec-display-name">${name}</span>
-            <span class="badge bg-light text-dark ms-1 ec-display-recipient">${recipient}</span>
-            <span class="badge ${enabled ? 'bg-success' : 'bg-secondary'} ms-1 ec-display-enabled">${enabled ? 'Enabled' : 'Disabled'}</span>
+            <span class="fw-semibold ec-display-name"></span>
+            <span class="badge bg-light text-dark ms-1 ec-display-recipient"></span>
+            <span class="settings-state ${enabled ? 'settings-state-on' : 'settings-state-off'} ec-display-enabled">${enabled ? 'Enabled' : 'Disabled'}</span>
             <div class="ms-auto d-flex gap-2 align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-secondary toggle-ec-form">Edit</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary ping-ec-btn" title="Send a test email to this recipient"><i class="fas fa-paper-plane"></i></button>
+              <button type="button" class="btn btn-xs btn-outline-secondary toggle-ec-form" title="Edit" aria-label="Edit" aria-pressed="false"><i class="fas fa-pen"></i></button>
+              <button type="button" class="btn btn-xs btn-outline-secondary ping-ec-btn" title="Send a test email to this recipient"><i class="fas fa-paper-plane"></i></button>
               <span class="ping-ec-result small"></span>
-              <button type="button" class="btn btn-sm btn-outline-danger delete-ec-btn">Delete</button>
+              <button type="button" class="btn btn-xs btn-outline-danger delete-ec-btn" title="Delete" aria-label="Delete"><i class="fas fa-trash"></i></button>
             </div>
           </div>
           <div class="card-body ec-form" style="display:none;">
             <div class="row g-3">
-              <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control ec-name" value="${name}"></div>
-              <div class="col-sm-7"><label class="form-label">Recipient email address</label><input type="email" class="form-control font-monospace ec-recipient" value="${recipient}"></div>
+              <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control ec-name"></div>
+              <div class="col-sm-7"><label class="form-label">Recipient email address</label><input type="email" class="form-control font-monospace ec-recipient"></div>
               <div class="col-sm-5"><div class="form-check form-switch mt-2"><input class="form-check-input ec-enabled" type="checkbox" ${enabled ? 'checked' : ''}><label class="form-check-label">Enabled</label></div></div>
             </div>
             <div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-sm btn-primary save-ec-btn">Save</button><span class="save-ec-result small align-self-center"></span></div>
           </div>`;
+        // What was typed goes in as text and values, never as markup.
+        tpl.querySelector('.ec-display-name').textContent = name;
+        tpl.querySelector('.ec-display-recipient').textContent = recipient;
+        tpl.querySelector('.ec-name').value = name;
+        tpl.querySelector('.ec-recipient').value = recipient;
         list.appendChild(tpl);
         bindRow(tpl);
         nameEl.value = ''; recipientEl.value = ''; enabledEl.checked = true;
@@ -3217,7 +3224,8 @@
       toggleBtn.addEventListener('click', () => {
         const open = form.style.display !== 'none';
         form.style.display = open ? 'none' : '';
-        toggleBtn.textContent = open ? 'Edit' : 'Close';
+        toggleBtn.classList.toggle('active', !open);
+        toggleBtn.setAttribute('aria-pressed', String(!open));
       });
     }
 
@@ -3272,7 +3280,7 @@
           row.querySelector('.fi-display-name').textContent = name;
           const badge = row.querySelector('.fi-display-enabled');
           badge.textContent = enabled ? 'Enabled' : 'Disabled';
-          badge.className = 'badge ms-1 fi-display-enabled ' + (enabled ? 'bg-success' : 'bg-secondary');
+          badge.className = 'settings-state fi-display-enabled ' + (enabled ? 'settings-state-on' : 'settings-state-off');
           saveResult.textContent = 'Saved';
           saveResult.className = 'save-fi-result small text-success';
           setTimeout(() => { saveResult.textContent = ''; }, 3000);
@@ -3341,19 +3349,19 @@
         tpl.innerHTML = `
           <div class="card-header d-flex align-items-center gap-2 px-3 py-2">
             <img src="{{ url_for('static', filename='flowintel-icon.png') }}" alt="Flowintel" style="height:16px;width:auto;">
-            <span class="fw-semibold fi-display-name">${name}</span>
-            <span class="badge ${enabled ? 'bg-success' : 'bg-secondary'} ms-1 fi-display-enabled">${enabled ? 'Enabled' : 'Disabled'}</span>
+            <span class="fw-semibold fi-display-name"></span>
+            <span class="settings-state ${enabled ? 'settings-state-on' : 'settings-state-off'} fi-display-enabled">${enabled ? 'Enabled' : 'Disabled'}</span>
             <div class="ms-auto d-flex gap-2 align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-secondary toggle-fi-form">Edit</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary test-fi-connection-btn" title="Check connectivity to this Flowintel instance"><i class="fas fa-plug"></i></button>
+              <button type="button" class="btn btn-xs btn-outline-secondary toggle-fi-form" title="Edit" aria-label="Edit" aria-pressed="false"><i class="fas fa-pen"></i></button>
+              <button type="button" class="btn btn-xs btn-outline-secondary test-fi-connection-btn" title="Check connectivity to this Flowintel instance"><i class="fas fa-plug"></i></button>
               <span class="test-fi-connection-result small"></span>
-              <button type="button" class="btn btn-sm btn-outline-danger delete-fi-btn">Delete</button>
+              <button type="button" class="btn btn-xs btn-outline-danger delete-fi-btn" title="Delete" aria-label="Delete"><i class="fas fa-trash"></i></button>
             </div>
           </div>
           <div class="card-body fi-form" style="display:none;">
             <div class="row g-3">
-              <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control fi-name" value="${name}"></div>
-              <div class="col-sm-7"><label class="form-label">URL</label><input type="text" class="form-control fi-url" value="${url}"></div>
+              <div class="col-sm-5"><label class="form-label">Name</label><input type="text" class="form-control fi-name"></div>
+              <div class="col-sm-7"><label class="form-label">URL</label><input type="text" class="form-control fi-url"></div>
               <div class="col-sm-7"><label class="form-label">API key</label>
                 <div class="input-group"><input type="password" class="form-control font-monospace api-key-input fi-api-key" placeholder="${apiKey ? 'Configured, leave blank to keep' : ''}" autocomplete="new-password">
                 <button class="btn btn-outline-secondary api-key-toggle" type="button" title="Show/hide"><i class="fas fa-eye"></i></button></div>
@@ -3373,6 +3381,10 @@
             </div>
             <div class="d-flex gap-2 mt-3"><button type="button" class="btn btn-sm btn-primary save-fi-btn">Save</button><span class="save-fi-result small align-self-center"></span></div>
           </div>`;
+        // What was typed goes in as text and values, never as markup.
+        tpl.querySelector('.fi-display-name').textContent = name;
+        tpl.querySelector('.fi-name').value = name;
+        tpl.querySelector('.fi-url').value = url;
         list.insertBefore(tpl, list.firstChild);
         bindRow(tpl);
         // Carry the just-saved case-template selections onto the new row so it
@@ -3669,4 +3681,5 @@ window.cfgDirty = (function() {
 })();
 
 </script>
+{% include "_section_nav_js.html" %}
 {% endblock %}

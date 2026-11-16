@@ -1,59 +1,67 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_product_actions.html" import preview_button, approval_form with context %}
 {% from "_sort_header.html" import sort_th with context %}
 
 {% block title %}Threat actor profiles | zsazsa CTI{% endblock %}
 {% block page_title %}Threat actor profiles{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('threat_actor_profile.new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New threat actor profile
-</a>
-<a href="{{ url_for('export.threat_actor_profiles') }}" class="btn btn-sm btn-outline-secondary ms-2"
-   title="Export as Markdown">
-  <i class="fas fa-download me-1"></i> Export
-</a>
-{% endblock %}
-
 {% block content %}
 {% import "_charts.html" as charts with context %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-purple);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('state', 'State', 'fa-list-check', 'All states', states, state_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ taps | length }} profile{{ 's' if taps|length != 1 }}</span>
-            {% if state_filter or tlp_filter or audience_filter %}
-            <a href="{{ url_for('threat_actor_profile.review') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How a threat actor profile is made') }}
-      </div>
-      {% if state_counts or tlp_counts or audience_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-4">{{ charts.mix('State', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-          <div class="col-md-4">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set drafts = taps | selectattr('status', 'equalto', 'Draft') | list %}
+{% set published = taps | selectattr('status', 'equalto', 'Published') | list %}
+{% set actors = taps | map(attribute='threat_actors') | select | sum(start=[]) | unique | list %}
+{% set published_dates = taps | selectattr('published_at') | map(attribute='published_at') | list %}
+{% set filtered = state_filter or tlp_filter or audience_filter %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-user-secret"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ taps | length }}</b><span>profile{{ 's' if taps | length != 1 }}{{ ' shown' if filtered }}</span></div>
+      <a href="{{ charts.filtered_url('state', 'Draft', state_filter) }}" class="record-kpi{{ ' warn' if drafts }}"
+         title="{{ 'Show all again' if state_filter == 'Draft' else 'Show only the drafts' }}"><b>{{ drafts | length }}</b><span>draft{{ 's' if drafts | length != 1 }}</span></a>
+      <div class="record-kpi"><b>{{ published | length }}</b><span>published</span></div>
+      <div class="record-kpi"><b>{{ actors | length }}</b><span>threat actor{{ 's' if actors | length != 1 }} profiled</span></div>
+      {% if published_dates %}<div class="record-kpi"><b>{{ (published_dates | max).strftime('%d-%m') }}</b><span>last published</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('threat_actor_profile.new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New threat actor profile</a>
+      <a href="{{ url_for('export.threat_actor_profiles') }}" class="btn btn-sm btn-hero-ghost" title="Export as Markdown">
+        <i class="fas fa-download me-1"></i> Export
+      </a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How a threat actor profile is made
+      </button>
     </div>
   </div>
-</div>
+  {% if state_counts or tlp_counts or audience_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('State', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+    <div style="flex-grow:2.2;">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter, top=4) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('state', 'State', 'fa-list-check', 'All states', states, state_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
+  {% if filtered %}
+  <a href="{{ url_for('threat_actor_profile.review') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "threat_actor_profile/_flow.html" %}
 
-<div class="card content-card">
+{% set lanes = [('Draft', 'Draft', 'Finish and publish', 'var(--neutral-500)'),
+                ('Published', 'Published', 'Sent to their audience', 'var(--accent-green)')] %}
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if taps %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
           {{ sort_th('ID', 'id', sort, dir, 'threat_actor_profile.review', '110px') }}
@@ -65,26 +73,42 @@
           <th class="text-end">Actions</th>
         </tr>
       </thead>
+      {% for state, lane, hint, color in lanes %}
+      {# Anything but Published shows as a draft, as the badge in the row does. #}
+      {% set rows = (taps | selectattr('status', 'equalto', 'Published') | list) if state == 'Published'
+                     else (taps | rejectattr('status', 'equalto', 'Published') | list) %}
+      {% if rows %}
       <tbody>
-        {% for t in taps %}
-        <tr>
-          <td>
+        <tr class="lane-head">
+          <th colspan="7">
+            <span class="lane-mark" style="background:{{ color }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} profile{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for t in rows %}
+        <tr class="{{ 'draft-row' if state == 'Draft' }}">
+          <td style="white-space:nowrap;">
             <a href="{{ url_for('threat_actor_profile.detail', id=t.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ t.tap_id }}</span>
             </a>
           </td>
           <td>
-            {{ t.title or '(untitled)' }}
-            {% if t.threat_actors %}
+            <a href="{{ url_for('threat_actor_profile.detail', id=t.uuid) }}" class="title{{ ' untitled' if not t.title }}">{{ t.title or 'No title' }}</a>
             <div class="mt-1">
               {% for a in t.threat_actors %}
               <span class="badge chip-source" style="font-size:.63rem;">{{ a }}</span>
+              {% else %}
+              <span class="text-muted small">No threat actor picked yet</span>
               {% endfor %}
             </div>
-            {% endif %}
           </td>
           <td><span class="tlp-badge tlp-{{ t.tlp | slug }}">TLP:{{ t.tlp | upper }}</span></td>
           <td>
+            <div class="status-steps" aria-hidden="true" style="max-width:4rem;">
+              <i class="{{ 'done' if t.status == 'Published' else 'now' }}"></i><i class="{{ 'now' if t.status == 'Published' }}"></i>
+            </div>
             {% if t.status == 'Published' %}<span class="badge bg-success">Published</span>
             {% else %}<span class="badge bg-secondary">Draft</span>{% endif %}
           </td>
@@ -181,8 +205,11 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
-    {% elif state_filter or tlp_filter or audience_filter %}
+    </div>
+    {% elif filtered %}
     <div class="p-4 text-center text-muted">No threat actor profiles match these filters.</div>
     {% else %}
     <div class="p-4 text-center text-muted">

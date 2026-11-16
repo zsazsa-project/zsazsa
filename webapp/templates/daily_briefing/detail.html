@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_product_actions.html" import read_again_note %}
-{% from "_macros.html" import ai_job_badge, story_scope %}
+{% from "_macros.html" import ai_job_badge, date_leaf, story_scope %}
 
 {% block title %}Briefing {{ briefing.date }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ briefing.title or ('Daily briefing - ' + (briefing.date or '(no date)')) }}{% endblock %}
@@ -14,11 +14,123 @@
 {% endblock %}
 
 {% block content %}
-<div class="row g-3">
-  <div class="col-md-8">
+<style>
+  .record-hero-compact .date-leaf { border-color: transparent; box-shadow: 0 10px 22px -12px rgba(0,0,0,.5); }
+  .briefing-story { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .9rem; padding: 1.1rem 1.1rem 1rem;
+                    border-top: 1px solid var(--border-faint); scroll-margin-top: 5rem; }
+  .briefing-story:first-child { border-top: 0; }
+  .story-num { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 8px; background: var(--surface-tint);
+               color: var(--misp-navy); font-size: .85rem; font-weight: 700; }
+  .briefing-story h2 { margin: .2rem 0 .5rem; font-size: 1rem; font-weight: 700; }
+  .story-meta { margin-top: .75rem; padding-top: .6rem; border-top: 1px solid var(--border-faint); font-size: .82rem; }
+  .briefing-toc { margin: 0; padding: .35rem 0; list-style: none; }
+  .briefing-toc a { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); gap: .55rem; padding: .4rem 1rem;
+                    color: var(--text-primary); font-size: .84rem; line-height: 1.35; text-decoration: none; }
+  .briefing-toc a:hover { background: var(--surface-hover); }
+  .briefing-toc .story-num { width: 1.35rem; height: 1.35rem; border-radius: 5px; font-size: .7rem; }
+  #briefing-summary-card { scroll-margin-top: 5rem; }
+</style>
+{% set state = briefing.review_state %}
+{% set published = state == 'published' %}
+{% set kpi = namespace(sectors=0, techniques=0) %}
+{% for label, ranked in scope_summary %}
+  {% if label == 'Sectors' %}{% set kpi.sectors = ranked | length %}{% elif label == 'Techniques' %}{% set kpi.techniques = ranked | length %}{% endif %}
+{% endfor %}
+
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        {{ date_leaf(briefing.date, '' if published else state) }}
+        <div style="min-width:0;">
+          <div class="eyebrow">Daily threat briefing ·
+            {% if published %}<span class="badge bg-success">published</span>
+            {% elif state == 'rejected' %}<span class="badge bg-danger">rejected</span>
+            {% else %}<span class="badge bg-secondary">draft</span>{% endif %}
+            {{ ai_job_badge(ai_job) }}
+          </div>
+          <h1>{{ briefing.title or ('Daily briefing - ' + (briefing.date or '(no date)')) }}</h1>
+          <div class="record-facts">
+            <div><span>Author</span>{{ briefing.author or '-' }}</div>
+            <div><span>Created by</span>{{ briefing.creator or '-' }}</div>
+            {% if briefing.created_at %}<div><span>Saved</span>{{ briefing.created_at.strftime('%d %B %Y, %H:%M') }} UTC</div>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ briefing.stories | length }}</b><span>stor{{ 'y' if briefing.stories | length == 1 else 'ies' }}</span></div>
+        <div class="record-kpi"><b>{{ kpi.sectors }}</b><span>sector{{ 's' if kpi.sectors != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ kpi.techniques }}</b><span>ATT&amp;CK technique{{ 's' if kpi.techniques != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ recipients | length }}</b><span>stakeholder{{ 's' if recipients | length != 1 }} receive it</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      {% if published %}
+      <form method="post" action="{{ url_for('daily_briefing.resend', id=briefing.uuid) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="detail">
+        <button class="btn btn-sm btn-hero" title="Resend to stakeholders"><i class="fas fa-paper-plane me-1"></i> Resend</button>
+      </form>
+      {% else %}
+      <a href="{{ url_for('daily_briefing.edit', id=briefing.uuid) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="modal" data-bs-target="#recipientsModal"
+              title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
+      <a href="{{ url_for('daily_briefing.pdf', id=briefing.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      {% if briefing.history_url %}
+      <a href="{{ briefing.history_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-hero-ghost"><i class="fas fa-clock-rotate-left me-1"></i> MISP event history</a>
+      {% endif %}
+      {% if published %}
+      <span title="Published briefings cannot be edited" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-pen me-1"></i> Edit</button>
+      </span>
+      <span title="Published briefings cannot be deleted" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete</button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('daily_briefing.delete', id=briefing.uuid) }}"
+            data-submit-confirm="Delete this briefing?{{ read_again_note(state) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ briefing.tlp | slug }}">TLP:{{ briefing.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel delivery" aria-label="From draft to the stakeholders">
+    <span class="chart-label">Delivery</span>
+    <div class="leg done"><i></i>Drafted<small>{{ briefing.author or briefing.creator or '-' }}</small></div>
+    {% if state == 'rejected' %}
+    <div class="leg off"><i></i>Rejected<small>not sent</small></div>
+    {% else %}
+    <div class="leg{{ ' done' if briefing.approved_by or published }}"><i></i>Approved<small>{{ briefing.approved_by or 'waiting' }}</small></div>
+    <div class="leg{{ ' done' if published }}"><i></i>Published<small>{{ briefing.published_at.strftime('%d-%m-%Y %H:%M') if briefing.published_at else '-' }}</small></div>
+    <div class="leg{{ ' done' if notify_status }}"><i></i>Notified<small>{% if notify_status %}<span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span> {{ notify_status.timestamp }}{% else %}-{% endif %}</small></div>
+    {% if notify_status and notify_status.details %}<div class="details" title="{{ notify_status.details }}">{{ notify_status.details }}</div>{% endif %}
+    {% endif %}
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+
+    {% if state == 'rejected' %}
+    <div class="card content-card border-danger mb-4 rise rise-1" id="rejection-card">
+      <div class="card-header text-danger"><i class="fas fa-xmark me-2"></i>Rejected</div>
+      <div class="card-body">
+        {% if briefing.rejection_reason %}<p class="mb-0" style="white-space:pre-wrap;">{{ briefing.rejection_reason }}</p>
+        {% else %}<p class="mb-0 text-muted">No reason was given.</p>{% endif %}
+      </div>
+    </div>
+    {% endif %}
 
     {% if briefing.summary %}
-    <div class="card content-card mb-3">
+    <div class="card content-card mb-4 rise rise-1" id="briefing-summary-card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fas fa-align-left me-2"></i>Briefing summary</span>
         {% if briefing.summary_stale %}
@@ -38,77 +150,61 @@
     </div>
     {% endif %}
 
-    {% for story in briefing.stories %}
-    {% set idx = loop.index %}
-    <div class="card content-card mb-3">
-      <div class="card-header">
-        <i class="fas fa-newspaper me-2"></i>
-        <strong>Story {{ idx }}:</strong> {{ story.title or '(untitled)' }}
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-newspaper me-2"></i>Stories <span class="badge bg-primary ms-1" style="font-size:.65rem">{{ briefing.stories | length }}</span></span>
+        <span class="small text-muted">In the order they are sent</span>
       </div>
-      <div class="card-body">
-        <div class="report-md-body" data-md="{{ story.content | e }}"></div>
-        {# Scope is labelled per category, matching the e-mail and the PDF. #}
-        <div class="mt-3 small" style="border-top:1px solid var(--border-faint);padding-top:.6rem;">
-          {% if story.source_url %}
-          <div class="scope-row">
-            <span class="pretext">Source:</span>
-            <a href="{{ story.source_url }}" target="_blank" rel="noopener" class="text-decoration-none">
-              {{ story.source_url | truncate(90) }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
-            </a>
+      <div class="card-body p-0">
+        {% for story in briefing.stories %}
+        <article class="briefing-story" id="story-{{ loop.index }}">
+          <span class="story-num">{{ loop.index }}</span>
+          <div style="min-width:0;">
+            <h2>{{ story.title or '(untitled)' }}</h2>
+            <div class="report-md-body" data-md="{{ story.content | e }}"></div>
+            {# Scope is labelled per category, matching the e-mail and the PDF. #}
+            <div class="story-meta">
+              {% if story.source_url and story.source_url.startswith(('https://', 'http://')) %}
+              <div class="scope-row">
+                <span class="pretext">Source:</span>
+                <a href="{{ story.source_url }}" target="_blank" rel="noopener" class="text-decoration-none">
+                  {{ story.source_url | truncate(90) }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
+                </a>
+              </div>
+              {% endif %}
+              {% if story.correlation %}
+              <div class="scope-row">
+                <span class="pretext">Tells again:</span> {{ story.correlation }}
+              </div>
+              {% endif %}
+              {% if story.source_event_uuid %}
+              {% set ev = source_meta.get(story.source_event_uuid, {}) %}
+              <div class="scope-row">
+                <span class="pretext">MISP event:</span>
+                <a href="{{ misp_webapp_url }}/events/view/{{ story.source_event_uuid }}"
+                   target="_blank" rel="noopener" class="font-monospace text-decoration-none">
+                  {{ story.source_event_uuid }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
+                </a>
+                {% if ev.get('date') %}
+                <span class="badge text-bg-light border ms-1">{{ ev.date }}</span>
+                {% endif %}
+                {% if ev.get('orgc') %}
+                <span class="badge text-bg-light border ms-1">{{ ev.orgc }}</span>
+                {% endif %}
+                {% if ev.get('info') %}
+                <div class="text-muted ms-1 mt-1" style="font-size:.78rem;font-style:italic;">{{ ev.info | truncate(120) }}</div>
+                {% endif %}
+              </div>
+              {% endif %}
+              {{ story_scope(story) }}
+            </div>
           </div>
-          {% endif %}
-          {% if story.correlation %}
-          <div class="scope-row">
-            <span class="pretext">Tells again:</span> {{ story.correlation }}
-          </div>
-          {% endif %}
-          {% if story.source_event_uuid %}
-          {% set ev = source_meta.get(story.source_event_uuid, {}) %}
-          <div class="scope-row">
-            <span class="pretext">MISP event:</span>
-            <a href="{{ misp_webapp_url }}/events/view/{{ story.source_event_uuid }}"
-               target="_blank" rel="noopener" class="font-monospace text-decoration-none">
-              {{ story.source_event_uuid }}<i class="fas fa-external-link-alt fa-xs ms-1 opacity-50"></i>
-            </a>
-            {% if ev.get('date') %}
-            <span class="badge text-bg-light border ms-1">{{ ev.date }}</span>
-            {% endif %}
-            {% if ev.get('orgc') %}
-            <span class="badge text-bg-light border ms-1">{{ ev.orgc }}</span>
-            {% endif %}
-            {% if ev.get('info') %}
-            <div class="text-muted ms-1 mt-1" style="font-size:.78rem;font-style:italic;">{{ ev.info | truncate(120) }}</div>
-            {% endif %}
-          </div>
-          {% endif %}
-          {{ story_scope(story) }}
-        </div>
-      </div>
-    </div>
-    {% else %}
-    <div class="card content-card mb-3">
-      <div class="card-body text-muted">No stories added yet.</div>
-    </div>
-    {% endfor %}
-
-    {% if scope_summary %}
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-layer-group me-2"></i>Scope summary</div>
-      <div class="card-body small">
-        {% for label, ranked in scope_summary %}
-        <p class="mb-1"><span class="pretext">{{ label }}:</span></p>
-        <div class="mb-2">
-          {% for value, count in ranked %}
-          <span class="badge {{ 'bg-warning text-dark' if count > 1 else 'bg-light text-dark border' }} me-1 mb-1"
-                title="{{ count }} occurrence{{ 's' if count != 1 else '' }}">
-            {{ value }}{% if count > 1 %} &times;{{ count }}{% endif %}
-          </span>
-          {% endfor %}
-        </div>
+        </article>
+        {% else %}
+        <div class="card-body text-muted">No stories added yet.</div>
         {% endfor %}
       </div>
     </div>
-    {% endif %}
 
     {% if briefing.escalations %}
     <div class="card content-card mb-3">
@@ -161,72 +257,10 @@
 
   </div>
 
-  <div class="col-md-4">
-    <div class="card content-card mb-3">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <strong>Metadata</strong>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                data-bs-toggle="modal" data-bs-target="#recipientsModal"
-                title="Preview recipients">
-          <i class="fas fa-users me-1"></i> Recipients
-        </button>
-      </div>
-      <div class="card-body">
-        <dl class="row small mb-0">
-          <dt class="col-5">Date</dt>
-          <dd class="col-7">{{ briefing.date or '-' }}</dd>
-          {% if briefing.created_at %}
-          <dt class="col-5">Saved</dt>
-          <dd class="col-7">{{ briefing.created_at.strftime('%d %B %Y, %H:%M') }} UTC</dd>
-          {% endif %}
-          {% if briefing.title %}
-          <dt class="col-5">Title</dt>
-          <dd class="col-7">{{ briefing.title }}</dd>
-          {% endif %}
-          <dt class="col-5">Author</dt>
-          <dd class="col-7">{{ briefing.author or '-' }}</dd>
-          <dt class="col-5">Created by</dt>
-          <dd class="col-7">{{ briefing.creator or '-' }}</dd>
-          {% if briefing.approved_by %}
-          <dt class="col-5">Approved by</dt>
-          <dd class="col-7">{{ briefing.approved_by }}</dd>
-          {% endif %}
-          <dt class="col-5">TLP</dt>
-          <dd class="col-7"><span class="tlp-badge tlp-{{ briefing.tlp | slug }}">TLP:{{ briefing.tlp | upper }}</span></dd>
-          <dt class="col-5">Stories</dt>
-          <dd class="col-7">{{ briefing.stories | length }}</dd>
-          <dt class="col-5">State</dt>
-          <dd class="col-7">
-            {% if briefing.review_state == 'published' %}<span class="badge bg-success">published</span>
-            {% elif briefing.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
-            {% else %}<span class="badge bg-secondary">draft</span>{% endif %}
-            {{ ai_job_badge(ai_job) }}
-          </dd>
-          {% if notify_status %}
-          <dt class="col-5">Last notification</dt>
-          <dd class="col-7">
-            <span class="badge bg-{{ notify_status.tone }}">{{ notify_status.label }}</span>
-            <span class="text-muted">{{ notify_status.timestamp }}</span>
-            {% if notify_status.details %}<div class="text-muted" style="font-size:.78rem;">{{ notify_status.details }}</div>{% endif %}
-          </dd>
-          {% endif %}
-        </dl>
-        {% if briefing.review_state == 'rejected' and briefing.rejection_reason %}
-        <p class="mb-0 mt-2 small text-danger" style="white-space:pre-wrap;"><strong>Rejection reason:</strong><br>{{ briefing.rejection_reason }}</p>
-        {% endif %}
-        {% if briefing.history_url %}
-        <p class="mb-0 mt-2 small">
-          <a href="{{ briefing.history_url }}" target="_blank" rel="noopener" class="text-decoration-none">
-            <i class="fas fa-clock-rotate-left me-1"></i>MISP event history
-          </a>
-        </p>
-        {% endif %}
-      </div>
-    </div>
-
+  <div class="col-lg-4">
     {% if briefing.review_state == 'draft' %}
     <div class="card content-card mb-3">
-      <div class="card-header"><strong>Review actions</strong></div>
+      <div class="card-header"><i class="fas fa-gavel me-2"></i>Review</div>
       <div class="card-body">
         {% if not can_publish %}
         <p class="small text-muted mb-2">Publishing will notify subscribed stakeholders.</p>
@@ -267,6 +301,37 @@
     </div>
     {% endif %}
 
+    {% if briefing.stories %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-list-ol me-2"></i>Contents</div>
+      <ul class="briefing-toc">
+        {% if briefing.summary %}<li><a href="#briefing-summary-card"><span class="story-num" aria-hidden="true"><i class="fas fa-align-left"></i></span>Briefing summary</a></li>{% endif %}
+        {% for story in briefing.stories %}
+        <li><a href="#story-{{ loop.index }}"><span class="story-num">{{ loop.index }}</span>{{ story.title or '(untitled)' }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if scope_summary %}
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-layer-group me-2"></i>Scope summary</div>
+      <div class="card-body small">
+        {% for label, ranked in scope_summary %}
+        <p class="mb-1"><span class="pretext">{{ label }}:</span></p>
+        <div class="mb-2">
+          {% for value, count in ranked %}
+          <span class="badge {{ 'bg-warning text-dark' if count > 1 else 'bg-light text-dark border' }} me-1 mb-1"
+                title="{{ count }} occurrence{{ 's' if count != 1 else '' }}">
+            {{ value }}{% if count > 1 %} &times;{{ count }}{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-comment-dots me-2"></i>Feedback</div>
       <div class="card-body">
@@ -299,46 +364,6 @@
       </div>
     </div>
 
-    <div class="d-flex gap-2 mb-2">
-      {% if briefing.review_state == 'published' %}
-      <span title="Published briefings cannot be edited" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-pen me-1"></i> Edit
-        </button>
-      </span>
-      {% else %}
-      <a href="{{ url_for('daily_briefing.edit', id=briefing.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-        <i class="fas fa-pen me-1"></i> Edit
-      </a>
-      {% endif %}
-      {% if briefing.review_state == 'published' %}
-      <span title="Published briefings cannot be deleted" style="cursor:not-allowed;" class="flex-fill">
-        <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
-          <i class="fas fa-trash me-1"></i> Delete
-        </button>
-      </span>
-      {% else %}
-      <form method="post" action="{{ url_for('daily_briefing.delete', id=briefing.uuid) }}"
-            data-submit-confirm="Delete this briefing?{{ read_again_note(briefing.review_state) }}" class="flex-fill">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm btn-outline-danger w-100">
-          <i class="fas fa-trash me-1"></i> Delete
-        </button>
-      </form>
-      {% endif %}
-    </div>
-
-    {% if briefing.review_state == 'published' %}
-    <div class="mb-2">
-      <form method="post" action="{{ url_for('daily_briefing.resend', id=briefing.uuid) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="next" value="detail">
-        <button class="btn btn-sm btn-outline-primary w-100" title="Resend to stakeholders">
-          <i class="fas fa-paper-plane me-1"></i> Resend
-        </button>
-      </form>
-    </div>
-    {% endif %}
   </div>
 </div>
 

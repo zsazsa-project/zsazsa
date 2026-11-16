@@ -22,7 +22,7 @@
 {% set triaged = is_edit and rfi.status != 'New' %}
 <form method="post" data-unsaved-warning>
 
-<section class="record-hero rise mb-4">
+<section class="record-hero record-hero-compact rise mb-3">
   <span class="hero-icon" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
   <div class="hero-main">
     <p class="lead-text">
@@ -175,6 +175,34 @@
   </div>
 
   <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ rfi.rfi_id if is_edit else 'New RFI' }}</span>
+            <div class="form-preview-title" data-preview-text="question" data-empty="No question yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>Priority</dt><dd data-preview-choice="priority"></dd>
+          <dt>Asked by</dt><dd data-preview-text="requester_name requester_team" data-empty="No requester yet"></dd>
+          <dt>Assigned to</dt><dd data-preview-text="assigned_analyst" data-empty="Nobody yet"></dd>
+          <dt>Due</dt><dd data-preview-text="due_date" data-empty="Set from the priority"></dd>
+        </dl>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create RFI' }}
+          </button>
+          <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) if is_edit else url_for('rfi.rfi_list') }}" class="btn btn-outline-secondary">
+            Cancel
+          </a>
+        </div>
+      </div>
+    </div>
     <div class="d-flex flex-column gap-4">
 
     <div class="card content-card">
@@ -207,19 +235,11 @@
           <input type="text" name="assigned_analyst" id="rfi-analyst" class="form-control"
             value="{{ rfi.assigned_analyst if is_edit else '' }}">
         </div>
-        <div class="mb-3">
+        <div>
           <span class="form-label d-block">Status</span>
           {% set _status = rfi.status if is_edit else 'New' %}
           <span class="badge status-badge status-{{ _status | slug }}">{{ _status }}</span>
           <div class="form-text">New RFIs start as New. Status changes through triage, then from the RFI list or the RFI's page, not here.</div>
-        </div>
-        <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-primary flex-grow-1">
-            <i class="fas fa-floppy-disk me-1"></i> {{ 'Save changes' if is_edit else 'Create RFI' }}
-          </button>
-          <a href="{{ url_for('rfi.rfi_detail', id=rfi.id) if is_edit else url_for('rfi.rfi_list') }}" class="btn btn-outline-secondary">
-            Cancel
-          </a>
         </div>
       </div>
     </div>
@@ -265,6 +285,7 @@
 
 {% block scripts %}
 {% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 {% include "rfi/_response_fields_js.html" %}
 {% if is_edit %}
 {% include "_markdown_js.html" %}

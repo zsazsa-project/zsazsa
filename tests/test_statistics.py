@@ -357,7 +357,7 @@ class AuditLog(_App):
         busy = self.write_on(5, 7)
         page = self.soup("/logs")
         self.assertIn("The busiest day was", page.get_text(" ", strip=True))
-        tile = page.select_one("a.stats-count[href*='day=']")
+        tile = page.select_one("section.record-hero a.record-kpi[href*='day=']")
         self.assertIn(f"day={busy}", tile["href"])
         self.assertEqual(page.select_one(".day-chart-col.peak .day-chart-mark").get_text(strip=True), "7")
         on_that_day = self.soup(f"/logs?day={busy}")
@@ -405,7 +405,7 @@ class AuditLog(_App):
         """Its tile says the last 90 days, whatever the day chosen."""
         day = self.write_on(1, 2, user="one@example.org")
         self.write_on(2, 5, user="other@example.org")
-        tile = self.soup(f"/logs?day={day}").select("a.stats-count")[-1].get_text(" ", strip=True)
+        tile = self.soup(f"/logs?day={day}").select("section.record-hero a.record-kpi")[-1].get_text(" ", strip=True)
         self.assertIn("other@example.org", tile)
 
     def test_a_day_without_entries_says_so(self):
@@ -420,7 +420,7 @@ class AuditLog(_App):
     def test_an_empty_log(self):
         text = self.page()
         self.assertIn("No log entries yet.", text)
-        self.assertIn("Nothing in the last 90 days", text)
+        self.assertIn("nothing in the last 90 days", text)
         self.assertNotIn("The busiest day was", text)
 
     def test_a_day_before_the_chart_has_no_count(self):
@@ -475,20 +475,21 @@ class StatisticsPage(_App):
         self.text = self.page.get_text(" ", strip=True)
 
     def test_the_counts_and_the_warnings(self):
-        for shown in ("1 / 2 Active / total PIRs", "0 / 0 Active / total GIRs", "10 Stakeholders",
-                      "1 Active requirements without scope items",
+        for shown in ("1 / 2 PIRs active", "0 / 0 GIRs active", "10 stakeholders",
+                      "1 active requirement without scope",
                       "1 active PIR has no scope items.",
                       "Collection gap: 1 active PIR has no collection sources mapped."):
             self.assertIn(shown, self.text)
 
     def test_the_counts_link_to_their_lists(self):
         with self.client.application.test_request_context():
-            expected = {"Active / total PIRs": url_for("requirements.pir_list"),
-                        "Active / total GIRs": url_for("requirements.gir_list"),
-                        "Stakeholders": url_for("stakeholders.list"),
+            expected = {"PIRs active": url_for("requirements.pir_list"),
+                        "GIRs active": url_for("requirements.gir_list"),
+                        "stakeholders": url_for("stakeholders.list"),
+                        "products": url_for("products.index"),
                         "Open RFIs": url_for("rfi.rfi_list")}
-        links = {a.select_one(".label, .name").get_text(): a["href"]
-                 for a in self.page.select("a.stats-count, a.stats-metric")}
+        links = {a.select_one("a.record-kpi > span, .label, .name").get_text(): a["href"]
+                 for a in self.page.select("section.record-hero a.record-kpi, a.stats-metric")}
         self.assertEqual(links, expected)
 
     def test_the_program_health_figures(self):
@@ -632,7 +633,7 @@ class ScopePage(_App):
         self.assertEqual(active["href"], "/stats/scope")
         pirs = [a for a in page.select("a.kind-row") if "PIRs" in a.get_text()][0]
         self.assertEqual(pirs["href"], "/stats/scope?kind=pir")
-        self.assertEqual(page.select_one("#topbar a[href*=csv]")["href"], "/stats/scope.csv?kind=fia")
+        self.assertEqual(page.select_one("section.record-hero a[href*=csv]")["href"], "/stats/scope.csv?kind=fia")
 
     def test_both_filters_keep_each_other(self):
         page = self.soup("/stats/scope?kind=pir&focus=1")

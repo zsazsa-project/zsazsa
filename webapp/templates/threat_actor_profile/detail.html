@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_product_actions.html" import hero_resend %}
+{% from "_macros.html" import audience_badges %}
 
 {% block title %}{{ tap.tap_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ tap.tap_id }}: {{ tap.title }}{% endblock %}
@@ -6,15 +8,12 @@
 
 {% block misp_object_url %}{{ tap.misp_url }}{% endblock %}
 {% block topbar_actions %}
-{% if tap.status == 'Published' %}
-<a href="{{ url_for('threat_actor_profile.pdf', id=tap.uuid) }}" class="btn btn-sm btn-outline-secondary" title="Download PDF">
-  <i class="fas fa-file-pdf me-1"></i> Download PDF
-</a>
-{% endif %}
 <a href="{{ url_for('threat_actor_profile.review') }}" class="btn btn-sm btn-light border shadow-sm">
   <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
 {% endblock %}
+
+{% macro chips(values) %}{% for x in values %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}{% endmacro %}
 
 {% block content %}
 <style>
@@ -65,12 +64,95 @@
                 background: color-mix(in srgb, var(--accent-orange) 8%, transparent); }
   .dm-missing .dm-val { color: var(--accent-orange); font-style: italic; font-weight: 500; }
 </style>
+{% set published = tap.status == 'Published' %}
+{% set techniques = tap.mitre_attack_techniques or [] %}
+{% set has_capability = tap.capabilities or techniques %}
+{% set has_victim = tap.geographic_scope or tap.sectors %}
+{% set has_recs = tap.rec_prevention or tap.rec_detection or tap.rec_response %}
+{% set diamond = [tap.title, has_capability, tap.infrastructure, has_victim] | select | list %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-user-secret"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Threat actor profile · {{ tap.tap_id }} ·
+            {% if published %}<span class="badge bg-success">Published</span>{% else %}<span class="badge bg-secondary">Draft</span>{% endif %}</div>
+          <h1>{{ tap.title or 'No title' }}</h1>
+          <div class="record-facts">
+            <div><span>Threat actor</span>{{ tap.threat_actors | join(', ') if tap.threat_actors else '-' }}</div>
+            <div><span>Audience</span>{{ tap.audience or '-' }}</div>
+            {% if pir %}<div><span>Answers</span><a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}"
+              {% if pir.question %}title="{{ pir.question }}"{% endif %}>{{ pir.pir_id }}</a></div>{% endif %}
+            <div><span>Created</span>{{ tap.created_at.strftime('%Y-%m-%d') if tap.created_at else '-' }}</div>
+            {% if tap.review_date %}<div><span>Review by</span>{{ tap.review_date.strftime('%d-%m-%Y') }}</div>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ (tap.threat_actors or []) | length }}</b><span>threat actor{{ 's' if (tap.threat_actors or []) | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ techniques | length }}</b><span>ATT&amp;CK technique{{ 's' if techniques | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ (tap.geographic_scope or []) | length }}</b><span>countr{{ 'ies' if (tap.geographic_scope or []) | length != 1 else 'y' }}</span></div>
+        <div class="record-kpi"><b>{{ feedback | length }}</b><span>feedback</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      {% if published %}
+      {{ hero_resend(url_for('threat_actor_profile.notify', id=tap.uuid), can_publish,
+                     'Resend ' ~ tap.tap_id ~ ' to subscribed stakeholders?') }}
+      {% elif not can_publish or not tap.audience | trim %}
+      <span class="d-inline-block" style="cursor:not-allowed;"
+            title="{{ 'Only users with MISP publish rights can publish.' if not can_publish else 'Select a target audience on the edit form before publishing.' }}">
+        <button class="btn btn-sm btn-hero" disabled style="pointer-events:none;"><i class="fas fa-paper-plane me-1"></i> Publish</button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('threat_actor_profile.publish', id=tap.uuid) }}" class="d-inline">
+        <button class="btn btn-sm btn-hero"><i class="fas fa-paper-plane me-1"></i> Publish</button>
+      </form>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="modal" data-bs-target="#recipientsModal"
+              title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
+      {% if published %}
+      <a href="{{ url_for('threat_actor_profile.pdf', id=tap.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      <span title="Published profiles cannot be edited" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-pen me-1"></i> Edit</button>
+      </span>
+      <span title="Published profiles cannot be deleted" style="cursor:not-allowed;" class="d-inline-block">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete</button>
+      </span>
+      {% else %}
+      <a href="{{ url_for('threat_actor_profile.edit', id=tap.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-pen me-1"></i> Edit</a>
+      <form method="post" action="{{ url_for('threat_actor_profile.delete', id=tap.uuid) }}" class="d-inline"
+            data-submit-confirm="Delete {{ tap.tap_id }}? This cannot be undone.">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ tap.tlp | slug }}">TLP:{{ tap.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel delivery" aria-label="How complete the Diamond Model is">
+    <span class="chart-label">Diamond Model, {{ diamond | length }} of 4</span>
+    <div class="leg{{ ' done' if tap.title }}"><i></i>Adversary<small>{{ 'set' if tap.title else 'not set' }}</small></div>
+    <div class="leg{{ ' done' if has_capability }}"><i></i>Capability<small>{% if techniques %}{{ techniques | length }} technique{{ 's' if techniques | length != 1 }}{% elif tap.capabilities %}described{% else %}not set{% endif %}</small></div>
+    <div class="leg{{ ' done' if tap.infrastructure }}"><i></i>Infrastructure<small>{{ 'described' if tap.infrastructure else 'not set' }}</small></div>
+    <div class="leg{{ ' done' if has_victim }}"><i></i>Victim<small>{{ (tap.geographic_scope or tap.sectors or ['not set']) | first }}</small></div>
+  </div>
+</section>
+
 <div class="row g-4">
 
   <div class="col-lg-8">
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-file-lines me-2"></i>Summary</div>
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2">
+        <span><i class="fas fa-file-lines me-2"></i>Summary</span>
+        <span>{{ audience_badges(tap.audience) }}</span>
+      </div>
       <div class="card-body">
         {% if tap.summary %}
         <div class="report-md-body" data-md="{{ tap.summary | e }}"></div>
@@ -78,54 +160,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user-secret me-2"></i>Threat actors</div>
-      <div class="card-body">
-        {% if tap.threat_actors %}
-        <div class="d-flex flex-wrap gap-2">
-          {% for a in tap.threat_actors %}
-          <span class="badge chip-source">{{ a }}</span>
-          {% endfor %}
-        </div>
-        {% else %}<p class="text-muted mb-0"><em>None recorded.</em></p>{% endif %}
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-id-card me-2"></i>Threat actor details</div>
-      <div class="card-body">
-        <dl class="row small mb-2">
-          {% if tap.actor_types %}
-          <dt class="col-sm-3">Type</dt>
-          <dd class="col-sm-9">{% for x in tap.actor_types %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>
-          {% endif %}
-          <dt class="col-sm-3">Synonyms</dt>
-          <dd class="col-sm-9">{{ tap.synonyms or '-' }}</dd>
-          <dt class="col-sm-3">Suspected origin</dt>
-          <dd class="col-sm-9">{{ tap.suspected_origin or '-' }}{% if tap.origin_confidence %} <span class="text-muted">({{ tap.origin_confidence | capitalize }} confidence)</span>{% endif %}</dd>
-          <dt class="col-sm-3">Motivation</dt>
-          <dd class="col-sm-9">{{ tap.motivation or '-' }}</dd>
-          <dt class="col-sm-3">Sponsorship</dt>
-          <dd class="col-sm-9">{{ tap.sponsorship or '-' }}</dd>
-        </dl>
-        {% if tap.capabilities %}
-        <p class="small fw-semibold text-muted mb-1">Capabilities</p>
-        <div class="report-md-body small mb-2" data-md="{{ tap.capabilities | e }}"></div>
-        {% endif %}
-        {% if tap.mode_of_operation %}
-        <p class="small fw-semibold text-muted mb-1">Mode of operation</p>
-        <div class="report-md-body small mb-2" data-md="{{ tap.mode_of_operation | e }}"></div>
-        {% endif %}
-        {% if tap.infrastructure %}
-        <p class="small fw-semibold text-muted mb-1">Infrastructure</p>
-        <div class="report-md-body small mb-0" data-md="{{ tap.infrastructure | e }}"></div>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
+    <div class="card content-card mb-4 rise rise-1">
       <div class="card-header d-flex align-items-center justify-content-between">
-        <span><i class="fas fa-fingerprint me-2"></i>Attribution</span>
+        <span><i class="fas fa-user-secret me-2"></i>The actor</span>
         {% if tap.assessment_confidence %}
         <span class="badge bg-secondary" title="Confidence in the analytic judgment (estimative language)">
           Confidence: {{ tap.assessment_confidence | capitalize }}
@@ -133,51 +170,55 @@
         {% endif %}
       </div>
       <div class="card-body">
+        <dl class="detail-list mb-3">
+          <dt>Threat actors</dt><dd>{% if tap.threat_actors %}{{ chips(tap.threat_actors) }}{% else %}<span class="text-muted">None recorded</span>{% endif %}</dd>
+          {% if tap.actor_types %}<dt>Type</dt><dd>{{ chips(tap.actor_types) }}</dd>{% endif %}
+          <dt>Synonyms</dt><dd>{{ tap.synonyms or '-' }}</dd>
+          <dt>Suspected origin</dt><dd>{{ tap.suspected_origin or '-' }}{% if tap.origin_confidence %} <span class="text-muted">({{ tap.origin_confidence | capitalize }} confidence)</span>{% endif %}</dd>
+          <dt>Motivation</dt><dd>{{ tap.motivation or '-' }}</dd>
+          <dt>Sponsorship</dt><dd>{{ tap.sponsorship or '-' }}</dd>
+        </dl>
+        {% if tap.capabilities %}
+        <div class="chart-label mb-1">Capabilities</div>
+        <div class="report-md-body small mb-3" data-md="{{ tap.capabilities | e }}"></div>
+        {% endif %}
+        {% if tap.mode_of_operation %}
+        <div class="chart-label mb-1">Mode of operation</div>
+        <div class="report-md-body small mb-3" data-md="{{ tap.mode_of_operation | e }}"></div>
+        {% endif %}
+        {% if tap.infrastructure %}
+        <div class="chart-label mb-1">Infrastructure</div>
+        <div class="report-md-body small mb-3" data-md="{{ tap.infrastructure | e }}"></div>
+        {% endif %}
+        <div class="chart-label mb-1">Attribution</div>
         {% if tap.attribution_rationale %}
         <div class="report-md-body small mb-0" data-md="{{ tap.attribution_rationale | e }}"></div>
         {% else %}<p class="text-muted small mb-0"><em>No attribution rationale.</em></p>{% endif %}
       </div>
     </div>
 
-    {% if tap.rec_prevention or tap.rec_detection or tap.rec_response %}
-    <div class="card content-card mb-4">
+    {% if has_recs %}
+    <div class="card content-card mb-4 rise rise-2">
       <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Recommendations</div>
       <div class="card-body">
         {% if tap.rec_prevention %}
-        <p class="small fw-semibold text-muted mb-1">Prevention</p>
+        <div class="chart-label mb-1">Prevention</div>
         <div class="report-md-body small mb-2" data-md="{{ tap.rec_prevention | e }}"></div>
         {% endif %}
         {% if tap.rec_detection %}
-        <p class="small fw-semibold text-muted mb-1">Detection</p>
+        <div class="chart-label mb-1">Detection</div>
         <div class="report-md-body small mb-2" data-rulezet-rules data-md="{{ tap.rec_detection | e }}"></div>
         {% endif %}
         {% if tap.rec_response %}
-        <p class="small fw-semibold text-muted mb-1">Response</p>
+        <div class="chart-label mb-1">Response</div>
         <div class="report-md-body small mb-0" data-md="{{ tap.rec_response | e }}"></div>
         {% endif %}
       </div>
     </div>
     {% endif %}
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Scope</div>
-      <div class="card-body">
-        {% if tap.geographic_scope or tap.sectors or tap.mitre_attack_techniques or tap.threat_types or tap.time_frame or tap.technology or tap.vendor %}
-        <dl class="row small mb-0">
-          {% if tap.geographic_scope %}<dt class="col-sm-3">Geographic</dt><dd class="col-sm-9">{% for x in tap.geographic_scope %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-          {% if tap.sectors %}<dt class="col-sm-3">Sectors</dt><dd class="col-sm-9">{% for x in tap.sectors %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-          {% if tap.mitre_attack_techniques %}<dt class="col-sm-3">MITRE ATT&amp;CK</dt><dd class="col-sm-9">{% for x in tap.mitre_attack_techniques %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-          {% if tap.threat_types %}<dt class="col-sm-3">Threat types</dt><dd class="col-sm-9">{% for x in tap.threat_types %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-          {% if tap.time_frame %}<dt class="col-sm-3">Time frame</dt><dd class="col-sm-9">{{ tap.time_frame }}</dd>{% endif %}
-          {% if tap.technology %}<dt class="col-sm-3">Technology</dt><dd class="col-sm-9">{% for x in tap.technology %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-          {% if tap.vendor %}<dt class="col-sm-3">Vendor</dt><dd class="col-sm-9">{% for x in tap.vendor %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</dd>{% endif %}
-        </dl>
-        {% else %}<p class="text-muted mb-0"><em>No scope defined.</em></p>{% endif %}
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-gem me-2"></i>Diamond Model</div>
+    <div class="card content-card mb-4 rise rise-2">
+      <div class="card-header"><i class="fas fa-gem me-2"></i>Diamond Model and scope</div>
       <div class="card-body">
         <div class="dm-grid">
           <div class="dm-node dm-adversary{{ ' dm-missing' if not tap.title }}">
@@ -192,37 +233,44 @@
 
           <div class="dm-center" aria-hidden="true"></div>
 
-          <div class="dm-node dm-cap{{ ' dm-missing' if not (tap.capabilities or tap.mitre_attack_techniques) }}">
+          <div class="dm-node dm-cap{{ ' dm-missing' if not has_capability }}">
             <div class="dm-val">
               {% if tap.capabilities %}<span style="white-space: pre-line;">{{ tap.capabilities }}</span>{% endif %}
-              {% if tap.mitre_attack_techniques %}
-              <div class="mt-1">{% for x in tap.mitre_attack_techniques %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}</div>
-              {% endif %}
-              {% if not (tap.capabilities or tap.mitre_attack_techniques) %}Not set{% endif %}
+              {% if techniques %}<div class="mt-1">{{ chips(techniques) }}</div>{% endif %}
+              {% if not has_capability %}Not set{% endif %}
             </div>
             <div class="dm-label">Capability</div>
           </div>
 
-          <div class="dm-node dm-victim{{ ' dm-missing' if not (tap.geographic_scope or tap.sectors) }}">
+          <div class="dm-node dm-victim{{ ' dm-missing' if not has_victim }}">
             <div class="dm-val">
-              {% for x in tap.geographic_scope %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}
-              {% for x in tap.sectors %}<span class="badge chip-source me-1">{{ x }}</span>{% endfor %}
-              {% if not (tap.geographic_scope or tap.sectors) %}Not set{% endif %}
+              {{ chips(tap.geographic_scope or []) }}{{ chips(tap.sectors or []) }}
+              {% if not has_victim %}Not set{% endif %}
             </div>
             <div class="dm-label">Victim</div>
           </div>
         </div>
         <p class="text-muted small text-center mb-0 mt-2">Dashed amber nodes are not yet completed.</p>
+        {% if tap.threat_types or tap.time_frame or tap.technology or tap.vendor %}
+        <hr>
+        <dl class="detail-list mb-0">
+          {% if tap.threat_types %}<dt>Threat types</dt><dd>{{ chips(tap.threat_types) }}</dd>{% endif %}
+          {% if tap.time_frame %}<dt>Time frame</dt><dd>{{ tap.time_frame }}</dd>{% endif %}
+          {% if tap.technology %}<dt>Technology</dt><dd>{{ chips(tap.technology) }}</dd>{% endif %}
+          {% if tap.vendor %}<dt>Vendor</dt><dd>{{ chips(tap.vendor) }}</dd>{% endif %}
+        </dl>
+        {% endif %}
       </div>
     </div>
 
     {% if tap.external_references %}
-    <div class="card content-card mb-4">
+    <div class="card content-card mb-4 rise rise-3">
       <div class="card-header"><i class="fas fa-book me-2"></i>References</div>
       <div class="card-body">
-        <ul class="small mb-0">
+        <ul class="small mb-0 ps-3">
           {% for r in tap.external_references %}
-          <li><a href="{{ r }}" target="_blank" rel="noopener">{{ r }}</a></li>
+          {# A link only to a web address: a reference is typed or drafted. #}
+          <li>{% if r.startswith(('https://', 'http://')) %}<a href="{{ r }}" target="_blank" rel="noopener noreferrer">{{ r }}</a>{% else %}{{ r }}{% endif %}</li>
           {% endfor %}
         </ul>
       </div>
@@ -230,7 +278,7 @@
     {% endif %}
 
     {% if linked_feeds %}
-    <div class="card content-card mb-4">
+    <div class="card content-card mb-4 rise rise-3">
       <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Indicator feeds</div>
       <div class="card-body p-0">
         <ul class="list-group list-group-flush">
@@ -248,54 +296,33 @@
     </div>
     {% endif %}
 
+    {% if tap.notes %}
     {% include "threat_actor_profile/_notes.html" %}
+    {% endif %}
+
+    {% set missing = [('notes', tap.notes), ('recommendations', has_recs)] | rejectattr(1) | map(attribute=0) | list %}
+    {% if missing %}
+    <div class="card content-card mb-4 rise rise-3" id="empty-sections">
+      <div class="card-body py-2 small text-muted">
+        <i class="fas fa-circle-minus me-2"></i>No {% for name in missing %}<strong>{{ name }}</strong>{{ ' and no ' if not loop.last }}{% endfor %} yet.
+      </div>
+    </div>
+    {% endif %}
 
   </div>
 
   <div class="col-lg-4">
 
-    <div class="card content-card mb-4">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <strong>Metadata</strong>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                data-bs-toggle="modal" data-bs-target="#recipientsModal" title="Preview recipients">
-          <i class="fas fa-users me-1"></i> Recipients
-        </button>
-      </div>
+    <div class="card content-card mb-3">
+      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source and authorship</div>
       <div class="card-body">
-        <dl class="row small mb-0">
-          <dt class="col-5">ID</dt>
-          <dd class="col-7">{{ tap.tap_id }}</dd>
-          <dt class="col-5">State</dt>
-          <dd class="col-7">
-            {% if tap.status == 'Published' %}<span class="badge bg-success">Published</span>
-            {% else %}<span class="badge bg-secondary">Draft</span>{% endif %}
-          </dd>
-          <dt class="col-5">TLP</dt>
-          <dd class="col-7"><span class="tlp-badge tlp-{{ tap.tlp | slug }}">TLP:{{ tap.tlp | upper }}</span></dd>
-          <dt class="col-5">Audience</dt>
-          <dd class="col-7">{{ tap.audience or '-' }}</dd>
-          <dt class="col-5">Author</dt>
-          <dd class="col-7">{{ tap.author or '-' }}</dd>
-          <dt class="col-5">Linked PIR</dt>
-          <dd class="col-7">
-            {% if pir %}<a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}">{{ pir.pir_id }}</a>{% if pir.question %} - {{ pir.question | truncate(60) }}{% endif %}
-            {% else %}-{% endif %}
-          </dd>
-          <dt class="col-5">Created</dt>
-          <dd class="col-7">{{ tap.created_at.strftime('%Y-%m-%d') if tap.created_at else '-' }}</dd>
-          <dt class="col-5">Created by</dt>
-          <dd class="col-7">{{ tap.creator or '-' }}</dd>
-          <dt class="col-5">Published</dt>
-          <dd class="col-7">{{ tap.published_at.strftime('%Y-%m-%d') if tap.published_at else '-' }}</dd>
-          {% if tap.review_date %}
-          <dt class="col-5">Review date</dt>
-          <dd class="col-7">{{ tap.review_date.strftime('%d-%m-%Y') }}</dd>
-          {% endif %}
-          {% if tap.feedback_deadline %}
-          <dt class="col-5">Feedback by</dt>
-          <dd class="col-7">{{ tap.feedback_deadline.strftime('%d-%m-%Y') }}</dd>
-          {% endif %}
+        <dl class="form-facts mb-0">
+          <dt>Reliability</dt><dd{% if not tap.source_reliability %} class="text-muted"{% endif %}>{{ tap.source_reliability or 'Not rated' }}</dd>
+          <dt>Credibility</dt><dd{% if not tap.source_credibility %} class="text-muted"{% endif %}>{{ tap.source_credibility or 'Not rated' }}</dd>
+          <dt>Created by</dt><dd>{{ tap.creator or '-' }}</dd>
+          <dt>Author</dt><dd>{{ tap.author or '-' }}</dd>
+          <dt>Published</dt><dd>{{ tap.published_at.strftime('%Y-%m-%d') if tap.published_at else '-' }}</dd>
+          {% if tap.feedback_deadline %}<dt>Feedback by</dt><dd>{{ tap.feedback_deadline.strftime('%d-%m-%Y') }}</dd>{% endif %}
         </dl>
       </div>
     </div>
@@ -335,68 +362,6 @@
           </div>
           <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-paper-plane me-1"></i> Submit feedback</button>
         </form>
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
-      <div class="card-body">
-        <dl class="row small mb-0">
-          <dt class="col-7">Source reliability</dt>
-          <dd class="col-5">{{ tap.source_reliability or '-' }}</dd>
-          <dt class="col-7">Information credibility</dt>
-          <dd class="col-5">{{ tap.source_credibility or '-' }}</dd>
-        </dl>
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bolt me-2"></i>Actions</div>
-      <div class="card-body">
-        {% if tap.status != 'Published' %}
-          {% if not can_publish or not tap.audience|trim %}
-          <span class="d-block mb-2" style="cursor:not-allowed;"
-                title="{{ 'Only users with MISP publish rights can publish.' if not can_publish else 'Select a target audience on the edit form before publishing.' }}">
-            <button class="btn btn-success w-100" disabled style="pointer-events:none;">
-              <i class="fas fa-paper-plane me-1"></i> Publish
-            </button>
-          </span>
-          {% else %}
-          <form method="post" action="{{ url_for('threat_actor_profile.publish', id=tap.uuid) }}" class="mb-2">
-            <button class="btn btn-success w-100"><i class="fas fa-paper-plane me-1"></i> Publish</button>
-          </form>
-          {% endif %}
-        {% else %}
-        <form method="post" action="{{ url_for('threat_actor_profile.notify', id=tap.uuid) }}"
-              class="mb-2" data-submit-confirm="Resend {{ tap.tap_id }} to subscribed stakeholders?">
-          <button class="btn btn-outline-secondary w-100"><i class="fas fa-paper-plane me-1"></i> Resend to recipients</button>
-        </form>
-        {% endif %}
-        <div class="d-flex gap-2">
-          {% if tap.status == 'Published' %}
-          <span class="flex-fill" title="Published profiles cannot be edited" style="cursor:not-allowed;">
-            <button class="btn btn-sm btn-outline-secondary w-100" disabled style="pointer-events:none;">
-              <i class="fas fa-pen me-1"></i> Edit
-            </button>
-          </span>
-          {% else %}
-          <a href="{{ url_for('threat_actor_profile.edit', id=tap.uuid) }}" class="btn btn-sm btn-outline-secondary flex-fill">
-            <i class="fas fa-pen me-1"></i> Edit
-          </a>
-          {% endif %}
-          {% if tap.status == 'Published' %}
-          <span class="flex-fill" title="Published profiles cannot be deleted" style="cursor:not-allowed;">
-            <button class="btn btn-sm btn-outline-danger w-100" disabled style="pointer-events:none;">
-              <i class="fas fa-trash me-1"></i> Delete
-            </button>
-          </span>
-          {% else %}
-          <form method="post" action="{{ url_for('threat_actor_profile.delete', id=tap.uuid) }}"
-                class="flex-fill" data-submit-confirm="Delete {{ tap.tap_id }}? This cannot be undone.">
-            <button class="btn btn-sm btn-outline-danger w-100"><i class="fas fa-trash me-1"></i> Delete</button>
-          </form>
-          {% endif %}
-        </div>
       </div>
     </div>
 

@@ -37,53 +37,31 @@
 {% block content %}
 {% set filtered = selected.action or selected.type or selected.user %}
 
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-xl-3">
-    <div class="stats-count" style="--icon-color:var(--accent-blue);">
-      <div class="big">{{ '{:,}'.format(found.total) }}</div>
-      <div class="label">Entries{{ ' that match' if filtered }} in the log</div>
-      <div class="label">{% if retention_days %}Kept {{ retention_days }} days{% else %}Kept for good{% endif %}</div>
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-clock-rotate-left"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ '{:,}'.format(found.total) }}</b><span>entr{{ 'y' if found.total == 1 else 'ies' }}{{ ' that match' if filtered }}, {% if retention_days %}kept {{ retention_days }} days{% else %}kept for good{% endif %}</span></div>
+      <div class="record-kpi"><b>{{ '{:,}'.format(chart.last_7d) }}</b><span>in the last 7 days</span></div>
+      {% if chart.busiest %}
+      <a href="{{ charts.filtered_url('day', chart.busiest.date, day) }}" class="record-kpi warn" title="Show the entries of that day"><b>{{ chart.busiest.n }}</b><span>on the busiest day, {{ chart.busiest.long }}</span></a>
+      {% else %}
+      <div class="record-kpi"><b>0</b><span>nothing in the last {{ chart_days }} days</span></div>
+      {% endif %}
+      {% if found.user %}
+      {% set top_user, top_n = found.user[0] %}
+      <a href="{{ charts.filtered_url('user', top_user, selected.user) }}" class="record-kpi" title="Show only their entries"><b>{{ top_n }}</b><span>by {{ top_user }}, the most active of the last {{ chart_days }} days</span></a>
+      {% else %}
+      <div class="record-kpi"><b>-</b><span>nobody in the last {{ chart_days }} days</span></div>
+      {% endif %}
+    </div>
+    <div class="hero-actions">
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="modal" data-bs-target="#jobs-modal"><i class="fas fa-list-check me-1"></i> Background jobs</button>
     </div>
   </div>
-  <div class="col-sm-6 col-xl-3">
-    <div class="stats-count" style="--icon-color:var(--accent-green);">
-      <div class="big">{{ '{:,}'.format(chart.last_7d) }}</div>
-      <div class="label">In the last 7 days</div>
-      <div class="label">{{ '{:,}'.format(found.per_day.values() | sum) }} in the last {{ chart_days }}</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    {% if chart.busiest %}
-    <a href="{{ charts.filtered_url('day', chart.busiest.date, day) }}" class="stats-count" style="--icon-color:var(--accent-orange);"
-       title="Show the entries of that day">
-      <div class="big">{{ chart.busiest.n }}</div>
-      <div class="label">On the busiest day of the last {{ chart_days }}</div>
-      <div class="label">{{ chart.busiest.long }}</div>
-    </a>
-    {% else %}
-    <div class="stats-count" style="--icon-color:var(--accent-orange);">
-      <div class="big">0</div><div class="label">Nothing in the last {{ chart_days }} days</div>
-    </div>
-    {% endif %}
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    {% if found.user %}
-    {% set top_user, top_n = found.user[0] %}
-    <a href="{{ charts.filtered_url('user', top_user, selected.user) }}" class="stats-count" style="--icon-color:var(--accent-purple);"
-       title="Show only their entries">
-      <div class="big">{{ top_n }}</div>
-      <div class="label">By the most active user of the last {{ chart_days }} days</div>
-      <div class="label text-truncate">{{ top_user }}</div>
-    </a>
-    {% else %}
-    <div class="stats-count" style="--icon-color:var(--accent-purple);">
-      <div class="big">-</div><div class="label">Nobody in the last {{ chart_days }} days</div>
-    </div>
-    {% endif %}
-  </div>
-</div>
+</section>
 
-<div class="card content-card mb-3">
+<div class="card content-card mb-3 rise rise-1">
   <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
     <span><i class="fas fa-chart-column me-2"></i>Entries per day, last {{ chart_days }} days (UTC)</span>
     <span class="text-muted small fw-normal">Click a day for its entries and who did what</span>

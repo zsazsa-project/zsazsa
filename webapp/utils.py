@@ -244,6 +244,16 @@ def sort_products(items: list, sort: str, direction: str) -> list:
 
 PRODUCT_TAG_PREFIX = 'zsazsa:ctiproduct='
 
+# What zsazsa puts before the title of each record it files in MISP.
+_INFO_PREFIX = re.compile(r"^\[zsazsa:[^\]]*\]\s*")
+
+
+def record_title(info: str) -> str:
+    """A MISP event title without zsazsa's "[zsazsa:fia]" marker, for a page
+    that already says what kind of record it lists."""
+    return _INFO_PREFIX.sub("", info or "")
+
+
 # The CTI products that have their own pages, by display name: the config tag
 # holding the tag value, the built-in value, and the detail endpoint.
 _PRODUCT_TYPES = {
@@ -311,6 +321,23 @@ def product_type_label(product_type: str) -> str:
     """Return the display name for a product type given by its tag value."""
     found = _find_product_type(product_type)
     return found.label if found else (product_type or "").strip()
+
+
+def product_list_url(product_type: str) -> str:
+    """Return the URL of a product type's own list, or "" when it has none.
+
+    The list is the root of the blueprint the detail page belongs to.
+    """
+    from flask import current_app, url_for
+
+    found = _find_product_type(product_type)
+    if not found:
+        return ""
+    blueprint = found.endpoint.split(".")[0]
+    root = f"{current_app.blueprints[blueprint].url_prefix}/"
+    endpoint = next((rule.endpoint for rule in current_app.url_map.iter_rules()
+                     if rule.endpoint.startswith(f"{blueprint}.") and rule.rule == root), None)
+    return url_for(endpoint) if endpoint else ""
 
 
 def product_detail_url(product_type: str, entity_id: str, fallback_url: str = "") -> str:

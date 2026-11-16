@@ -1,0 +1,50 @@
+{# The "As it will appear" card of the PIR, GIR and RFI forms follows the form,
+   as the stakeholder form's does. In the card, [data-preview-text] shows the
+   value of the fields it names, [data-preview-choice] the badges of the ticked
+   choices, and [data-preview-select] the chosen option, or the field in
+   data-or-text when none is chosen. data-empty is what shows with nothing,
+   in red when the field has data-required. #}
+<script>
+(function() {
+  var card = document.querySelector('.form-save');
+  if (!card) return;
+  var form = card.closest('form');
+
+  function field(name) { return form.querySelector('[name="' + name + '"]'); }
+  function value(name) { var f = field(name); return f ? f.value.trim() : ''; }
+  function show(el, nodes) {
+    el.replaceChildren.apply(el, nodes.length ? nodes : [document.createTextNode(el.dataset.empty || '-')]);
+    var missing = !nodes.length && el.hasAttribute('data-required');
+    el.classList.toggle('text-muted', !nodes.length && !missing);
+    el.classList.toggle('text-danger', missing);
+  }
+  function text(s) { return s ? [document.createTextNode(s)] : []; }
+
+  function update() {
+    card.querySelectorAll('[data-preview-text]').forEach(function(el) {
+      show(el, text(el.dataset.previewText.split(' ').map(value).filter(Boolean).join(' · ')));
+    });
+    card.querySelectorAll('[data-preview-choice]').forEach(function(el) {
+      // A choice shown as a badge is copied as one; plain ones are listed.
+      var badges = [], names = [];
+      form.querySelectorAll('input[name="' + el.dataset.previewChoice + '"]:checked').forEach(function(box) {
+        var label = form.querySelector('label[for="' + box.id + '"]');
+        // A tile's icon and note are not the choice, so only a badge is copied.
+        var badge = label && label.querySelector('[class*="badge"]');
+        if (badge) badges.push(badge.cloneNode(true));
+        else names.push(box.value);
+      });
+      show(el, badges.concat(text(names.join(', '))));
+    });
+    card.querySelectorAll('[data-preview-select]').forEach(function(el) {
+      var select = field(el.dataset.previewSelect);
+      var chosen = select && select.value ? select.options[select.selectedIndex].text.trim() : '';
+      show(el, text(chosen || (el.dataset.orText ? value(el.dataset.orText) : '')));
+    });
+  }
+
+  form.addEventListener('input', update);
+  form.addEventListener('change', update);
+  update();
+})();
+</script>

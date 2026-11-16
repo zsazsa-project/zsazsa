@@ -254,9 +254,11 @@ class AdmiraltyAssessment(unittest.TestCase):
         from pathlib import Path
         page = (Path(misp_store.__file__).parent / "templates" / "data_collection"
                 / "manual_entry.html").read_text()
-        self.assertIn("Source assessment", page)
-        self.assertIn('name="source_reliability"', page)
-        self.assertIn('name="information_credibility"', page)
+        self.assertIn("Source reliability", page)
+        self.assertIn("Information credibility", page)
+        # The two rows of choices come from one loop over the field names.
+        self.assertIn("('source_reliability', 'Source reliability'", page)
+        self.assertIn("('information_credibility', 'Information credibility'", page)
 
 
 class Migration(unittest.TestCase):

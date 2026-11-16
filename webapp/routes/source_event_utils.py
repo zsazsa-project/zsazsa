@@ -184,14 +184,16 @@ def flattened_references(external_references: list[str] | None, source_event_ref
     """Return a de-duplicated, display-ready reference list.
 
     Output shape: [{"url", "info", "date", "orgc", "kind"}], where kind is
-    "external", "source-link", or "source-event".
+    "external", "source-link", or "source-event". Only web addresses are kept:
+    each is a link on the product's page and in its PDF, and a link from
+    another organisation's event can be anything, javascript: included.
     """
     seen = set()
     out = []
 
     for url in external_references or []:
         value = (url or "").strip()
-        if not value or value in seen:
+        if not value.startswith(("https://", "http://")) or value in seen:
             continue
         seen.add(value)
         out.append({"url": value, "info": "", "date": "", "orgc": "", "kind": "external"})
@@ -199,13 +201,13 @@ def flattened_references(external_references: list[str] | None, source_event_ref
     for ref in source_event_refs or []:
         for link in ref.get("links", []) or []:
             value = (link or "").strip()
-            if not value or value in seen:
+            if not value.startswith(("https://", "http://")) or value in seen:
                 continue
             seen.add(value)
             out.append({"url": value, "info": "", "date": "", "orgc": "", "kind": "source-link"})
 
         event_url = (ref.get("url") or "").strip()
-        if not event_url or event_url in seen:
+        if not event_url.startswith(("https://", "http://")) or event_url in seen:
             continue
         seen.add(event_url)
         out.append({

@@ -19,31 +19,33 @@
 {% for fp in focus_points %}{% if fp.value | lower in org_focus.get(fp.category, {}) %}{% set shared.n = shared.n + 1 %}{% endif %}{% endfor %}
 {% set late = pir.next_review and pir.next_review < today and pir.status not in ('Retired', 'Implemented') and not rejected %}
 {% set review_days = (pir.next_review - today).days if pir.next_review else none %}
-<section class="record-hero rise mb-4">
-  <div class="hero-main">
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <span class="hero-id"><i class="fas fa-star me-1"></i>{{ pir.pir_id }}</span>
-      <span class="badge status-badge status-{{ 'rejected' if rejected else pir.status | slug }}">{{ 'Rejected' if rejected else pir.status }}</span>
-      <span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span>
-      {% for lvl in pir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
-    </div>
-    <h1 class="question">{{ pir.question }}</h1>
-    {% if pir.context %}<p class="lead-text">{{ pir.context }}</p>{% endif %}
-    {% if linked_girs %}
-    <p class="lead-text related-links mt-1">
-      Related GIRs:
-      {% for g in linked_girs %}
-      <a href="{{ url_for('requirements.gir_detail', id=g.id) }}" class="ms-1">{{ g.gir_id }} {{ g.topic }}</a>{{ ',' if not loop.last }}
-      {% endfor %}
-    </p>
-    {% endif %}
-    <div class="record-facts">
-      <div><span>Owner</span>
-        {% if pir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=pir.owner_stakeholder.id) }}">{{ pir.owner_stakeholder.name }}</a>
-        {% else %}{{ pir.owner_name or 'No owner yet' }}{% endif %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <span class="hero-id"><i class="fas fa-star me-1"></i>{{ pir.pir_id }}</span>
+        <span class="badge status-badge status-{{ 'rejected' if rejected else pir.status | slug }}">{{ 'Rejected' if rejected else pir.status }}</span>
+        <span class="badge priority-badge priority-{{ pir.priority | slug }}">{{ pir.priority }}</span>
+        {% for lvl in pir.intel_level or [] %}<span class="badge level-badge level-{{ lvl | slug }}">{{ lvl }}</span>{% endfor %}
       </div>
-      {% if pir.time_frame %}<div><span>Time frame</span>{{ pir.time_frame }}</div>{% endif %}
-      {% if pir.collection_sources %}<div><span>Collection</span>{{ pir.collection_sources | join(', ') }}</div>{% endif %}
+      <div class="record-facts">
+        <div><span>Owner</span>
+          {% if pir.owner_stakeholder %}<a href="{{ url_for('stakeholders.detail', id=pir.owner_stakeholder.id) }}">{{ pir.owner_stakeholder.name }}</a>
+          {% else %}{{ pir.owner_name or 'No owner yet' }}{% endif %}
+        </div>
+        {% if pir.time_frame %}<div><span>Time frame</span>{{ pir.time_frame }}</div>{% endif %}
+        {% if pir.collection_sources %}<div><span>Collection</span>{{ pir.collection_sources | join(', ') }}</div>{% endif %}
+      </div>
+      <h1 class="question">{{ pir.question }}</h1>
+      {% if pir.context %}<p class="lead-text">{{ pir.context }}</p>{% endif %}
+      {% if linked_girs %}
+      <p class="lead-text related-links mt-1">
+        Related GIRs:
+        {% for g in linked_girs %}
+        <a href="{{ url_for('requirements.gir_detail', id=g.id) }}" class="ms-1">{{ g.gir_id }} {{ g.topic }}</a>{{ ',' if not loop.last }}
+        {% endfor %}
+      </p>
+      {% endif %}
     </div>
     <div class="hero-actions">
       {% if not rejected %}
@@ -244,26 +246,9 @@
           <p class="text-muted mb-0 small">No scope items yet. Without them the analyser cannot evaluate articles against this PIR.</p>
         </div>
         {% endif %}
+        {% include "requirements/_out_of_scope.html" %}
       </div>
     </div>
-
-    <!-- Scope is now folded into Scope above -->
-    {% if pir.time_frame or pir.out_of_scope %}
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-map me-2"></i>Boundaries</div>
-      <div class="card-body">
-        <dl class="detail-list">
-          {% if pir.time_frame %}
-          <dt>Time frame</dt><dd>{{ pir.time_frame }}</dd>
-          {% endif %}
-          {% if pir.out_of_scope %}
-          <dt>Out of scope</dt>
-          <dd><div class="d-flex flex-wrap gap-1">{% for v in pir.out_of_scope %}<span class="source-tag" style="background:var(--tlp-red-bg);border-color:var(--scope-out-border);color:var(--tlp-red-fg);">{{ v }}</span>{% endfor %}</div></dd>
-          {% endif %}
-        </dl>
-      </div>
-    </div>
-    {% endif %}
 
     <!-- MITRE ATT&CK techniques -->
     {% if pir.mitre_attack_techniques %}
@@ -275,10 +260,10 @@
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2">
           {% for t in pir.mitre_attack_techniques %}
-            {% set parts = t.split(' - ', 1) %}
+            {% set tid, tname = t | technique_parts %}
             <span class="attack-technique-badge" title="{{ t }}">
-              <span class="attack-tid">{{ parts[0] }}</span>
-              {% if parts | length > 1 %}<span class="attack-tname">{{ parts[1] }}</span>{% endif %}
+              {% if tid %}<span class="attack-tid">{{ tid }}</span>{% endif %}
+              {% if tname %}<span class="attack-tname">{{ tname }}</span>{% endif %}
             </span>
           {% endfor %}
         </div>
@@ -350,7 +335,7 @@
         {{ lifecycle(pir.pir_id, pir.status, pir_statuses, [], status_url, 'Rejected in triage, so it does not move.') }}
         {% elif pir.status == 'Pending' %}
         {{ lifecycle(pir.pir_id, pir.status, pir_statuses, [], status_url, 'A pending PIR leaves Pending through triage.') }}
-        <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-warning mt-2"><i class="fas fa-gavel me-1"></i>Triage it on the PIR list</a>
+        <a href="{{ url_for('requirements.pir_list', triage=pir.id) }}" class="btn btn-xs btn-outline-warning mt-2"><i class="fas fa-gavel me-1"></i>Triage it on the PIR list</a>
         {% else %}
         {{ lifecycle(pir.pir_id, pir.status, pir_statuses, pir_statuses | reject('equalto', 'Pending') | list, status_url) }}
         {% endif %}
@@ -435,42 +420,6 @@
           </dd>
           {% endif %}
         </dl>
-      </div>
-    </div>
-
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>Collection coverage</div>
-      <div class="card-body small">
-        {% if not scope_terms %}
-        <p class="text-muted mb-0">No scope items. Add scope items to see collection coverage.</p>
-        {% elif coverage and coverage.recent_matches > 0 %}
-        <p class="mb-1">
-          <strong>{{ coverage.recent_matches }}</strong> matching event{{ 's' if coverage.recent_matches != 1 }} in recent collection
-        </p>
-        {% if coverage.last_match_date %}
-        <p class="mb-2 text-muted">Last match: {{ coverage.last_match_date }}</p>
-        {% endif %}
-        {% if coverage.sample %}
-        <div class="text-muted mb-1" style="font-size:.75rem;">Recent matches:</div>
-        {% for row in coverage.sample %}
-        <div class="mb-1" style="font-size:.78rem;">
-          <a href="{{ url_for('data_collection.detail', uuid=row.uuid, source=row.source_id or None) }}" target="_blank"
-             class="text-decoration-none text-truncate d-block" style="max-width:100%;">
-            <span class="text-muted me-1">{{ row.date }}</span>{{ row.info | truncate(60) }}
-          </a>
-        </div>
-        {% endfor %}
-        {% endif %}
-        <a href="{{ url_for('requirements.pir_scope_preview', id=pir.id) }}" class="btn btn-xs btn-outline-info mt-2">
-          <i class="fas fa-eye me-1"></i> Full preview
-        </a>
-        {% else %}
-        <p class="text-warning mb-1"><i class="fas fa-triangle-exclamation me-1"></i>No matching events in recent collection.</p>
-        <p class="text-muted mb-2" style="font-size:.78rem;">This may indicate a collection gap for this PIR.</p>
-        <a href="{{ url_for('requirements.pir_scope_preview', id=pir.id) }}" class="btn btn-xs btn-outline-info">
-          <i class="fas fa-eye me-1"></i> Preview scope
-        </a>
-        {% endif %}
       </div>
     </div>
 

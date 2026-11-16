@@ -7,12 +7,18 @@ and every refresh or reject reloads the page. They are now all of one size and
 styled before the table. This pins that, where the toolbar's buttons sit, that
 the script's messages float over the page rather than move it, that what the
 script fills in after the load keeps its size, that the actions column has no
-gear that looks clickable, and that an event's organisation filters the list. What the page's script does with a click is
-checked in a browser, not here.
+gear that looks clickable, that an event's organisation filters the list, and
+that the Filters and actions card has the look of the stakeholder banner
+without cutting off its menus, that a filter button stays white and readable
+while its panel is open or a filter is set and shows a green check for the
+latter, and that a finished summary reloads the table keeping what the
+analyst had. What the page's script does with a click is checked in a
+browser, not here.
 
     python -m unittest tests.test_collection_toolbar
 """
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -124,3 +130,68 @@ class TheToolbar(unittest.TestCase):
         link = rows["a" * 36].select_one(".org-filter-link")
         self.assertEqual((link["data-org"], link.get_text(strip=True)), ("CIRCL", "CIRCL"))
         self.assertIsNone(rows["b" * 36].select_one(".org-filter-link"))
+
+    def styles(self):
+        return "".join(s.get_text() for s in self.page.select("style"))
+
+    def test_the_card_looks_like_the_stakeholder_banner(self):
+        card = self.page.select_one(".action-panel.collection-panel")
+        self.assertIsNotNone(card.select_one(".panel-decor"))
+        self.assertIsNotNone(card.select_one(".action-panel-head .hero-icon"))
+        count = card.select_one(".panel-count")
+        self.assertEqual(count.select_one("b#visible-count").get_text(strip=True), "2")
+        self.assertEqual(count.get_text(" ", strip=True), "2 of 2 matching events")
+        self.assertRegex(self.styles(), r"\.collection-panel \{[^}]*background: var\(--brand-gradient\)")
+
+    def test_the_sources_are_in_a_panel_the_cards_colour_shows_through(self):
+        """White, the panel stood out too much from the card."""
+        row = self.page.select_one("#style-current").find_parent(class_="toolbar-row")
+        self.assertIn("collection-sources", row["class"])
+        self.assertRegex(self.styles(), r"\.collection-panel \.toolbar-row\.collection-sources \{[^}]*"
+                                        r"background: color-mix\(in srgb, var\(--card-bg\) 80%, transparent\)")
+
+    def test_the_card_does_not_cut_off_its_menus(self):
+        """The corner circle of the banner is clipped in a layer of its own,
+        not by the card, which holds the date and preset menus. The parts of
+        the card get no z-index: as layers of their own, the row after the
+        filters covered the open date menu."""
+        styles = self.styles()
+        card = re.search(r"\.collection-panel \{([^}]*)\}", styles).group(1)
+        self.assertNotIn("overflow", card)
+        self.assertRegex(styles, r"\.collection-panel \.panel-decor \{[^}]*overflow: hidden")
+        self.assertIn(".collection-panel > :not(.panel-decor) { position: relative; }", styles)
+
+    def test_counts_results_and_errors_stay_readable_on_the_card(self):
+        """A Tags or Org button in use turns white, and its count was white on
+        a faint grey; the result of a set aside is green or red text, which
+        the card's colour swallowed; a source in error lost its red edge."""
+        styles = self.styles()
+        self.assertRegex(styles, r"\.collection-panel \.alt4-panel-toggle \.badge \{[^}]*background: var\(--misp-navy\) !important")
+        self.assertRegex(styles, r"\.collection-panel #bulk-reject-result \{[^}]*background: #fff")
+        self.assertIn(".collection-panel .chip-sources .source-toggle-err { border-color: var(--source-toggle-err-border); }", styles)
+
+    def test_a_filter_button_open_and_filtered_stays_readable(self):
+        """With "More" open and "Has reports" set, the button was dark blue
+        under navy text; under the mouse it went back to the card's colour."""
+        styles = self.styles()
+        white = re.search(r"/\* A filter button is white.*?\{([^}]*)\}", styles, re.S)
+        for selector in ('.alt4-panel-toggle.has-filter[aria-expanded="true"]',
+                         '.toolbar-row > .alt4-panel-toggle.has-filter:hover',
+                         '.toolbar-row > .alt4-panel-toggle[aria-expanded="true"]:hover',
+                         '.toolbar-row > .dropdown > .btn.show'):
+            self.assertIn(selector, white.group(0))
+        self.assertIn("background: #fff", white.group(1))
+
+    def test_each_filter_button_has_its_check_for_a_filter_set(self):
+        for button in ("date-dd-btn", "tags-toggle-btn", "org-toggle-btn", "more-toggle-btn", "cti-toggle-btn"):
+            self.assertIsNotNone(self.page.select_one(f"#{button} .filter-check"), button)
+        self.assertIn(".collection-panel .has-filter .filter-check { display: inline-block; }", self.styles())
+
+    def test_a_finished_summary_reloads_and_keeps_what_the_analyst_had(self):
+        """It offered a Reload button whenever a row was ticked, and the reload
+        dropped the ticked rows and the open panels."""
+        script = "".join(s.get_text() for s in self.page.select("script"))
+        self.assertNotIn("Reload the table to see the result", script)
+        self.assertIn("job.label + ' is finished.'", script)
+        self.assertIn("selected: clearSelection ? [] : getSelectedEvents()", script)
+        self.assertIn("document.querySelectorAll('.collapse.show[id^=\"alt4-\"]')", script)

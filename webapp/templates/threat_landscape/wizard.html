@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect %}
+{% from "_macros.html" import galaxy_multiselect, review_state_badge %}
 
 {% block title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report | zsazsa CTI{% endblock %}
 {% block page_title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-outline-secondary">
-  <i class="fas fa-arrow-left me-1"></i> Back
+<a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-light border shadow-sm">
+  <i class="fas fa-arrow-left me-1"></i> Back to list
 </a>
 {% endblock %}
 
@@ -65,16 +65,29 @@
 {% endmacro %}
 
 {% block content %}
+{% set steps = [('details', 'Details'), ('direction', 'Direction'), ('top', 'Top threats'), ('assessments', 'Assessments'),
+                ('actors', 'Threat actors'), ('incidents', 'Key incidents'), ('recommendations', 'Recommendations'),
+                ('outlook', 'Outlook'), ('methodology', 'Methodology')] %}
 <form method="post" data-unsaved-warning>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <section class="record-hero record-hero-compact rise mb-3">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-map"></i></span>
+    <div class="hero-main">
+      <p class="lead-text">What changed over a period, and what it means for the organisation.</p>
+      <nav class="form-steps" aria-label="Sections of the form">
+        {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+      </nav>
+    </div>
+  </section>
 
   <div class="row g-4">
 
     <!-- Left: main content -->
     <div class="col-lg-8">
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-file-lines me-2"></i>Report details</div>
+      <div class="card content-card form-step mb-4" id="step-details" data-step='input[name="title"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Report details</div>
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
@@ -90,42 +103,16 @@
                      placeholder="e.g. Q1 2026, January 2026">
             </div>
             <div class="col-md-6">
-              <label class="form-label">TLP</label>
-              <select name="tlp" class="form-select">
-                {% for lvl in tlp_levels %}
-                <option value="{{ lvl }}" {% if tlr and tlr.tlp == lvl %}selected{% elif not tlr and lvl == 'amber' %}selected{% endif %}>
-                  TLP:{{ lvl | upper }}
-                </option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-6">
               <label class="form-label">Author</label>
               <input type="text" name="author" class="form-control"
                      value="{{ tlr.author if tlr else '' }}">
-            </div>
-            <div class="col-12">
-              <label class="form-label">Audience</label>
-              {% set current_audiences = (tlr.audience or '').split(', ') if tlr else [] %}
-              <div class="d-flex flex-wrap gap-2">
-                {# The audience was free text before it became these boxes, so an
-                   older report's own wording stays ticked rather than dropped. #}
-                {% for a in audiences + current_audiences | reject('in', audiences) | select | list %}
-                <div class="form-check form-check-inline me-0">
-                  <input class="form-check-input" type="checkbox" name="audience" value="{{ a }}"
-                         id="aud-{{ loop.index }}" {{ 'checked' if a in current_audiences }}>
-                  <label class="form-check-label small" for="aud-{{ loop.index }}">{{ a }}</label>
-                </div>
-                {% endfor %}
-              </div>
-              <div class="form-text">The stakeholder roles that receive the report when it is published.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-compass me-2"></i>Direction</div>
+      <div class="card content-card form-step mb-4" id="step-direction" data-step='textarea[name="purpose"], [name="scope_sectors"], [name="scope_geography"], [name="linked_pir_uuids"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Direction</div>
         <div class="card-body">
           <div class="row g-3">
             {% if last_feedback %}
@@ -201,16 +188,16 @@
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Top threats</div>
+      <div class="card content-card form-step mb-4" id="step-top" data-step='textarea[name="top_threats"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Top threats</div>
         <div class="card-body">
           <textarea name="top_threats" class="form-control font-monospace" rows="5"
                     placeholder="Summarise the top threats observed during this period…">{{ tlr.top_threats if tlr else '' }}</textarea>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Threat assessments</div>
+      <div class="card content-card form-step mb-4" id="step-assessments" data-step='textarea[name="section_findings"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Threat assessments</div>
         <div class="card-body">
           <p class="form-text mt-0">
             One per threat type or theme: the findings, what drives them, how confident you are, the other
@@ -228,8 +215,8 @@
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-user-secret me-2"></i>Trending threat actors</div>
+      <div class="card content-card form-step mb-4" id="step-actors" data-step='textarea[name="trending_actors"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Trending threat actors</div>
         <div class="card-body">
           <textarea name="trending_actors" class="form-control font-monospace" rows="4"
                     placeholder="Threat actors that increased in activity or relevance…">{{ tlr.trending_actors if tlr else '' }}</textarea>
@@ -246,32 +233,32 @@
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-fire me-2"></i>Key incidents</div>
+      <div class="card content-card form-step mb-4" id="step-incidents" data-step='textarea[name="key_incidents"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Key incidents</div>
         <div class="card-body">
           <textarea name="key_incidents" class="form-control font-monospace" rows="5"
                     placeholder="Notable incidents, campaigns, or vulnerabilities during the period…">{{ tlr.key_incidents if tlr else '' }}</textarea>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-shield me-2"></i>Recommendations</div>
+      <div class="card content-card form-step mb-4" id="step-recommendations" data-step='textarea[name="recommendations"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">7</span>Recommendations</div>
         <div class="card-body">
           <textarea name="recommendations" class="form-control font-monospace" rows="4"
                     placeholder="Recommended actions for the audience…">{{ tlr.recommendations if tlr else '' }}</textarea>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-binoculars me-2"></i>Outlook</div>
+      <div class="card content-card form-step mb-4" id="step-outlook" data-step='textarea[name="outlook"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">8</span>Outlook</div>
         <div class="card-body">
           <textarea name="outlook" class="form-control font-monospace" rows="4"
                     placeholder="Near-term threat outlook and anticipated developments…">{{ tlr.outlook if tlr else '' }}</textarea>
         </div>
       </div>
 
-      <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-book me-2"></i>Methodology and limitations</div>
+      <div class="card content-card form-step mb-4" id="step-methodology" data-step='textarea[name="methodology"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">9</span>Methodology and limitations</div>
         <div class="card-body">
           <textarea name="methodology" class="form-control" rows="4"
                     placeholder="Sources and period covered, how events were selected and rated, where AI was used, and what the report cannot say…">{{ tlr.methodology if tlr else '' }}</textarea>
@@ -282,12 +269,62 @@
 
     <!-- Right: save + queued sources -->
     <div class="col-lg-4">
+      {# In the column rather than in its stack of cards, so it stays in view to the
+         end of the form as the stack scrolls away under it. #}
+      <div class="card content-card form-save mb-4">
+        <div class="card-header">As it will appear</div>
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="form-preview">
+            <span class="monogram" aria-hidden="true"><i class="fas fa-map"></i></span>
+            <div class="min-w-0">
+              <span class="req-id-badge">{{ tlr.tlr_id if is_edit else 'New report' }}</span>
+              <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+            </div>
+          </div>
+          <dl class="form-facts">
+            <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+            <dt>Period</dt><dd data-preview-text="reporting_period" data-empty="Not set"></dd>
+            <dt>Audience</dt><dd data-preview-choice="audience" data-empty="Not set"></dd>
+            <dt>State</dt><dd>{{ review_state_badge(tlr.review_state if is_edit else 'draft') }}</dd>
+            <dt>Dataset</dt><dd>{% if is_edit %}{{ tlr.entries | rejectattr('excluded') | list | length }} events{% else %}Built from the queue ({{ queued | length }}){% endif %}</dd>
+          </dl>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">
+              <i class="fas fa-floppy-disk me-1"></i> {{ 'Update report' if is_edit else 'Create report' }}
+            </button>
+            <a href="{{ url_for('threat_landscape.detail', id=tlr.uuid) if is_edit else url_for('threat_landscape.review') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </div>
+      </div>
+
       <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-save me-2"></i>Save</div>
+        <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
         <div class="card-body">
-          <button type="submit" class="btn btn-primary w-100">
-            <i class="fas fa-save me-1"></i> {{ 'Update report' if is_edit else 'Create report' }}
-          </button>
+          <div class="mb-3">
+            <span class="form-label d-block">TLP</span>
+            {% set current_tlp = tlr.tlp if tlr and tlr.tlp in tlp_levels else 'amber' %}
+            <div class="choice-group" role="radiogroup" aria-label="TLP">
+              {% for lvl in tlp_levels %}
+              <input class="btn-check" type="radio" name="tlp" value="{{ lvl }}" id="tlr-tlp-{{ loop.index }}"
+                     {{ 'checked' if lvl == current_tlp }}>
+              <label class="choice" for="tlr-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ lvl | slug }}">TLP:{{ lvl | upper }}</span></label>
+              {% endfor %}
+            </div>
+          </div>
+          <div>
+            <span class="form-label d-block">Audience</span>
+            {% set current_audiences = (tlr.audience or '').split(', ') if tlr else [] %}
+            <div class="choice-group" aria-label="Audience">
+              {# The audience was free text before it became these choices, so an
+                 older report's own wording stays ticked rather than dropped. #}
+              {% for a in audiences + current_audiences | reject('in', audiences) | select | list %}
+              <input class="btn-check" type="checkbox" name="audience" value="{{ a }}" id="aud-{{ loop.index }}"
+                     {{ 'checked' if a in current_audiences }}>
+              <label class="choice" for="aud-{{ loop.index }}">{{ a }}</label>
+              {% endfor %}
+            </div>
+            <div class="form-text">The stakeholder roles that receive the report when it is published.</div>
+          </div>
         </div>
       </div>
 
@@ -296,19 +333,16 @@
       {% set draft_count = (tlr.entries | rejectattr('excluded') | list | length) if is_edit else queued | length %}
       {% if draft_count %}
       <div class="card content-card mb-4">
-        <div class="card-header"><i class="fas fa-robot me-2"></i>Draft with AI</div>
-        <div class="card-body">
-          <button type="button" class="btn btn-outline-info w-100" id="tlr-draft-btn"
-                  {% if is_edit %}data-tlr="{{ tlr.uuid }}"{% endif %}>
-            <i class="fas fa-wand-magic-sparkles me-1"></i> Draft sections from the {{ 'entries' if is_edit else 'queue' }}
+        <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>Draft with AI</div>
+        <div class="ai-actions">
+          <button type="button" class="btn-ai" id="tlr-draft-btn" {% if is_edit %}data-tlr="{{ tlr.uuid }}"{% endif %}>
+            <i class="fas fa-wand-magic-sparkles"></i>
+            <span>Draft sections from the {{ 'entries' if is_edit else 'queue' }}<small>Reads the events {{ 'included in this report' if is_edit else 'in the queue' }} ({{ draft_count }})
+              and fills the sections that are still empty. Trends are counted from the events; the analyst writes what they mean
+              for the organisation, marked <code>[ANALYST]</code>.</small></span>
           </button>
-          <div class="form-text">
-            Reads the events {{ 'included in this report' if is_edit else 'in the queue' }} ({{ draft_count }})
-            and fills the sections that are still empty. Trends are counted from the events; the analyst writes what they mean
-            for the organisation, marked <code>[ANALYST]</code>.
-          </div>
-          <div id="tlr-draft-status" class="form-text"></div>
         </div>
+        <div id="tlr-draft-status" class="form-text px-3 pb-2"></div>
       </div>
       {% endif %}
 
@@ -373,6 +407,8 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 <script>
 // Threat assessments: add one from the template, remove one, and show how many
 // events of the dataset have the threat type picked.

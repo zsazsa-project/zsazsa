@@ -1,86 +1,132 @@
 {% extends "base.html" %}
+{% from "_macros.html" import product_icons %}
 
 {% block title %}Products | zsazsa CTI{% endblock %}
 {% block page_title %}CTI products{% endblock %}
 
+{# How many of each type the overview shows before "Show all", unless a type
+   is picked, which shows them all. #}
+{% set shown = 4 %}
+{% set workflow_badges = {'draft': 'bg-secondary', 'ongoing': 'bg-info text-dark', 'complete': 'bg-success',
+                          'rejected': 'bg-danger'} %}
+
 {% block content %}
-<div class="card content-card mb-3">
-  <div class="card-body py-3">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label small mb-1">Product type</label>
-        <select name="type" class="form-select form-select-sm" onchange="this.form.submit()">
-          <option value="">All types</option>
-          {% for pt in product_types %}
-          <option value="{{ pt }}" {{ 'selected' if type_filter == pt }}>{{ pt }} ({{ type_counter.get(pt, 0) }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label small mb-1">Linked PIR</label>
-        <select name="linked_pir" class="form-select form-select-sm" onchange="this.form.submit()">
-          <option value="">Any</option>
-          {% for p in pirs %}
-          <option value="{{ p.pir_id }}" {{ 'selected' if linked_pir == p.pir_id }}>{{ p.pir_id }} - {{ p.question | truncate(50) }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      {% if type_filter or linked_pir %}
-      <div class="col-auto">
-        <a href="{{ url_for('products.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
-      </div>
-      {% endif %}
-      <div class="col text-end text-muted small align-self-center">{{ events | length }} product{{ 's' if events|length != 1 }}</div>
-    </form>
+{% import "_charts.html" as charts with context %}
+{% set workflow_colors = {'draft': 'var(--neutral-400)', 'ongoing': 'var(--accent-blue)', 'complete': 'var(--accent-green)',
+                          'rejected': 'var(--accent-red)', 'no tag': 'var(--border-light)'} %}
+{% set drafts = events | selectattr('workflow', 'equalto', 'draft') | list %}
+{% set filtered = type_filter or linked_pir %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-cubes"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ events | length }}</b><span>product{{ 's' if events | length != 1 }}{{ ' shown' if filtered }}</span></div>
+      <div class="record-kpi"><b>{{ grouped | length }}</b><span>type{{ 's' if grouped | length != 1 }}</span></div>
+      <div class="record-kpi{{ ' warn' if drafts }}"><b>{{ drafts | length }}</b><span>draft{{ 's' if drafts | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ events | selectattr('workflow', 'equalto', 'complete') | list | length }}</b><span>complete</span></div>
+      {% set dates = events | map(attribute='date') | select | list %}
+      {% if dates %}<div class="record-kpi"><b>{{ (dates | max)[8:10] }}-{{ (dates | max)[5:7] }}</b><span>newest</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-database me-1"></i> Data collection</a>
+    </div>
   </div>
-</div>
+  {% if events %}
+  <div class="record-panel list-stats">
+    <div style="flex-grow:3;">{{ charts.mix('Product type', type_counter | dictsort(by='value', reverse=true), param='type', selected=type_filter) }}</div>
+    <div>{{ charts.mix('Workflow', workflow_counts, workflow_colors) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  <div class="filter" title="Product type">
+    <span class="stat-icon icon-xs"><i class="fas fa-cubes"></i></span>
+    <select name="type" class="form-select form-select-sm" aria-label="Product type" onchange="this.form.submit()">
+      <option value="">All types</option>
+      {% for pt in product_types %}
+      <option value="{{ pt }}" {{ 'selected' if type_filter == pt }}>{{ pt }} ({{ type_counter.get(pt, 0) }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter" title="Linked PIR">
+    <span class="stat-icon icon-xs"><i class="fas fa-star"></i></span>
+    <select name="linked_pir" class="form-select form-select-sm" aria-label="Linked PIR" onchange="this.form.submit()">
+      <option value="">Any PIR</option>
+      {% for p in pirs %}
+      <option value="{{ p.pir_id }}" {{ 'selected' if linked_pir == p.pir_id }}>{{ p.pir_id }} - {{ p.question | truncate(50) }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if filtered %}
+  <a href="{{ url_for('products.index') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% if events %}
-{% for ptype, items in grouped.items() %}
-{# Products that keep no event report leave the column out rather than showing
-   a nought that means nothing. #}
-{% set has_reports = items | rejectattr('report_count', 'none') | list | length > 0 %}
-<div class="card content-card mb-4">
-  <div class="card-header">
-    <i class="fas fa-folder-open me-2"></i>{{ ptype }}
-    <span class="badge text-bg-light ms-2">{{ items | length }}</span>
-  </div>
-  <div class="card-body p-0">
-    <table class="table table-hover zsazsa-table mb-0">
-      <thead>
-        <tr>
-          <th style="width:110px">Date</th>
-          <th>Title</th>
-          <th>Tags</th>
-          {% if has_reports %}<th class="text-end">Reports</th>{% endif %}
-          <th class="text-end">MISP event</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ev in items %}
-        <tr>
-          <td class="text-muted small">{{ ev.date }}</td>
-          <td>
-            <a href="{{ ev.app_url }}" class="text-decoration-none">{{ ev.info }}</a>
-          </td>
-          <td>
-            {% for t in ev.tags if not t.startswith('zsazsa:ctiproduct') %}
-            <span class="badge text-bg-light me-1">{{ t }}</span>
-            {% endfor %}
-          </td>
-          {% if has_reports %}<td class="text-end text-muted small">{{ ev.report_count }}</td>{% endif %}
-          <td class="text-end">
-            <a href="{{ ev.misp_url }}" target="_blank" rel="noopener" class="btn btn-xs btn-outline-secondary" title="Open in MISP">
-              <i class="fas fa-up-right-from-square"></i>
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="card content-card rise rise-2">
+  <div class="table-responsive">
+  <table class="table table-hover zsazsa-table req-table product-table mb-0" id="products-table">
+    <thead>
+      <tr>
+        <th style="width:7rem;">Date</th>
+        <th>Title</th>
+        <th>TLP</th>
+        <th>Workflow</th>
+        <th class="text-end">Reports</th>
+        <th class="text-end">MISP event</th>
+      </tr>
+    </thead>
+    {% for ptype, items in grouped.items() %}
+    {% set group = loop.index %}
+    <tbody>
+      <tr class="lane-head">
+        <th colspan="6">
+          <span class="monogram product-mark me-2" aria-hidden="true"><i class="fas fa-{{ product_icons.get(ptype, 'cube') }}"></i></span>
+          <span class="lane-name">{{ ptype }}</span>
+          <span class="lane-count">{{ items | length }}</span>
+          {% if list_urls.get(ptype) %}
+          <a class="lane-hint text-decoration-none" href="{{ list_urls[ptype] }}">Open the list <i class="fas fa-arrow-right ms-1"></i></a>
+          {% endif %}
+        </th>
+      </tr>
+      {% for ev in items %}
+      {% set hidden = not type_filter and loop.index > shown %}
+      <tr{% if hidden %} class="d-none" data-more="{{ group }}"{% endif %}>
+        <td class="text-muted small" style="white-space:nowrap;">{{ ev.date }}</td>
+        <td>
+          <a href="{{ ev.app_url }}" class="title{{ ' untitled' if not (ev.title or ev.info) }}">{{ ev.title or ev.info or 'No title' }}</a>
+          {% if ev.other_tags %}
+          <div class="mt-1">{% for t in ev.other_tags %}<span class="badge chip-tag-generic me-1">{{ t }}</span>{% endfor %}</div>
+          {% endif %}
+        </td>
+        <td>{% if ev.tlp %}<span class="tlp-badge tlp-{{ ev.tlp | slug }}">TLP:{{ ev.tlp }}</span>{% else %}<span class="text-muted small">-</span>{% endif %}</td>
+        <td>{% if ev.workflow %}<span class="badge {{ workflow_badges.get(ev.workflow, 'bg-secondary') }}">{{ ev.workflow }}</span>{% else %}<span class="text-muted small">-</span>{% endif %}</td>
+        <td class="text-end text-muted small">{{ ev.report_count if ev.report_count is not none else '-' }}</td>
+        <td class="text-end">
+          <a href="{{ ev.misp_url }}" target="_blank" rel="noopener" class="btn btn-xs btn-outline-secondary" title="Open in MISP">
+            <i class="fas fa-up-right-from-square"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not type_filter and items | length > shown %}
+      <tr class="show-more-row">
+        <td></td>
+        <td colspan="5" class="small">
+          <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-show-more="{{ group }}">
+            Show all {{ items | length }} <i class="fas fa-chevron-down ms-1"></i>
+          </button>
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+    {% endfor %}
+  </table>
   </div>
 </div>
-{% endfor %}
 {% else %}
 <div class="card content-card">
   <div class="card-body empty-state py-5">
@@ -90,4 +136,20 @@
   </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  // The rows past the newest few of a type, shown on request.
+  document.querySelectorAll('[data-show-more]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('[data-more="' + btn.dataset.showMore + '"]').forEach(function(row) {
+        row.classList.remove('d-none');
+      });
+      btn.closest('tr').remove();
+    });
+  });
+})();
+</script>
 {% endblock %}

@@ -27,13 +27,30 @@
 {% endblock %}
 
 {% block content %}
+{% set steps = [('summary', 'Summary'), ('actors', 'Threat actors'), ('details', 'Details'), ('attribution', 'Attribution'),
+                ('recs', 'Recommendations'), ('scope', 'Scope'), ('references', 'References')] %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-user-secret"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A threat actor profile says who the actor is, what it does and what to do about it. Pick the actor from the galaxy first.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
+
 <form method="post" class="row g-4" data-unsaved-warning>
 
   <div class="col-lg-8">
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-file-lines me-2"></i>Summary</div>
+    <div class="card content-card form-step mb-4" id="step-summary" data-step='input[name="title"], textarea[name="summary"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Summary</div>
       <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label required-label" for="tap-title">Title{{ diamond("Adversary") }}</label>
+          <input name="title" id="tap-title" class="form-control" required
+            placeholder="Short, recognisable profile title." value="{{ src.title if src else '' }}">
+        </div>
         <label class="form-label">Narrative summary
           <span class="text-muted small fw-normal">Markdown supported</span>
         </label>
@@ -42,27 +59,21 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user-secret me-2"></i>Threat actors</div>
+    <div class="card content-card form-step mb-4" id="step-actors" data-step='[name="threat_actors"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Threat actors</div>
       <div class="card-body">
         <label class="form-label">MISP threat actor galaxy
           <span class="text-muted fw-normal small">(select from the galaxy or type a custom one)</span>
         </label>
         {{ galaxy_multiselect("threat_actors", values=(src.threat_actors if src else []), items=threat_actor_items) }}
-        <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="tap-enrich-btn" style="display:none;">
-          <i class="fas fa-wand-magic-sparkles me-1"></i> Complete profile with MISP galaxy data
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-info mt-2" id="tap-draft-btn"
-                title="Draft the narrative fields from the galaxy data and the notes already on this form. Empty fields only.">
-          <i class="fas fa-robot me-1"></i> Draft profile with AI
-        </button>
         <div id="tap-galaxy-links" class="form-text"></div>
         <div id="tap-enrich-status" class="form-text"></div>
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-id-card me-2"></i>Threat actor details</div>
+    <div class="card content-card form-step mb-4" id="step-details"
+         data-step='[name="synonyms"], [name="suspected_origin"], [name="motivation"], [name="sponsorship"], [name="capabilities"], [name="mode_of_operation"], [name="infrastructure"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Threat actor details</div>
       <div class="card-body">
         {% if threat_actor_types %}
         <div class="mb-3">
@@ -132,8 +143,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-fingerprint me-2"></i>Attribution</div>
+    <div class="card content-card form-step mb-4" id="step-attribution" data-step='[name="attribution_rationale"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Attribution</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Assessment confidence
@@ -155,8 +166,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Recommendations</div>
+    <div class="card content-card form-step mb-4" id="step-recs" data-step='[name="rec_prevention"], [name="rec_detection"], [name="rec_response"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Recommendations</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Prevention</label>
@@ -190,8 +201,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Scope</div>
+    <div class="card content-card form-step mb-4" id="step-scope"
+         data-step='[name="geographic_scope"], [name="sectors"], [name="mitre_attack_techniques"], [name="threat_types"], [name="time_frame"], [name="technology"], [name="vendor"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Scope</div>
       <div class="card-body">
         <div class="row g-3">
 
@@ -261,8 +273,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
+    <div class="card content-card form-step mb-4" id="step-references" data-step='[name="external_references"], [name="feedback_deadline"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">7</span>References and feedback</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">External references</label>
@@ -281,24 +293,40 @@
   </div>
 
   <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-user-secret"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ tap.tap_id if is_edit else 'New profile' }}</span>
+            <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>Threat actors</dt><dd data-preview-choice="threat_actors" data-empty="None picked yet"></dd>
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+          <dt>Audience</dt><dd data-preview-choice="audience" data-required data-empty="None yet, one is needed to publish"></dd>
+          <dt>State</dt><dd>{% if is_edit and tap.status == 'Published' %}<span class="badge bg-success">Published</span>{% else %}<span class="badge bg-secondary">Draft</span>{% endif %}</dd>
+        </dl>
+        {{ draft_actions(url_for('threat_actor_profile.detail', id=tap.uuid) if is_edit else url_for('threat_actor_profile.review'), 'tap-submit') }}
+        <div class="form-text mt-0">A profile is published from its page once it is saved.</div>
+      </div>
+    </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-user-secret me-2"></i>Profile</div>
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label required-label">Title{{ diamond("Adversary") }}</label>
-          <input name="title" class="form-control" required
-            placeholder="Short, recognisable profile title." value="{{ src.title if src else '' }}">
-        </div>
-        <div class="mb-3">
-          <label class="form-label required-label">Audience</label>
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <span class="form-label d-block required-label">Audience</span>
+          <div class="choice-group" aria-label="Audience">
             {% for a in audiences %}
-            <div class="form-check form-check-inline me-0">
-              <input class="form-check-input tap-audience" type="checkbox" name="audience" value="{{ a }}"
-                     id="aud-{{ loop.index }}" {{ 'checked' if a in current_audiences }}>
-              <label class="form-check-label small" for="aud-{{ loop.index }}">{{ a }}</label>
-            </div>
+            <input class="btn-check tap-audience" type="checkbox" name="audience" value="{{ a }}" id="aud-{{ loop.index }}"
+                   {{ 'checked' if a in current_audiences }}>
+            <label class="choice" for="aud-{{ loop.index }}">{{ a }}</label>
             {% endfor %}
           </div>
           <div id="tap-audience-warn" class="text-danger small mt-1" style="{{ 'display:none;' if current_audiences else '' }}">
@@ -307,16 +335,19 @@
           <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience, which is required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">TLP</label>
-          <select name="tlp" class="form-select">
+          <span class="form-label d-block">TLP</span>
+          {% set current_tlp = src.tlp if src and src.tlp in tlp_levels else 'amber' %}
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
             {% for t in tlp_levels %}
-            <option value="{{ t }}" {{ 'selected' if src and src.tlp == t else ('selected' if not src and t == 'amber') }}>TLP:{{ t | upper }}</option>
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="tap-tlp-{{ loop.index }}"
+                   {{ 'checked' if t == current_tlp }}>
+            <label class="choice" for="tap-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
             {% endfor %}
-          </select>
+          </div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Linked PIR</label>
-          <select name="linked_pir_uuid" class="form-select">
+          <label class="form-label" for="tap-linked-pir">Linked PIR</label>
+          <select name="linked_pir_uuid" id="tap-linked-pir" class="form-select">
             <option value="">None</option>
             {% for p in pirs %}
             <option value="{{ p.uuid }}" {{ 'selected' if src and src.linked_pir_uuid == p.uuid }}>{{ p.pir_id }} - {{ p.question | truncate(60) }}</option>
@@ -324,15 +355,15 @@
           </select>
         </div>
         <div class="mb-3">
-          <label class="form-label">Review date</label>
-          <input type="date" name="review_date" class="form-control"
+          <label class="form-label" for="tap-review-date">Review date</label>
+          <input type="date" name="review_date" id="tap-review-date" class="form-control"
             value="{{ src.review_date if src and src.review_date else '' }}">
           <div class="form-text">Quarterly for active actors, annually for dormant.</div>
         </div>
         <div>
-          <label class="form-label">Indicator feeds</label>
+          <label class="form-label" for="tap-feeds">Indicator feeds</label>
           {% set sel_feeds = src.indicator_feeds if src else [] %}
-          <select name="indicator_feeds" class="form-select" multiple size="4">
+          <select name="indicator_feeds" id="tap-feeds" class="form-select" multiple size="4">
             {% for f in feeds %}
             <option value="{{ f.uuid }}" {{ 'selected' if f.uuid in sel_feeds }}>{{ f.feed_id }} - {{ f.name }}</option>
             {% endfor %}
@@ -342,7 +373,21 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>Assistance</div>
+      <div class="ai-actions">
+        <button type="button" class="btn-ai" id="tap-enrich-btn" style="display:none;">
+          <i class="fas fa-database"></i>
+          <span>Complete from the MISP galaxy<small>Fills synonyms, origin, motivation, references and scope from the threat actors picked.</small></span>
+        </button>
+        <button type="button" class="btn-ai" id="tap-draft-btn">
+          <i class="fas fa-wand-magic-sparkles"></i>
+          <span>Draft profile with AI<small>Drafts the narrative fields from the galaxy data and the notes already on this form. Empty fields only.</small></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
       <div class="card-body">
         <div class="mb-3">
@@ -373,14 +418,14 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-pen-nib me-2"></i>Author</div>
       <div class="card-body">
         <input name="author" class="form-control" placeholder="Analyst name" value="{{ src.author if src else '' }}">
       </div>
     </div>
 
-    {{ draft_actions(url_for('threat_actor_profile.detail', id=tap.uuid) if is_edit else url_for('threat_actor_profile.review'), 'tap-submit') }}
+    </div>
 
   </div>
 
@@ -401,6 +446,8 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 {% if is_edit %}
 {% include "_markdown_js.html" %}
 <script>

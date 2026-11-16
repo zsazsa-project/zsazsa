@@ -324,6 +324,15 @@ class ProductLists(_Page):
         self.assertEqual(page.select_one('select[name="priority"] option[selected]')["value"], "Low")
         self.assertIn("Priority Critical 1 Low 1", self.stats(page))
 
+    def test_a_request_without_a_priority_counts_as_unspecified(self):
+        """It showed as a nameless entry linking to a filter that matched nothing."""
+        ders = [_record(misp_store._der_obj, misp_store._der_ns, n, der_id=f"DER-0000{n}", title=f"Request {n}",
+                        priority=priority) for n, priority in ((1, "High"), (2, ""))]
+        with mock.patch.object(misp_store, "list_ders", return_value=ders):
+            page = self.page("/products/detection-eng/")
+        self.assertIn("Priority High 1 Unspecified 1", self.stats(page))
+        self.assertNotIn("/products/detection-eng/?priority=", [a["href"] for a in page.select(".list-stats a.chart-filter")])
+
     def test_advisories_by_exploitation(self):
         veas = [_vea(1, "approved", observed_exploitation="Yes, in the wild"),
                 _vea(2, "approved", cisa_kev="Yes"),
@@ -333,8 +342,9 @@ class ProductLists(_Page):
             page = self.page("/products/vea/")
             kev = self.page("/products/vea/?exploitation=KEV+listed&sort=title&dir=asc")
         self.assertIn("Exploitation Active 1 KEV listed 1 PoC public 1 Unknown 1", self.stats(page))
+        # Grouped by review state, the drafts before the approved ones.
         self.assertEqual([td.get_text(" ", strip=True) for td in page.select("tbody tr[id^=vea-row] td:nth-of-type(6)")],
-                         ["Active", "KEV listed", "PoC public", "Unknown"])
+                         ["PoC public", "Unknown", "Active", "KEV listed"])
         self.assertEqual([a.get_text() for a in kev.select("tbody tr[id^=vea-row] .req-id-badge")], ["VEA-00002"])
         self.assertEqual(kev.select_one('select[name="exploitation"] option[selected]')["value"], "KEV listed")
         self.assertIn("Review state approved 1", self.stats(kev))
@@ -353,21 +363,23 @@ class ProductLists(_Page):
             requests = self.page("/products/detection-eng/?state=draft")
         self.assertIn("State Draft 1 Published 1", self.stats(profiles))
         self.assertEqual(profiles.select_one('select[name="state"] option[selected]')["value"], "Published")
-        self.assertIn("1 profile", profiles.select_one(".list-filters").get_text(" ", strip=True))
-        self.assertIn("Review state draft 1 approved 1 Status In Dev 1 Priority High 1", self.stats(requests))
+        self.assertIn("1 profile shown", profiles.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertIn("Review state draft 1 approved 1 Engineering In Dev 1 Priority High 1", self.stats(requests))
         self.assertEqual(requests.select_one('select[name="state"] option[selected]')["value"], "draft")
 
     def test_briefings_by_state_and_tlp(self):
         briefings = [_record(misp_store._briefing_obj, misp_store._briefing_ns, n, date=f"2026-10-0{n}",
                              title=f"Briefing {n}", tlp=tlp, review_state=state)
-                     for n, tlp, state in ((1, "amber", "published"), (2, "clear", "published"), (3, "amber", "draft"))]
+                     for n, tlp, state in ((1, "amber", "published"), (2, "clear", "published"), (3, "amber", "draft"),
+                                           (4, "amber", "published"))]
         with mock.patch.object(misp_store, "list_briefings", return_value=briefings), \
              mock.patch.object(job_store, "by_entity", return_value={}):
             page = self.page("/briefing/?tlp=AMBER&sort=title&dir=asc")
+        # Grouped by state, the drafts first, and sorted within each group.
         self.assertEqual([td.get_text(strip=True) for td in page.select("tbody tr[id^=briefing-row] td:nth-of-type(3)")],
-                         ["Briefing 1", "Briefing 3"])
+                         ["Briefing 3", "Briefing 1", "Briefing 4"])
         self.assertEqual(page.select_one('select[name="tlp"] option[selected]')["value"], "AMBER")
-        self.assertIn("Review state draft 1 published 1 TLP CLEAR 1 AMBER 2", self.stats(page))
+        self.assertIn("Review state draft 1 published 2 TLP CLEAR 1 AMBER 3", self.stats(page))
         self.assertIn("/briefing/?tlp=AMBER&sort=title&dir=asc&state=draft",
                       [a["href"] for a in page.select(".list-stats a.chart-filter")])
 
@@ -377,7 +389,7 @@ class ProductLists(_Page):
                                return_value=[_feed(1, "", audience="SOC, CISO"), _feed(2, "")]):
             page = self.page("/products/indicator-feed/")
         self.assertNotIn("Audience", [th.get_text(strip=True) for th in page.select("thead th")])
-        rows = page.select("tbody tr")
+        rows = page.select("tbody tr:not(.lane-head)")
         self.assertEqual([b.get_text() for b in rows[0].select("td:nth-of-type(2) .chip-source")], ["SOC", "CISO"])
         self.assertEqual(rows[1].select(".chip-source"), [])
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect, tag_input %}
+{% from "_macros.html" import date_leaf, galaxy_multiselect, tag_input %}
 
 {% block title %}{{ browser_title }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ page_title_text }}{% endblock %}
@@ -13,19 +13,27 @@
 {% endblock %}
 
 {% block content %}
+{# A stored level the list no longer has falls back to the first one, as the drop-down did. #}
+{% set current_tlp = briefing_tlp if briefing_tlp in tlp_levels else tlp_levels[0] %}
 <style>
-  /* Workbench layout: pinned command shell, story rail, one story at a time. */
-  /* The offsets are measured at runtime: which bars are pinned, and how tall
-     they are, differs per theme. See positionStickyColumns(). */
-  .wb-shell { position: sticky; top: var(--wb-top, 0px); z-index: 20; margin-bottom: 1rem; }
-  .wb-shell .action-panel-head { padding: .5rem .9rem; gap: .75rem; }
-  .wb-shell .action-panel-body { padding: .55rem .9rem; }
-  /* Pills, counters and chips are the shared product-form vocabulary in
-     app.css; only what is particular to this layout lives here. */
-  .wb-counters { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .78rem; }
-
-  .wb-rail { position: sticky; top: var(--wb-rail-top, 4.6rem); }
-  .wb-rail-body { max-height: calc(100vh - var(--wb-rail-top, 4.6rem) - 9rem); overflow-y: auto; padding: .35rem; }
+  /* The stories card: the rail of stories beside the one being edited. The rail
+     stays in view under the bar at the top while a long story scrolls. */
+  .wb-bench { display: grid; grid-template-columns: 16rem minmax(0, 1fr); }
+  .wb-rail { border-right: 1px solid var(--border-light); background: var(--surface-muted); }
+  .wb-rail-inner { position: sticky; top: var(--form-top); display: flex; flex-direction: column;
+                   max-height: calc(100vh - var(--form-top) - 1rem); }
+  .wb-rail-body { overflow-y: auto; padding: .35rem; }
+  .wb-legend { display: flex; flex-wrap: wrap; gap: .2rem .7rem; padding: .55rem .8rem; border-top: 1px solid var(--border-faint);
+               font-size: .7rem; color: var(--text-muted); }
+  .wb-editor { min-width: 0; padding: 1rem; }
+  .wb-editor .story-card { margin: 0 !important; border: 0; box-shadow: none; }
+  .wb-editor .story-card > .card-header { flex-wrap: wrap; gap: .5rem; padding: 0 0 .8rem; border: 0; background: transparent; }
+  .wb-editor .story-card > .card-header > span { flex: 1 1 14rem; min-width: 0; }
+  .wb-editor .story-card > .card-header > div { flex-wrap: wrap; }
+  .wb-editor .story-card > .card-header .btn { white-space: nowrap; }
+  .wb-editor .story-card > .card-body { padding: 0; }
+  .wb-empty { display: none; }
+  .wb-editor:not(:has(.wb-pane.active)) .wb-empty { display: block; }
   .wb-item {
     display: flex; gap: .55rem; align-items: flex-start; width: 100%; text-align: left;
     border: 1px solid transparent; border-radius: 6px; padding: .45rem .55rem;
@@ -56,8 +64,9 @@
   .wb-pane.active { display: block; }
 
   @media (max-width: 991.98px) {
-    .wb-rail { position: static; }
-    .wb-rail-body { max-height: 20rem; }
+    .wb-bench { grid-template-columns: minmax(0, 1fr); }
+    .wb-rail { border-right: 0; border-bottom: 1px solid var(--border-light); }
+    .wb-rail-inner { position: static; max-height: 20rem; }
   }
 </style>
 {# No unsaved-changes prompt while the AI owns the briefing: leaving the page
@@ -93,179 +102,68 @@
   </div>
 {% endif %}
 
-  {# ── Command shell ────────────────────────────────────────────────────────
-     What the briefing currently holds, and the actions that apply to all of
-     it. Pinned, so the counters and Save stay reachable however long the
-     briefing runs. Editing of these values happens in the details pane; the
-     TLP badge and author here only mirror it. #}
-  <div class="action-panel wb-shell">
-    <div class="action-panel-head">
-      <span class="action-panel-title"><i class="fas fa-newspaper me-1"></i> Briefing {{ briefing_date }}</span>
-      <div class="d-flex align-items-center gap-3 flex-wrap justify-content-end">
-        <div class="wb-counters">
-          <span class="zs-counter"><strong id="count-stories">0</strong> stories</span>
-          <span class="zs-sep">·</span>
-          <span class="zs-counter"><strong id="count-with-text">0</strong> with text</span>
-          <span class="zs-sep">·</span>
-          <span class="zs-counter"><strong id="count-scope">0</strong> scope items</span>
-          <span class="zs-sep">·</span>
-          <span class="tlp-badge tlp-{{ (briefing_tlp or 'clear') | slug }}" id="shell-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
-          <span class="zs-counter" id="shell-author">{{ briefing_author or '' }}</span>
-        </div>
-        <div class="d-flex gap-2">
-          <a href="{{ cancel_url }}" class="btn btn-sm btn-outline-secondary">{{ cancel_label }}</a>
-          <button type="submit" class="btn btn-sm btn-primary">
-            <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
-          </button>
-        </div>
-      </div>
+  <section class="record-hero record-hero-compact rise mb-3">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-newspaper"></i></span>
+    <div class="hero-main">
+      <p class="lead-text">Go through the stories and write or draft the summary, then save. The briefing is approved and sent from the list.</p>
+      <nav class="form-steps" aria-label="Sections of the form">
+        <a href="#step-details">1 Details</a>
+        <a href="#step-summary">2 Summary</a>
+        <a href="#step-stories">3 Stories</a>
+        <a href="#step-scope">4 Scope</a>
+        <a href="#step-notes">5 Escalations and notes</a>
+      </nav>
     </div>
-    <div class="action-panel-body">
-      <div class="zs-toolbar">
-        <span class="zs-toolbar-label">AI assistance</span>
-        {# Both submit the form: the briefing is saved first, then a background
-           job drafts into the saved copy, which is what lets the analyst leave
-           the page. name/value tell the route which of the two was pressed. #}
-        <button type="submit" name="ai_draft" value="stories+summary" class="zs-pill" id="btn-draft-everything"
-                title="Save this briefing, then draft every story and the summary in the background. You can leave the page.">
-          <i class="fas fa-wand-magic-sparkles"></i> Draft everything
-        </button>
-        <button type="submit" name="ai_draft" value="stories" class="zs-pill" id="btn-draft-all"
-                title="Save this briefing, then draft the text of every story in the background. The summary is left alone.">
-          <i class="fas fa-align-left"></i> Draft all stories
-        </button>
-        <button type="button" class="zs-pill" id="btn-use-all-summaries"
-                title="Paste the existing MISP AI summary into every story that has one, skipping stories without an AI summary">
-          <i class="fas fa-robot"></i> Use existing AI summaries
-        </button>
-        <button type="button" class="zs-pill btn-draft-summary"
-                title="Write a short narrative covering all the stories in this briefing">
-          <i class="fas fa-align-left"></i> Draft summary
-        </button>
-        <button type="button" class="zs-pill" id="btn-check-overlap" disabled>
-          <i class="fas fa-layer-group"></i> Check overlap
-        </button>
-        <span class="zs-sep mx-1">|</span>
-        <button type="button" class="zs-pill" id="btn-auto-delete-excluded"
-                title="{% if story_title_exclusions %}Exclusion patterns: {{ story_title_exclusions | join(' | ') }}{% else %}No exclusion patterns configured in Configuration > Products.{% endif %}">
-          <i class="fas fa-filter-circle-xmark"></i> Apply exclusions
-        </button>
-        <span id="draft-all-status" class="text-muted small ms-1"></span>
-      </div>
-    </div>
-  </div>
+  </section>
 
-  <div class="row g-3">
-
-  {# ── Rail: the table of contents for the whole briefing ─────────────────── #}
-  <div class="col-lg-3">
-    <div class="card content-card wb-rail">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-list-ol me-2"></i>Contents</span>
-        <span class="d-flex gap-1">
-          <button type="button" class="btn btn-xs btn-outline-danger" id="btn-delete-stories" disabled
-                  title="Tick stories below to delete them together. Shift-click ticks a range.">
-            <i class="fas fa-trash-can me-1"></i>Delete stories<span id="delete-stories-count"></span>
-          </button>
-          <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-add-story" title="Add an empty story">
-            <i class="fas fa-plus"></i>
-          </button>
-        </span>
-      </div>
-      {# One pane is on screen at a time and the rail chooses it, so the rail is a
-         tablist. The separator and the story wrapper are presentational, which
-         keeps every .wb-item a direct tab of this list. #}
-      <div class="wb-rail-body" role="tablist" aria-orientation="vertical" aria-label="Briefing contents">
-        <button type="button" class="wb-item" id="tab-details" data-pane="details"
-                role="tab" aria-controls="pane-details" aria-selected="false" tabindex="-1">
-          <span class="wb-dot" style="background:transparent;"></span>
-          <span class="wb-num"><i class="fas fa-sliders" style="font-size:.6rem;"></i></span>
-          <span class="flex-grow-1">
-            <span class="wb-item-title">Briefing details</span>
-            <span class="wb-item-meta">
-              <span class="mini-chip" id="rail-date">{{ briefing_date }}</span>
-              <span class="mini-chip" id="rail-author">{{ briefing_author or 'no author' }}</span>
-              <span class="mini-chip" id="rail-tlp">TLP:{{ (briefing_tlp or 'clear') | upper }}</span>
-            </span>
-          </span>
-        </button>
-        <button type="button" class="wb-item" id="tab-summary" data-pane="summary"
-                role="tab" aria-controls="pane-summary" aria-selected="false" tabindex="-1">
-          <span class="wb-dot" id="rail-summary-dot"></span>
-          <span class="wb-num"><i class="fas fa-align-left" style="font-size:.6rem;"></i></span>
-          <span class="flex-grow-1">
-            <span class="wb-item-title">Briefing summary</span>
-            <span class="wb-item-meta" id="rail-summary-meta"></span>
-          </span>
-        </button>
-        <hr class="my-1" role="presentation">
-        {# Story entries are built from the story cards themselves, so adding,
-           removing and renaming a story cannot leave the rail behind. #}
-        <div id="rail-stories" role="presentation"></div>
-      </div>
-      <div class="card-body py-2 px-3" style="border-top:1px solid var(--border-faint);">
-        <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;">Story state</div>
-        <div class="d-flex flex-wrap gap-2 mt-1" style="font-size:.7rem;color:var(--text-muted);">
-          <span><span class="wb-dot dot-ai wb-dot-inline"></span>AI-drafted</span>
-          <span><span class="wb-dot dot-edited wb-dot-inline"></span>Edited after drafting</span>
-          <span><span class="wb-dot dot-written wb-dot-inline"></span>Written by hand</span>
-          <span><span class="wb-dot dot-empty wb-dot-inline"></span>No text yet</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {# ── Editor ─────────────────────────────────────────────────────────────── #}
-  <div class="col-lg-9">
+  <div class="row g-4">
+  <div class="col-lg-8">
 
   <div id="overlap-status" class="text-muted small mb-2" style="display:none"></div>
   <div id="overlap-results" class="mb-3" style="display:none"></div>
 
-  <div class="wb-pane" id="pane-details" role="tabpanel" aria-labelledby="tab-details">
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-sliders me-2"></i>Briefing details</div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label">Title <span class="text-muted small">(optional)</span></label>
-            <input name="title" class="form-control" value="{{ briefing_title or '' }}" placeholder="e.g. Weekly Threat Digest #12">
+  <div class="card content-card form-step mb-4" id="step-details" data-step='input[name="date"]'>
+    <div class="card-header d-flex align-items-center">
+      <span class="step-num">1</span>Briefing details
+      {% if briefing_created_at %}<span class="ms-auto small text-muted fw-normal">Saved {{ briefing_created_at.strftime('%d %B %Y, %H:%M') }} UTC</span>{% endif %}
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="briefing-title">Title <span class="text-muted small">(optional)</span></label>
+          <input name="title" id="briefing-title" class="form-control" value="{{ briefing_title or '' }}" placeholder="e.g. Weekly Threat Digest #12">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="briefing-date">Date</label>
+          <input type="date" name="date" id="briefing-date" class="form-control" value="{{ briefing_date }}" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="briefing-author">Author</label>
+          <input name="author" id="briefing-author" class="form-control" value="{{ briefing_author or '' }}" placeholder="Analyst name">
+        </div>
+        <div class="col-12">
+          <span class="form-label d-block">TLP</span>
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
+            {% for t in tlp_levels %}
+            <input type="radio" class="btn-check" name="tlp" id="briefing-tlp-{{ loop.index }}" value="{{ t }}"
+                   {{ 'checked' if t == current_tlp }}>
+            <label class="choice" for="briefing-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
+            {% endfor %}
           </div>
-          <div class="col-md-2">
-            <label class="form-label">Date</label>
-            <input type="date" name="date" id="briefing-date" class="form-control" value="{{ briefing_date }}" required>
-          </div>
-          <div class="col-md-2">
-            <label class="form-label">Author</label>
-            <input name="author" id="briefing-author" class="form-control" value="{{ briefing_author or '' }}" placeholder="Analyst name">
-          </div>
-          <div class="col-md-2">
-            <label class="form-label">TLP</label>
-            <select name="tlp" id="briefing-tlp" class="form-select">
-              {% for t in tlp_levels %}
-              <option value="{{ t }}" {{ 'selected' if briefing_tlp == t }}>{{ t }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          {% if briefing_created_at %}
-          <div class="col-12">
-            <p class="text-muted mb-0 small"><i class="fas fa-clock me-1"></i>Saved: {{ briefing_created_at.strftime('%d %B %Y, %H:%M') }} UTC</p>
-          </div>
-          {% endif %}
         </div>
       </div>
     </div>
   </div>
 
-  <div class="wb-pane" id="pane-summary" role="tabpanel" aria-labelledby="tab-summary">
-    <div class="card content-card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-align-left me-2"></i>Briefing summary</span>
-        <button type="button" class="btn btn-xs btn-outline-info btn-draft-summary"
-                title="Write a short narrative covering all the stories in this briefing">
-          <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
-        </button>
-      </div>
-      <div class="card-body">
+  <div class="card content-card form-step mb-4" id="step-summary" data-step='textarea[name="summary"]'>
+    <div class="card-header d-flex align-items-center">
+      <span class="step-num">2</span>Briefing summary
+      <button type="button" class="btn btn-xs btn-outline-info btn-draft-summary ms-auto"
+              title="Write a short narrative covering all the stories in this briefing">
+        <i class="fas fa-wand-magic-sparkles me-1"></i> Draft with AI
+      </button>
+    </div>
+    <div class="card-body">
         {# Kept in step with the stories by the form itself: a story deleted or
            rewritten after the summary was written raises this, and it is posted
            along so the detail page, the list and the next edit keep saying so. #}
@@ -279,10 +177,40 @@
         <textarea name="summary" id="briefing-summary" class="form-control" rows="8"
                   placeholder="A few sentences covering all of today's stories. Shown at the top of the preview, the mail and the PDF.">{{ briefing_summary or '' }}</textarea>
         <div id="summary-status" class="text-muted small mt-1" style="display:none"></div>
-      </div>
     </div>
   </div>
 
+  {# The stories, one on screen at a time: the rail is their table of contents
+     and chooses which one the editor beside it shows. #}
+  <div class="card content-card form-step mb-4" id="step-stories" data-step="textarea.story-content">
+    <div class="card-header d-flex align-items-center flex-wrap gap-2">
+      <span class="step-num">3</span>Stories
+      <span class="ms-auto d-flex gap-1">
+        <button type="button" class="btn btn-xs btn-outline-danger" id="btn-delete-stories" disabled
+                title="Tick stories below to delete them together. Shift-click ticks a range.">
+          <i class="fas fa-trash-can me-1"></i>Delete stories<span id="delete-stories-count"></span>
+        </button>
+        <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-add-story" title="Add an empty story">
+          <i class="fas fa-plus me-1"></i>Add
+        </button>
+      </span>
+    </div>
+    <div class="wb-bench">
+      <div class="wb-rail">
+        <div class="wb-rail-inner">
+          <div class="wb-rail-body" role="tablist" aria-orientation="vertical" aria-label="Stories">
+            <div id="rail-stories" role="presentation"></div>
+          </div>
+          <div class="wb-legend">
+            <span><span class="wb-dot dot-ai wb-dot-inline"></span>AI-drafted</span>
+            <span><span class="wb-dot dot-edited wb-dot-inline"></span>Edited after drafting</span>
+            <span><span class="wb-dot dot-written wb-dot-inline"></span>Written by hand</span>
+            <span><span class="wb-dot dot-empty wb-dot-inline"></span>No text yet</span>
+          </div>
+        </div>
+      </div>
+      <div class="wb-editor">
+        <p class="wb-empty text-muted small mb-0">No stories in this briefing. Add one with the Add button.</p>
   <div id="stories-container">
     {% for story in stories %}
     {% set idx = loop.index %}
@@ -410,15 +338,14 @@
     {% endfor %}
   </div>
 
-  {# Both blocks below are about the briefing as a whole, so they stay under
-     whichever pane is open rather than becoming rail entries of their own. #}
-  <div class="card content-card mb-3">
-    <div class="card-header collapsed" data-bs-toggle="collapse" data-bs-target="#briefing-scope-card"
-         aria-expanded="false" style="cursor:pointer;">
-      <i class="fas fa-layer-group me-2"></i>Scope elements
-      <i class="fas fa-chevron-right ms-2 small text-muted"></i>
+      </div>
     </div>
-    <div class="collapse" id="briefing-scope-card">
+  </div>
+
+  <div class="card content-card form-step mb-4" id="step-scope"
+       data-step='[name="geographic_scope"], [name="sectors"], [name="threat_actors"], [name="mitre_attack_techniques"], [name="threat_types"], [name="technology"], [name="vendor"], [name="incident"], [name="campaign"]'>
+    <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Scope elements</div>
+    <div id="briefing-scope-card">
     <div class="card-body">
 
       {% set _ns = namespace(vendor_in_summary=false) %}
@@ -559,13 +486,10 @@
     </div>
   </div>
 
-  <div class="card content-card mb-3">
-    <div class="card-header collapsed" data-bs-toggle="collapse" data-bs-target="#briefing-notes-card"
-         aria-expanded="false" style="cursor:pointer;">
-      <i class="fas fa-arrow-up-right-dots me-2"></i>Escalations &amp; notes
-      <i class="fas fa-chevron-right ms-2 small text-muted"></i>
-    </div>
-    <div class="collapse" id="briefing-notes-card">
+  <div class="card content-card form-step mb-4" id="step-notes"
+       data-step='textarea[name="escalations"], textarea[name="notes"], textarea[name="detection_rules"]'>
+    <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Escalations and notes</div>
+    <div id="briefing-notes-card">
     <div class="card-body">
       <div class="row g-3">
         <div class="col-md-4">
@@ -606,8 +530,79 @@
     </div>
   </div>
 
-  </div>{# /editor column #}
-  </div>{# /row #}
+  </div>
+
+  <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. The figures, TLP and
+       author follow the form as it is edited. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          {{ date_leaf(briefing_date, 'draft') }}
+          <div class="min-w-0">
+            <div class="form-preview-title" id="preview-title">{{ briefing_title or 'No title' }}</div>
+            <div class="small text-muted">Daily threat briefing</div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>TLP</dt><dd><span class="tlp-badge tlp-{{ current_tlp | slug }}" id="shell-tlp">TLP:{{ current_tlp | upper }}</span></dd>
+          <dt>Author</dt><dd id="shell-author">{{ briefing_author or '' }}</dd>
+          <dt>Stories</dt><dd><span id="count-stories">{{ stories | length }}</span> <span class="text-muted">(<span id="count-with-text">0</span> with text)</span></dd>
+          <dt>Scope items</dt><dd id="count-scope">0</dd>
+          <dt>Summary</dt><dd id="preview-summary"></dd>
+        </dl>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
+          </button>
+          <a href="{{ cancel_url }}" class="btn btn-outline-secondary">{{ cancel_label }}</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>AI assistance</div>
+      <div class="ai-actions">
+        {# Both submit the form: the briefing is saved first, then a background
+           job drafts into the saved copy, which is what lets the analyst leave
+           the page. name/value tell the route which of the two was pressed. #}
+        <button type="submit" name="ai_draft" value="stories+summary" class="btn-ai" id="btn-draft-everything"
+                title="Save this briefing, then draft every story and the summary in the background. You can leave the page.">
+          <i class="fas fa-wand-magic-sparkles"></i>
+          <span>Draft everything<small>Saves, then drafts every story and the summary in the background. You can leave the page.</small></span>
+        </button>
+        <button type="submit" name="ai_draft" value="stories" class="btn-ai" id="btn-draft-all"
+                title="Save this briefing, then draft the text of every story in the background. The summary is left alone.">
+          <i class="fas fa-align-left"></i>
+          <span>Draft all stories<small>Saves, then drafts the text of every story. The summary is left alone.</small></span>
+        </button>
+        <button type="button" class="btn-ai" id="btn-use-all-summaries"
+                title="Paste the existing MISP AI summary into every story that has one, skipping stories without an AI summary">
+          <i class="fas fa-robot"></i>
+          <span>Use existing AI summaries<small>Pastes the MISP AI summary into every story that has one.</small></span>
+        </button>
+        <button type="button" class="btn-ai btn-draft-summary"
+                title="Write a short narrative covering all the stories in this briefing">
+          <i class="fas fa-align-left"></i>
+          <span>Draft summary<small>A short narrative covering all the stories.</small></span>
+        </button>
+        <button type="button" class="btn-ai" id="btn-check-overlap" disabled>
+          <i class="fas fa-layer-group"></i>
+          <span>Check overlap<small>Whether stories overlap and may describe the same event.</small></span>
+        </button>
+        <hr>
+        <button type="button" class="btn-ai" id="btn-auto-delete-excluded"
+                title="{% if story_title_exclusions %}Exclusion patterns: {{ story_title_exclusions | join(' | ') }}{% else %}No exclusion patterns configured in Configuration > Products.{% endif %}">
+          <i class="fas fa-filter-circle-xmark"></i>
+          <span>Apply exclusions<small>Deletes the stories whose title matches an exclusion pattern in Configuration &gt; Products.</small></span>
+        </button>
+      </div>
+      <div id="draft-all-status" class="text-muted small px-3 pb-2"></div>
+    </div>
+  </div>
+  </div>
 
 </form>
 
@@ -637,6 +632,7 @@
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_form_steps_js.html" %}
 <script>
 var storyCount = {{ stories | length }};
 var isEditMode = {{ 'true' if page_mode == 'edit' else 'false' }};
@@ -684,7 +680,7 @@ document.addEventListener('change', function(e) {
     markSummaryStale();
     refreshRail();
   }
-  if (e.target.id === 'briefing-tlp') syncShellMeta();
+  if (e.target.name === 'tlp') syncShellMeta();
 });
 
 function updateDeleteStoriesButton() {
@@ -797,7 +793,7 @@ document.addEventListener('input', function(e) {
   if (e.target.id === 'briefing-summary') {
     setSummaryStale(false);
   }
-  if (e.target.id === 'briefing-author' || e.target.id === 'briefing-date') {
+  if (['briefing-title', 'briefing-author', 'briefing-date'].indexOf(e.target.id) !== -1) {
     syncShellMeta();
   }
 });
@@ -871,7 +867,7 @@ function afterStoriesRemoved(position) {
 function showPaneAfterRemoval(position) {
   if (document.querySelector('.wb-pane.active')) return;
   var left = _getStoryCards().length;
-  showPane(left ? 'story-' + Math.min(position || 1, left) : 'details');
+  showPane(left ? 'story-' + Math.min(position || 1, left) : '');
 }
 
 /* Where a story's text came from, shown in the rail as a coloured dot. The
@@ -989,11 +985,9 @@ function refreshRail() {
 function refreshSummaryRail() {
   var written = !!document.getElementById('briefing-summary').value.trim();
   var stale = document.getElementById('summary-stale').value === 'true';
-  document.getElementById('rail-summary-dot').className =
-    'wb-dot ' + (written ? (stale ? 'dot-edited' : 'dot-ai') : 'dot-empty');
-  document.getElementById('rail-summary-meta').replaceChildren(_railChip(
-    written ? (stale ? 'out of date' : 'written') : 'not written yet',
-    written && stale));
+  var fact = document.getElementById('preview-summary');
+  fact.textContent = written ? (stale ? 'Out of date' : 'Written') : 'Not written yet';
+  fact.className = written && !stale ? '' : 'text-warning-emphasis fw-semibold';
 }
 
 function updateShellCounters() {
@@ -1010,25 +1004,32 @@ function updateShellCounters() {
   document.getElementById('count-scope').textContent = values.size;
 }
 
-/* The shell shows the classification and the author wherever you are, so the
-   details pane has to push its changes up to it. */
+/* The "As it will appear" card shows the title, date, classification and
+   author wherever you are, so the details card has to push its changes to it. */
+var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function syncShellMeta() {
-  var tlp = document.getElementById('briefing-tlp').value || 'clear';
-  var author = document.getElementById('briefing-author').value;
+  var checked = document.querySelector('input[name="tlp"]:checked');
+  var tlp = checked ? checked.value : 'clear';
   var badge = document.getElementById('shell-tlp');
   badge.className = 'tlp-badge tlp-' + tlp.replace('+', '-');
   badge.textContent = 'TLP:' + tlp.toUpperCase();
-  document.getElementById('shell-author').textContent = author;
-  document.getElementById('rail-tlp').textContent = badge.textContent;
-  document.getElementById('rail-author').textContent = author || 'no author';
-  document.getElementById('rail-date').textContent = document.getElementById('briefing-date').value;
+  document.getElementById('shell-author').textContent = document.getElementById('briefing-author').value;
+  var title = document.getElementById('briefing-title').value.trim();
+  var preview = document.getElementById('preview-title');
+  preview.textContent = title || 'No title';
+  preview.classList.toggle('text-muted', !title);
+  var date = document.getElementById('briefing-date').value.split('-');
+  var leaf = document.querySelector('.form-save .date-leaf');
+  leaf.querySelector('b').textContent = date.length === 3 ? MONTHS[Number(date[1]) - 1] || '' : '';
+  leaf.querySelector('span').textContent = date.length === 3 ? Number(date[2]) : '?';
 }
 
 document.addEventListener('click', function(e) {
   var item = e.target.closest('.wb-item');
   if (item && item.dataset.pane) {
     showPane(item.dataset.pane);
-    window.scrollTo({top: 0, behavior: 'smooth'});
+    var card = document.getElementById('step-stories');
+    if (card.getBoundingClientRect().top < 0) card.scrollIntoView({behavior: 'smooth'});
   }
 });
 
@@ -1103,10 +1104,20 @@ function _storiesWithScopeValue(field, value) {
   }).length;
 }
 
+/* The same scope value, or the same ATT&CK technique: a story keeps a technique
+   by its id ("T1059") and the pick-list by its galaxy name with the id. */
+function _sameScopeValue(a, b) {
+  a = (a || '').trim().toLowerCase();
+  b = (b || '').trim().toLowerCase();
+  if (a === b) return true;
+  var technique = /\bt\d{4}(?:\.\d{3})?\b/;
+  var idA = (a.match(technique) || [''])[0];
+  return !!idA && idA === (b.match(technique) || [''])[0];
+}
+
 function _deselectBriefingScope(field, value) {
-  var needle = value.trim().toLowerCase();
   document.querySelectorAll('[name="' + field + '"]').forEach(function(input) {
-    if ((input.value || '').trim().toLowerCase() !== needle) return;
+    if (!_sameScopeValue(input.value, value)) return;
     if (input.type === 'checkbox') {
       if (!input.checked) return;
       input.checked = false;
@@ -1793,7 +1804,7 @@ function setSummaryStale(stale) {
   refreshSummaryRail();
 }
 
-/* The same action sits in the shell and on the summary pane, so both have to go
+/* The same action sits in the AI assistance card and on the summary, so both have to go
    quiet while a draft is running; disabling only the one that was clicked leaves
    the other free to start a second job over the same stories. */
 function setSummaryBusy(busy) {
@@ -1802,10 +1813,10 @@ function setSummaryBusy(busy) {
   });
 }
 
-/* Reachable from the shell, which is on screen everywhere, and from the summary
-   pane itself. Either way the answer lands in the summary pane, so switch to it. */
+/* Reachable from the AI assistance card and from the summary card itself.
+   Either way the answer lands in the summary, so bring it into view. */
 function draftBriefingSummary() {
-  showPane('summary');
+  document.getElementById('step-summary').scrollIntoView({behavior: 'smooth'});
   var stories = _collectStories();
   if (!stories.length) {
     setSummaryStatus('Add at least one story before writing the summary.', true);
@@ -1916,34 +1927,12 @@ document.querySelectorAll('[data-ti-field]').forEach(function(w) {
   });
 });
 
-/* The shell pins under whatever the theme keeps pinned above it: the top bar in
-   the sidebar layout, the top nav in the others. Measured rather than assumed,
-   so a theme change cannot slide the shell underneath one of them. */
-function positionStickyColumns() {
-  var offset = 0;
-  ['topnav', 'topbar'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el && getComputedStyle(el).position === 'sticky' && el.offsetParent !== null) {
-      offset += el.offsetHeight;
-    }
-  });
-  var root = document.documentElement.style;
-  root.setProperty('--wb-top', offset + 'px');
-  root.setProperty('--wb-rail-top',
-                   (offset + document.querySelector('.wb-shell').offsetHeight + 16) + 'px');
-}
-window.addEventListener('resize', positionStickyColumns);
-// The shell grows when the AI toolbar wraps or a status line appears under it,
-// and the rail pins to its underside, so a resize event alone is not enough.
-new ResizeObserver(positionStickyColumns).observe(document.querySelector('.wb-shell'));
-
 updateOverlapButtonState();
 fillMissingReportCounts();
 refreshRail();
 syncShellMeta();
-positionStickyColumns();
-// Open on the first story, or on the details when the briefing has none yet.
-showPane(_getStoryCards().length ? 'story-1' : 'details');
+// Open on the first story; with none, the editor says how to add one.
+showPane(_getStoryCards().length ? 'story-1' : '');
 
 /* ── Detection rule lookup (Rulezet, by MITRE ATT&CK technique) ── */
 zsazsaBindRulezetAttackLookup({

@@ -596,6 +596,27 @@ def technique_id(value: str) -> str:
     return found.group(0) if found else ""
 
 
+def galaxy_values(values, items) -> list:
+    """Stored values as a galaxy pick-list names them. A technique stored by its
+    id alone, as a story's scope keeps it ("T1059"), is the galaxy's entry for
+    that id ("Command and Scripting Interpreter - T1059"); anything else stays as
+    stored."""
+    known = {item.lower() for item in items}
+    by_id = {technique_id(item): item for item in items if technique_id(item)}
+    return [by_id.get(technique_id(v), v) if v.lower() not in known else v for v in values or []]
+
+
+def technique_parts(value: str) -> tuple:
+    """("T1566", "Phishing") for "Phishing - T1566", as the form stores a
+    technique, for "T1566 - Phishing", and for a bare "T1566" the galaxy names.
+    Text without an id comes back as ("", text)."""
+    tid = technique_id(value)
+    if not tid:
+        return "", (value or "").strip()
+    name = (value or "").replace(tid, "", 1).strip(" -") or mitre_technique_label(tid).replace(tid, "", 1).strip(" -")
+    return tid, name
+
+
 def mitre_technique_labels(values) -> list:
     """Map a list of technique references through mitre_technique_label()."""
     return [mitre_technique_label(v) for v in (values or []) if v]
@@ -3785,12 +3806,12 @@ def girs_distributed_to_stakeholder(stakeholder_uuid, stakeholder_name="", stake
     ]
 
 
-def active_requirement_counts(stakeholder, requirements):
-    """(owned, listed): how many of the active PIRs or GIRs in ``requirements``
-    the stakeholder owns, and how many more have it in their distribution."""
-    active = [r for r in requirements if r.status == "Active"]
-    owned = sum(1 for r in active if r.owner_uuid == stakeholder.uuid)
-    listed = sum(1 for r in active if r.owner_uuid != stakeholder.uuid and _matches_distribution_entry(
+def requirement_counts(stakeholder, requirements):
+    """(owned, listed): how many of the PIRs or GIRs in ``requirements`` the
+    stakeholder owns, and how many more have it in their distribution, whatever
+    their status, as the stakeholder's own page lists them."""
+    owned = sum(1 for r in requirements if r.owner_uuid == stakeholder.uuid)
+    listed = sum(1 for r in requirements if r.owner_uuid != stakeholder.uuid and _matches_distribution_entry(
         r.distribution, stakeholder.uuid, stakeholder.name, stakeholder.email))
     return owned, listed
 
@@ -4633,6 +4654,16 @@ _NEWSLETTER_REPORT_PREFIX = "Newsletter source: "
 _NEWSLETTER_PARSER_TAG_PREFIX = 'zsazsa:newsletter-parser='
 
 
+def _newsletter_parser(event) -> str:
+    """The parser a newsletter event is tagged with, or "" for one archived
+    before newsletters were tagged so."""
+    for tag in getattr(event, "tags", []) or []:
+        name = getattr(tag, "name", "") or ""
+        if name.startswith(_NEWSLETTER_PARSER_TAG_PREFIX):
+            return name[len(_NEWSLETTER_PARSER_TAG_PREFIX):].strip().strip('"')
+    return ""
+
+
 def _add_scraper_link(misp, event_ref, url: str) -> None:
     """Add a 'pushed to scraper' link attribute to an event (id or uuid)."""
     a = MISPAttribute()
@@ -4699,8 +4730,9 @@ def create_newsletter_event(source: str, raw_email: str, report_title: str = "",
 
 def list_pending_newsletters() -> list[dict]:
     """Newsletter events archived but awaiting manual review before their articles
-    are pushed. Returns lightweight dicts (uuid, info, date, empty), where empty
-    says the parser found no articles in the mail."""
+    are pushed. Returns lightweight dicts (uuid, info, date, empty, parser), where
+    empty says the parser found no articles in the mail and parser names the
+    newsletter, or is "" for one archived before newsletters were tagged so."""
     misp = _misp()
     try:
         events = _search_all(misp, tags=[NEWSLETTER_PENDING_TAG],
@@ -4713,12 +4745,11 @@ def list_pending_newsletters() -> list[dict]:
         # one of them means newsletters are waiting that nobody will see.
         logger.exception("could not list pending newsletters")
         return []
-    out = [
-        {"uuid": ev.uuid, "info": getattr(ev, "info", "") or "", "date": str(getattr(ev, "date", "")),
-         "empty": any(getattr(t, "name", "") == NEWSLETTER_EMPTY_TAG
-                      for t in getattr(ev, "tags", []) or [])}
-        for ev in events or []
-    ]
+    out = []
+    for ev in events or []:
+        tags = [getattr(t, "name", "") or "" for t in getattr(ev, "tags", []) or []]
+        out.append({"uuid": ev.uuid, "info": getattr(ev, "info", "") or "", "date": str(getattr(ev, "date", "")),
+                    "empty": NEWSLETTER_EMPTY_TAG in tags, "parser": _newsletter_parser(ev)})
     out.sort(key=lambda n: n["date"], reverse=True)
     return out
 
@@ -4740,12 +4771,7 @@ def get_newsletter_for_review(uuid: str) -> dict | None:
     except Exception:
         logger.exception("could not read newsletter %s for review", uuid)
         return None
-    parser = ""
-    for tag in getattr(event, "tags", []) or []:
-        name = getattr(tag, "name", "") or ""
-        if name.startswith(_NEWSLETTER_PARSER_TAG_PREFIX):
-            parser = name[len(_NEWSLETTER_PARSER_TAG_PREFIX):].strip().strip('"')
-            break
+    parser = _newsletter_parser(event)
     for rep in reports:
         name = getattr(rep, "name", "") or ""
         if name.startswith(_NEWSLETTER_REPORT_PREFIX):
@@ -7534,29 +7560,6 @@ def preview_scope_matches(scope_terms, limit=200, max_results=50, timeframe_hour
 
     rows.sort(key=lambda r: (-r["score"], r["info"] or ""))
     return rows[:max_results]
-
-
-def pir_collection_gap(scope_terms) -> dict:
-    """Return a coverage summary for a PIR's scope terms against the recent collection.
-
-    The terms are the ones its scope preview searches, ATT&CK techniques
-    included, so the two report the same events, across every configured source.
-    Returns a dict with total matching events, the most recent match date, and
-    up to 5 sample rows so the detail page can show a quick gap indicator without
-    a second page load.
-    """
-    if not scope_terms:
-        return {"recent_matches": 0, "last_match_date": None, "sample": []}
-    matches = preview_scope_matches(scope_terms)
-    last_date = None
-    if matches:
-        dates = [r["date"] for r in matches if r.get("date")]
-        last_date = max(dates) if dates else None
-    return {
-        "recent_matches": len(matches),
-        "last_match_date": last_date,
-        "sample": matches[:5],
-    }
 
 
 # ── Threat Landscape Report ──────────────────────────────────────────────────

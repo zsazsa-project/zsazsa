@@ -122,6 +122,11 @@ class ListPendingNewsletters(unittest.TestCase):
     def test_an_untagged_event_is_not_empty(self):
         self.assertEqual(self._queue([])[0]["empty"], False)
 
+    def test_says_which_newsletter_each_one_is(self):
+        pending = self._queue([misp_store.NEWSLETTER_PENDING_TAG, 'zsazsa:newsletter-parser="ETDA CTI Robot"'],
+                              [misp_store.NEWSLETTER_PENDING_TAG])
+        self.assertEqual([n["parser"] for n in sorted(pending, key=lambda n: n["uuid"])], ["ETDA CTI Robot", ""])
+
 
 class ReviewFakeMisp:
     def __init__(self, tag_names, report_name, content="raw"):

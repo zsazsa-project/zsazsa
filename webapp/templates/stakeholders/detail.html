@@ -13,16 +13,18 @@
 
 {% block content %}
 <style>
-  .hero-tile { width: 3.2rem; height: 3.2rem; border-radius: 12px; font-size: 1.6rem; background: #fff; color: var(--misp-navy);
-               box-shadow: 0 10px 22px -12px rgba(0,0,0,.5); }
-  .hero-tile.external { background: var(--text-primary); color: #fff; }
   .hero-facts { display: flex; flex-wrap: wrap; gap: .2rem 1rem; font-size: .86rem; opacity: .92; }
   .clearance { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .45rem; align-self: flex-start;
                padding: .8rem 1.1rem; border-radius: 10px; background: rgba(0,0,0,.18); font-size: .75rem; text-align: center; }
   .clearance .tlp-badge { font-size: .9rem; padding: .3rem .6rem; }
+  .record-hero-compact .hero-facts { font-size: .76rem; }
+  .record-hero-compact .clearance { gap: .25rem; padding: .4rem .7rem; font-size: .68rem; }
+  .record-hero-compact .clearance .tlp-badge { font-size: .76rem; padding: .2rem .45rem; }
+  .record-hero-compact .positioning { flex: 0 1 17rem !important; }
+  .record-hero-compact .positioning .scale { font-size: .7rem; }
   .req-section { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted);
                  padding: .85rem 1rem .35rem; }
-  .req-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) 7.5rem 7rem; gap: .9rem; align-items: center;
+  .req-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) 7.5rem 8.5rem; gap: .9rem; align-items: center;
              padding: .7rem 1rem; border-top: 1px solid var(--border-faint); color: var(--text-primary); text-decoration: none; }
   .req-row:hover { background: var(--surface-hover); color: var(--text-primary); }
   .req-row .req-text { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -48,25 +50,27 @@
 {% set products = subscribed_products(stakeholder) %}
 {% set girs = owned_girs | length + distributed_girs | length %}
 
-<section class="record-hero rise mb-4">
-  <div class="hero-main">
-    <div class="d-flex align-items-center gap-3">
-      <span class="monogram hero-tile{{ ' external' if external }}" aria-hidden="true">{{ stakeholder.name[:1] | upper }}</span>
-      <div style="min-width:0;">
-        <div class="eyebrow"><i class="fas fa-{{ 'globe' if external else 'building' }} me-1"></i>{{ 'External' if external else 'Internal' }} stakeholder</div>
-        <h1>{{ stakeholder.name }}</h1>
-        <div class="hero-facts">
-          <span>{{ stakeholder.role or 'No role' }}</span>
-          <span>{{ org_map.get(stakeholder.organization, stakeholder.organization) or 'No organisation' }}</span>
-          {% if stakeholder.created_at %}<span>Added {{ stakeholder.created_at.strftime('%d-%m-%Y') }}</span>{% endif %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3">
+        <span class="monogram hero-tile{{ ' external' if external }}" aria-hidden="true">{{ stakeholder.name[:1] | upper }}</span>
+        <div style="min-width:0;">
+          <div class="eyebrow"><i class="fas fa-{{ 'globe' if external else 'building' }} me-1"></i>{{ 'External' if external else 'Internal' }} stakeholder</div>
+          <h1>{{ stakeholder.name }}</h1>
+          <div class="hero-facts">
+            <span>{{ stakeholder.role or 'No role' }}</span>
+            <span>{{ org_map.get(stakeholder.organization, stakeholder.organization) or 'No organisation' }}</span>
+            {% if stakeholder.created_at %}<span>Added {{ stakeholder.created_at.strftime('%d-%m-%Y') }}</span>{% endif %}
+          </div>
         </div>
       </div>
-    </div>
-    <div class="record-kpis">
-      <div class="record-kpi"><b>{{ products | length }}<small> / {{ product_types | length }}</small></b><span>product types subscribed</span></div>
-      <div class="record-kpi"><b>{{ owned_pirs | length }}</b><span>PIR{{ 's' if owned_pirs | length != 1 }} owned</span></div>
-      <div class="record-kpi"><b>{{ distributed_pirs | length }}</b><span>PIR{{ 's' if distributed_pirs | length != 1 }} followed</span></div>
-      <div class="record-kpi"><b>{{ girs }}</b><span>GIR{{ 's' if girs != 1 }} owned or followed</span></div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ products | length }}<small> / {{ product_types | length }}</small></b><span>product types subscribed</span></div>
+        <div class="record-kpi"><b>{{ owned_pirs | length }}</b><span>PIR{{ 's' if owned_pirs | length != 1 }} owned</span></div>
+        <div class="record-kpi"><b>{{ distributed_pirs | length }}</b><span>PIR{{ 's' if distributed_pirs | length != 1 }} followed</span></div>
+        <div class="record-kpi"><b>{{ girs }}</b><span>GIR{{ 's' if girs != 1 }} owned or followed</span></div>
+      </div>
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('stakeholders.edit', id=stakeholder.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
@@ -92,19 +96,21 @@
     <span class="tlp-badge tlp-{{ stakeholder.tlp_clearance | slug }}">TLP:{{ stakeholder.tlp_clearance | upper }}</span>
   </div>
 
-  <div class="record-panel" style="flex:0 1 18rem;align-self:flex-start;">
-    <div class="chart-label">Positioning</div>
+  <div class="record-panel positioning" style="flex:0 1 18rem;align-self:flex-start;">
+    <div class="d-flex justify-content-between align-items-baseline gap-2">
+      <span class="chart-label">Positioning</span>
+      <a href="{{ url_for('stakeholders.matrix') }}" class="small fw-semibold">Open the matrix</a>
+    </div>
     <div class="matrix" role="img" aria-label="Influence {{ stakeholder.influence }} of 10, interest {{ stakeholder.interest }} of 10: {{ stakeholder.quadrant_label }}">
       {% for key, label in (('keep-satisfied', 'Keep satisfied'), ('manage-closely', 'Manage closely'), ('monitor', 'Monitor'), ('keep-informed', 'Keep informed')) %}
       <div class="{{ 'here' if stakeholder.quadrant_key == key }}">{{ label }}</div>
       {% endfor %}
       <span class="pin" style="left:{{ stakeholder.interest_pct }}%;bottom:{{ stakeholder.influence_pct }}%;"></span>
     </div>
-    <div class="d-flex justify-content-between small text-muted">
+    <div class="d-flex justify-content-between small text-muted scale">
       <span>Interest <strong class="text-body">{{ stakeholder.interest }}/10</strong></span>
       <span>Influence <strong class="text-body">{{ stakeholder.influence }}/10</strong></span>
     </div>
-    <a href="{{ url_for('stakeholders.matrix') }}" class="small fw-semibold">Open the stakeholder matrix</a>
   </div>
 </section>
 

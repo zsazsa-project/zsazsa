@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_product_actions.html" import draft_actions %}
-{% from "_macros.html" import product_identity %}
+{% from "_macros.html" import review_state_badge %}
 
 {% set title_text = ('Edit ' + vea.vea_id) if is_edit else 'New vulnerability advisory' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
@@ -31,11 +31,17 @@
 {% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
 
 {% block content %}
-{{ product_identity('fa-shield-halved', 'Vulnerability advisory',
-                    vea.vea_id if is_edit and vea else '',
-                    source_events | length if source_events else 0,
-                    vea.review_state if is_edit and vea else 'draft',
-                    vea.tlp if vea and vea.tlp else 'amber') }}
+{% set steps = [('ident', 'Identification'), ('tech', 'Technology'), ('expl', 'Exploitation'), ('risk', 'Risk'),
+                ('actions', 'Actions'), ('detection', 'Detection'), ('references', 'References')] %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-bug"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A vulnerability advisory tells its audience whether a CVE matters to them and what to do. Look the CVE up first; it fills most of the form.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
 
 <form method="post" class="row g-4" id="vea-form" data-unsaved-warning>
 
@@ -197,9 +203,15 @@
     </div>
     {% endif %}
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-fingerprint me-2"></i>Identification</div>
+    <div class="card content-card form-step mb-4" id="step-ident" data-step='input[name="title"], textarea[name="cve_id"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Identification</div>
       <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label required-label" for="vea-title">Title</label>
+          <input name="title" id="vea-title" class="form-control" required
+                 placeholder="Remote code execution in Product X"
+                 value="{{ vea.title if vea else '' }}">
+        </div>
         <div class="row g-3">
 
           {# ── CVE input + lookup ── #}
@@ -229,7 +241,7 @@
           </div>
 
           {# ── CVSS + CWE ── #}
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">CVSS</label>
             <div class="d-flex align-items-center gap-2">
               <input name="cvss" id="cvss" class="form-control form-control-sm font-monospace"
@@ -238,26 +250,12 @@
               <span id="cvss-badge" class="badge rounded-pill flex-shrink-0" style="display:none;font-size:.75rem;"></span>
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">CWE</label>
             <input name="cwe" id="cwe" class="form-control form-control-sm font-monospace"
                    placeholder="e.g. CWE-77"
                    value="{{ vea.cwe if vea else '' }}">
           </div>
-          {# With source events, Build with AI in their header takes over. #}
-          {% if not source_events %}
-          <div class="col-md-4 d-flex align-items-end">
-            <div class="zs-toolbar mb-1">
-              <span class="zs-toolbar-label">AI assistance</span>
-              <button type="button" class="zs-pill" id="btn-draft-vea"
-                      title="Draft sections with AI (run Vulnerability Lookup first)"
-                      {{ '' if (vea and vea.cve_id) else 'disabled' }}>
-                <i class="fas fa-wand-magic-sparkles"></i>Draft sections
-              </button>
-            </div>
-          </div>
-          {% endif %}
-
           <div class="col-12">
             <div id="ai-draft-status" class="form-text" style="display:none;"></div>
           </div>
@@ -266,8 +264,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-microchip me-2"></i>Affected technology</div>
+    <div class="card content-card form-step mb-4" id="step-tech"
+         data-step='input[name="affected_product"], input[name="affected_versions"], input[name="fixed_version"], input[name="exposure"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Affected technology</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-4">
@@ -295,8 +294,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-triangle-exclamation me-2 text-danger"></i>Exploitation status</div>
+    <div class="card content-card form-step mb-4" id="step-expl"
+         data-step='input[name="observed_exploitation"], input[name="source_description"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Exploitation status</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-12">
@@ -350,8 +350,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-scale-balanced me-2"></i>Risk assessment</div>
+    <div class="card content-card form-step mb-4" id="step-risk" data-step='input[name="worst_case"], input[name="most_likely"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Risk assessment</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
@@ -368,8 +368,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
+    <div class="card content-card form-step mb-4" id="step-actions"
+         data-step='textarea[name="immediate_actions"], input[name="patch_sla_internet"], input[name="patch_sla_internal"], input[name="target_patch_version"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Recommended actions</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Immediate actions</label>
@@ -405,8 +406,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection guidance</div>
+    <div class="card content-card form-step mb-4" id="step-detection"
+         data-step='textarea[name="exploitation_indicators"], textarea[name="detection_rules"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Detection guidance</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
@@ -439,8 +441,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
+    <div class="card content-card form-step mb-4" id="step-references"
+         data-step='textarea[name="references"], input[name="feedback_deadline"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">7</span>References and feedback</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">External references</label>
@@ -526,32 +529,42 @@
   </div>
 
   <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-bug"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ vea.vea_id if is_edit and vea else 'New advisory' }}</span>
+            <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>CVE</dt><dd data-preview-text="cve_id" data-empty="Not set"></dd>
+          <dt>CVSS</dt><dd data-preview-text="cvss" data-empty="Not set"></dd>
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+          <dt>Audience</dt><dd data-preview-choice="audience" data-required data-empty="None yet, one is needed to publish"></dd>
+          <dt>State</dt><dd>{{ review_state_badge(vea.review_state if is_edit and vea else 'draft') }}</dd>
+          {% if source_events %}<dt>Sources</dt><dd>{{ source_events | length }} source event{{ 's' if source_events | length != 1 }}</dd>{% endif %}
+        </dl>
+        {{ draft_actions(url_for('vea.review'), 'btn-vea-save', 'btn-vea-submit') }}
+      </div>
+    </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-file-shield me-2"></i>Advisory</div>
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label required-label">Title</label>
-          <input name="title" class="form-control" required
-                 placeholder="Remote code execution in Product X"
-                 value="{{ vea.title if vea else '' }}">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Audience
-            <span class="text-muted small" data-bs-toggle="tooltip"
-              title="Audience corresponds to the stakeholder role, e.g. SOC, IR, VM, Executive.">
-              <i class="fas fa-circle-info ms-1"></i>
-            </span>
-          </label>
+          <span class="form-label d-block">Audience</span>
           {% set current_audiences = (vea.audience or '').split(', ') if vea else [] %}
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <div class="choice-group" aria-label="Audience">
             {% for a in audiences %}
-            <div class="form-check form-check-inline me-0">
-              <input class="form-check-input vea-audience-cb" type="checkbox" name="audience" value="{{ a }}"
-                     id="vea-aud-{{ loop.index }}"
-                     {{ 'checked' if a in current_audiences }}>
-              <label class="form-check-label small" for="vea-aud-{{ loop.index }}">{{ a }}</label>
-            </div>
+            <input class="btn-check vea-audience-cb" type="checkbox" name="audience" value="{{ a }}" id="vea-aud-{{ loop.index }}"
+                   {{ 'checked' if a in current_audiences }}>
+            <label class="choice" for="vea-aud-{{ loop.index }}">{{ a }}</label>
             {% endfor %}
           </div>
           <div id="vea-audience-warn" class="text-danger small mt-1" style="display:none;">
@@ -560,16 +573,19 @@
           <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience, which is required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">TLP</label>
-          <select name="tlp" class="form-select">
+          <span class="form-label d-block">TLP</span>
+          {% set current_tlp = vea.tlp if vea and vea.tlp in tlp_levels else 'amber' %}
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
             {% for t in tlp_levels %}
-            <option value="{{ t }}" {{ 'selected' if vea and vea.tlp == t else ('selected' if not vea and t == 'amber') }}>TLP:{{ t | upper }}</option>
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="vea-tlp-{{ loop.index }}"
+                   {{ 'checked' if t == current_tlp }}>
+            <label class="choice" for="vea-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
             {% endfor %}
-          </select>
+          </div>
         </div>
         <div>
-          <label class="form-label">Linked PIR</label>
-          <select name="linked_pir_uuid" class="form-select">
+          <label class="form-label" for="vea-linked-pir">Linked PIR</label>
+          <select name="linked_pir_uuid" id="vea-linked-pir" class="form-select">
             <option value="">(none)</option>
             {% for p in pirs %}
             <option value="{{ p.uuid }}" {{ 'selected' if vea and vea.linked_pir_uuid == p.uuid }}>{{ p.pir_id }}: {{ p.question | truncate(50) }}</option>
@@ -579,7 +595,32 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    {# With source events, Build with AI in their header takes over. #}
+    {% if not source_events or is_edit %}
+    <div class="card content-card qa-review-block">
+      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>AI assistance</div>
+      <div class="ai-actions">
+        {% if not source_events %}
+        <button type="button" class="btn-ai" id="btn-draft-vea"
+                {{ '' if (vea and vea.cve_id) else 'disabled' }}>
+          <i class="fas fa-wand-magic-sparkles"></i>
+          <span>Draft sections<small>Fills the empty sections from the CVE. Look the CVE up first.</small></span>
+        </button>
+        {% endif %}
+        {% if is_edit %}
+        {# Kept apart from Save and Submit: a QA check reports, it does not publish. #}
+        <button type="button" class="btn-ai qa-review-btn" data-kind="vea" data-uuid="{{ vea.uuid }}"
+                title="Audit the last saved version against the source events. Save your edits first.">
+          <i class="fas fa-clipboard-check"></i>
+          <span>QA check against source<small>Audits the last saved version against the source events. Save your edits first.</small></span>
+        </button>
+        {% endif %}
+      </div>
+      {% if is_edit %}<div class="qa-review-output px-3 pb-2"></div>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
       <div class="card-body">
         <div class="mb-3">
@@ -606,7 +647,7 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-user me-2"></i>Attribution</div>
       <div class="card-body">
         <label class="form-label">Author</label>
@@ -614,23 +655,7 @@
       </div>
     </div>
 
-    {% if is_edit %}
-    {# Grouped and labelled the way the briefing groups its AI actions, and kept
-       out of the decision stack below: a QA check reports, it does not publish. #}
-    <div class="qa-review-block mb-3">
-      <div class="zs-toolbar">
-        <span class="zs-toolbar-label">AI assistance</span>
-        <button type="button" class="zs-pill qa-review-btn"
-                data-kind="vea" data-uuid="{{ vea.uuid }}"
-                title="Audit the last saved version against the source events. Save your edits first.">
-          <i class="fas fa-clipboard-check"></i> QA check against source
-        </button>
-      </div>
-      <div class="qa-review-output mt-2"></div>
     </div>
-    {% endif %}
-
-    {{ draft_actions(url_for('vea.review'), 'btn-vea-save', 'btn-vea-submit') }}
 
   </div>
 </form>
@@ -638,8 +663,27 @@
 
 {% block scripts %}
 {% include "_qa_review_js.html" %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 {% include "_markdown_js.html" %}
 <script>
+// A field the lookup or the AI fills is told as typing is, so the section
+// steps and "As it will appear" follow, and leaving asks about unsaved edits.
+function zsazsaSetField(el, value) {
+  el.value = value;
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+}
+function zsazsaSelectOption(el, value) {
+  if (!el) return;
+  for (var i = 0; i < el.options.length; i++) {
+    if (el.options[i].value === value) {
+      el.selectedIndex = i;
+      el.dispatchEvent(new Event('change', {bubbles: true}));
+      return;
+    }
+  }
+}
+
 (function() {
   // Render report markdown bodies
   if (typeof marked !== 'undefined') {
@@ -924,15 +968,11 @@ function runVulnLookup() {
     function _fillInput(id, val) {
       if (!val) return;
       var el = document.getElementById(id) || document.querySelector('[name=' + id + ']');
-      if (el && !el.value.trim()) el.value = val;
+      if (el && !el.value.trim()) zsazsaSetField(el, val);
     }
     function _fillSelect(id, val) {
       if (!val) return;
-      var el = document.getElementById(id);
-      if (!el) return;
-      for (var i = 0; i < el.options.length; i++) {
-        if (el.options[i].value === val) { el.selectedIndex = i; return; }
-      }
+      zsazsaSelectOption(document.getElementById(id), val);
     }
 
     var allProducts = [], allVersions = [], allCwes = [], allRefs = [], errors = [];
@@ -968,7 +1008,7 @@ function runVulnLookup() {
       if (refsEl) {
         var existing = refsEl.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
         allRefs.forEach(function(u) { if (!existing.includes(u)) existing.push(u); });
-        refsEl.value = existing.join('\n');
+        zsazsaSetField(refsEl, existing.join('\n'));
       }
     }
 
@@ -1040,15 +1080,10 @@ function draftVea(btn, sourceUuids) {
     var s = data.sections || {};
     function fill(id, val) {
       var el = document.getElementById(id);
-      if (el && val && !el.value.trim()) el.value = val;
+      if (el && val && !el.value.trim()) zsazsaSetField(el, val);
     }
     function fillSelect(id, val) {
-      var el = document.getElementById(id);
-      if (el && val) {
-        for (var i = 0; i < el.options.length; i++) {
-          if (el.options[i].value === val) { el.selectedIndex = i; break; }
-        }
-      }
+      if (val) zsazsaSelectOption(document.getElementById(id), val);
     }
     fill('affected_product', s.affected_product);
     fill('observed_exploitation', s.observed_exploitation);
@@ -1060,11 +1095,11 @@ function draftVea(btn, sourceUuids) {
     fill('most_likely', s.most_likely);
     var ta = document.getElementById('immediate_actions');
     if (ta && !ta.value.trim() && s.immediate_actions && s.immediate_actions.length) {
-      ta.value = s.immediate_actions.join('\n');
+      zsazsaSetField(ta, s.immediate_actions.join('\n'));
     }
     var ind = document.getElementById('exploitation_indicators');
     if (ind && !ind.value.trim() && s.exploitation_indicators && s.exploitation_indicators.length) {
-      ind.value = s.exploitation_indicators.join('\n');
+      zsazsaSetField(ind, s.exploitation_indicators.join('\n'));
     }
     status.textContent = 'Draft applied. Review and adjust before saving.';
     status.style.color = '';
@@ -1117,5 +1152,4 @@ if (draftVeaBtn) {
   });
 })();
 </script>
-{% include "_tlp_mirror_js.html" %}
 {% endblock %}

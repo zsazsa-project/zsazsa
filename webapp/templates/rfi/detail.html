@@ -21,28 +21,35 @@
   .rfi-track div { padding-top: .35rem; border-top: 3px solid rgba(255,255,255,.25); font-size: .72rem; opacity: .75; }
   .rfi-track div.done { border-top-color: rgba(255,255,255,.7); opacity: .95; }
   .rfi-track div.now { border-top-color: #fff; font-weight: 700; opacity: 1; }
+  .record-hero-compact .rfi-route { gap: .4rem; margin-top: 0; font-size: .76rem; }
+  .record-hero-compact .rfi-route .party { flex-direction: row; align-items: baseline; gap: .35rem; padding: .15rem .55rem; }
+  .record-hero-compact .rfi-route .party span { font-size: .58rem; }
+  .record-hero-compact .rfi-track { flex: 1 1 18rem; margin-top: 0; }
+  .record-hero-compact .rfi-track div { padding-top: .2rem; font-size: .64rem; }
 </style>
 {% set rfi_statuses = ['New', 'Acknowledged', 'In Progress', 'Delivered', 'Closed'] %}
 {% set at = rfi_statuses.index(rfi.status) if rfi.status in rfi_statuses else -1 %}
 
-<section class="record-hero rise mb-4">
-  <div class="hero-main">
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <span class="hero-id"><i class="fas fa-circle-question me-1"></i>{{ rfi.rfi_id }}</span>
-      <span class="badge status-badge status-{{ rfi.status | slug }}">{{ rfi.status }}</span>
-      <span class="badge priority-badge priority-{{ {'High': 'must-have', 'Medium': 'should-have', 'Low': 'could-have'}.get(rfi.priority, 'should-have') }}">{{ rfi.priority }} priority</span>
-      {% if auto_acknowledged %}
-      <span class="hero-tag" title="RFI was automatically acknowledged after stakeholder notification">Auto-acknowledged</span>
-      {% endif %}
-    </div>
-    <h1 class="question">{{ rfi.question | md_inline }}</h1>
-    <div class="rfi-route">
-      <div class="party"><span>Asked by</span>{{ rfi.requester_name or 'No requester' }}{% if rfi.requester_team %} · {{ rfi.requester_team }}{% endif %}</div>
-      <i class="fas fa-arrow-right" aria-hidden="true"></i>
-      <div class="party"><span>Assigned to</span>{{ rfi.assigned_analyst or 'Nobody yet' }}</div>
-    </div>
-    <div class="rfi-track" aria-label="Status: {{ rfi.status }}">
-      {% for s in rfi_statuses %}<div class="{{ 'now' if loop.index0 == at else ('done' if loop.index0 < at) }}">{{ s }}</div>{% endfor %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <span class="hero-id"><i class="fas fa-circle-question me-1"></i>{{ rfi.rfi_id }}</span>
+        <span class="badge status-badge status-{{ rfi.status | slug }}">{{ rfi.status }}</span>
+        <span class="badge priority-badge priority-{{ {'High': 'must-have', 'Medium': 'should-have', 'Low': 'could-have'}.get(rfi.priority, 'should-have') }}">{{ rfi.priority }} priority</span>
+        {% if auto_acknowledged %}
+        <span class="hero-tag" title="RFI was automatically acknowledged after stakeholder notification">Auto-acknowledged</span>
+        {% endif %}
+      </div>
+      <div class="rfi-route">
+        <div class="party"><span>Asked by</span>{{ rfi.requester_name or 'No requester' }}{% if rfi.requester_team %} · {{ rfi.requester_team }}{% endif %}</div>
+        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+        <div class="party"><span>Assigned to</span>{{ rfi.assigned_analyst or 'Nobody yet' }}</div>
+      </div>
+      <h1 class="question">{{ rfi.question | md_inline }}</h1>
+      <div class="rfi-track" aria-label="Status: {{ rfi.status }}">
+        {% for s in rfi_statuses %}<div class="{{ 'now' if loop.index0 == at else ('done' if loop.index0 < at) }}">{{ s }}</div>{% endfor %}
+      </div>
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('rfi.rfi_edit', id=rfi.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
@@ -225,7 +232,7 @@
         {% set status_url = url_for('rfi.rfi_status_update', id=rfi.id) %}
         {% if rfi.status == 'New' %}
         {{ lifecycle(rfi.rfi_id, rfi.status, rfi_statuses, [], status_url, 'A new RFI leaves New through triage.') }}
-        <a href="{{ url_for('rfi.rfi_list') }}" class="btn btn-xs btn-outline-warning mt-2"><i class="fas fa-gavel me-1"></i>Triage it on the RFI list</a>
+        <a href="{{ url_for('rfi.rfi_list', triage=rfi.id) }}" class="btn btn-xs btn-outline-warning mt-2"><i class="fas fa-gavel me-1"></i>Triage it on the RFI list</a>
         {% else %}
         {{ lifecycle(rfi.rfi_id, rfi.status, rfi_statuses, rfi_statuses | reject('equalto', 'New') | list, status_url) }}
         {% endif %}

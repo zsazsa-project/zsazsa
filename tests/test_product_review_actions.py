@@ -517,7 +517,8 @@ class TickedDrafts(unittest.TestCase):
             with self.subTest(kind), \
                  mock.patch.object(misp_store, f"list_{kind}s", return_value=list(self.records(kind).values())):
                 page = BeautifulSoup(self.client.get(path + "/", headers=self.headers).data, "html.parser")
-            self.assertEqual([box["value"] for box in page.select(".row-select-cb")], ["a" * 36, "b" * 36])
+            # In any order: a list grouped by state puts those waiting for review first.
+            self.assertEqual(sorted(box["value"] for box in page.select(".row-select-cb")), ["a" * 36, "b" * 36])
             self.assertEqual(page.select_one("#selection-form")["action"], f"/zsazsa{path}/selected")
             self.assertIsNotNone(page.select_one("#select-all-cb"))
 

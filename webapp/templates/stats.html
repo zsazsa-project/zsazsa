@@ -78,43 +78,24 @@
 {% import "_charts.html" as charts %}
 
 {# CTI program coverage #}
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-xl-3">
-    <a href="{{ url_for('requirements.pir_list') }}" class="stats-count" style="--icon-color:var(--accent-blue);">
-      <div class="d-flex justify-content-between align-items-start">
-        <div><div class="big">{{ active_pir_count }} <span class="of">/ {{ pir_count }}</span></div><div class="label">Active / total PIRs</div></div>
-        <span class="stat-icon icon-sm"><i class="fas fa-star"></i></span>
-      </div>
-      <div class="stats-track mt-3"><div style="width:{{ (active_pir_count / pir_count * 100) if pir_count else 0 }}%;"></div></div>
-    </a>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    <a href="{{ url_for('requirements.gir_list') }}" class="stats-count" style="--icon-color:var(--accent-green);">
-      <div class="d-flex justify-content-between align-items-start">
-        <div><div class="big">{{ active_gir_count }} <span class="of">/ {{ gir_count }}</span></div><div class="label">Active / total GIRs</div></div>
-        <span class="stat-icon icon-sm"><i class="fas fa-list-check"></i></span>
-      </div>
-      <div class="stats-track mt-3"><div style="width:{{ (active_gir_count / gir_count * 100) if gir_count else 0 }}%;"></div></div>
-    </a>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    <a href="{{ url_for('stakeholders.list') }}" class="stats-count" style="--icon-color:var(--accent-orange);">
-      <div class="d-flex justify-content-between align-items-start">
-        <div><div class="big">{{ stakeholder_count }}</div><div class="label">Stakeholders</div></div>
-        <span class="stat-icon icon-sm"><i class="fas fa-users"></i></span>
-      </div>
-    </a>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    {% set unscoped = pirs_no_fp + girs_no_fp %}
-    <div class="stats-count" style="--icon-color:{{ 'var(--accent-red)' if unscoped else 'var(--accent-green)' }};">
-      <div class="d-flex justify-content-between align-items-start">
-        <div><div class="big">{{ unscoped }}</div><div class="label">Active requirements without scope items</div></div>
-        <span class="stat-icon icon-sm"><i class="fas {{ 'fa-crosshairs' if unscoped else 'fa-check' }}"></i></span>
-      </div>
+{% set unscoped = pirs_no_fp + girs_no_fp %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-chart-line"></i></span>
+    <div class="record-kpis">
+      <a href="{{ url_for('requirements.pir_list') }}" class="record-kpi"><b>{{ active_pir_count }}<small> / {{ pir_count }}</small></b><span>PIRs active</span></a>
+      <a href="{{ url_for('requirements.gir_list') }}" class="record-kpi{{ ' warn' if gir_count and not active_gir_count }}"><b>{{ active_gir_count }}<small> / {{ gir_count }}</small></b><span>GIRs active</span></a>
+      <a href="{{ url_for('stakeholders.list') }}" class="record-kpi"><b>{{ stakeholder_count }}</b><span>stakeholder{{ 's' if stakeholder_count != 1 }}</span></a>
+      {% if program %}<a href="{{ url_for('products.index') }}" class="record-kpi"><b>{{ program.products.total }}</b><span>product{{ 's' if program.products.total != 1 }}</span></a>{% endif %}
+      <div class="record-kpi{{ ' warn' if unscoped }}"><b>{{ unscoped }}</b><span>active requirement{{ 's' if unscoped != 1 }} without scope</span></div>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('stats.scope') }}" class="btn btn-sm btn-hero"><i class="fas fa-bullseye me-1"></i> Scope and focus points</a>
+      <a href="{{ url_for('pipeline.index') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-diagram-project me-1"></i> Pipeline</a>
+      <a href="{{ url_for('logs.index') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-clock-rotate-left me-1"></i> Audit log</a>
     </div>
   </div>
-</div>
+</section>
 
 {% if pirs_no_fp > 0 or girs_no_fp > 0 %}
 <div class="stats-callout mb-3" style="--icon-color:var(--accent-orange);">
@@ -143,7 +124,7 @@
 {% endif %}
 
 {% set rfis, products = program.rfis, program.products %}
-<div class="card content-card mt-4 mb-4">
+<div class="card content-card mb-4 rise rise-1">
   <div class="card-header"><i class="fas fa-heart-pulse me-2"></i>CTI program health</div>
   <div class="card-body">
     <div class="row g-3">

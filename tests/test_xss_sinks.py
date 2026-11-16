@@ -7,6 +7,10 @@ onsubmit handlers that a quote in the name could break out of. Each one ran
 script in the session of whoever opened the page or clicked the button. The
 check on saving an organisation filter is in test_config_form.
 
+An email channel or Flowintel instance added on the Notifications tab of the
+settings showed the name, address and URL just typed through innerHTML too,
+until the page was loaded again.
+
 RenderedPages and BriefingDate run offline with the rest of the suite.
 HostileTextInTheBrowser drives a real Chromium against the webapp, with every
 MISP call mocked and every outbound request blocked, so it is opt-in like the
@@ -58,9 +62,9 @@ window.bootstrap = {Alert: Component, Collapse: Component, Dropdown: Component, 
 """
 
 
-def _story(n):
+def _story(n, source_url=""):
     return SimpleNamespace(title=f"Story {n}", content=f"Text {n}", source_event_uuid=EVENT_UUID,
-                           source_id="scraper", source_url="", drafted_by="", threat_actor_types=[])
+                           source_id="scraper", source_url=source_url, drafted_by="", threat_actor_types=[])
 
 
 def _offline_patches(tmp):
@@ -83,10 +87,10 @@ def _offline_patches(tmp):
         uuid=BRIEFING_UUID, date=BREAKOUT, title="Daily briefing", author="", tlp="amber",
         escalations="", notes="", detection_rules="", summary="", summary_stale=False,
         review_state="draft", story_count=2, creator="", approved_by="", created_at="",
-        stories=[_story(1), _story(2)], geographic_scope=[], sectors=[], threat_actors=[],
+        stories=[_story(1), _story(2, source_url="javascript:alert(1)")], geographic_scope=[], sectors=[], threat_actors=[],
         mitre_attack_techniques=[], threat_types=[], technology=[], vendor=[], incident=[],
         campaign=[])
-    organisation = SimpleNamespace(uuid="o" * 36, name=BREAKOUT, local=True)
+    organisation = SimpleNamespace(uuid="o" * 36, name=BREAKOUT, sector="", country="", added_at="")
     server = {"id": "partner", "label": "Partner", "url": "https://misp.partner.example",
               "api_key": "k", "org_filter_type": "include",
               "org_filter": f"{ORG_FILTER} 55f6ea5e-2c60-40e5-964f-47a8950d210f"}
@@ -161,6 +165,13 @@ class RenderedPages(unittest.TestCase):
             for match in handler.finditer(path.read_text()):
                 self.fail(f"{path}: {match.group(0)}")
 
+    def test_a_story_links_only_to_a_web_address(self):
+        """A story's source link comes from the event it was drafted from."""
+        for url in ("/briefing/", f"/briefing/{BRIEFING_UUID}"):
+            with self.subTest(url=url):
+                page = BeautifulSoup(self.client.get(url).data, "html.parser")
+                self.assertEqual(page.select("a[href^='javascript:']"), [])
+
     def test_names_stay_inside_their_confirmation(self):
         for url, message in (
             ("/config/sources/", f"Delete source {SOURCE_NAME}?"),
@@ -188,6 +199,14 @@ class RenderedPages(unittest.TestCase):
             source = Path(path).read_text()
             body = re.search(r"function %s\(.*?\n  \}\n" % func, source, re.S).group(0)
             self.assertNotIn("innerHTML", body, path)
+
+
+class AddedSettingsRows(unittest.TestCase):
+    def test_what_was_typed_goes_in_as_text(self):
+        source = Path("webapp/templates/config_page.html").read_text()
+        for typed in ("name", "recipient", "url"):
+            with self.subTest(typed=typed):
+                self.assertNotIn("${%s}" % typed, source)
 
 
 class AlsoSeen(unittest.TestCase):

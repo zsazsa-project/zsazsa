@@ -87,7 +87,68 @@
 {% set level_colors = {'danger': 'var(--accent-red)', 'warning': 'var(--accent-orange)', 'info': 'var(--accent-blue)'} %}
 {% set group_colors = {'made': 'var(--accent-green)', 'declined': 'var(--neutral-500)', 'problem': 'var(--accent-red)'} %}
 
-<ul class="nav nav-tabs pipeline-tabs mb-3" id="pipeline-tabs" role="tablist">
+{% if overview %}
+{% set checked = source_health | rejectattr('manual') | list %}
+{% set online = checked | selectattr('ok') | list %}
+{% set down = checked | rejectattr('ok') | map(attribute='label') | list %}
+{% set analysed = overview.made + overview.declined + overview.problem %}
+{% endif %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-diagram-project"></i></span>
+    <div class="record-kpis">
+      {% if pipeline %}
+      <a href="#activity" class="record-kpi" data-pipeline-tab="activity" data-period="30d"
+         title="{{ '{:,}'.format(pipeline.total) }} in the log, which keeps {{ log_days }} days"><b>{{ '{:,}'.format(pipeline.last_30d) }}</b><span>events analysed in 30 days, {{ '{:,}'.format(pipeline.last_7d) }} in 7</span></a>
+      {% endif %}
+      {% if overview %}
+      {# Counted per event: a briefing of five stories is five. #}
+      {% set pct = (overview.made / analysed * 100) if analysed else 0 %}
+      <a href="#activity" class="record-kpi" data-pipeline-tab="activity" data-outcome="product_created" data-period="30d"
+         title="The events that became a story, an alert or an advisory"><b>{{ overview.made }}<small> / {{ analysed }}</small></b><span>made into a product, {{ pct | round | int }}%</span></a>
+      <a href="#activity" class="record-kpi{{ ' warn' if overview.problem }}" data-pipeline-tab="activity" data-outcome="problems" data-period="30d"
+         title="{% for r in overview.reasons.problem %}{{ r.label }} {{ r.n }}{{ ' · ' if not loop.last }}{% else %}No problems{% endfor %}"><b>{{ overview.problem }}</b><span>problem{{ 's' if overview.problem != 1 }} in 30 days</span></a>
+      <a href="#sources" class="record-kpi{{ ' warn' if down }}" data-pipeline-tab="sources"
+         title="{{ (down | join(', ') ~ ' unreachable') if down else 'All of them answer' }}"><b>{{ online | length }}<small> / {{ checked | length }}</small></b><span>sources online</span></a>
+      {% endif %}
+    </div>
+    <div class="hero-actions hero-actions-below">
+      <a href="#sources" class="btn btn-sm btn-hero" data-pipeline-tab="sources"><i class="fas fa-rss me-1"></i> Sources</a>
+      <a href="#activity" class="btn btn-sm btn-hero-ghost" data-pipeline-tab="activity"><i class="fas fa-clock-rotate-left me-1"></i> Activity</a>
+      {% if is_site_admin %}
+      <a href="{{ url_for('config_page.index', tab='tab-analyser') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-gear me-1"></i> Settings</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="record-panel needs-a-look">
+    <span class="chart-label">Needs a look</span>
+    {% if attention %}
+    <ul class="list-unstyled mb-0">
+      {% for item in attention %}
+      <li class="pipeline-attention" style="--icon-color:{{ level_colors[item.level] }};">
+        <span class="stat-icon icon-xs"><i class="fas {{ item.icon }}"></i></span>
+        <div class="flex-grow-1" style="min-width:0;">
+          <div class="fw-semibold">{{ item.title }}</div>
+          {% if item.text %}<div class="text-muted small">{{ item.text }}</div>{% endif %}
+        </div>
+        <button type="button" class="btn btn-xs btn-outline-secondary text-nowrap" data-pipeline-tab="{{ item.tab }}"
+                {% if item.outcome %}data-outcome="{{ item.outcome }}"{% endif %}
+                {% if item.period %}data-period="{{ item.period }}"{% endif %}>
+          {{ tab_names[item.tab] }}<i class="fas fa-arrow-right ms-1"></i>
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="d-flex align-items-center gap-2 text-muted small">
+      <i class="fas fa-circle-check text-success"></i>
+      Nothing needs a look: the MISP servers and the sources answer, and no run failed.
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<ul class="nav nav-tabs pipeline-tabs mb-3 rise rise-1" id="pipeline-tabs" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button"
             role="tab" aria-controls="overview" aria-selected="true">
@@ -133,83 +194,6 @@
 
   {# ── Overview ─────────────────────────────────────────────────────────── #}
   <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab" tabindex="0">
-    <div class="row g-3 mb-3">
-      <div class="col-xl-7">
-        <div class="card content-card h-100">
-          <div class="card-header"><i class="fas fa-bell me-2"></i>Needs a look</div>
-          {% if attention %}
-          <ul class="list-unstyled mb-0">
-            {% for item in attention %}
-            <li class="pipeline-attention" style="--icon-color:{{ level_colors[item.level] }};">
-              <span class="stat-icon icon-sm"><i class="fas {{ item.icon }}"></i></span>
-              <div class="flex-grow-1" style="min-width:0;">
-                <div class="fw-semibold">{{ item.title }}</div>
-                {% if item.text %}<div class="text-muted small">{{ item.text }}</div>{% endif %}
-              </div>
-              <button type="button" class="btn btn-xs btn-outline-secondary text-nowrap" data-pipeline-tab="{{ item.tab }}"
-                      {% if item.outcome %}data-outcome="{{ item.outcome }}"{% endif %}
-                      {% if item.period %}data-period="{{ item.period }}"{% endif %}>
-                {{ tab_names[item.tab] }}<i class="fas fa-arrow-right ms-1"></i>
-              </button>
-            </li>
-            {% endfor %}
-          </ul>
-          {% else %}
-          <div class="card-body d-flex align-items-center gap-2 text-muted small">
-            <i class="fas fa-circle-check text-success"></i>
-            Nothing needs a look: the MISP servers and the sources answer, and no run failed.
-          </div>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="col-xl-5">
-        {% if overview %}
-        {% set checked = source_health | rejectattr('manual') | list %}
-        {% set online = checked | selectattr('ok') | list %}
-        {% set analysed = overview.made + overview.declined + overview.problem %}
-        <div class="row g-3">
-          <div class="col-sm-6">
-            <a href="#activity" class="stats-count" style="--icon-color:var(--accent-blue);" data-pipeline-tab="activity" data-period="30d">
-              <div class="big">{{ '{:,}'.format(pipeline.last_30d) }}</div>
-              <div class="label">Events analysed in the last 30 days</div>
-              <div class="label">{{ '{:,}'.format(pipeline.last_7d) }} in the last 7 days · {{ '{:,}'.format(pipeline.total) }} in the log, which keeps {{ log_days }} days</div>
-            </a>
-          </div>
-          <div class="col-sm-6">
-            {# Counted per event: a briefing of five stories is five. #}
-            {% set pct = (overview.made / analysed * 100) if analysed else 0 %}
-            <a href="#activity" class="stats-count" style="--icon-color:var(--accent-green);" data-pipeline-tab="activity" data-outcome="product_created" data-period="30d">
-              <div class="big">{{ overview.made }} <span class="of">of {{ analysed }}</span></div>
-              <div class="label">Events that went into a product, last 30 days</div>
-              <div class="label">{{ pct | round | int }}% of the events analysed became a story, an alert or an advisory</div>
-              <div class="stats-track mt-2"><div style="width:{{ pct }}%;"></div></div>
-            </a>
-          </div>
-          <div class="col-sm-6">
-            <a href="#activity" class="stats-count" style="--icon-color:{{ 'var(--accent-red)' if overview.problem else 'var(--accent-green)' }};"
-               data-pipeline-tab="activity" data-outcome="problems" data-period="30d">
-              <div class="big">{{ overview.problem }}</div>
-              <div class="label">Problems in 30 days</div>
-              <div class="label">
-                {% for r in overview.reasons.problem %}{{ r.label }} {{ r.n }}{{ ' · ' if not loop.last }}{% else %}None{% endfor %}
-              </div>
-            </a>
-          </div>
-          <div class="col-sm-6">
-            {% set down = checked | rejectattr('ok') | map(attribute='label') | list %}
-            <a href="#sources" class="stats-count" style="--icon-color:{{ 'var(--accent-orange)' if down else 'var(--accent-green)' }};" data-pipeline-tab="sources">
-              <div class="big">{{ online | length }} <span class="of">/ {{ checked | length }}</span></div>
-              <div class="label">Sources online</div>
-              <div class="label">{{ (down | join(', ') ~ ' unreachable') if down else 'All of them answer' }}</div>
-              <div class="stats-track mt-2"><div style="width:{{ (online | length / checked | length * 100) if checked else 0 }}%;"></div></div>
-            </a>
-          </div>
-        </div>
-        {% endif %}
-      </div>
-    </div>
-
     {% if overview %}
     {% set busiest = overview.days | map(attribute='total') | max %}
     {% set widest = [overview.made, overview.declined, overview.problem] | max %}

@@ -146,6 +146,18 @@ def create_app():
 
         return mitre_technique_label(s)
 
+    @app.template_filter("galaxy_values")
+    def _galaxy_values(values, items):
+        from webapp.misp_store import galaxy_values
+
+        return galaxy_values(values, items)
+
+    @app.template_filter("technique_parts")
+    def _technique_parts(s):
+        from webapp.misp_store import technique_parts
+
+        return technique_parts(s)
+
     @app.template_filter("filesize")
     def _filesize(size):
         """Format a byte count the way the notifications do, e.g. "20.4 KB"."""

@@ -12,6 +12,7 @@ import re
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest import mock
 
 from notifier import product_email
 from webapp import branding, misp_store
@@ -104,7 +105,12 @@ def _briefing():
 
 class BriefingHtml(unittest.TestCase):
     def setUp(self):
-        self.html = product_email.briefing_html(_briefing(), "https://cti.test/briefing/1")
+        # The technique's name comes from the galaxy list, through a cache that
+        # another test may have filled; neither is this install's.
+        with mock.patch.object(misp_store, "galaxy_mitre_attack_patterns", return_value=["Phishing - T1566"]), \
+             mock.patch.dict(misp_store._mitre_name_cache, clear=True), \
+             mock.patch.object(misp_store, "_mitre_name_ts", 0.0):
+            self.html = product_email.briefing_html(_briefing(), "https://cti.test/briefing/1")
 
     def test_stories_keep_their_title(self):
         self.assertIn("Ransomware crew hits logistics", self.html)

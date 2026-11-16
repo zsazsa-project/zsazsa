@@ -1617,7 +1617,9 @@
   /* ── Keeping the table current ──
      A summary or a cache refresh changes the rows, and it can finish after the
      page that started it was reloaded or left. The filters live in session
-     storage, so a reload brings the table back the way the analyst had it. */
+     storage, and the reload note keeps the ticked rows, the open filter panels
+     and the scroll position, so a reload brings the table back the way the
+     analyst had it. */
   var TABLE_JOBS = ['summarise', 'bulk-summarise', 'collection-refresh'];
   var followedJobs = new Set();
   var RELOAD_NOTE = 'zsazsa_collection_reload';
@@ -1625,41 +1627,49 @@
   function reloadTable(message, category, clearSelection) {
     if (clearSelection) clearEventSelection();
     try {
-      sessionStorage.setItem(RELOAD_NOTE, JSON.stringify({message: message, category: category || 'success', clearSelection: !!clearSelection, scroll: window.scrollY}));
+      sessionStorage.setItem(RELOAD_NOTE, JSON.stringify({
+        message: message, category: category || 'success', clearSelection: !!clearSelection, scroll: window.scrollY,
+        selected: clearSelection ? [] : getSelectedEvents(),
+        panels: Array.prototype.map.call(document.querySelectorAll('.collapse.show[id^="alt4-"]'), function(p) { return p.id; }),
+      }));
     } catch (e) {}
     window.location.reload();
   }
 
-  /* Ticked rows, an open panel or a field being typed in would be lost. */
+  /* What a reload would still lose: a dialog or the preview panel open, or a
+     field being typed in. Everything else comes back with the reload note. */
   function analystIsBusy() {
     var focused = document.activeElement;
-    return getSelectedEvents().length > 0
-      || document.querySelector('.offcanvas.show, .modal.show') !== null
+    return document.querySelector('.offcanvas.show, .modal.show') !== null
       || !!(focused && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName) && focused.type !== 'checkbox');
   }
 
-  function offerTableReload(message) {
-    var container = document.getElementById('flash-container');
-    if (!container || document.getElementById('table-reload-offer')) return;
-    var el = document.createElement('div');
-    el.id = 'table-reload-offer';
-    el.className = 'alert alert-info alert-dismissible fade show alert-flash';
-    el.setAttribute('role', 'alert');
-    el.innerHTML = '<i class="fas fa-rotate me-2"></i><span class="alert-text"></span>' +
-                   '<button type="button" class="btn btn-xs btn-outline-primary ms-2">Reload table</button>' +
-                   '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-    el.querySelector('.alert-text').textContent = message;
-    el.querySelector('.btn-outline-primary').addEventListener('click', function() {
-      reloadTable('Table updated.');
-    });
-    container.appendChild(el);
+  /* Reloads now, or once the analyst has closed what is open and left the field. */
+  var pendingReload = null;
+  function reloadWhenFree(message) {
+    if (!analystIsBusy()) { reloadTable(message); return; }
+    pendingReload = message;
+  }
+  function retryPendingReload() {
+    // After the focus has moved on, so the field left behind no longer counts.
+    setTimeout(function() {
+      if (pendingReload && !analystIsBusy()) reloadTable(pendingReload);
+    }, 0);
+  }
+  ['hidden.bs.modal', 'hidden.bs.offcanvas', 'focusout'].forEach(function(name) {
+    document.addEventListener(name, retryPendingReload);
+  });
+
+  function jobFinished(job) {
+    var message = job.label + ' is finished.';
+    if (analystIsBusy()) showFeedback(message + ' The table reloads when you are done here.', 'info');
+    reloadWhenFree(message);
   }
 
   document.addEventListener('zsazsa:job-completed', function(e) {
     var job = e.detail;
     if (TABLE_JOBS.indexOf(job.action) === -1 || followedJobs.has(job.id)) return;
-    if (analystIsBusy()) offerTableReload(job.label + ' finished. Reload the table to see the result.');
-    else reloadTable('Table updated: ' + job.label + ' finished.');
+    jobFinished(job);
   });
 
   /* ── Rows an AI summary is working on ──
@@ -1698,9 +1708,8 @@
   document.addEventListener('DOMContentLoaded', function() {
     heldJobs.forEach(function(jobId) {
       zsazsaFollowJob(jobId, function(job) {
-        if (!analystIsBusy()) { reloadTable('Table updated: ' + job.label + ' finished.'); return; }
         releaseRowActions(jobId);
-        offerTableReload(job.label + ' finished. Reload the table to see the result.');
+        jobFinished(job);
       }, function() { releaseRowActions(jobId); });
     });
   });
@@ -2123,8 +2132,21 @@
       sessionStorage.removeItem(RELOAD_NOTE);
     } catch (e) {}
     if (note) {
-      // A browser may restore checked inputs while reloading the table.
-      if (note.clearSelection) clearEventSelection();
+      // A browser may restore checked inputs while reloading the table, so
+      // the selection is set from the note either way.
+      clearEventSelection();
+      (note.selected || []).forEach(function(sel) {
+        var row = rowFor(sel.uuid, sel.sourceId);
+        var cb = row && row.querySelector('.event-row-cb');
+        if (cb) cb.checked = true;
+      });
+      updateCreateProductBtn();
+      (note.panels || []).forEach(function(id) {
+        var panel = document.getElementById(id);
+        if (!panel) return;
+        panel.classList.add('show');
+        document.querySelectorAll('[data-bs-target="#' + id + '"]').forEach(function(b) { b.setAttribute('aria-expanded', 'true'); });
+      });
       window.scrollTo(0, note.scroll || 0);
       showFeedback(note.message, note.category || 'success');
     }

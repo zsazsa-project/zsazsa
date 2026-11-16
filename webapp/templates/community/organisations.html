@@ -4,64 +4,112 @@
 {% block page_title %}Organisations{% endblock %}
 
 {% block content %}
+{% import "_charts.html" as charts with context %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-building"></i></span>
+    <p class="lead-text">MISP organisations known to zsazsa.</p>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ orgs | length }}</b><span>organisation{{ 's' if orgs | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ stakeholders_in_orgs }}</b><span>stakeholder{{ 's' if stakeholders_in_orgs != 1 }} in them</span></div>
+      <div class="record-kpi"><b>{{ users_in_orgs }}</b><span>zsazsa user{{ 's' if users_in_orgs != 1 }} in them</span></div>
+      <div class="record-kpi"><b>{{ countries }}</b><span>countr{{ 'y' if countries == 1 else 'ies' }}</span></div>
+      <div class="record-kpi{{ ' warn' if without_organisation }}"><b>{{ without_organisation }}</b><span>stakeholder{{ 's' if without_organisation != 1 }} without one</span></div>
+    </div>
+    <div class="hero-actions">
+      {% if orgs %}
+      <form method="post" action="{{ url_for('community.organisations_sync_all') }}" class="d-inline"
+            data-submit-confirm="Sync all local organisation details from MISP?">
+        <button class="btn btn-sm btn-hero"><i class="fas fa-rotate me-1"></i> Sync all from MISP</button>
+      </form>
+      {% endif %}
+      <a href="{{ misp_webapp_url }}/organisations/index" class="btn btn-sm btn-hero-ghost" target="_blank" rel="noopener">
+        <i class="fas fa-arrow-up-right-from-square me-1"></i> Organisations in MISP
+      </a>
+    </div>
+  </div>
+  {% if orgs %}
+  <div class="record-panel list-stats">
+    <div style="flex-grow:1.6;">{{ charts.mix('Stakeholders by organisation', by_stakeholders, {'none': 'var(--neutral-400)'}) }}</div>
+    <div>{{ charts.mix('Sector', by_sector, {'not set': 'var(--neutral-400)'}) }}</div>
+    <div>{{ charts.mix('Country', by_country, {'not set': 'var(--neutral-400)'}) }}</div>
+  </div>
+  {% endif %}
+</section>
+
 <div class="row g-4">
 
   <div class="col-lg-8">
-    <div class="card content-card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-building me-2"></i>Registered organisations</span>
-        {% if orgs %}
-        <form method="post" action="{{ url_for('community.organisations_sync_all') }}"
-              data-submit-confirm="Sync all local organisation details from MISP?">
-          <button class="btn btn-xs btn-outline-primary" title="Sync all from MISP">
-            <i class="fas fa-rotate me-1"></i>Sync all
-          </button>
-        </form>
-        {% endif %}
-      </div>
+    <div class="card content-card rise rise-1">
       <div class="card-body p-0">
         {% if orgs %}
-        <table class="table table-hover zsazsa-table mb-0">
+        <table class="table table-hover zsazsa-table community-table mb-0">
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Organisation</th>
               <th>Sector</th>
               <th>Country</th>
-              <th>UUID</th>
+              <th>In use by</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
           <tbody>
             {% for o in orgs %}
+            {% set n_stakeholders, n_users = stakeholder_counts[o.uuid], user_counts[o.uuid] %}
             <tr id="org-{{ o.uuid }}">
-              <td class="fw-semibold">{{ o.name }}</td>
-              <td class="text-muted">{{ o.sector or '-' }}</td>
-              <td class="text-muted">{{ o.country or '-' }}</td>
-              <td><code class="small">{{ o.uuid }}</code></td>
+              <td>
+                <div class="who">
+                  <span class="monogram" aria-hidden="true">{{ (o.name or '?')[:1] | upper }}</span>
+                  <div class="min-w-0">
+                    <span class="name">{{ o.name }}</span>
+                    <span class="sub mono">{{ o.uuid }}</span>
+                  </div>
+                </div>
+              </td>
+              <td>{{ o.sector or '-' }}</td>
+              <td>{{ o.country or '-' }}</td>
+              <td>
+                {% if n_stakeholders or n_users %}
+                <div class="use-chips">
+                  {% if n_stakeholders %}
+                  <a class="use-chip" href="{{ url_for('stakeholders.list', organization=o.uuid) }}" title="The stakeholders of {{ o.name }}">
+                    <i class="fas fa-people-group"></i>{{ n_stakeholders }} stakeholder{{ 's' if n_stakeholders != 1 }}
+                  </a>
+                  {% endif %}
+                  {% if n_users %}
+                  <a class="use-chip" href="{{ url_for('community.users') }}" title="The zsazsa users of {{ o.name }}">
+                    <i class="fas fa-user"></i>{{ n_users }} user{{ 's' if n_users != 1 }}
+                  </a>
+                  {% endif %}
+                </div>
+                {% else %}
+                <span class="use-none">Not in use</span>
+                {% endif %}
+              </td>
               <td class="text-end">
-                <div class="d-inline-flex gap-2">
-                  <a class="btn btn-xs btn-outline-secondary" title="View in MISP"
+                <div class="d-inline-flex flex-nowrap gap-1">
+                  <a class="btn btn-xs btn-outline-secondary" title="View in MISP" aria-label="View in MISP"
                      href="{{ misp_webapp_url }}/organisations/view/{{ o.uuid }}"
                      target="_blank" rel="noopener">
                     <i class="fas fa-eye"></i>
                   </a>
                   <form method="post" action="{{ url_for('community.organisations_sync', uuid=o.uuid) }}"
                         data-submit-confirm="Sync local details for {{ o.name }} from MISP?">
-                    <button class="btn btn-xs btn-outline-primary" title="Sync from MISP">
+                    <button class="btn btn-xs btn-outline-primary" title="Sync from MISP" aria-label="Sync from MISP">
                       <i class="fas fa-rotate"></i>
                     </button>
                   </form>
-                  {% if o.uuid in stakeholder_org_uuids or o.uuid in sso_org_uuids %}
-                  <span title="Cannot remove: in use by {{ 'a stakeholder' if o.uuid in stakeholder_org_uuids else 'a zsazsa user' }}"
+                  {% if n_stakeholders or n_users %}
+                  <span title="Cannot remove: in use by {{ 'a stakeholder' if n_stakeholders else 'a zsazsa user' }}"
                         style="cursor:not-allowed;" class="d-inline-block">
-                    <button class="btn btn-xs btn-outline-danger" disabled style="pointer-events:none;">
+                    <button class="btn btn-xs btn-outline-danger" disabled style="pointer-events:none;" aria-label="Remove">
                       <i class="fas fa-trash"></i>
                     </button>
                   </span>
                   {% else %}
                   <form method="post" action="{{ url_for('community.organisations_delete', uuid=o.uuid) }}"
                         data-submit-confirm="Remove organisation {{ o.name }}?">
-                    <button class="btn btn-xs btn-outline-danger" title="Remove">
+                    <button class="btn btn-xs btn-outline-danger" title="Remove" aria-label="Remove">
                       <i class="fas fa-trash"></i>
                     </button>
                   </form>
@@ -80,27 +128,27 @@
         {% endif %}
       </div>
     </div>
+    {% if orgs %}
+    <p class="small text-muted mt-2 mb-0"><i class="fas fa-circle-info me-1"></i>An organisation a stakeholder or a zsazsa user belongs to cannot be removed. Syncing takes its details from MISP again.</p>
+    {% endif %}
   </div>
 
   <div class="col-lg-4">
-    <div class="card content-card">
+    <div class="card content-card add-org rise rise-2">
       <div class="card-header"><i class="fas fa-plus me-2"></i>Add organisation</div>
       <div class="card-body">
-        <p class="small text-muted mb-3">
-          Enter the UUID of an organisation that exists in the MISP webapp store.
-          Its name, sector and country will be pulled automatically. Organisations that
-          cannot be found in MISP will be rejected.
-        </p>
+        <ol class="add-org-steps">
+          <li>Copy its UUID in the MISP webapp store, under Administration, Organisations.</li>
+          <li>Paste it here. zsazsa looks it up and takes its name, sector and country.</li>
+        </ol>
         <form method="post" action="{{ url_for('community.organisations_add') }}">
-          <div class="mb-3">
-            <label class="form-label required-label">Organisation UUID</label>
-            <input type="text" name="uuid" class="form-control font-monospace" required
-                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                   pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
-            <div class="form-text">Copy from the MISP webapp store: Administration &rarr; Organisations.</div>
-          </div>
+          <label class="form-label small fw-semibold required-label" for="org-uuid">Organisation UUID</label>
+          <input type="text" name="uuid" id="org-uuid" class="form-control font-monospace mb-2" required
+                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                 pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
+          <div class="form-text mb-3">One that MISP does not know is refused.</div>
           <button type="submit" class="btn btn-primary w-100">
-            <i class="fas fa-search me-1"></i> Look up and add
+            <i class="fas fa-magnifying-glass me-1"></i> Look up and add
           </button>
         </form>
       </div>

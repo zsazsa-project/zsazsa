@@ -358,10 +358,10 @@ class Pages(unittest.TestCase):
         self.assertTrue(page.select_one(f'a[href="/products/threat-landscape/{UUID}/entries"]'))
         self.assertIn("Events 1 in the analysis, 1 left out", page.get_text(" ", strip=True))
 
-    def test_edit_sits_in_the_actions_card_as_on_the_other_products(self):
+    def test_edit_sits_in_the_banner_as_on_the_other_products(self):
         page = self.page(f"/products/threat-landscape/{UUID}")
         [link] = page.select(f'a[href="/products/threat-landscape/{UUID}/edit"]')
-        self.assertEqual(link.find_parent(class_="card").select_one(".card-header").get_text(strip=True), "Actions")
+        self.assertIsNotNone(link.find_parent(class_="hero-actions"))
 
     def test_the_list_offers_the_usual_row_actions(self):
         page = self.page("/products/threat-landscape/")

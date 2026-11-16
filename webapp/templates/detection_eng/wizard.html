@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_product_actions.html" import draft_actions %}
-{% from "_macros.html" import product_identity, galaxy_multiselect %}
+{% from "_macros.html" import galaxy_multiselect, review_state_badge %}
 
 {% set title_text = ('Edit ' + der.der_id) if is_edit else 'New detection engineering request' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
@@ -16,11 +16,16 @@
 {% block head_extra %}{% include "_rulezet_assets.html" %}{% endblock %}
 
 {% block content %}
-{{ product_identity('fa-crosshairs', 'Detection engineering request',
-                    der.der_id if is_edit and der else '',
-                    source_events | length if source_events else 0,
-                    der.review_state if is_edit and der else 'draft',
-                    der.tlp if der and der.tlp else 'amber') }}
+{% set steps = [('request', 'Request'), ('techniques', 'Techniques and CVEs'), ('hypothesis', 'Hypothesis'), ('sources', 'Source events')] %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-crosshairs"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A detection engineering request asks for a rule: what to catch, from which logs, and how to know it works. Pick the techniques first; Rulezet then shows what already exists.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
 
 <form method="post" class="row g-4" id="der-form" data-unsaved-warning>
 
@@ -42,8 +47,8 @@
     </div>
     {% endif %}
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-clipboard-list me-2"></i>Request</div>
+    <div class="card content-card form-step mb-4" id="step-request" data-step='input[name="title"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Request</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
@@ -82,8 +87,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>MITRE ATT&amp;CK technique(s) and CVE(s)</div>
+    <div class="card content-card form-step mb-4" id="step-techniques" data-step='[name="technique"], input[name="cve_ids"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>MITRE ATT&amp;CK techniques and CVEs</div>
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
           <label class="form-label mb-0">Technique(s) this request targets</label>
@@ -123,8 +128,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-magnifying-glass-chart me-2"></i>Detection hypothesis</div>
+    <div class="card content-card form-step mb-4" id="step-hypothesis"
+         data-step='textarea[name="hypothesis"], textarea[name="log_sources"], textarea[name="expected_output"], textarea[name="test_cases"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Detection hypothesis</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Trigger / hypothesis</label>
@@ -149,8 +155,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-link me-2"></i>Source MISP events</div>
+    <div class="card content-card form-step mb-4" id="step-sources" data-step='input[name="source_event_url_item"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Source MISP events</div>
       <div class="card-body">
         {% set existing_source_uuids = (der.source_event_uuids if der and der.source_event_uuids else ([der.source_event_uuid] if der and der.source_event_uuid else [])) %}
         <label class="form-label">Triggering events (optional)</label>
@@ -168,26 +174,41 @@
   </div>
 
   <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-crosshairs"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ der.der_id if is_edit and der else 'New request' }}</span>
+            <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>Priority</dt><dd data-preview-select="priority" data-empty="Not set"></dd>
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+          <dt>Audience</dt><dd data-preview-choice="audience" data-required data-empty="None yet, one is needed to save"></dd>
+          <dt>State</dt><dd>{{ review_state_badge(der.review_state if is_edit and der else 'draft') }}</dd>
+          {% if source_events %}<dt>Sources</dt><dd>{{ source_events | length }} source event{{ 's' if source_events | length != 1 }}</dd>{% endif %}
+        </dl>
+        {{ draft_actions(url_for('detection_eng.review'), 'btn-der-save', 'btn-der-submit') }}
+      </div>
+    </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-paper-plane me-2"></i>Engineering request</div>
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label required-label">Audience
-            <span class="text-muted small" data-bs-toggle="tooltip"
-              title="Audience corresponds to the stakeholder role, e.g. Detection Engineering.">
-              <i class="fas fa-circle-info ms-1"></i>
-            </span>
-          </label>
+          <span class="form-label d-block required-label">Audience</span>
           {% set current_audiences = (der.audience or '').split(', ') if der else [] %}
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <div class="choice-group" aria-label="Audience">
             {% for a in audiences %}
-            <div class="form-check form-check-inline me-0">
-              <input class="form-check-input der-audience-cb" type="checkbox" name="audience" value="{{ a }}"
-                     id="der-aud-{{ loop.index }}"
-                     {{ 'checked' if a in current_audiences }}>
-              <label class="form-check-label small" for="der-aud-{{ loop.index }}">{{ a }}</label>
-            </div>
+            <input class="btn-check der-audience-cb" type="checkbox" name="audience" value="{{ a }}" id="der-aud-{{ loop.index }}"
+                   {{ 'checked' if a in current_audiences }}>
+            <label class="choice" for="der-aud-{{ loop.index }}">{{ a }}</label>
             {% endfor %}
           </div>
           <div id="der-audience-warn" class="text-danger small mt-1" style="display:none;">
@@ -196,16 +217,19 @@
           <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience, which is required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">TLP</label>
-          <select name="tlp" class="form-select">
+          <span class="form-label d-block">TLP</span>
+          {% set current_tlp = der.tlp if der and der.tlp in tlp_levels else 'amber' %}
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
             {% for t in tlp_levels %}
-            <option value="{{ t }}" {{ 'selected' if der and der.tlp == t else ('selected' if not der and t == 'amber') }}>TLP:{{ t | upper }}</option>
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="der-tlp-{{ loop.index }}"
+                   {{ 'checked' if t == current_tlp }}>
+            <label class="choice" for="der-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
             {% endfor %}
-          </select>
+          </div>
         </div>
         <div>
-          <label class="form-label">Linked PIR</label>
-          <select name="linked_pir_uuid" class="form-select">
+          <label class="form-label" for="der-linked-pir">Linked PIR</label>
+          <select name="linked_pir_uuid" id="der-linked-pir" class="form-select">
             <option value="">(none)</option>
             {% for p in pirs %}
             <option value="{{ p.uuid }}" {{ 'selected' if der and der.linked_pir_uuid == p.uuid }}>{{ p.pir_id }}: {{ p.question | truncate(50) }}</option>
@@ -215,21 +239,22 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-user me-2"></i>Attribution</div>
       <div class="card-body">
-        <label class="form-label">Author</label>
-        <input name="author" class="form-control" value="{{ der.author if der else '' }}">
+        <label class="form-label" for="der-author">Author</label>
+        <input name="author" id="der-author" class="form-control" value="{{ der.author if der else '' }}">
       </div>
     </div>
-
-    {{ draft_actions(url_for('detection_eng.review'), 'btn-der-save', 'btn-der-submit') }}
+    </div>
 
   </div>
 </form>
 {% endblock %}
 
 {% block scripts %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 <script>
 /* ── Detection lookup (Rulezet, by MITRE ATT&CK technique and by CVE) ── */
 zsazsaBindRulezetAttackLookup({

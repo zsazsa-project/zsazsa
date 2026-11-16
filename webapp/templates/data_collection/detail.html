@@ -4,12 +4,40 @@
 {% block page_title %}{{ event.info or 'Event' }}{% endblock %}
 
 {% block misp_object_url %}{{ misp_url }}{% endblock %}
-{% block topbar_actions %}
-<div class="dropdown">
-  <button class="btn btn-sm btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-    <i class="fas fa-plus me-1"></i>Create product
-  </button>
-  <ul class="dropdown-menu dropdown-menu-end">
+
+{% block content %}
+{% set workflow_badges = {'incomplete': 'bg-secondary', 'ongoing': 'bg-info text-dark', 'complete': 'bg-success'} %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-rss"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Data collection · {{ source_label }}
+            {% if standing.workflow %} · <span class="badge {{ workflow_badges.get(standing.workflow, 'bg-secondary') }}">{{ standing.workflow }}</span>{% endif %}</div>
+          <h1>{{ event.info or 'Event' }}</h1>
+          <div class="record-facts">
+            <div><span>Date</span>{{ event.date or '-' }}</div>
+            <div><span>Threat level</span>{{ event.threat_level or '-' }}</div>
+            <div><span>Analysis</span>{{ event.analysis or '-' }}</div>
+            <div><span>Owner org</span>{{ event.org or '-' }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="record-kpis">
+        {% set attribute_count = event.attribute_count or event.attributes | length %}
+        <div class="record-kpi"><b>{{ attribute_count }}</b><span>attribute{{ 's' if attribute_count != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ event.tags | length }}</b><span>tag{{ 's' if event.tags | length != 1 }}</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      {# Fixed, so the menu is not cut off by the banner's rounded edge. #}
+      <div class="dropdown d-inline-block">
+        <button class="btn btn-sm btn-hero dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                data-bs-popper-config='{"strategy":"fixed"}'>
+          <i class="fas fa-plus me-1"></i>Create product
+        </button>
+        <ul class="dropdown-menu">
     <li>
       <a class="dropdown-item" href="{{ url_for('flash_intel.wizard_new', source=(event.uuid ~ '|' ~ source_id) if source_id else event.uuid) }}">
         <i class="fas fa-bolt me-2"></i>Flash intel
@@ -36,10 +64,41 @@
       </a>
     </li>
   </ul>
-</div>
-{% endblock %}
+      </div>
+      <a href="{{ misp_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-hero-ghost"><i class="fas fa-arrow-up-right-from-square me-1"></i> Open in MISP</a>
+      {% if article_url %}
+      <a href="{{ article_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-hero-ghost"><i class="fas fa-link me-1"></i> Original article</a>
+      {% endif %}
+      {% if 'threat-landscape-report' in standing.queues %}
+      <form method="post" action="{{ url_for('threat_landscape.remove_from_queue') }}" class="d-inline"
+            data-submit-confirm="Remove this story from the threat landscape queue? It remains in Data collection.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="event" value="{{ event.uuid }}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-arrow-rotate-left me-1"></i> Remove from queue</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
 
-{% block content %}
+  {% if standing.tlp %}
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ standing.tlp | slug }}">TLP:{{ standing.tlp | upper }}</span>
+  </div>
+  {% endif %}
+
+  <div class="record-panel delivery" aria-label="Where the event stands">
+    <span class="chart-label">Where it stands</span>
+    <div class="leg done"><i></i>Collected<small>{{ source_label }}</small></div>
+    <div class="leg{{ ' done' if standing.workflow }}"><i></i>Workflow<small>{{ standing.workflow or 'not started' }}</small></div>
+    {% for queue in standing.queues %}
+    <div class="leg done"><i></i>{{ queue | replace('-', ' ') | capitalize }} queue<small>tagged</small></div>
+    {% else %}
+    <div class="leg"><i></i>Product queue<small>none</small></div>
+    {% endfor %}
+    <div class="leg{{ ' done' if standing.reliability }}"><i></i>Source reliability<small>{{ standing.reliability ~ ' (Admiralty)' if standing.reliability else '-' }}</small></div>
+  </div>
+</section>
 
 <div class="row g-4">
 
@@ -202,23 +261,6 @@
       <div class="card-header"><i class="fas fa-info-circle me-2"></i>Event details</div>
       <div class="card-body">
         <dl class="row small mb-0">
-          <dt class="col-5">Date</dt>
-          <dd class="col-7">{{ event.date or '-' }}</dd>
-
-          <dt class="col-5">Threat level</dt>
-          <dd class="col-7">
-            {% set lvl = event.threat_level %}
-            <span class="badge {{ 'text-bg-danger' if lvl == 'High' else ('text-bg-warning' if lvl == 'Medium' else ('text-bg-secondary' if lvl == 'Low' else 'text-bg-light text-dark')) }}">
-              {{ lvl }}
-            </span>
-          </dd>
-
-          <dt class="col-5">Analysis</dt>
-          <dd class="col-7">{{ event.analysis }}</dd>
-
-          <dt class="col-5">Owner org</dt>
-          <dd class="col-7">{{ event.org or '-' }}</dd>
-
           <dt class="col-5">Creator org</dt>
           <dd class="col-7">{{ event.orgc or '-' }}</dd>
 
@@ -228,10 +270,6 @@
           <dt class="col-5">UUID</dt>
           <dd class="col-7"><code style="font-size:.72rem;word-break:break-all;">{{ event.uuid }}</code></dd>
 
-          {% if event.attribute_count %}
-          <dt class="col-5">Attributes</dt>
-          <dd class="col-7">{{ event.attribute_count }}</dd>
-          {% endif %}
         </dl>
       </div>
     </div>
@@ -245,7 +283,7 @@
           {% for t in event.tags %}
           <a href="{{ url_for('data_collection.index') }}?tag={{ t.name | urlencode }}&source={{ source_id }}"
              class="badge text-decoration-none"
-             style="background:{{ t.colour }};color:var(--text-on-accent);font-size:.72rem;">
+             style="background:{{ t.colour }};color:{{ t.text }};font-size:.72rem;">
             {{ t.name }}
           </a>
           {% endfor %}
@@ -359,12 +397,23 @@
 .report-md-body a { color: var(--accent-blue); }
 .report-md-body hr { border-color: var(--neutral-300); margin: .8em 0; }
 .report-md-body > *:last-child { margin-bottom: 0; }
+.report-md-body.clamped { max-height: 26rem; overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 80%, transparent); }
 </style>
 <script>
 (function() {
   document.querySelectorAll('.report-md-body').forEach(function(el) {
     zsazsaRenderMarkdown(el, el.getAttribute('data-md'), '<em class="text-muted">No content.</em>');
     el.removeAttribute('data-md');
+    // A long article is shown in part, with a button to open the rest.
+    el.classList.add('clamped');
+    if (el.scrollHeight <= el.clientHeight + 40) { el.classList.remove('clamped'); return; }
+    var more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'btn btn-sm btn-outline-secondary mt-2';
+    more.textContent = 'Show the whole report';
+    more.addEventListener('click', function() { el.classList.remove('clamped'); more.remove(); });
+    el.after(more);
   });
 })();
 (function() {

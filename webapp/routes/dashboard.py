@@ -118,9 +118,11 @@ def widgets():
         active_pirs = active_girs = []
 
     try:
-        pending_email_sources = len(misp_store.list_pending_newsletters())
+        pending = misp_store.list_pending_newsletters()
     except Exception:
-        pending_email_sources = 0
+        pending = []
+    pending_email_sources = len(pending)
+    oldest_email_source = min((n["date"] for n in pending if n.get("date")), default="")
 
     # Awaiting feedback and the products to review read the alerts and the
     # advisories, and the threat actor chart the alerts, so each is fetched once.
@@ -180,6 +182,7 @@ def widgets():
         priority_counts=ordered_counts((p.priority for p in active_pirs), MOSCOW_PRIORITIES),
         cycle_counts=ordered_counts((g.review_cycle for g in active_girs), REVIEW_CYCLES),
         pending_email_sources=pending_email_sources,
+        oldest_email_source=oldest_email_source,
         pending_feedback=pending_feedback,
         to_review=to_review,
         actor_type_products=actor_type_products,

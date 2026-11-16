@@ -38,7 +38,9 @@
    query argument, keeping the others, and ``selected`` is the name it is
    filtered on now: its link takes the filter off again, and the other names
    fade. Unspecified has nothing to filter on. Import with context for this. #}
-{% macro mix(label, counts, colors={}, param=None, selected='') %}
+{# ``top`` keeps a long legend to that many entries and says how many more
+   there are; the bar still has every one, each with its name as a tooltip. #}
+{% macro mix(label, counts, colors={}, param=None, selected='', top=None) %}
 <div class="chart-label mb-1">{{ label }}</div>
 {% if counts %}
 <div class="chart-segbar">
@@ -55,6 +57,7 @@
 </div>
 <div class="chart-legend mt-1">
   {% for name, n in counts %}
+  {% if not top or loop.index <= top or name == selected %}
   {% set color = colors.get(name) or palette[loop.index0 % palette | length] %}
   {% set faded = selected and name != selected %}
   {% set legend %}<span class="chart-swatch" style="background:{{ color }};"></span>{{ name }} <strong>{{ n }}</strong>{% endset %}
@@ -64,7 +67,12 @@
   {% else %}
   <span class="{{ 'faded' if faded }}">{{ legend }}</span>
   {% endif %}
+  {% endif %}
   {% endfor %}
+  {% if top and counts | length > top %}
+  {% set rest = counts[top:] | rejectattr(0, 'equalto', selected) | list %}
+  {% if rest %}<span class="text-muted" title="{% for name, n in rest %}{{ name }}: {{ n }}{{ ', ' if not loop.last }}{% endfor %}">+{{ rest | length }} more</span>{% endif %}
+  {% endif %}
 </div>
 {% else %}
 <span class="text-muted small">-</span>

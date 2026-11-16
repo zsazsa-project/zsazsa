@@ -1,4 +1,3 @@
-import re
 from collections import Counter
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -7,12 +6,9 @@ from notifier import dispatcher
 from webapp import audit, misp_session, misp_store, org_store
 from webapp.models import cti_products, STAKEHOLDER_ROLES, TLP_LEVELS, subscribed_products
 from webapp.routes.stats import FOCUS_POINT_CATEGORIES, FOCUS_SETTINGS, focus_point_of, focus_points
-from webapp.utils import matching, product_detail_url, product_type_label
+from webapp.utils import matching, product_detail_url, product_type_label, record_title
 
 bp = Blueprint("stakeholders", __name__)
-
-# What zsazsa puts before the title of each record it files in MISP.
-_INFO_PREFIX = re.compile(r"^\[zsazsa:[^\]]*\]\s*")
 
 
 def _scope_and_focus(owned, listed):
@@ -254,8 +250,8 @@ def list_stakeholders():
         subscription_counts=Counter(p for s in by_product for p in products[s.uuid]).most_common(),
         unsubscribed=sum(1 for s in by_product if not products[s.uuid]),
         owned_records=misp_store.records_owned_by_stakeholders(pirs, girs),
-        requirement_counts={s.uuid: (misp_store.active_requirement_counts(s, pirs),
-                                     misp_store.active_requirement_counts(s, girs)) for s in stakeholders},
+        requirement_counts={s.uuid: (misp_store.requirement_counts(s, pirs),
+                                     misp_store.requirement_counts(s, girs)) for s in stakeholders},
         org_map=org_map,
         org_options=org_options,
         role_options=role_options,
@@ -273,7 +269,8 @@ def matrix():
     stakeholders = [_place_on_matrix(s) for s in misp_store.list_stakeholders()]
     _spread_overlapping(stakeholders)
     by_quadrant = {key: [] for key in QUADRANTS}
-    for s in stakeholders:
+    # Most influence and interest first, as they are plotted from the top right.
+    for s in sorted(stakeholders, key=lambda s: -(s.influence + s.interest)):
         by_quadrant[s.quadrant_key].append(s)
     return render_template("stakeholders/matrix.html", stakeholders=stakeholders, by_quadrant=by_quadrant, quadrants=QUADRANTS)
 
@@ -312,7 +309,7 @@ def detail(id):
     for ev in recent_products:
         ev.app_url = product_detail_url(getattr(ev, "product_type", ""), getattr(ev, "uuid", ""), fallback_url=getattr(ev, "misp_url", ""))
         # The product type has its own badge in front of the title.
-        ev.title = _INFO_PREFIX.sub("", ev.info or "")
+        ev.title = record_title(ev.info)
         ev.type_label = product_type_label(getattr(ev, "product_type", ""))
     scope_items, focus_groups = _scope_and_focus(owned_pirs + owned_girs, distributed_pirs + distributed_girs)
     return render_template(

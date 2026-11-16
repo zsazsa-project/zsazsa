@@ -10,6 +10,102 @@
   .action-panel-title { white-space: nowrap; }
   .action-panel-body { padding: .75rem .9rem; }
 
+  /* The card has the look of the stakeholder banner: its colour and corner
+     circle, white buttons on it, a white panel for the sources. It does not
+     clip what sticks out of it, so the circle is clipped in a layer of its own;
+     the parts are positioned to come over it, without a z-index, which would
+     make a part a layer that the next one covers the date menu with. */
+  .collection-panel { position: relative; z-index: 2; border: 0; border-radius: 12px; color: #fff;
+    background: var(--brand-gradient); box-shadow: var(--card-shadow); }
+  .collection-panel > :not(.panel-decor) { position: relative; }
+  .collection-panel .panel-decor { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+  .collection-panel .panel-decor::after { content: ""; position: absolute; right: -50px; top: -50px; width: 160px; height: 160px;
+    border-radius: 50%; background: var(--overlay-white-15); }
+  .collection-panel .action-panel-head { flex-wrap: wrap; padding: .5rem 1.1rem; border-bottom-color: rgba(255,255,255,.22); }
+  .collection-panel .action-panel-body { padding: .6rem 1.1rem .7rem; }
+  .collection-panel .action-panel-title { color: #fff; opacity: .9; letter-spacing: .12em; }
+  .collection-panel .hero-icon { width: 1.9rem; height: 1.9rem; border-radius: 8px; font-size: .85rem; }
+  .collection-panel .panel-count { display: inline-flex; align-items: baseline; gap: .3rem; white-space: nowrap;
+    font-variant-numeric: tabular-nums; }
+  .collection-panel .panel-count b { font-size: 1.2rem; }
+  .collection-panel .panel-count span { display: inline; margin-top: 0; font-size: .72rem; }
+  .collection-panel #clear-filters-btn { color: #fff; font-size: .76rem; white-space: nowrap; }
+  .collection-panel .panel-sep { font-size: .7rem; opacity: .6; user-select: none; }
+  .collection-panel #refresh-info,
+  .collection-panel .action-pill-refresh-meta { color: rgba(255,255,255,.85); }
+  .collection-panel .toolbar-row + .toolbar-row { border-top-color: rgba(255,255,255,.22); }
+  .collection-panel :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .collection-panel .dropdown-menu :focus-visible,
+  .collection-panel .collection-sources :focus-visible { outline-color: var(--accent-blue); }
+
+  /* Buttons as the banner's ghost buttons, one in use filled white. */
+  .collection-panel .action-pill,
+  .collection-panel .action-chip,
+  .collection-panel .toolbar-row > .btn-outline-secondary,
+  .collection-panel .toolbar-row > .dropdown > .btn-outline-secondary,
+  .collection-panel .hide-rej-btn.is-hiding {
+    background: rgba(255,255,255,.14);
+    border: 1px solid rgba(255,255,255,.45);
+    color: #fff;
+    font-size: .76rem;
+    font-weight: 600;
+  }
+  .collection-panel .action-pill:hover,
+  .collection-panel .action-chip:hover,
+  .collection-panel .toolbar-row > .btn-outline-secondary:hover,
+  .collection-panel .toolbar-row > .dropdown > .btn-outline-secondary:hover,
+  .collection-panel .hide-rej-btn.is-hiding:hover {
+    background: rgba(255,255,255,.24);
+    border-color: rgba(255,255,255,.65);
+    color: #fff;
+    box-shadow: none;
+  }
+  /* A filter button is white while its panel is open or one of its filters is
+     set, and only goes back to the card's colour when neither is so. The
+     filtered and open one is named too, as is each of them under the mouse:
+     the panel toggles' own rule further down would otherwise give it a dark
+     blue under navy text, and the hover above the card's colour again. */
+  .collection-panel .alt4-panel-toggle[aria-expanded="true"],
+  .collection-panel .alt4-panel-toggle.has-filter,
+  .collection-panel .alt4-panel-toggle.has-filter[aria-expanded="true"],
+  .collection-panel .toolbar-row > .alt4-panel-toggle[aria-expanded="true"]:hover,
+  .collection-panel .toolbar-row > .alt4-panel-toggle.has-filter:hover,
+  .collection-panel .toolbar-row > .dropdown > .btn.show,
+  .collection-panel .toolbar-row > .dropdown > .btn.show:hover,
+  .collection-panel .toolbar-row > .dropdown > .btn-primary,
+  .collection-panel .toolbar-row > .dropdown > .btn-primary:hover,
+  .collection-panel .hide-rej-btn.is-showing,
+  .collection-panel .action-pill-preview-active {
+    background: #fff;
+    border: 1px solid #fff;
+    color: var(--misp-navy);
+    font-size: .76rem;
+    font-weight: 600;
+  }
+  /* The green check on a button with a filter set, open or not. */
+  .collection-panel .filter-check { display: none; margin-left: .35rem; color: var(--accent-green); font-size: .62rem; }
+  .collection-panel .has-filter .filter-check { display: inline-block; }
+  .collection-panel .action-chip-icon { width: 20px; height: 20px; border-radius: 6px; font-size: .65rem; }
+  /* White and coloured text that the white button or the card's colour would swallow. */
+  .collection-panel .alt4-panel-toggle .badge { background: var(--misp-navy) !important; color: #fff; }
+  .collection-panel #bulk-reject-result { padding: .2rem .55rem; border-radius: .4rem; background: #fff; }
+  .collection-panel .action-pill-danger { background: #fff; border-color: #fff; color: var(--danger-red); }
+  .collection-panel .action-pill-danger:hover { background: var(--tag-exclude-bg); border-color: #fff; color: var(--tag-exclude-fg); }
+
+  /* The sources: a panel of chips, as the product subscriptions on the
+     stakeholder banner, through which the card's colour shows faintly. A
+     source that is on is tinted in its colour. */
+  .collection-panel .toolbar-row.collection-sources { margin-top: .6rem; padding: .45rem .6rem; border-top: 0; border-radius: 10px;
+    background: color-mix(in srgb, var(--card-bg) 80%, transparent); color: var(--text-primary); }
+  .collection-panel .chip-sources { gap: .3rem; }
+  .collection-panel .chip-sources .source-toggle { padding: .12rem .5rem .12rem .2rem; border-radius: 999px; background: transparent;
+    font-size: .72rem; opacity: .7; }
+  .collection-panel .chip-sources .source-toggle-on { opacity: 1; border-color: var(--tile-accent);
+    background: color-mix(in srgb, var(--tile-accent) 12%, var(--card-bg)); }
+  .collection-panel .chip-sources .source-toggle-icon { width: 20px; height: 20px; border-radius: 50%; font-size: .6rem; }
+  .collection-panel .chip-sources .source-toggle-err { border-color: var(--source-toggle-err-border); }
+  .collection-panel .chip-sources .source-toggle-err.source-toggle-on { background: var(--source-toggle-err-bg); }
+
   button.action-chip { font: inherit; text-align: left; }
 
   /* One action, on one line: coloured icon tile plus label. */

@@ -10,52 +10,119 @@
 {% endblock %}
 
 {% block content %}
+{# How each newsletter's parser reads it, under its name. A parser added later
+   gets the envelope and no note. #}
+{% set parsers = {'IT-ISAC Open Source News': ('fa-newspaper', 'Articles in sections by topic'),
+                  'ETDA CTI Robot': ('fa-robot', 'Graded critical, urgent and important')} %}
+{% set steps = [('newsletter', 'Newsletter'), ('mail', 'E-mail')] %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-envelope-open-text"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">Paste a newsletter e-mail to pick the articles worth collecting. Nothing is collected until you send them to the scraper.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
+
 <form method="post" class="row g-4" data-unsaved-warning>
   <input type="hidden" name="action" value="parse">
 
   <div class="col-lg-8">
-    <div class="card content-card">
-      <div class="card-header"><i class="fas fa-envelope-open-text me-2"></i>Paste newsletter e-mail</div>
+    <div class="card content-card form-step mb-4" id="step-newsletter" data-step='input[name="source"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Newsletter</div>
       <div class="card-body">
-
-        <div class="mb-3">
-          <label class="form-label required-label">Newsletter</label>
-          <select name="source" class="form-select" required>
-            <option value="">- select newsletter -</option>
-            {% for s in sources %}
-            <option value="{{ s | e }}">{{ s }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">Each newsletter has its own parser; more can be added later.</div>
+        <span class="form-label d-block required-label">Newsletter</span>
+        <div class="product-tiles source-tiles mb-1">
+          {% for s in sources %}
+          {% set icon, note = parsers.get(s, ('fa-envelope', '')) %}
+          <label class="product-tile" for="newsletter-{{ loop.index }}">
+            <span class="tile-icon" aria-hidden="true"><i class="fas {{ icon }} fa-fw"></i></span>
+            <span><span class="d-block">{{ s }}</span>{% if note %}<span class="small text-muted fw-normal">{{ note }}</span>{% endif %}</span>
+            <input class="form-check-input" type="radio" name="source" value="{{ s | e }}" id="newsletter-{{ loop.index }}" required>
+          </label>
+          {% endfor %}
         </div>
+        <div class="form-text">Each newsletter has a parser of its own. A graded newsletter comes back with its critical and urgent articles ticked.</div>
+      </div>
+    </div>
 
-        <div class="mb-3">
-          <label class="form-label required-label">E-mail content</label>
-          <textarea name="raw" class="form-control font-monospace" rows="18" required
-                    placeholder="Paste the full newsletter e-mail here..."></textarea>
+    <div class="card content-card form-step mb-4" id="step-mail" data-step='textarea[name="raw"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>E-mail</div>
+      <div class="card-body">
+        <div class="paste-zone">
+          <div class="paste-hint" aria-hidden="true"><span><i class="fas fa-paste me-1"></i>The whole e-mail, headers and all</span><span id="paste-lines">0 lines</span></div>
+          <textarea name="raw" id="newsletter-raw" class="form-control font-monospace" rows="16" required aria-label="E-mail content"></textarea>
         </div>
-
-        <button type="submit" class="btn btn-primary">
-          <i class="fas fa-list-check me-1"></i> Parse and review
-        </button>
+        <div class="form-text">A forwarded mail works too; the forwarding header is skipped.</div>
       </div>
     </div>
   </div>
 
   <div class="col-lg-4">
-    <div class="card content-card">
-      <div class="card-header"><i class="fas fa-circle-info me-2"></i>How it works</div>
-      <div class="card-body">
-        <p class="text-muted small mb-2">
-          Paste the e-mail, review the extracted articles, and choose which ones to collect.
-          Critical and urgent items are pre-selected to keep noise down.
-        </p>
-        <p class="text-muted small mb-0">
-          Selected articles will be sent to the misp-scraper queue, which fetches each article and
-          creates the MISP event. Queue push is not enabled in this preview.
-        </p>
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">Ready to parse</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <dl class="form-facts">
+          <dt>Newsletter</dt><dd data-preview-choice="source" data-required data-empty="None picked yet"></dd>
+          <dt>E-mail</dt><dd id="paste-summary" class="text-muted">Nothing pasted yet</dd>
+        </dl>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1"><i class="fas fa-list-check me-1"></i> Parse and review</button>
+          <a href="{{ url_for('data_collection.index') }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
       </div>
+    </div>
+
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-route me-2"></i>What happens next</div>
+      <div class="card-body">
+        <ol class="pipeline">
+          <li class="here"><span class="dot" aria-hidden="true"><i class="fas fa-paste"></i></span><div><b>Paste</b><span>The parser splits the mail into articles.</span></div></li>
+          <li><span class="dot" aria-hidden="true"><i class="fas fa-list-check"></i></span><div><b>Review</b><span>Tick the articles worth collecting.</span></div></li>
+          <li><span class="dot" aria-hidden="true"><i class="fas fa-spider"></i></span><div><b>Scraper queue</b><span>Each article is fetched from its public address.</span></div></li>
+          <li><span class="dot" aria-hidden="true"><i class="fas fa-database"></i></span><div><b>MISP event</b><span>One per article, under Data collection.</span></div></li>
+        </ol>
+      </div>
+    </div>
+
+    {% if pending %}
+    {% set oldest = pending | map(attribute='date') | select | min %}
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-inbox me-2"></i>Already in the mailbox</div>
+      <div class="card-body">
+        <p class="small mb-2"><b>{{ pending | length }}</b> newsletter{{ 's' if pending | length != 1 }} the IMAP collector archived
+          {{ 'are' if pending | length != 1 else 'is' }} waiting for review{% if oldest %}, the oldest since {{ oldest }}{% endif %}.</p>
+        <a href="{{ url_for('data_collection.newsletter_pending') }}" class="btn btn-sm btn-outline-primary w-100">
+          <i class="fas fa-envelope-open-text me-1"></i> Review the email sources
+        </a>
+      </div>
+    </div>
+    {% endif %}
     </div>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
+<script>
+/* How much has been pasted, beside the box and in the card with Parse. */
+(function() {
+  var raw = document.getElementById('newsletter-raw');
+  var lines = document.getElementById('paste-lines');
+  var summary = document.getElementById('paste-summary');
+  function show() {
+    var text = raw.value.trim();
+    var n = text ? text.split('\n').length : 0;
+    lines.textContent = n + ' line' + (n === 1 ? '' : 's');
+    summary.textContent = n ? n + ' line' + (n === 1 ? '' : 's') + ' pasted' : 'Nothing pasted yet';
+    summary.classList.toggle('text-muted', !n);
+  }
+  raw.addEventListener('input', show);
+  show();
+})();
+</script>
 {% endblock %}

@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from bs4 import BeautifulSoup
-from flask import render_template, render_template_string, url_for
+from flask import render_template, url_for
 
 import config
 from core import asset_inventory
@@ -61,15 +61,6 @@ class Flows(unittest.TestCase):
                 page = self.render(template, **FLOWS[template])
                 self.assertEqual([s.get_text() for s in page.select(".flow-step .flow-head small")],
                                  [f"Step {n}" for n in range(1, steps + 1)])
-
-    def test_the_line_in_the_filter_box_opens_the_panel(self):
-        with self.app.test_request_context("/"):
-            line = BeautifulSoup(render_template_string(
-                '{% from "_flow_macros.html" import flow_help %}{{ flow_help("How a daily briefing is made") }}'),
-                "html.parser").button
-        panel = self.render("daily_briefing/_flow.html", **FLOWS["daily_briefing/_flow.html"]).select_one(".collapse")
-        self.assertEqual(line["data-bs-target"], f"#{panel['id']}")
-        self.assertEqual(line.get_text(strip=True), "How a daily briefing is made")
 
     def test_flowintel_is_only_shown_where_a_case_is_made(self):
         """Publishing an alert or an advisory opens a Flowintel case; the other

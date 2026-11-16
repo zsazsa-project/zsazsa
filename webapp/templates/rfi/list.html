@@ -46,12 +46,9 @@
   {% if rfi.status == 'New' %}{% set kpi.triage = kpi.triage + 1 %}{% endif %}
 {% endfor %}
 
-<section class="record-hero rise mb-4">
+<section class="record-hero record-hero-compact rise mb-3">
   <div class="hero-main">
-    <div class="d-flex align-items-center gap-3">
-      <span class="hero-icon" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
-      <p class="lead-text">One-off questions from stakeholders, each with an owner and a date it is due by.</p>
-    </div>
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-circle-question"></i></span>
     <div class="record-kpis">
       <div class="record-kpi"><b>{{ rfis | length }}</b><span>RFI{{ 's' if rfis | length != 1 }}{{ ' open' if hide_closed }}{{ ', ' ~ closed_count ~ ' closed not shown' if hide_closed and closed_count }}</span></div>
       <div class="record-kpi{{ ' warn' if kpi.late }}"><b>{{ kpi.late }}</b><span>past the due date</span></div>

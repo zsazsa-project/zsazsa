@@ -9,6 +9,8 @@ Look for:
 - required content that is missing, for example an empty recommended action on a product that reports active exploitation
 - recommendations or indicators too vague to act on, where the source held enough detail to be specific
 
+The draft opens with the product's own record details, which zsazsa fills in and no source mentions: its ID (such as FIA-10486 or VEA-10218), its date and time, its classification or TLP, its author, its audience and the feedback deadline. They describe the product, not the threat. Never report them, and never treat the product's own date as a date the draft claims for an event.
+
 On a vulnerability advisory, the CVSS score, the CWE and the affected version ranges are usually taken from a vulnerability lookup rather than from the source event you are given. Do not report those as unsupported claims. Put them under "verify_manually" instead, so the analyst confirms them against the vendor advisory.
 
 Return a JSON object with exactly these fields. Return ONLY valid JSON with no additional text.

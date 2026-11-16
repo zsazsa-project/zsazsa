@@ -20,12 +20,9 @@
   {% endif %}
 {% endfor %}
 
-<section class="record-hero rise mb-4">
+<section class="record-hero record-hero-compact rise mb-3">
   <div class="hero-main">
-    <div class="d-flex align-items-center gap-3">
-      <span class="hero-icon" aria-hidden="true"><i class="fas fa-list-check"></i></span>
-      <p class="lead-text">A GIR is a standing topic, monitored continuously and reviewed on a fixed cycle.</p>
-    </div>
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-list-check"></i></span>
     <div class="record-kpis">
       <div class="record-kpi"><b>{{ girs | length }}</b><span>GIR{{ 's' if girs | length != 1 }}{{ ', ' ~ retired_count ~ ' retired not shown' if retired_count and not show_retired }}</span></div>
       <div class="record-kpi"><b>{{ kpi.active }}</b><span>active</span></div>

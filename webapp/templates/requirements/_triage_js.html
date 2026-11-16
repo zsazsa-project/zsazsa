@@ -4,6 +4,7 @@
    the PIR merge option carries data-needs-merge="1". #}
 <style>
   .triage-pending-row > td { background-color: var(--triage-pending-bg, #fff7e6); }
+  .triage-pending-row { scroll-margin-top: 5rem; }
 </style>
 <script>
 (function() {
@@ -28,6 +29,15 @@
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   });
+
+  // Arriving from a record's page through "Triage it on the list", with the
+  // record in ?triage=: open its triage form and scroll to its row.
+  var arrived = new URLSearchParams(location.search).get('triage');
+  var arrivedToggle = arrived && document.querySelector('tr[data-req-id="' + CSS.escape(arrived) + '"] .triage-toggle');
+  if (arrivedToggle) {
+    arrivedToggle.click();
+    arrivedToggle.closest('tr').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   function showDecisionInputs(form) {
     var sel = form.querySelector('.triage-decision:checked');

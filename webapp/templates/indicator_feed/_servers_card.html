@@ -1,11 +1,9 @@
 {# Which MISP servers the query is put to. It sits beside the feed's own
    fields rather than in the query card, which is why it carries the marker the
    script watches: it is part of the query wherever it is drawn. #}
-<div class="card content-card mb-3" data-query-part>
+<div class="card content-card form-step mb-4" id="step-servers" data-step='input[name="servers"]' data-query-part>
   <div class="card-header d-flex align-items-center justify-content-between">
-    <span>
-      <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" style="height:15px;width:auto;vertical-align:middle;margin-right:6px;opacity:.8;">MISP servers
-    </span>
+    <span class="d-flex align-items-center"><span class="step-num">2</span>MISP servers</span>
     {# The organisation and tag pick-lists in the query are built from these
        servers, so the refresh that rebuilds them belongs here. A nested
        <form> would be invalid, so the button posts the page form to the

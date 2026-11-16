@@ -11,11 +11,20 @@
 {% block page_title %}Collection sources{% endblock %}
 
 {% block content %}
+<div class="settings-look">
+
+<nav class="nav settings-tabs" data-section-nav aria-label="Sections of this page">
+  <a class="nav-link" href="#sources-scraper"><img src="{{ url_for('static', filename='misp-logo.png') }}" alt="" style="height:14px;width:auto;">MISP scraper</a>
+  <a class="nav-link" href="#sources-scraper-redis"><i class="fas fa-envelope-open-text"></i>Manual sources for the scraper</a>
+  <a class="nav-link" href="#sources-misp-servers"><i class="fas fa-server"></i>MISP servers</a>
+  <a class="nav-link" href="#sources-manual"><i class="fas fa-hand"></i>Manual sources</a>
+  <a class="nav-link" href="#sources-imap"><i class="fas fa-inbox"></i>IMAP mailboxes</a>
+</nav>
 
 {# ── MISP scraper ─────────────────────────────────────────────────────── #}
 <form method="post" action="{{ url_for('config_page.save_scraper_config') }}" data-dirty-scope>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="card content-card mb-4">
+  <div class="card content-card mb-4 settings-section" id="sources-scraper">
     <div class="card-header d-flex align-items-center justify-content-between">
       <span>
         <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" style="height:15px;width:auto;vertical-align:middle;margin-right:6px;opacity:.8;">MISP scraper (collection pipeline)
@@ -108,7 +117,7 @@
 {# ── Manual sources pushing to scraper ────────────────────────────────── #}
 <form method="post" action="{{ url_for('config_page.save_scraper_redis_config') }}" data-dirty-scope>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="card content-card mb-4">
+  <div class="card content-card mb-4 settings-section" id="sources-scraper-redis">
     <div class="card-header d-flex align-items-center justify-content-between">
       <span><i class="fas fa-envelope-open-text me-2"></i>Manual sources pushing to scraper</span>
       <div class="d-flex align-items-center gap-2">
@@ -162,7 +171,7 @@
 </form>
 
 {# ── Other MISP servers ───────────────────────────────────────────────── #}
-<div class="card content-card mb-4">
+<div class="card content-card mb-4 settings-section" id="sources-misp-servers">
     <div class="card-header d-flex align-items-center justify-content-between">
       <span>
         <img src="{{ url_for('static', filename='misp-logo.png') }}" alt="MISP" style="height:15px;width:auto;vertical-align:middle;margin-right:6px;opacity:.8;">Other MISP servers
@@ -192,7 +201,7 @@
             <span class="server-enabled-badge badge source-disabled" style="font-size:.7rem;"><i class="fas fa-circle-pause me-1"></i>Disabled</span>
             {% endif %}
             <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
-            <button type="button" class="btn btn-sm btn-outline-danger delete-misp-server ms-1" title="Delete">
+            <button type="button" class="btn btn-xs btn-outline-danger delete-misp-server ms-1" title="Delete">
               <i class="fas fa-trash"></i>
             </button>
           </div>
@@ -318,7 +327,7 @@
                   style="font-size:.78rem;max-width:18rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
             <span class="server-enabled-badge badge source-enabled" style="font-size:.7rem;"><i class="fas fa-circle-check me-1"></i>Enabled</span>
             <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
-            <button type="button" class="btn btn-sm btn-outline-danger delete-misp-server ms-1" title="Delete">
+            <button type="button" class="btn btn-xs btn-outline-danger delete-misp-server ms-1" title="Delete">
               <i class="fas fa-trash"></i>
             </button>
           </div>
@@ -432,7 +441,7 @@
   </div>
 
 {# ── Manual sources ───────────────────────────────────────────────────── #}
-<div class="card content-card mb-4">
+<div class="card content-card mb-4 settings-section" id="sources-manual">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span><i class="fas fa-hand me-2"></i>Manual sources</span>
     <button type="button" class="btn btn-sm btn-outline-primary" id="add-manual-source">
@@ -450,7 +459,7 @@
         <div class="manual-source-header d-flex align-items-center px-3 py-2 gap-2" style="cursor:pointer;user-select:none;">
           <i class="fas fa-hand text-muted" style="font-size:.85rem;"></i>
           <span class="fw-semibold flex-grow-1">{{ src.name }}</span>
-          {% if src.source_reliability %}<span class="badge text-bg-light font-monospace" style="font-size:.7rem;">{{ src.source_reliability }}</span>{% endif %}
+          {% if src.source_reliability %}<span class="rel-chip rel-{{ src.source_reliability }}" title="{{ dict(admiralty_options)[src.source_reliability] }}">{{ src.source_reliability }}</span>{% endif %}
           <span class="badge manual-enabled-badge {{ 'source-enabled' if src.enabled else 'source-disabled' }}" style="font-size:.7rem;">
             <i class="fas {{ 'fa-circle-check' if src.enabled else 'fa-circle-pause' }} me-1"></i>{{ 'Enabled' if src.enabled else 'Disabled' }}
           </span>
@@ -458,7 +467,7 @@
           <form method="post" action="{{ url_for('collection_sources.delete', id=src.uuid) }}" class="d-inline ms-1"
                 data-submit-confirm="Delete source {{ src.name }}?">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
+            <button class="btn btn-xs btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
           </form>
         </div>
         <div class="collapse" id="manual-body-{{ loop.index }}">
@@ -493,7 +502,7 @@
           <i class="fas fa-hand text-muted" style="font-size:.85rem;"></i>
           <span class="manual-name-display fw-semibold flex-grow-1 fst-italic text-muted">New source</span>
           <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
-          <button type="button" class="btn btn-sm btn-outline-danger remove-manual-row ms-1" title="Discard"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-xs btn-outline-danger remove-manual-row ms-1" title="Discard"><i class="fas fa-trash"></i></button>
         </div>
         <div class="collapse show" id="manual-body-new">
           <div class="border-top px-3 pt-3 pb-2">
@@ -512,7 +521,7 @@
 </div>
 
 {# ── IMAP mailboxes ───────────────────────────────────────────────────── #}
-<div class="card content-card mb-4">
+<div class="card content-card mb-4 settings-section" id="sources-imap">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span><i class="fas fa-envelope-open-text me-2"></i>IMAP mailboxes</span>
     <button type="button" class="btn btn-sm btn-outline-primary" id="add-imap-mailbox">
@@ -536,7 +545,7 @@
           <span class="im-name-display fw-semibold flex-grow-1">{{ m.name }}</span>
           <span class="badge {{ 'source-enabled' if m.enabled else 'source-disabled' }} im-enabled-badge" style="font-size:.7rem;">{{ 'Enabled' if m.enabled else 'Disabled' }}</span>
           <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
-          <button type="button" class="btn btn-sm btn-outline-danger delete-im-btn ms-1" title="Delete"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-xs btn-outline-danger delete-im-btn ms-1" title="Delete"><i class="fas fa-trash"></i></button>
         </div>
         <div class="im-form collapse" id="imap-body-{{ loop.index }}">
           <div class="border-top px-3 pt-3 pb-2">
@@ -570,7 +579,7 @@
           <span class="im-name-display fw-semibold flex-grow-1 fst-italic text-muted">New mailbox</span>
           <span class="badge source-enabled im-enabled-badge" style="font-size:.7rem;">Enabled</span>
           <i class="fas fa-chevron-down collapse-chevron text-muted ms-1" style="font-size:.75rem;transition:transform .2s;"></i>
-          <button type="button" class="btn btn-sm btn-outline-danger delete-im-btn ms-1" title="Delete"><i class="fas fa-trash"></i></button>
+          <button type="button" class="btn btn-xs btn-outline-danger delete-im-btn ms-1" title="Delete"><i class="fas fa-trash"></i></button>
         </div>
         <div class="im-form collapse show" id="imap-body-tpl">
           <div class="border-top px-3 pt-3 pb-2">
@@ -599,6 +608,7 @@
   </div>
 </div>
 
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -1423,4 +1433,5 @@
   });
 })();
 </script>
+{% include "_section_nav_js.html" %}
 {% endblock %}

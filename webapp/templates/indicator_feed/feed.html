@@ -15,6 +15,7 @@
 {% endblock %}
 
 {% block content %}
+{% set used_servers = filters.servers or (servers | selectattr('usable') | map(attribute='id') | list) %}
 <form method="get" id="indicator-form" data-results-url="{{ results_url }}"
       action="{{ url_for('indicator_feed.detail', id=feed.id) if is_edit else url_for('indicator_feed.new') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -22,55 +23,125 @@
    submits the form anyway, this makes that submit show them too. #}
 <input type="hidden" name="run" value="1">
 
-<div class="row g-3">
-  {# ── Product fields ─────────────────────────────────────────────────── #}
+{% if is_edit %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Indicator feed · {{ feed.feed_id }} ·
+            {% if feed.cache_interval %}<span class="badge bg-info text-dark">cached {{ feed.cache_interval }}</span>
+            {% else %}<span class="badge bg-secondary">runs on request</span>{% endif %}</div>
+          <h1>{{ feed.name or 'No name' }}</h1>
+          <div class="record-facts">
+            <div><span>Created</span>{{ feed.created_at.strftime('%d-%m-%Y') if feed.created_at else '-' }}</div>
+            <div><span>Created by</span>{{ feed.creator or '-' }}</div>
+            {% if linked_pir %}<div><span>Answers</span><a href="{{ url_for('requirements.pir_detail', id=linked_pir.uuid) }}"
+              {% if linked_pir.question %}title="{{ linked_pir.question }}"{% endif %}>{{ linked_pir.pir_id }}</a></div>{% endif %}
+            <div><span>Author</span>{{ feed.author or '-' }}</div>
+            <div><span>Used by</span>{% for tap in used_by %}<a href="{{ url_for('threat_actor_profile.detail', id=tap.uuid) }}"
+              title="{{ tap.title }}">{{ tap.tap_id }}</a>{{ ', ' if not loop.last }}{% else %}No threat actor profile{% endfor %}</div>
+          </div>
+        </div>
+      </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ rows | length if run and not error else '-' }}</b><span>indicator{{ 's' if rows | length != 1 }} shown</span></div>
+        <div class="record-kpi"><b>{{ used_servers | length }}</b><span>MISP server{{ 's' if used_servers | length != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ used_by | length }}</b><span>profile{{ 's' if used_by | length != 1 }} embed it</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <a href="#step-results" class="btn btn-sm btn-hero-ghost"><i class="fas fa-arrow-down me-1"></i> Indicators</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost"
+              data-recipients-url="{{ url_for('indicator_feed.recipients_fragment', id=feed.id) }}"
+              title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
+      {% if can_publish %}
+      <button type="submit" class="btn btn-sm btn-hero-ghost" formmethod="post"
+              formaction="{{ url_for('indicator_feed.notify', id=feed.id) }}"
+              data-submit-confirm="Send {{ feed.feed_id }} to the eligible stakeholders?"><i class="fas fa-paper-plane me-1"></i> Notify</button>
+      {% endif %}
+      <button type="submit" class="btn btn-sm btn-hero-ghost" formmethod="post" data-busy="Deleting…"
+              formaction="{{ url_for('indicator_feed.delete', id=feed.id) }}"
+              data-submit-confirm="Delete {{ feed.feed_id }} ({{ feed.name }})? This cannot be undone."><i class="fas fa-trash me-1"></i> Delete</button>
+    </div>
+  </div>
+
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ feed.tlp | slug }}">TLP:{{ feed.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel delivery" aria-label="How the feed is served">
+    <span class="chart-label">Serving</span>
+    <div class="leg{{ ' done' if feed.public_url_enabled and feed.token }}"><i></i>Public URL<small>{{ 'on, no login' if feed.public_url_enabled and feed.token else 'off' }}</small></div>
+    <div class="leg{{ ' done' if feed.cache_interval }}"><i></i>Cache<small>{{ feed.cache_interval or 'off' }}</small></div>
+    {% if feed.cache_interval %}
+    <div class="leg{{ ' done' if cache_next }}"><i></i>Next run<small>{{ cache_next.strftime('%d-%m %H:%M') if cache_next else '-' }}</small></div>
+    <div class="leg{{ ' done' if cache_age and not cache_error }}{{ ' off' if cache_error }}"><i></i>Last cached<small>{% if cache_error %}failed {{ cache_error.at.strftime('%d-%m %H:%M') }}{% else %}{{ cache_age or 'nothing cached yet' }}{% endif %}</small></div>
+    {% endif %}
+  </div>
+</section>
+{% else %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">An indicator feed is a saved MISP search that tools and people fetch. Build the query, run it to see what it returns, then save it.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in [('feed', 'Feed'), ('servers', 'Servers'), ('query', 'Query'), ('results', 'Indicators')] %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
+{% endif %}
+
+<div class="row g-4">
   <div class="col-lg-8">
-    <div class="card content-card mb-3">
-      <div class="card-header"><i class="fas fa-satellite-dish me-2"></i>{{ feed.feed_id or 'New feed' }}</div>
+    <div class="card content-card form-step mb-4" id="step-feed" data-step='input[name="name"], textarea[name="description"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Feed</div>
       <div class="card-body">
         <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label required-label">Name</label>
-            <input type="text" name="name" class="form-control" value="{{ feed.name }}">
+          <div class="col-md-8">
+            <label class="form-label required-label" for="feed-name">Name</label>
+            <input type="text" name="name" id="feed-name" class="form-control" value="{{ feed.name }}">
           </div>
-          <div class="col-md-3">
-            <label class="form-label">TLP</label>
-            <select name="tlp" class="form-select">
-              {% for lvl in tlp_levels %}
-              <option value="{{ lvl }}" {{ 'selected' if feed.tlp == lvl }}>TLP:{{ lvl | upper }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Feedback by</label>
-            <input type="date" name="feedback_by" class="form-control"
+          <div class="col-md-4">
+            <label class="form-label" for="feed-feedback-by">Feedback by</label>
+            <input type="date" name="feedback_by" id="feed-feedback-by" class="form-control"
                    value="{{ feed.feedback_by.isoformat() if feed.feedback_by else '' }}">
           </div>
           <div class="col-12">
-            <label class="form-label">Description</label>
-            <textarea name="description" class="form-control" rows="2">{{ feed.description }}</textarea>
+            <label class="form-label" for="feed-description">Description</label>
+            <textarea name="description" id="feed-description" class="form-control" rows="2">{{ feed.description }}</textarea>
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Audience</label>
+          <div class="col-12">
+            <span class="form-label d-block">TLP</span>
+            <div class="choice-group" role="radiogroup" aria-label="TLP">
+              {% for lvl in tlp_levels %}
+              <input class="btn-check" type="radio" name="tlp" value="{{ lvl }}" id="feed-tlp-{{ loop.index }}"
+                     {{ 'checked' if feed.tlp == lvl }}>
+              <label class="choice" for="feed-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ lvl | slug }}">TLP:{{ lvl | upper }}</span></label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <span class="form-label d-block">Audience</span>
             {% set sel_aud = (feed.audience.split(',') | map('trim') | list) if feed.audience else [] %}
-            <div class="d-flex flex-wrap gap-2">
+            <div class="choice-group" aria-label="Audience">
               {% for a in audiences %}
-              <div class="form-check form-check-inline me-0">
-                <input class="form-check-input" type="checkbox" name="audience" value="{{ a }}"
-                       id="paud-{{ loop.index }}" {{ 'checked' if a in sel_aud }}>
-                <label class="form-check-label small" for="paud-{{ loop.index }}">{{ a }}</label>
-              </div>
+              <input class="btn-check" type="checkbox" name="audience" value="{{ a }}" id="paud-{{ loop.index }}"
+                     {{ 'checked' if a in sel_aud }}>
+              <label class="choice" for="paud-{{ loop.index }}">{{ a }}</label>
               {% endfor %}
             </div>
             <div class="form-text">Roles that should receive this feed.</div>
           </div>
-          <div class="col-md-3">
-            <label class="form-label">Author</label>
-            <input type="text" name="author" class="form-control" value="{{ feed.author }}">
+          <div class="col-md-6">
+            <label class="form-label" for="feed-author">Author</label>
+            <input type="text" name="author" id="feed-author" class="form-control" value="{{ feed.author }}">
           </div>
-          <div class="col-md-3">
-            <label class="form-label">Linked PIR</label>
-            <select name="linked_pir_uuid" class="form-select">
+          <div class="col-md-6">
+            <label class="form-label" for="feed-pir">Linked PIR</label>
+            <select name="linked_pir_uuid" id="feed-pir" class="form-select">
               <option value="">None</option>
               {% for p in pirs %}
               <option value="{{ p.uuid }}" {{ 'selected' if feed.linked_pir_uuid == p.uuid }}>
@@ -90,7 +161,7 @@
             <label class="form-check-label" for="cache-enabled">Cache this feed on disk</label>
           </div>
           <select name="cache_interval" class="form-select form-select-sm" style="max-width:11rem;"
-                  {{ 'disabled' if not feed.cache_interval }} id="cache-interval">
+                  {{ 'disabled' if not feed.cache_interval }} id="cache-interval" aria-label="Cache refresh">
             {% for iv in cache_intervals %}
             <option value="{{ iv }}" {{ 'selected' if feed.cache_interval == iv }}>Refresh {{ iv }}</option>
             {% endfor %}
@@ -115,120 +186,103 @@
       </div>
     </div>
 
+    {# ── The servers, then the query: its summary always visible, the editor
+       behind it. The same order on a new feed and a saved one. ─────────── #}
+    {% set query_summary = summary %}
     {% include "indicator_feed/_servers_card.html" %}
+    {% include "indicator_feed/_query_card.html" %}
   </div>
 
-  {# ── What it is, at a glance ────────────────────────────────────────── #}
   <div class="col-lg-4">
-    <div class="card content-card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-circle-info me-2"></i>Product</span>
-        {% if is_edit %}
-        <button type="button" class="btn btn-xs btn-outline-secondary"
-                data-recipients-url="{{ url_for('indicator_feed.recipients_fragment', id=feed.id) }}"
-                title="Preview recipients">
-          <i class="fas fa-users me-1"></i>Recipients
-        </button>
-        {% endif %}
-      </div>
-      <div class="card-body">
-        <dl class="row small mb-0">
-          {% if is_edit %}
-          <dt class="col-5">Created</dt>
-          <dd class="col-7">{{ feed.created_at.strftime('%d-%m-%Y') if feed.created_at else '-' }}</dd>
-          <dt class="col-5">Created by</dt>
-          <dd class="col-7">{{ feed.creator or '-' }}</dd>
-          <dt class="col-5">Used by</dt>
-          <dd class="col-7">
-            {% for tap in used_by %}
-            <a href="{{ url_for('threat_actor_profile.detail', id=tap.uuid) }}"
-               class="text-decoration-none">{{ tap.tap_id }}</a>
-            <span class="text-muted">{{ tap.title | truncate(28) }}</span>{% if not loop.last %}<br>{% endif %}
-            {% else %}
-            <span class="text-muted">No threat actor profile</span>
-            {% endfor %}
-          </dd>
-          {% endif %}
-
-          <dt class="col-5">Linked PIR</dt>
-          <dd class="col-7">
-            {% if linked_pir %}<a href="{{ url_for('requirements.pir_detail', id=linked_pir.uuid) }}">{{ linked_pir.pir_id }}</a>
-            {% else %}-{% endif %}
-          </dd>
-          <dt class="col-5">TLP</dt>
-          <dd class="col-7"><span class="tlp-badge tlp-{{ feed.tlp | slug }}">TLP:{{ feed.tlp | upper }}</span></dd>
-          <dt class="col-5">Public URL</dt>
-          <dd class="col-7">
-            {% if can_publish %}
-            {# An unticked switch sends nothing, so the hidden field says "off"
-               and a form without the switch leaves the setting alone. #}
-            <input type="hidden" name="public_url" value="disabled">
-            <div class="form-check form-switch mb-1">
-              <input class="form-check-input" type="checkbox" role="switch" name="public_url" value="enabled"
-                     id="public-url-enabled" {{ 'checked' if feed.public_url_enabled }}>
-              <label class="form-check-label" for="public-url-enabled">Enabled</label>
-            </div>
-            {% else %}
-            <div class="form-text mt-0 mb-1">Only users with MISP publish rights can switch it on or off.</div>
-            {% endif %}
-            {% if not feed.public_url_enabled %}
-            <span class="text-muted">{{ 'Off. The link answers "Feed not found".' if is_edit else 'Off when you save the feed.' }}</span>
-            {% elif is_edit and feed.token %}
-            <div class="input-group input-group-sm">
-              <input type="text" class="form-control public-url font-monospace" style="font-size:.68rem;" readonly
-                     value="{{ url_for('indicator_feed.public_feed', token=feed.token, _external=True) }}">
-              <button type="button" class="btn btn-outline-secondary copy-url" title="Copy URL"><i class="fas fa-copy"></i></button>
-              {% if can_publish %}
-              <button type="submit" class="btn btn-outline-secondary" title="New token" aria-label="New token"
-                      formmethod="post" formaction="{{ url_for('indicator_feed.new_token', id=feed.id) }}"
-                      data-submit-confirm="Give {{ feed.feed_id }} a new token? The current URL stops working, so send the new one to everyone who uses the feed.">
-                <i class="fas fa-rotate"></i>
-              </button>
-              {% endif %}
-            </div>
-            <div class="text-warning" style="font-size:.72rem;">
-              <i class="fas fa-triangle-exclamation me-1"></i>Anyone holding this link can read the feed:
-              it needs no login and nothing checks who follows it.
-            </div>
-            {% elif is_edit %}
-            {# Feeds saved before the URL existed carry no token; the next save
-               gives them one. #}
-            <span class="text-muted">None yet. Saving the feed creates one.</span>
-            {% else %}
-            <span class="text-muted">Given to the feed when you save it.</span>
-            {% endif %}
-          </dd>
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ feed.feed_id or 'New feed' }}</span>
+            <div class="form-preview-title" data-preview-text="name" data-empty="No name yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+          <dt>Audience</dt><dd data-preview-choice="audience" data-empty="None yet"></dd>
+          <dt>Query</dt><dd{% if not summary %} class="text-muted"{% endif %}>{{ summary | join(', ') if summary else 'No filters yet: every attribute' }}</dd>
+          <dt>Cache</dt><dd{% if not feed.cache_interval %} class="text-muted"{% endif %}>{{ feed.cache_interval or 'off, every request runs the query' }}</dd>
         </dl>
+        <div class="d-flex flex-column gap-2">
+          {% if not is_edit %}
+          {# No formaction: the script picks this up and swaps the results below. #}
+          <button type="submit" class="btn btn-outline-primary"><i class="fas fa-magnifying-glass me-1"></i> Run search</button>
+          {% endif %}
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1" data-saves
+                    formmethod="post" formaction="{{ save_action }}">
+              <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
+            </button>
+            <a href="{{ url_for('indicator_feed.index') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </div>
       </div>
-      <div class="card-footer d-flex gap-2 justify-content-end">
-        <a href="{{ url_for('indicator_feed.index') }}" class="btn btn-sm btn-outline-secondary">Cancel</a>
-        {# No formaction: the script picks this up and swaps the results below. #}
-        <button type="submit" class="btn btn-sm btn-outline-primary">
-          <i class="fas fa-magnifying-glass me-1"></i> Run search
-        </button>
-        <button type="submit" class="btn btn-sm btn-primary" data-saves
-                formmethod="post" formaction="{{ save_action }}">
-          <i class="fas fa-floppy-disk me-1"></i> {{ save_label }}
-        </button>
+    </div>
+
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-link me-2"></i>Public URL</div>
+      <div class="card-body small">
+        {% if can_publish %}
+        {# An unticked switch sends nothing, so the hidden field says "off"
+           and a form without the switch leaves the setting alone. #}
+        <input type="hidden" name="public_url" value="disabled">
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" role="switch" name="public_url" value="enabled"
+                 id="public-url-enabled" {{ 'checked' if feed.public_url_enabled }}>
+          <label class="form-check-label" for="public-url-enabled">Enabled</label>
+        </div>
+        {% else %}
+        <div class="form-text mt-0 mb-1">Only users with MISP publish rights can switch it on or off.</div>
+        {% endif %}
+        {% if not feed.public_url_enabled %}
+        <span class="text-muted">{{ 'Off. The link answers "Feed not found".' if is_edit else 'Off when you save the feed.' }}</span>
+        {% elif is_edit and feed.token %}
+        <div class="input-group input-group-sm">
+          <input type="text" class="form-control public-url font-monospace" style="font-size:.68rem;" readonly aria-label="Public URL"
+                 value="{{ url_for('indicator_feed.public_feed', token=feed.token, _external=True) }}">
+          <button type="button" class="btn btn-outline-secondary copy-url" title="Copy URL"><i class="fas fa-copy"></i></button>
+          {% if can_publish %}
+          <button type="submit" class="btn btn-outline-secondary" title="New token" aria-label="New token"
+                  formmethod="post" formaction="{{ url_for('indicator_feed.new_token', id=feed.id) }}"
+                  data-submit-confirm="Give {{ feed.feed_id }} a new token? The current URL stops working, so send the new one to everyone who uses the feed.">
+            <i class="fas fa-rotate"></i>
+          </button>
+          {% endif %}
+        </div>
+        <div class="text-warning mt-1" style="font-size:.72rem;">
+          <i class="fas fa-triangle-exclamation me-1"></i>Anyone holding this link can read the feed:
+          it needs no login and nothing checks who follows it.
+        </div>
+        {% elif is_edit %}
+        {# Feeds saved before the URL existed have no token; the next save
+           gives them one. #}
+        <span class="text-muted">None yet. Saving the feed creates one.</span>
+        {% else %}
+        <span class="text-muted">Given to the feed when you save it.</span>
+        {% endif %}
       </div>
     </div>
 
     {% include "indicator_feed/_pymisp_card.html" %}
+    </div>
   </div>
 </div>
-
-{# ── The query: its summary always visible, the editor behind it ───────── #}
-{% set query_summary = summary %}
-{% include "indicator_feed/_query_card.html" %}
 
 {# ── The indicators: every column, sortable, with the +/- buttons that add an
-   event or an org to the query. Run search replaces this block on its own, so
-   the page does not reload and the query stays where the analyst left it. #}
-<div id="values">
-  <div id="results">
-    {% include "indicator_feed/_results.html" %}
-  </div>
-</div>
+   event or an org to the query. Below the columns, so the table has the whole
+   width of the page. Run search replaces this block on its own, so the page
+   does not reload and the query stays where the analyst left it. #}
+<div id="values"><div id="results">{% include "indicator_feed/_results.html" %}</div></div>
 </form>
 
 {% include "_recipients_modal.html" %}
@@ -236,4 +290,6 @@
 
 {% block scripts %}
 {% include "indicator_feed/_query_js.html" %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 {% endblock %}

@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_flow_macros.html" import flow_help %}
 {% from "_product_actions.html" import preview_button, approval_form, review_checks, delete_rejected_form, read_again_note,
     select_all_th, select_cell, selection_toolbar with context %}
 {% from "_macros.html" import audience_badges %}
@@ -7,12 +6,6 @@
 
 {% block title %}Vulnerability advisories | zsazsa CTI{% endblock %}
 {% block page_title %}Vulnerability advisories{% endblock %}
-
-{% block topbar_actions %}
-<a href="{{ url_for('vea.wizard_new') }}" class="btn btn-sm btn-primary">
-  <i class="fas fa-plus me-1"></i> New advisory
-</a>
-{% endblock %}
 
 {# Short fields are Markdown and render server-side, as they do on the detail
    page. Prose (the summary) goes through report-md-body instead, so it is
@@ -27,44 +20,72 @@
 {% set exploitation_colors = {'Active': 'var(--accent-red)', 'KEV listed': 'var(--accent-orange)',
                               'Weaponised': 'var(--priority-must-fg)', 'PoC public': 'var(--priority-should-fg)',
                               'None known': 'var(--accent-green)', 'Unknown': 'var(--neutral-400)'} %}
-<div class="card content-card chart-card mb-3" style="--icon-color:var(--accent-red);">
-  <div class="card-body py-2">
-    <div class="row g-3">
-      <div class="col-lg-3">
-        <form method="get" class="list-filters">
-          {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
-          {{ charts.filter_select('exploitation', 'Exploitation', 'fa-bug', 'Any exploitation', exploitation_choices, exploitation_filter) }}
-          {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
-          {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
-          <div class="d-flex align-items-center justify-content-between small text-muted">
-            <span>{{ veas | length }} advisor{{ 'ies' if veas|length != 1 else 'y' }}</span>
-            {% if state_filter or exploitation_filter or tlp_filter or audience_filter %}
-            <a href="{{ url_for('vea.review') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
-            {% endif %}
-          </div>
-        </form>
-        {{ flow_help('How a vulnerability advisory is made') }}
-      </div>
-      {% if state_counts or exploitation_counts or tlp_counts or audience_counts %}
-      <div class="col-lg-9 list-stats">
-        <div class="row g-3">
-          <div class="col-md-6 col-xl-3">{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
-          <div class="col-md-6 col-xl-3">{{ charts.mix('Exploitation', exploitation_counts, exploitation_colors, param='exploitation', selected=exploitation_filter) }}</div>
-          <div class="col-md-6 col-xl-3">{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
-          <div class="col-md-6 col-xl-3">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter) }}</div>
-        </div>
-      </div>
-      {% endif %}
+{% set count = namespace(waiting=0, draft=0, approved=0, rejected=0, kev=0) %}
+{% for v in veas %}
+  {% if v.review_state == 'pending-review' %}{% set count.waiting = count.waiting + 1 %}
+  {% elif v.review_state == 'draft' %}{% set count.draft = count.draft + 1 %}
+  {% elif v.review_state == 'approved' %}{% set count.approved = count.approved + 1 %}
+  {% elif v.review_state == 'rejected' %}{% set count.rejected = count.rejected + 1 %}{% endif %}
+  {% if exploitation[v.uuid] == 'KEV listed' %}{% set count.kev = count.kev + 1 %}{% endif %}
+{% endfor %}
+{% set published_dates = veas | selectattr('published_at') | map(attribute='published_at') | list %}
+{% set filtered = state_filter or exploitation_filter or tlp_filter or audience_filter %}
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-bug"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ veas | length }}</b><span>advisor{{ 'ies' if veas | length != 1 else 'y' }}{{ ' shown' if filtered }}</span></div>
+      <a href="{{ charts.filtered_url('state', 'pending-review', state_filter) }}" class="record-kpi{{ ' warn' if count.waiting }}"
+         title="{{ 'Show all again' if state_filter == 'pending-review' else 'Show only those waiting for review' }}"><b>{{ count.waiting }}</b><span>waiting for review</span></a>
+      {% if count.draft %}<div class="record-kpi"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }}</span></div>{% endif %}
+      <div class="record-kpi"><b>{{ count.approved }}</b><span>approved</span></div>
+      <div class="record-kpi"><b>{{ count.rejected }}</b><span>rejected</span></div>
+      <a href="{{ charts.filtered_url('exploitation', 'KEV listed', exploitation_filter) }}" class="record-kpi{{ ' warn' if count.kev }}"
+         title="{{ 'Show all again' if exploitation_filter == 'KEV listed' else 'Show only those on the CISA KEV list' }}"><b>{{ count.kev }}</b><span>KEV listed</span></a>
+      {% if published_dates %}<div class="record-kpi"><b>{{ (published_dates | max).strftime('%d-%m') }}</b><span>last published</span></div>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('vea.wizard_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New advisory</a>
+      <button type="button" class="btn btn-sm btn-hero-ghost" data-bs-toggle="collapse" data-bs-target="#product-flow"
+              aria-expanded="false" aria-controls="product-flow">
+        <i class="fas fa-circle-question me-1"></i> How a vulnerability advisory is made
+      </button>
     </div>
   </div>
-</div>
+  {% if state_counts or exploitation_counts or tlp_counts or audience_counts %}
+  <div class="record-panel list-stats">
+    <div>{{ charts.mix('Review state', state_counts, charts.review_colors, param='state', selected=state_filter) }}</div>
+    <div>{{ charts.mix('Exploitation', exploitation_counts, exploitation_colors, param='exploitation', selected=exploitation_filter) }}</div>
+    <div>{{ charts.mix('TLP', tlp_counts, charts.tlp_colors, param='tlp', selected=tlp_filter) }}</div>
+    <div style="flex-grow:2.2;">{{ charts.mix('Audience', audience_counts, param='audience', selected=audience_filter, top=4) }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
+  {{ charts.filter_select('state', 'Review state', 'fa-list-check', 'All states', review_states, state_filter) }}
+  {{ charts.filter_select('exploitation', 'Exploitation', 'fa-bug', 'Any exploitation', exploitation_choices, exploitation_filter) }}
+  {{ charts.filter_select('tlp', 'TLP', 'fa-traffic-light', 'All TLP levels', tlp_choices, tlp_filter) }}
+  {{ charts.filter_select('audience', 'Audience', 'fa-users', 'All audiences', audience_choices, audience_filter) }}
+  {% if filtered %}
+  <a href="{{ url_for('vea.review') }}" class="btn btn-xs btn-outline-secondary ms-auto">Clear</a>
+  {% endif %}
+</form>
 
 {% include "vea/_flow.html" %}
 
-<div class="card content-card">
+{% set lanes = [('pending-review', 'Waiting for review', 'Approve and publish, or reject', 'var(--accent-blue)'),
+                ('draft', 'Draft', 'Submit for review when it is ready', 'var(--neutral-500)'),
+                ('approved', 'Approved', 'Sent to their audience', 'var(--accent-green)'),
+                ('rejected', 'Rejected', 'Kept until deleted', 'var(--accent-red)')] %}
+{% set steps = {'draft': ['now', '', ''], 'pending-review': ['done', 'now', ''], 'approved': ['done', 'done', 'now'],
+                'rejected': ['done', 'done', '']} %}
+<div class="card content-card rise rise-2">
   <div class="card-body p-0">
     {% if veas %}
-    <table class="table table-hover zsazsa-table mb-0">
+    <div class="table-responsive">
+    <table class="table table-hover zsazsa-table req-table product-table mb-0">
       <thead>
         <tr>
           {{ select_all_th() }}
@@ -80,20 +101,34 @@
           </th>
         </tr>
       </thead>
+      {% for state, lane, hint, color in lanes %}
+      {# A state none of the lanes has, set by hand in MISP, is shown as a draft rather than not at all. #}
+      {% set others = lanes | map(attribute=0) | reject('equalto', 'draft') | list %}
+      {% set rows = (veas | selectattr('review_state', 'equalto', state) | list) if state != 'draft'
+                     else (veas | rejectattr('review_state', 'in', others) | list) %}
+      {% if rows %}
       <tbody>
-        {% for v in veas %}
+        <tr class="lane-head">
+          <th colspan="9">
+            <span class="lane-mark" style="background:{{ color }};"></span>
+            <span class="lane-name">{{ lane }}</span>
+            <span class="lane-count">{{ rows | length }} advisor{{ 'ies' if rows | length != 1 else 'y' }}</span>
+            <span class="lane-hint">{{ hint }}</span>
+          </th>
+        </tr>
+        {% for v in rows %}
         {# ── Main row ── #}
-        <tr id="vea-row-{{ v.uuid }}">
+        <tr id="vea-row-{{ v.uuid }}" class="{{ 'draft-row' if state == 'pending-review' }}">
           {{ select_cell(v.uuid, v.vea_id, v.review_state in ('draft', 'pending-review')) }}
-          <td>
+          <td style="white-space:nowrap;">
             <a href="{{ url_for('vea.detail', id=v.uuid) }}" class="text-decoration-none">
               <span class="req-id-badge">{{ v.vea_id }}</span>
             </a>
           </td>
-          <td><code class="small">{{ v.cve_id or '-' }}</code></td>
+          <td><code class="small" style="white-space:nowrap;">{{ v.cve_id or '-' }}</code></td>
           <td>
-            {{ v.title or v.cve_id or '(untitled)' }}
-            {{ audience_badges(v.audience) }}
+            <a href="{{ url_for('vea.detail', id=v.uuid) }}" class="title{{ ' untitled' if not (v.title or v.cve_id) }}">{{ v.title or v.cve_id or 'No title' }}</a>
+            {{ audience_badges(v.audience, limit=3) }}
             {% if v.analyser_reason %}<div class="small text-muted">{{ v.analyser_reason | md_inline }}</div>{% endif %}
           </td>
           <td><span class="tlp-badge tlp-{{ v.tlp | slug }}">TLP:{{ v.tlp | upper }}</span></td>
@@ -107,6 +142,9 @@
             {% endif %}
           </td>
           <td>
+            <div class="status-steps" aria-hidden="true" style="max-width:6rem;">
+              {% for step in steps[state] %}<i class="{{ step }}"></i>{% endfor %}
+            </div>
             {% if v.review_state == 'approved' %}<span class="badge bg-success">approved</span>
             {% elif v.review_state == 'rejected' %}<span class="badge bg-danger">rejected</span>
             {% elif v.review_state == 'pending-review' %}<span class="badge bg-info text-dark">pending review</span>
@@ -251,8 +289,11 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
+      {% endfor %}
     </table>
-    {% elif state_filter or exploitation_filter or tlp_filter or audience_filter %}
+    </div>
+    {% elif filtered %}
     <div class="p-4 text-muted">No vulnerability advisories match these filters.</div>
     {% else %}
     <div class="p-4 text-muted">No vulnerability advisories yet. <a href="{{ url_for('vea.wizard_new') }}">Create one</a>.</div>

@@ -1,7 +1,7 @@
 """Track MISP users seen via SSO sessions.
 
 Populated from webapp.__init__'s before_request hook whenever a request
-carries a valid MISP session, so the community/users page can show who has
+has a valid MISP session, so the community/users page can show who has
 used zsazsa via SSO.
 """
 
@@ -108,10 +108,10 @@ def any_recorded():
 def list_sso_users():
     """List recorded SSO users, grouped by MISP user id.
 
-    Grouping by id (rather than just last_seen) puts entries side by side
-    when the same MISP user has logged in under different email addresses
-    (e.g. after their MISP login was changed), so the template can flag them
-    as possibly the same user.
+    The same MISP user can have signed in under more than one email address,
+    after their MISP login was changed. ``same_user_as`` lists the other
+    addresses recorded with the user's MISP id, so the page can say which
+    entries are possibly the same user.
     """
     with _conn() as db:
         rows = db.execute(
@@ -119,10 +119,12 @@ def list_sso_users():
             "FROM sso_users ORDER BY misp_user_id, last_seen DESC"
         ).fetchall()
     users = [SimpleNamespace(**dict(r)) for r in rows]
-    for i, u in enumerate(users):
-        prev_id = users[i - 1].misp_user_id if i > 0 else None
-        next_id = users[i + 1].misp_user_id if i + 1 < len(users) else None
-        u.possible_duplicate = bool(u.misp_user_id) and u.misp_user_id in (prev_id, next_id)
+    emails_by_id = {}
+    for u in users:
+        if u.misp_user_id:
+            emails_by_id.setdefault(u.misp_user_id, []).append(u.email)
+    for u in users:
+        u.same_user_as = [e for e in emails_by_id.get(u.misp_user_id, []) if e != u.email]
     return users
 
 

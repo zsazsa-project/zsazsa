@@ -28,12 +28,9 @@
   {% elif pir.status == 'Pending' %}{% set kpi.triage = kpi.triage + 1 %}{% endif %}
 {% endfor %}
 
-<section class="record-hero rise mb-4">
+<section class="record-hero record-hero-compact rise mb-3">
   <div class="hero-main">
-    <div class="d-flex align-items-center gap-3">
-      <span class="hero-icon" aria-hidden="true"><i class="fas fa-star"></i></span>
-      <p class="lead-text">Each PIR frames a question a decision depends on. Its scope tells the analyser what to look for.</p>
-    </div>
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-star"></i></span>
     <div class="record-kpis">
       <div class="record-kpi"><b>{{ pirs | length }}</b><span>PIR{{ 's' if pirs | length != 1 }}{{ ', ' ~ rejected_count ~ ' rejected not shown' if rejected_count and not show_rejected }}</span></div>
       <div class="record-kpi"><b>{{ kpi.active }}</b><span>active</span></div>

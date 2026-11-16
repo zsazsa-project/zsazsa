@@ -82,8 +82,8 @@ class BriefingForm(unittest.TestCase):
 
     def selected(self, response):
         """The TLP the form would post."""
-        chosen = BeautifulSoup(response.data, "html.parser").select("select[name=tlp] option[selected]")
-        self.assertEqual(len(chosen), 1, "with none selected the browser posts the first one, clear")
+        chosen = BeautifulSoup(response.data, "html.parser").select("input[name=tlp][checked]")
+        self.assertEqual(len(chosen), 1, "with none ticked the form would post no TLP at all")
         return chosen[0]["value"]
 
     def add_story(self, briefing_tlp, *tags):

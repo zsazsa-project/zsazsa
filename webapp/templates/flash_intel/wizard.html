@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_product_actions.html" import draft_actions %}
-{% from "_macros.html" import galaxy_multiselect, product_identity, tag_input %}
+{% from "_macros.html" import galaxy_multiselect, review_state_badge, tag_input %}
 
 {% set title_text = ('Edit ' + fia.fia_id) if is_edit else 'New flash intel alert' %}
 {% block title %}{{ title_text }} | zsazsa CTI{% endblock %}
@@ -16,11 +16,17 @@
 {% macro lines(items) %}{{ (items or []) | join('\n') }}{% endmacro %}
 
 {% block content %}
-{{ product_identity('fa-bolt', 'Flash intel alert',
-                    fia.fia_id if is_edit and fia else '',
-                    source_events | length if source_events else 0,
-                    fia.review_state if is_edit and fia else 'draft',
-                    fia.tlp if fia and fia.tlp else 'amber') }}
+{% set steps = [('summary', 'Summary'), ('happened', 'What happened'), ('matters', 'Why it matters'), ('scope', 'Scope'),
+                ('actions', 'Recommended actions'), ('detection', 'Detection guidance'), ('references', 'References and feedback')] %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A flash intel alert warns its audience about one threat, fast. Write the bottom line first; the rest can be short.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
 
 <form method="post" class="row g-4" id="fia-form" data-unsaved-warning>
 
@@ -205,9 +211,15 @@
     </div>
     {% endif %}
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Summary</div>
+    <div class="card content-card form-step mb-4" id="step-summary" data-step='input[name="title"], textarea[name="summary"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Summary</div>
       <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label required-label" for="fia-title">Title</label>
+          <input name="title" id="fia-title" class="form-control" required
+            placeholder="Short, decision-oriented headline."
+            value="{{ fia.title if fia else '' }}">
+        </div>
         <div class="mb-3">
           <label class="form-label required-label">Bottom line up front</label>
           <textarea name="summary" class="form-control" rows="3" required
@@ -222,8 +234,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-magnifying-glass me-2"></i>What happened</div>
+    <div class="card content-card form-step mb-4" id="step-happened" data-step='textarea[name="what_happened"], textarea[name="source_description"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>What happened</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Observed facts</label>
@@ -238,8 +250,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Why it matters</div>
+    <div class="card content-card form-step mb-4" id="step-matters"
+         data-step='input[name="likely_impact"], input[name="affected_assets"], input[name="actor_types"], textarea[name="actor_context"], textarea[name="write_up"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Why it matters</div>
       <div class="card-body">
         <div class="row g-3 mb-3">
           <div class="col-md-6">
@@ -282,8 +295,14 @@
           </div>
         </div>
 
-        <hr class="my-3">
-        <p class="small text-muted mb-3"><i class="fas fa-crosshairs me-1"></i>Scope: which geography, sectors, and threat actors are relevant to this alert.</p>
+      </div>
+    </div>
+
+    <div class="card content-card form-step mb-4" id="step-scope"
+         data-step='[name="geographic_scope"], [name="sectors"], [name="threat_actors"], [name="mitre_attack_techniques"], [name="threat_types"], [name="technology"], [name="vendor"], [name="incident"], [name="campaign"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Scope</div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">Which geography, sectors, and threat actors are relevant to this alert.</p>
 
         <div class="row g-3 fia-scope-row">
           <div class="col-md-6">
@@ -337,8 +356,8 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
+    <div class="card content-card form-step mb-4" id="step-actions" data-step='textarea[name="actions_immediate"], textarea[name="actions_near_term"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Recommended actions</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
@@ -373,8 +392,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-radar me-2"></i>Detection guidance</div>
+    <div class="card content-card form-step mb-4" id="step-detection"
+         data-step='textarea[name="mitre_techniques"], textarea[name="hunting_hypotheses"], textarea[name="detection_rules"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Detection guidance</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
@@ -410,8 +430,9 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-book me-2"></i>References &amp; feedback</div>
+    <div class="card content-card form-step mb-4" id="step-references"
+         data-step='textarea[name="external_references"], textarea[name="intelligence_gaps"], input[name="feedback_deadline"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">7</span>References and feedback</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">External references</label>
@@ -505,32 +526,40 @@
   </div>
 
   <div class="col-lg-4">
+    {# In the column rather than in its stack of cards, so it stays in view to the
+       end of the form as the stack scrolls away under it. #}
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">As it will appear</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="form-preview">
+          <span class="monogram" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+          <div class="min-w-0">
+            <span class="req-id-badge">{{ fia.fia_id if is_edit and fia else 'New alert' }}</span>
+            <div class="form-preview-title" data-preview-text="title" data-empty="No title yet"></div>
+          </div>
+        </div>
+        <dl class="form-facts">
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+          <dt>Audience</dt><dd data-preview-choice="audience" data-required data-empty="None yet, one is needed to publish"></dd>
+          <dt>State</dt><dd>{{ review_state_badge(fia.review_state if is_edit and fia else 'draft') }}</dd>
+          <dt>Sources</dt><dd>{{ source_events | length if source_events else 0 }} source event{{ 's' if not source_events or source_events | length != 1 }}</dd>
+        </dl>
+        {{ draft_actions(url_for('flash_intel.review'), 'btn-fia-save', 'btn-fia-submit') }}
+      </div>
+    </div>
 
-    <div class="card content-card mb-4">
-      <div class="card-header"><i class="fas fa-bolt me-2"></i>Alert</div>
+    <div class="d-flex flex-column gap-4">
+    <div class="card content-card">
+      <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label required-label">Title</label>
-          <input name="title" class="form-control" required
-            placeholder="Short, decision-oriented headline."
-            value="{{ fia.title if fia else '' }}">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Audience
-            <span class="text-muted small" data-bs-toggle="tooltip"
-              title="Audience corresponds to the stakeholder role, e.g. SOC, IR, VM, Executive.">
-              <i class="fas fa-circle-info ms-1"></i>
-            </span>
-          </label>
+          <span class="form-label d-block">Audience</span>
           {% set current_audiences = (fia.audience or '').split(', ') if fia else [] %}
-          <div class="d-flex flex-wrap gap-2 mt-1">
+          <div class="choice-group" aria-label="Audience">
             {% for a in audiences %}
-            <div class="form-check form-check-inline me-0">
-              <input class="form-check-input" type="checkbox" name="audience" value="{{ a }}"
-                     id="aud-{{ loop.index }}"
-                     {{ 'checked' if a in current_audiences }}>
-              <label class="form-check-label small" for="aud-{{ loop.index }}">{{ a }}</label>
-            </div>
+            <input class="btn-check" type="checkbox" name="audience" value="{{ a }}" id="aud-{{ loop.index }}"
+                   {{ 'checked' if a in current_audiences }}>
+            <label class="choice" for="aud-{{ loop.index }}">{{ a }}</label>
             {% endfor %}
           </div>
           <div id="fia-audience-warn" class="text-danger small mt-1" style="display:none;">
@@ -539,12 +568,15 @@
           <div class="form-text">Corresponds to the stakeholder <strong>role</strong>. Select at least one audience, which is required before this can be approved and published.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">TLP</label>
-          <select name="tlp" class="form-select">
+          <span class="form-label d-block">TLP</span>
+          {% set current_tlp = fia.tlp if fia and fia.tlp in tlp_levels else 'amber' %}
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
             {% for t in tlp_levels %}
-            <option value="{{ t }}" {{ 'selected' if fia and fia.tlp == t else ('selected' if not fia and t == 'amber') }}>TLP:{{ t | upper }}</option>
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="fia-tlp-{{ loop.index }}"
+                   {{ 'checked' if t == current_tlp }}>
+            <label class="choice" for="fia-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
             {% endfor %}
-          </select>
+          </div>
         </div>
         <div>
           <label class="form-label">Linked PIR</label>
@@ -558,7 +590,7 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Source assessment</div>
       <div class="card-body">
         <div class="mb-3">
@@ -589,7 +621,7 @@
       </div>
     </div>
 
-    <div class="card content-card mb-4">
+    <div class="card content-card">
       <div class="card-header"><i class="fas fa-user me-2"></i>Attribution</div>
       <div class="card-body">
         <label class="form-label">Author</label>
@@ -598,22 +630,20 @@
     </div>
 
     {% if is_edit %}
-    {# Grouped and labelled the way the briefing groups its AI actions, and kept
-       out of the decision stack below: a QA check reports, it does not publish. #}
-    <div class="qa-review-block mb-3">
-      <div class="zs-toolbar">
-        <span class="zs-toolbar-label">AI assistance</span>
-        <button type="button" class="zs-pill qa-review-btn"
-                data-kind="fia" data-uuid="{{ fia.uuid }}"
+    {# Kept apart from Save and Submit: a QA check reports, it does not publish. #}
+    <div class="card content-card qa-review-block">
+      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>AI assistance</div>
+      <div class="ai-actions">
+        <button type="button" class="btn-ai qa-review-btn" data-kind="fia" data-uuid="{{ fia.uuid }}"
                 title="Audit the last saved version against the source events. Save your edits first.">
-          <i class="fas fa-clipboard-check"></i> QA check against source
+          <i class="fas fa-clipboard-check"></i>
+          <span>QA check against source<small>Audits the last saved version against the source events. Save your edits first.</small></span>
         </button>
       </div>
-      <div class="qa-review-output mt-2"></div>
+      <div class="qa-review-output px-3 pb-2"></div>
     </div>
     {% endif %}
-
-    {{ draft_actions(url_for('flash_intel.review'), 'btn-fia-save', 'btn-fia-submit') }}
+    </div>
 
   </div>
 </form>
@@ -622,6 +652,8 @@
 {% block scripts %}
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
 <script>
 (function() {
   // Render report markdown bodies
@@ -903,15 +935,22 @@
 
     var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
+    // Told as typing is, so the section steps and "As it will appear" follow.
     function setField(name, val) {
       var el = document.querySelector('[name="' + name + '"]');
-      if (el && val) el.value = val;
+      if (!el || !val) return;
+      el.value = val;
+      el.dispatchEvent(new Event('input', {bubbles: true}));
     }
     function setSelect(name, val) {
       var el = document.querySelector('select[name="' + name + '"]');
       if (!el || !val) return;
       for (var i = 0; i < el.options.length; i++) {
-        if (el.options[i].value.toUpperCase() === val.toUpperCase()) { el.selectedIndex = i; break; }
+        if (el.options[i].value.toUpperCase() === val.toUpperCase()) {
+          el.selectedIndex = i;
+          el.dispatchEvent(new Event('change', {bubbles: true}));
+          break;
+        }
       }
     }
     function checkGalaxy(field, values) {
@@ -1120,5 +1159,4 @@ zsazsaBindRulezetAttackLookup({
   readyTitle: 'Search Rulezet for public rules matching the MITRE ATT&CK techniques selected above',
 });
 </script>
-{% include "_tlp_mirror_js.html" %}
 {% endblock %}

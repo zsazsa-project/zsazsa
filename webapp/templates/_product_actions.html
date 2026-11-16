@@ -76,6 +76,23 @@
 </button>
 {% endmacro %}
 
+{# Resend in a record page's banner. A resend reaches the same recipients as
+   publishing, so the route refuses it without publish rights, and so does this. #}
+{% macro hero_resend(action, can_publish, confirmation=None) %}
+{% if can_publish %}
+<form method="post" action="{{ action }}" class="d-inline"
+      {% if confirmation %}data-submit-confirm="{{ confirmation }}"{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="detail">
+  <button class="btn btn-sm btn-hero" title="Resend to stakeholders"><i class="fas fa-paper-plane me-1"></i> Resend</button>
+</form>
+{% else %}
+<span class="d-inline-block" style="cursor:not-allowed;" title="Only users with MISP publish rights can resend.">
+  <button class="btn btn-sm btn-hero" disabled style="pointer-events:none;"><i class="fas fa-paper-plane me-1"></i> Resend</button>
+</span>
+{% endif %}
+{% endmacro %}
+
 {% macro approval_form(action, can_publish, has_audience=True, confirmation=None) %}
 <form method="post" action="{{ action }}" class="inline-approval-form"
       {% if confirmation %}data-submit-confirm="{{ confirmation }}"{% endif %}>

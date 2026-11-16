@@ -10,12 +10,12 @@
   </div>
   <div class="col-md-6">
     <label class="form-label small mb-1">Owner</label>
-    <input type="text" name="owner" class="form-control form-control-sm" value="{{ _src.owner if _src else '' }}"
+    <input type="text" name="owner" class="form-control form-control-sm" value="{{ (_src and _src.owner) or '' }}"
            placeholder="Person or team responsible for monitoring this source">
   </div>
   <div class="col-md-6">
     <label class="form-label small mb-1">Location</label>
-    <input type="text" name="location" class="form-control form-control-sm" value="{{ _src.location if _src else '' }}"
+    <input type="text" name="location" class="form-control form-control-sm" value="{{ (_src and _src.location) or '' }}"
            placeholder="URL, file path, or physical location">
   </div>
   <div class="col-md-6">
@@ -30,6 +30,6 @@
   <div class="col-12">
     <label class="form-label small mb-1">Description</label>
     <textarea name="description" class="form-control form-control-sm" rows="2"
-              placeholder="What this source covers and why it is relevant">{{ _src.description if _src else '' }}</textarea>
+              placeholder="What this source covers and why it is relevant">{{ (_src and _src.description) or '' }}</textarea>
   </div>
 </div>

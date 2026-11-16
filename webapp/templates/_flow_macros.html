@@ -1,17 +1,9 @@
-{# The parts of "How a ... is made" that the product lists share: the line in
-   the filter box that opens it, the panel, the funnel over the steps, a step's
+{# The parts of "How a ... is made" that the product lists share: the panel, the funnel over the steps, a step's
    head, the delivery channels, and step 1, Collection, for the products made
    from collected events. The other steps differ per product and live in that
    product's _flow.html. Static: nothing here reads MISP. #}
 
-{% macro flow_help(title) %}
-<button type="button" class="flow-help" data-bs-toggle="collapse" data-bs-target="#product-flow"
-        aria-expanded="false" aria-controls="product-flow">
-  <i class="fas fa-circle-question"></i>{{ title }}
-</button>
-{% endmacro %}
-
-{# The panel flow_help opens, under the filter box. #}
+{# The panel the "How a ... is made" button in a list's banner opens. #}
 {% macro flow_card(hint) %}
 <div class="collapse" id="product-flow">
   <div class="card content-card mb-3">

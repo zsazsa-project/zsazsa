@@ -360,7 +360,7 @@ class RenderedPages(unittest.TestCase):
              mock.patch.object(misp_store, "recipient_preview", return_value=[]), \
              mock.patch.object(misp_store, "get_pir", return_value=None):
             html = self.client.get(f"/products/indicator-feed/{_UUID}").data
-        save = BeautifulSoup(html, "html.parser").select_one(".card-footer button[formaction]")
+        save = BeautifulSoup(html, "html.parser").select_one(".form-save button[data-saves]")
         self.assertEqual(save["formaction"], f"/products/indicator-feed/{_UUID}/edit")
 
     def test_a_new_feed_gets_the_page_a_saved_feed_gets(self):
@@ -406,6 +406,31 @@ class RenderedPages(unittest.TestCase):
         card = BeautifulSoup(html, "html.parser").select_one("#results .card")
         self.assertNotIn("no query run", card.get_text())
         self.assertIsNotNone(card.select_one("#results-table"))
+
+    def test_the_indicators_come_last_across_the_whole_page(self):
+        """The table has more columns than the form column holds, so it sits
+        below both columns, numbered after the cards above it, which come in
+        the same order on a new feed and a saved one. A saved feed's banner
+        jumps down to it."""
+        with mock.patch.object(misp_store, "get_indicator_feed", return_value=_feed()), \
+             mock.patch.object(misp_store, "get_pir", return_value=None):
+            saved = self.client.get(f"/products/indicator-feed/{_UUID}").data
+        new = self.client.get("/products/indicator-feed/new").data
+        for name, html in (("saved", saved), ("new", new)):
+            with self.subTest(name):
+                page = BeautifulSoup(html, "html.parser")
+                self.assertIsNone(page.select_one(".row #step-results"))
+                self.assertEqual(page.find("form", id="indicator-form").find_all(class_="card")[-1]["id"],
+                                 "step-results")
+                steps = [(n.get_text(strip=True), n.parent.get_text(" ", strip=True))
+                         for n in page.select(".form-step .step-num")]
+                self.assertEqual([num for num, _ in steps], ["1", "2", "3", "4"])
+                for (num, title), expected in zip(steps, ["Feed", "MISP servers", "Query", "Indicators"]):
+                    self.assertTrue(title.startswith(f"{num} {expected}"), title)
+        hero = BeautifulSoup(saved, "html.parser").select_one(".hero-actions")
+        self.assertIsNotNone(hero.select_one("a[href='#step-results']"))
+        # Run search is on the Indicators card, where its answer appears.
+        self.assertNotIn("Run search", hero.get_text())
 
     def test_the_count_says_how_many_values_the_plain_feed_lists(self):
         """A value on several attributes is one line of the feed URL's plain
@@ -529,7 +554,7 @@ class RenderedPages(unittest.TestCase):
                  mock.patch.object(misp_store, "list_indicator_feeds", return_value=[_feed()]), \
                  mock.patch("webapp.misp_session.current_user_can_publish", return_value=can_publish):
                 html = self.client.get("/products/indicator-feed/").data
-            row = BeautifulSoup(html, "html.parser").select_one("tbody tr")
+            row = BeautifulSoup(html, "html.parser").select_one("tbody tr:not(.lane-head)")
             self.assertEqual(bool(row.select(f'form[action="{notify}"]')), can_publish)
             self.assertEqual(bool(row.select("button[disabled] .fa-paper-plane")), not can_publish)
 
@@ -538,7 +563,7 @@ class RenderedPages(unittest.TestCase):
         with mock.patch.object(misp_store, "list_indicator_feeds", return_value=[_feed()]), \
              mock.patch.object(indicator_feed.feed_cache, "failure", return_value=note):
             html = self.client.get("/products/indicator-feed/").data
-        row = BeautifulSoup(html, "html.parser").select_one("tbody tr")
+        row = BeautifulSoup(html, "html.parser").select_one("tbody tr:not(.lane-head)")
         caching = row.select("td")[3].get_text(" ", strip=True)
         self.assertIn("refresh failed", caching)
         self.assertIn("05-09 10:30", caching)
@@ -554,6 +579,18 @@ class RenderedPages(unittest.TestCase):
                          ["events_exclude", "events_include", "orgs_exclude", "orgs_include"])
         # The table sorts on the attribute timestamp without going back to MISP.
         self.assertEqual(row.select_one("td[data-v]")["data-v"], "1767261600")
+
+    def test_the_value_comes_before_the_dates_and_the_server_last(self):
+        """The value was the last of nine columns and often off screen."""
+        response = self.client.get("/products/indicator-feed/results", query_string={"types": "ip-dst"})
+        table = BeautifulSoup(response.data, "html.parser").select_one("#results-table")
+        headers = [th.get_text(strip=True) for th in table.select("thead th")]
+        self.assertEqual(headers, ["Event ID", "Event title", "Creator org", "Value", "Event date",
+                                   "Attribute timestamp", "Type", "to_ids", "Server"])
+        # A header sorts on the cell at its data-sort index, so each still points at its own column.
+        self.assertEqual([int(th["data-sort"]) for th in table.select("thead th[data-sort]")], [0, 1, 2, 3, 4, 5, 6, 8])
+        cells = table.select_one("tbody tr").find_all("td", recursive=False)
+        self.assertEqual(cells[5]["data-v"], "1767261600")
 
     def test_a_search_that_could_not_run_says_so_instead_of_nothing_matched(self):
         """An unreachable MISP used to read as a query with no matches, which is

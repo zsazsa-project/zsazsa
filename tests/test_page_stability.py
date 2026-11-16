@@ -36,7 +36,7 @@ class ServerMessages(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         for patcher in (mock.patch.multiple(config, create=True, DB_FILE=str(Path(tmp.name) / "test.db"),
                                             LOG_FILE=str(Path(tmp.name) / "test.log"),
-                                            MISP_SESSION_REDIRECT_TO_LOGIN=False, MISP_SESSION_COOKIE_NAME=""),
+                                            MISP_SESSION_REDIRECT_TO_LOGIN=False, MISP_SESSION_COOKIE_NAME="MISP-test"),
                         mock.patch.object(collection_cache, "start_worker"),
                         mock.patch.object(misp_store, "list_fias", return_value=[])):
             patcher.start()

@@ -272,7 +272,9 @@ class ReadAgain(unittest.TestCase):
                                       "list_briefings"), [])
 
     def test_a_failed_write_does_not_make_the_delete_look_failed(self):
+        # Untagging is MISP's part and is not what this is about, so it stays here.
         with mock.patch.object(misp_store.event_state, "read_again", side_effect=sqlite3.OperationalError("database is locked")), \
+             mock.patch.object(misp_store, "_untag_product_source"), \
              self.assertLogs("webapp.misp_store", level="WARNING"):
             misp_store._retag_product_sources("vea", {A: "scraper"}, {}, set, read_again="vea")
 

@@ -657,9 +657,12 @@ class SummaryOnAnotherMispServer(unittest.TestCase):
         misp.add_event_report.return_value = {"EventReport": {"id": "3"}}
         misp.publish.return_value = published or {"saved": True, "success": True}
         event = SimpleNamespace(id=7, uuid="u" * 36, info="Overlord RAT campaign", tags=[])
+        # A scraper event's scope is read with the galaxy names, which come from
+        # MISP unless an earlier test left them cached.
         with mock.patch("analyser.llm.summarise_report", return_value="## Summary\nA RAT."), \
              mock.patch("analyser.tagger.set_workflow_state") as workflow, \
              mock.patch.object(data_collection, "_tag_event_scope", return_value=[]) as scope, \
+             mock.patch.object(misp_store, "_galaxy_tag_map", return_value={}), \
              mock.patch.object(data_collection.collection_cache, "mark_ai_summary"), \
              mock.patch.object(data_collection, "_refresh_cached_event"), \
              mock.patch.object(data_collection.audit, "record"):

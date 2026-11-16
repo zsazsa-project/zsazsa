@@ -1,0 +1,36 @@
+{# A menu of a page's sections, [data-section-nav] with links to #ids, marks the
+   section in view: the last one whose top has reached the top of the window,
+   or the last of all once the page is scrolled to its end. A link clicked
+   stays marked until the reader scrolls, as a section near the end of the page
+   cannot be scrolled up to the top. A menu in a closed tab is left alone, and
+   opening a tab marks its menu. #}
+<script>
+(function() {
+  let clicked = null;
+
+  function markSectionInView() {
+    const atEnd = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    document.querySelectorAll('[data-section-nav]').forEach(nav => {
+      if (!nav.offsetParent) return;
+      const links = [...nav.querySelectorAll('a[href^="#"]')];
+      let current = links[0];
+      links.forEach(a => {
+        const section = document.getElementById(a.getAttribute('href').slice(1));
+        if (section && (atEnd || section.getBoundingClientRect().top < 140)) current = a;
+      });
+      if (clicked && nav.contains(clicked)) current = clicked;
+      links.forEach(a => a.classList.toggle('active', a === current));
+    });
+  }
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-section-nav] a[href^="#"]');
+    if (!link) return;
+    clicked = link;
+    markSectionInView();
+  });
+  ['wheel', 'touchmove', 'keydown'].forEach(name => window.addEventListener(name, () => { clicked = null; }, {passive: true}));
+  window.addEventListener('scroll', markSectionInView, {passive: true});
+  document.addEventListener('shown.bs.tab', markSectionInView);
+  markSectionInView();
+})();
+</script>

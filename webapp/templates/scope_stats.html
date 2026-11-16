@@ -3,21 +3,8 @@
 {% block title %}Scope and Focus points stats | zsazsa CTI{% endblock %}
 {% block page_title %}Scope and Focus points statistics{% endblock %}
 
-{% block topbar_actions %}
-<a href="{{ url_for('stats.scope_csv', **filters) }}" class="btn btn-sm btn-light border shadow-sm">
-  <i class="fas fa-file-csv me-1"></i> Export to CSV
-</a>
-{% endblock %}
-
 {% block content %}
 <style>
-  .scope-hero { background: var(--brand-gradient); color: #fff; border-radius: 12px; padding: 1.4rem 1.6rem;
-                box-shadow: var(--card-shadow); position: relative; overflow: hidden; }
-  .scope-hero::after { content: ""; position: absolute; right: -60px; top: -60px; width: 240px; height: 240px;
-                       border-radius: 50%; background: var(--overlay-white-15); pointer-events: none; }
-  .scope-hero .hero-number { font-size: 2rem; font-weight: 700; line-height: 1; }
-  .scope-hero .hero-label { font-size: .75rem; opacity: .85; margin-top: .25rem; }
-  .scope-records { background: var(--card-bg); color: var(--text-primary); border-radius: 10px; padding: .8rem 1rem; }
   .scope-records .kind-row { display: flex; align-items: center; gap: .5rem; font-size: .8rem; padding: .12rem .4rem;
                              margin: 0 -.4rem; border-radius: 6px; color: inherit; text-decoration: none; }
   .scope-records a.kind-row:hover { background: var(--surface-muted); }
@@ -90,56 +77,48 @@
      'campaign':                ('fa-flag', 'var(--text-muted)'),
    } %}
 
-<div class="scope-hero mb-4">
-  <div class="row g-4 align-items-center position-relative" style="z-index:1;">
-    <div class="col-lg-7">
-      <p class="mb-3" style="font-size:.86rem;max-width:62ch;">
-        Frequency of each scope value across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
-        Geography, sectors, threat actors and MITRE ATT&amp;CK techniques come from MISP galaxies; the rest are curated free-text scope items.
-      </p>
-      <div class="d-flex flex-wrap gap-4">
-        <div>
-          <div class="hero-number">{{ categories | sum(attribute='total') }}</div>
-          <div class="hero-label">scope values on events</div>
-        </div>
-        <div>
-          <div class="hero-number">{{ categories | sum(attribute='distinct') }}</div>
-          <div class="hero-label">different values</div>
-        </div>
-        <div>
-          <div class="hero-number">{{ categories | selectattr('total') | list | length }}<span style="font-size:1rem;opacity:.75;"> / {{ categories | length }}</span></div>
-          <div class="hero-label">categories in use</div>
-        </div>
-        <div>
-          <div class="hero-number"><i class="fas fa-bullseye" style="font-size:1.2rem;opacity:.8;"></i> {{ focus_points.matched }}<span style="font-size:1rem;opacity:.75;"> / {{ focus_points.total }}</span></div>
-          <div class="hero-label">focus points in scope</div>
-        </div>
-      </div>
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-bullseye"></i></span>
+    <p class="lead-text">
+      Frequency of each scope value across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
+      Geography, sectors, threat actors and MITRE ATT&amp;CK techniques come from MISP galaxies; the rest are curated free-text scope items.
+    </p>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ categories | sum(attribute='total') }}</b><span>scope values on events</span></div>
+      <div class="record-kpi"><b>{{ categories | sum(attribute='distinct') }}</b><span>different values</span></div>
+      <div class="record-kpi"><b>{{ categories | selectattr('total') | list | length }}<small> / {{ categories | length }}</small></b><span>categories in use</span></div>
+      <div class="record-kpi"><b>{{ focus_points.matched }}<small> / {{ focus_points.total }}</small></b><span>focus points in scope</span></div>
     </div>
-    <div class="col-lg-5">
-      <div class="scope-records">
-        <div class="chart-label mb-0">Records with scope</div>
-        <div class="text-muted mb-1" style="font-size:.7rem;">Click one to see only its scope values.</div>
-        {% macro kind_row(k, count, active) %}
-          <span class="chart-swatch" style="background:{{ k.color }};"></span>
-          <span class="flex-grow-1">{{ k.plural }}</span>
-          {% if active %}<i class="fas fa-xmark text-muted"></i>{% endif %}
-          <strong>{{ count }}</strong>
-        {% endmacro %}
-        {% for kind, k in scope_kinds.items() %}
-        {% set active = filters.kind == kind %}
-        {% if records_by_kind[kind] %}
-        <a class="kind-row{{ ' active' if active }}" style="--kind-color:{{ k.color }};"
-           href="{{ url_for('stats.scope', **dict(filters, kind=None if active else kind)) }}"
-           title="{{ 'Show the scope of every record' if active else 'Show only the scope of ' ~ k.plural }}">{{ kind_row(k, records_by_kind[kind], active) }}</a>
-        {% else %}
-        <div class="kind-row">{{ kind_row(k, 0, False) }}</div>
-        {% endif %}
-        {% endfor %}
-      </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('stats.scope_csv', **filters) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-csv me-1"></i> Export to CSV</a>
     </div>
   </div>
-</div>
+  <div class="record-panel scope-records">
+    <div>
+      <div class="chart-label mb-0">Records with scope</div>
+      <div class="text-muted" style="font-size:.7rem;">Click one to see only its scope values.</div>
+    </div>
+    <div>
+    {% macro kind_row(k, count, active) %}
+      <span class="chart-swatch" style="background:{{ k.color }};"></span>
+      <span class="flex-grow-1">{{ k.plural }}</span>
+      {% if active %}<i class="fas fa-xmark text-muted"></i>{% endif %}
+      <strong>{{ count }}</strong>
+    {% endmacro %}
+    {% for kind, k in scope_kinds.items() %}
+    {% set active = filters.kind == kind %}
+    {% if records_by_kind[kind] %}
+    <a class="kind-row{{ ' active' if active }}" style="--kind-color:{{ k.color }};"
+       href="{{ url_for('stats.scope', **dict(filters, kind=None if active else kind)) }}"
+       title="{{ 'Show the scope of every record' if active else 'Show only the scope of ' ~ k.plural }}">{{ kind_row(k, records_by_kind[kind], active) }}</a>
+    {% else %}
+    <div class="kind-row">{{ kind_row(k, 0, False) }}</div>
+    {% endif %}
+    {% endfor %}
+    </div>
+  </div>
+</section>
 
 <div class="d-flex flex-wrap gap-2 mb-4">
   {% for cat in categories %}
