@@ -35,7 +35,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via tqdm
 cssselect2==0.10.1
     # via weasyprint
-curl-cffi==0.16.3
+curl-cffi==0.17.0
     # via -r requirements.in
 deprecated==1.3.1 ; python_full_version < '3.12'
     # via pymisp
@@ -64,7 +64,7 @@ jinja2==3.1.6
     # via flask
 jiter==0.17.0
     # via openai
-markdown-it-py==4.2.0
+markdown-it-py==4.3.0
     # via -r requirements.in
 markdownify==1.2.3
     # via -r requirements.in
@@ -90,20 +90,18 @@ pydantic-core==2.50.1
     # via pydantic
 pydyf==0.12.1
     # via weasyprint
-pymisp==2.5.34.4
+pymisp==3.0.0
     # via -r requirements.in
 pyphen==0.18.1
     # via weasyprint
-python-dateutil==2.9.0.post0
+python-dateutil==4.0.0
     # via pymisp
 requests==2.34.2
     # via
     #   -r requirements.in
     #   pymisp
 six==1.17.0
-    # via
-    #   markdownify
-    #   python-dateutil
+    # via markdownify
 sniffio==1.3.1
     # via openai
 soupsieve==2.10 ; python_full_version < '3.11.5'
@@ -128,6 +126,8 @@ typing-extensions==4.16.0
     #   typing-inspection
 typing-inspection==0.4.4
     # via pydantic
+tzdata==2026.6
+    # via python-dateutil
 urllib3==2.8.0
     # via
     #   -r requirements.in
