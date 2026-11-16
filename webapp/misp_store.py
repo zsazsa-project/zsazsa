@@ -750,9 +750,22 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
                                           misp_client=None, source_id: str = "") -> bool:
     """Tag a source event as having been used to create a product.
 
+    Returns whether MISP accepted both changes, so a queue action does not
+    report a refused write as successful. What went wrong is logged; see
+    product_source_problem() for a caller that shows it.
+    """
+    problem = product_source_problem(src_uuid, product_label, misp_client, source_id)
+    if problem:
+        logger.warning("Could not tag source event %s: %s", src_uuid, problem)
+    return not problem
+
+
+def product_source_problem(src_uuid: str, product_label: str, misp_client=None, source_id: str = "") -> str:
+    """Tag a source event as having been used to create a product, and say why
+    it could not be, or "" when it was.
+
     Sets workflow state to 'ongoing' and adds a zsazsa:product tag. Events
-    already in 'complete' keep their state. Returns whether MISP accepted both
-    changes, so a queue action does not report a refused write as successful.
+    already in 'complete' keep their state.
 
     misp_client defaults to the MISP that source_id names (see _source_client).
     Pass a different client when the event lives on another MISP instance
@@ -760,17 +773,18 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
     there, and source_id is then ignored.
     """
     if not src_uuid:
-        return False
+        return "no event was named"
     try:
         client = misp_client or _source_client(source_id)
         if client is None:
-            return False
+            return f"its source {source_id or 'scraper'} is not configured"
         event = client.get_event(src_uuid, pythonify=True)
+        if not event or isinstance(event, dict):
+            return "MISP did not return the event, so it was deleted or this key may not read it"
         # A source is something collected. On the webapp MISP an id from a
         # product form could name one of zsazsa's own records instead.
-        if not event or isinstance(event, dict) or _is_own_record(t.name for t in event.tags):
-            logger.warning("Could not tag source event %s: not a readable collection event", src_uuid)
-            return False
+        if _is_own_record(t.name for t in event.tags):
+            return "it is a zsazsa record, not a collected event"
         current_wf = next(
             (tag.name for tag in (getattr(event, "tags", []) or [])
              if tag.name.startswith('workflow:state=')),
@@ -778,12 +792,13 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
         )
         if current_wf != 'workflow:state="complete"':
             if not tagger.set_workflow_state(client, event, "ongoing"):
-                return False
-        if not tagger.add_tag(client, src_uuid, f'zsazsa:product="{product_label}"'):
-            return False
+                return "MISP refused to change its workflow state"
+        tag = f'zsazsa:product="{product_label}"'
+        if not tagger.add_tag(client, src_uuid, tag):
+            return f"MISP refused the tag {tag}"
         try:
             from webapp import collection_cache
-            add_tags = [f'zsazsa:product="{product_label}"']
+            add_tags = [tag]
             remove_tags = []
             if current_wf != 'workflow:state="complete"':
                 if current_wf:
@@ -792,10 +807,9 @@ def _tag_scraper_event_as_product_source(src_uuid: str, product_label: str,
             collection_cache.patch_event_tags(src_uuid, add_tags, remove_tags)
         except Exception as exc:
             logger.warning("Could not patch cache for %s: %s", src_uuid, exc)
-        return True
+        return ""
     except Exception as exc:
-        logger.warning("Could not tag source event %s: %s", src_uuid, exc)
-        return False
+        return f"MISP could not be asked: {exc}"
 
 
 def _untag_product_source(src_uuid: str, product_label: str, source_id: str = "", reject=False) -> None:
@@ -5364,11 +5378,12 @@ def get_fia(uuid):
     return None if event is None else _fia_ns(event)
 
 
-def create_fia(data):
+def create_fia(data, creator=""):
     """Create a Flash Intel Alert as a draft MISP event.
 
     Returns (uuid, fia_id). The FIA id is derived from the MISP event id so
-    it is unique without a separate counter.
+    it is unique without a separate counter. ``creator`` names who made it
+    when that is not the user of the request, as for the analyser.
     """
     misp = _misp()
     title = (data.get("title") or "").strip() or "Untitled"
@@ -5396,9 +5411,9 @@ def create_fia(data):
     fia_id = _fia_id_from_event_id(result.id)
     data["fia_id"] = fia_id
     data.setdefault("review_state", FIA_REVIEW_DRAFT)
-    data["creator"] = misp_session.current_user_email()
+    data["creator"] = creator or misp_session.current_user_email()
     if data["review_state"] == FIA_REVIEW_APPROVED:
-        data["approved_by"] = misp_session.current_user_email()
+        data["approved_by"] = creator or misp_session.current_user_email()
     try:
         _check(misp.add_object(_event_ref(result), _fia_obj(data)), "add FIA object")
         fia = _fia_ns(_check(misp.get_event(uuid, pythonify=True), "read the new FIA"))
@@ -5412,7 +5427,7 @@ def create_fia(data):
     return uuid, fia_id
 
 
-def update_fia(uuid, data):
+def update_fia(uuid, data, approver=""):
     """Update the FIA object on the event and re-render the report."""
     misp = _misp()
     event = _zsazsa_event(uuid, "zsazsa-flash-intel", config.TAG_FLASH_INTEL)
@@ -5427,7 +5442,7 @@ def update_fia(uuid, data):
     old_review_state = _obj_attr(old, "review-state") if old else None
     new_review_state = data.get("review_state", FIA_REVIEW_DRAFT)
     if new_review_state == FIA_REVIEW_APPROVED and old_review_state != FIA_REVIEW_APPROVED:
-        data["approved_by"] = misp_session.current_user_email()
+        data["approved_by"] = approver or misp_session.current_user_email()
     else:
         data.setdefault("approved_by", _obj_attr(old, "approved-by") or "")
     if old:
@@ -5468,7 +5483,7 @@ def update_fia(uuid, data):
     return uuid, fia_id
 
 
-def set_fia_review_state(uuid, state, reason=None):
+def set_fia_review_state(uuid, state, reason=None, approver=""):
     """Update the FIA's review-state attribute and the workflow:state tag."""
     if state not in FIA_REVIEW_STATES:
         raise ValueError(f"invalid review state: {state}")
@@ -5518,7 +5533,7 @@ def set_fia_review_state(uuid, state, reason=None):
         "review_state": state,
         "rejection_reason": reason or fia.rejection_reason,
     }
-    update_fia(uuid, payload)
+    update_fia(uuid, payload, approver=approver)
 
     # Sync workflow:state tag
     workflow_map = {
@@ -5540,10 +5555,11 @@ def set_fia_review_state(uuid, state, reason=None):
         logger.warning("tag %s with %s failed: %s", event.uuid, new_wf, exc)
 
 
-def publish_fia(uuid):
+def publish_fia(uuid, approver=""):
     """Mark the FIA approved, set workflow=complete, publish the MISP event.
-    False when MISP refused to publish it."""
-    set_fia_review_state(uuid, FIA_REVIEW_APPROVED)
+    False when MISP refused to publish it. ``approver`` names who approved it
+    when that is not the user of the request, as for the analyser."""
+    set_fia_review_state(uuid, FIA_REVIEW_APPROVED, approver=approver)
     return publish_event(_misp(), uuid, f"FIA {uuid}")
 
 

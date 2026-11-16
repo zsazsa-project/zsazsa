@@ -2103,6 +2103,32 @@
     applyAll();
   };
 
+  /* A link to one event, as from a briefing story (?event=<uuid>): clear the
+     filters and search on its title, so it shows on its own and the search
+     box says why. The parameter is then taken off, so a reload keeps the
+     analyst's own filters. */
+  function showLinkedEvent() {
+    var params = new URLSearchParams(window.location.search);
+    var wanted = params.get('event');
+    if (!wanted) return;
+    params.delete('event');
+    var rest = params.toString();
+    history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+    var target = rows.filter(function(r) { return r.dataset.uuid === wanted; })[0];
+    if (!target) {
+      showFeedback('That event is not on Data collection. It may be older than what the sources collect, '
+                   + 'or its source may be turned off.', 'warning');
+      return;
+    }
+    var links = target.querySelectorAll('.event-preview-link');
+    var title = links.length ? links[links.length - 1].textContent.trim() : (target.dataset.title || '');
+    clearAllFilters();
+    state.q = title;
+    if (searchInput) searchInput.value = title;
+    if (searchClear) searchClear.style.display = title ? '' : 'none';
+    applyAll();
+  }
+
   /* ── Restore full filter state on page load ── */
   (function() {
     var raw = sessionStorage.getItem('zsazsa_filter_state');
@@ -2150,6 +2176,7 @@
       window.scrollTo(0, note.scroll || 0);
       showFeedback(note.message, note.category || 'success');
     }
+    showLinkedEvent();
     _saveFilterState();
   })();
 

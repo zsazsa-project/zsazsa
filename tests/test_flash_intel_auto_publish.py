@@ -5,7 +5,7 @@ asked whether any stakeholder was on automated mode, got a yes back, and
 broadcast on the strength of it. It now delivers to the subscribers themselves,
 through the same dispatcher an analyst pressing Publish goes through, with TLP
 clearance deciding as it does everywhere else. The alert is approved and
-published as an analyst's would be, before anything is sent. What went wrong,
+published as an analyst's would be, by the analyser, before anything is sent. What went wrong,
 MISP not publishing it or a channel not reached, is handed back for the run to
 log on the alert's source event.
 
@@ -95,7 +95,7 @@ class AutoPublishDelivery(unittest.TestCase):
                   mock.patch.object(misp_store, "stakeholders_on_automated_mode", return_value=recipients))
         with lookup as asked, \
              mock.patch.object(misp_store, "publish_fia",
-                               side_effect=lambda uuid: calls.append("publish") or published) as publish, \
+                               side_effect=lambda uuid, approver="": calls.append("publish") or published) as publish, \
              mock.patch.object(misp_store, "get_fia", return_value=fia), \
              mock.patch.object(misp_store, "render_fia_markdown", return_value="# Alert"), \
              mock.patch("notifier.dispatcher.send_flash_intel",
@@ -113,7 +113,7 @@ class AutoPublishDelivery(unittest.TestCase):
 
     def test_the_alert_is_approved_and_published_before_anything_is_sent(self):
         done = self.publish([_stakeholder("Acme")])
-        done.publish.assert_called_once_with("u" * 36)
+        done.publish.assert_called_once_with("u" * 36, approver="analyser")
         self.assertEqual(done.calls, ["publish", "send"])
         self.assertIs(done.send.call_args.args[0], done.fia)
 

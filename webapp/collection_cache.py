@@ -57,6 +57,8 @@ AI_SUMMARY_PREFIX = "[AI-Summary]"
 AI_EVENT_SUMMARY_PREFIX = "[AI-Event-Summary]"
 
 WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
+# Puts an event in the threat landscape queue, which is read from this cache.
+TLR_QUEUE_TAG = 'zsazsa:product="threat-landscape-report"'
 
 
 def dismissed_tag() -> str:
@@ -484,6 +486,24 @@ def _sync_flags(conn, source_id: str, rows: list, since: float) -> None:
                      [(r["uuid"], since) for r in rows if r["uuid"] not in keep])
 
 
+def _queued_beyond_window(misp, search: dict) -> tuple[list, str | None]:
+    """The events queued for the threat landscape, whatever their date, so the
+    queue keeps an older article an analyst put in it. ``search`` is the
+    source's own search, with its tags narrowed to its queued events and no
+    date. Returns them and MISP's error, if any.
+    """
+    queued = misp.search(**search)
+    error = _search_payload_error(queued)
+    if error or not queued or isinstance(queued, dict):
+        return [], error
+    return queued, None
+
+
+def _add_missing_rows(rows: list, events, source_id: str) -> None:
+    have = {r["uuid"] for r in rows}
+    rows.extend(_extract_row(e, source_id) for e in events if e.uuid not in have)
+
+
 def refresh_source(src: dict) -> dict:
     """Re-read one source into the cache.
 
@@ -529,6 +549,12 @@ def refresh_source(src: dict) -> dict:
                 limit_reached = len(events) >= scraper_limit
                 for e in events:
                     rows.append(_extract_row(e, source_id))
+            if not error and since_days > 0:
+                del kwargs["date_from"]
+                kwargs["tags"] = misp.build_complex_query(
+                    and_parameters=[config.SCRAPER_MARKER_TAG, TLR_QUEUE_TAG])
+                queued, error = _queued_beyond_window(misp, kwargs)
+                _add_missing_rows(rows, queued, source_id)
         except Exception as exc:
             error = str(exc)
             logger.warning("collection cache: scraper error - %s", exc)
@@ -573,17 +599,22 @@ def refresh_source(src: dict) -> dict:
                 if src.get("since_days"):
                     cutoff = (_dt.date.today() - _dt.timedelta(days=int(src["since_days"]))).isoformat()
                     kwargs["date_from"] = cutoff
+                org_filter_type = src.get("org_filter_type", "")
+                org_filter = {o.lower() for o in (src.get("org_filter") or [])}
                 events = misp.search(**kwargs)
                 payload_err = _search_payload_error(events)
                 if payload_err:
                     error = payload_err
                 elif events and not isinstance(events, dict):
                     limit_reached = len(events) >= limit
-                    org_filter_type = src.get("org_filter_type", "")
-                    org_filter = {o.lower() for o in (src.get("org_filter") or [])}
                     events = filter_events_by_org(events, org_filter_type, org_filter)
                     for e in events:
                         rows.append(_extract_row(e, source_id))
+                if not error and src.get("since_days"):
+                    del kwargs["date_from"]
+                    kwargs["tags"] = [TLR_QUEUE_TAG]
+                    queued, error = _queued_beyond_window(misp, kwargs)
+                    _add_missing_rows(rows, filter_events_by_org(queued, org_filter_type, org_filter), source_id)
             except Exception as exc:
                 error = str(exc)
                 logger.warning("collection cache: %s error - %s", source_id, exc)

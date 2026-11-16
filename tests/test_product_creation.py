@@ -4,6 +4,8 @@ engineering request in MISP.
 Each is an event, then its object, then a MISP report rendered from the two. The
 report is rendered from the event as MISP has it once the object is on it: the
 event add_event answers with has no object yet, and the report came out empty.
+An alert's creator is the one it is created for, as the analyser names itself,
+and otherwise the user of the request.
 When the object or the report cannot be written, the event is deleted again.
 Left behind, it would count as the product of its source event, so the
 analyser would never make one for it, or, without an object, a new empty one on
@@ -26,7 +28,7 @@ PRODUCT_UUID = "p" * 36
 
 
 class Creation(unittest.TestCase):
-    def create(self, kind, data, refuse="", delete_refused=False):
+    def create(self, kind, data, refuse="", delete_refused=False, user="analyser", **kwargs):
         """Create a product of ``kind`` ("fia", "vea" or "der"), with MISP refusing
         the "object" or the "report" when asked."""
         misp = mock.create_autospec(PyMISP, instance=True)
@@ -49,8 +51,8 @@ class Creation(unittest.TestCase):
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
              mock.patch.object(misp_store, "_tag_local"), \
              mock.patch.object(misp_store, "_tag_scraper_event_as_product_source") as self.tagged, \
-             mock.patch.object(misp_store.misp_session, "current_user_email", return_value="analyser"):
-            return create(dict(data))
+             mock.patch.object(misp_store.misp_session, "current_user_email", return_value=user):
+            return create(dict(data), **kwargs)
 
     def report(self):
         return self.misp.add_event_report.call_args.args[1].content
@@ -64,6 +66,18 @@ class Alert(Creation):
         self.assertEqual(self.create("fia", self.DATA), (PRODUCT_UUID, "FIA-00042"))
         self.assertIn("Ransomware stopped a grid operator.", self.report())
         self.tagged.assert_called_once_with(SOURCE_UUID, "flash-intel", source_id="scraper")
+
+    def test_the_creator_named_is_kept_rather_than_the_user_of_the_request(self):
+        """The analyser files its alerts outside a request, where the user is
+        the webapp's fallback address."""
+        self.create("fia", self.DATA, user="admin@admin.test", creator="analyser")
+        obj = self.misp.add_object.call_args.args[1]
+        self.assertEqual([a.value for a in obj.attributes if a.object_relation == "creator"], ["analyser"])
+
+    def test_without_one_the_user_of_the_request_is_the_creator(self):
+        self.create("fia", self.DATA, user="analyst@example.org")
+        obj = self.misp.add_object.call_args.args[1]
+        self.assertEqual([a.value for a in obj.attributes if a.object_relation == "creator"], ["analyst@example.org"])
 
     def test_one_whose_object_is_refused_is_deleted_again(self):
         with self.assertRaisesRegex(RuntimeError, "object refused"):

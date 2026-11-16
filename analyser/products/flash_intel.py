@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 _FLASH_INTEL_PRODUCT_NAME = "Flash intel alert"
 # Default classification, raised when the source is more restricted.
 _AUTO_TLP = "amber"
+# Who drafted, and on automated mode approved, the alert. Outside a request the
+# webapp's user would otherwise be its fallback address.
+_ANALYSER_NAME = "analyser"
 
 
 def draft_alert(event, source, verdict: dict, judge, article: str, summary: str, why: str,
@@ -62,7 +65,7 @@ def draft_alert(event, source, verdict: dict, judge, article: str, summary: str,
         "audience": audience or misp_store.subscriber_audience(_FLASH_INTEL_PRODUCT_NAME, tlp),
         "source_reliability": reliability.upper(),
         "information_credibility": tagger.tag_value(event, "admiralty-scale:information-credibility="),
-        "author": "analyser",
+        "author": _ANALYSER_NAME,
         "source_event_uuids": [event.uuid],
         "source_event_hints": {event.uuid: source.hint},
         "linked_requirement_uuids": [r.uuid for r in requirements],
@@ -80,7 +83,7 @@ def file_alert(data: dict, event, source, verdict: dict) -> tuple[str, str]:
     automated mode. Returns its id, and what went wrong in publishing it, or ""."""
     from webapp import misp_store
 
-    uuid, fia_id = misp_store.create_fia(data)
+    uuid, fia_id = misp_store.create_fia(data, creator=_ANALYSER_NAME)
     # MISP cannot tag an event report (it answers Invalid Target), so the
     # source type goes on the event, when the event is ours to tag.
     if source.own and verdict.get("source_type"):
@@ -108,7 +111,7 @@ def _publish_to_automated_subscribers(uuid: str, fia_id: str, tlp: str) -> str:
         return ""
     problems = []
     try:
-        if not misp_store.publish_fia(uuid):
+        if not misp_store.publish_fia(uuid, approver=_ANALYSER_NAME):
             # Sent all the same, as from the alert's page: it is approved now.
             problems.append("MISP did not publish it")
         fia = misp_store.get_fia(uuid)

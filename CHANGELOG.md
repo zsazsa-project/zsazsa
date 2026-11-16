@@ -11,10 +11,13 @@
 - The scope statistics mark the values that are a focus point and say how many focus points are in scope.
 - A stakeholder's page lists the scope items of the PIRs and GIRs it owns or is listed in.
 - Major rework of the UI for more consistency in styling, colours, font and layout.
+- A story in the daily briefing form has a "Jump to story in data collection" button.
 
 ### Changed
 
 - New consistent layout throughout the entire app.
+- An event that cannot be queued for the threat landscape is named with the reason, in the message and the audit log.
+- The threat landscape queue keeps an event older than the collection window of its source.
 
 ### Security
 
@@ -22,6 +25,7 @@
 
 ### Upgrading
 
+- Flash intel alerts the analyser drafted before this release keep admin@admin.test as their creator, and those it published as their approver. Nothing needs doing; the alerts read and work as before.
 - `product_qa_review.md` tells the model to leave a product's own ID and date alone. If you changed that prompt on the Prompts tab, or keep your own copy, as a Docker installation does in `docker/volumes/prompts`, add that paragraph to it.
 
 ## 1.0.10

@@ -10,7 +10,7 @@ each ground. It is never classified below its source. The source type goes on
 the source event when that is zsazsa's own; an event on another organisation's
 MISP server is not written to. A draft the model left empty, or one with
 neither a summary nor what happened, as when the model declined, files
-nothing.
+nothing. It is filed as the analyser's, not as the webapp's fallback user.
 
 The stored alert keeps the list of requirements through an analyst's edit, and
 an alert from before the list reads back with its one PIR.
@@ -66,7 +66,8 @@ class Alert(unittest.TestCase):
         self.created = {}
         with mock.patch.object(flash_intel.llm, "generate_fia_draft", return_value=DRAFT) as self.drafted, \
              mock.patch.object(misp_store, "create_fia",
-                               side_effect=lambda data: self.created.update(data) or ("u" * 36, "FIA-00042")), \
+                               side_effect=lambda data, creator="": self.created.update(data, filed_by=creator)
+                               or ("u" * 36, "FIA-00042")), \
              mock.patch.object(misp_store, "list_stakeholders", return_value=[]), \
              mock.patch.object(misp_store, "requirement_audience", return_value="SOC") as self.audience, \
              mock.patch.object(misp_store, "subscriber_audience", return_value="Everyone"), \
@@ -92,6 +93,12 @@ class Alert(unittest.TestCase):
         self.assertEqual(self.created["what_happened"], ["The operator's VPN was breached."])
         self.assertEqual(self.created["review_state"], misp_store.FIA_REVIEW_DRAFT)
         self.assertEqual(self.created["author"], "analyser")
+
+    def test_it_is_filed_as_the_analyser_s_and_not_the_webapp_s_fallback_user(self):
+        """Outside a request the user is admin@admin.test, which the alert's
+        page showed as its creator while its author was the analyser."""
+        self.make()
+        self.assertEqual(self.created["filed_by"], "analyser")
 
     def test_it_names_its_source_event_and_where_it_was_read(self):
         for kind, sid, hint in (("scraper", "scraper", "scraper"), ("manual", "manual", "webapp"),

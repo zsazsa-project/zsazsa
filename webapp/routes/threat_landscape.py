@@ -14,7 +14,7 @@ from webapp.rate_limit import rate_limited
 logger = logging.getLogger(__name__)
 bp = Blueprint("threat_landscape", __name__, url_prefix="/products/threat-landscape")
 
-_TLR_QUEUE_TAG = 'zsazsa:product="threat-landscape-report"'
+_TLR_QUEUE_TAG = collection_cache.TLR_QUEUE_TAG
 QUEUE_SIZE = 500
 PRODUCT_NAME = "Threat landscape report"
 

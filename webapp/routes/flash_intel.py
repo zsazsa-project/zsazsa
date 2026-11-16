@@ -10,17 +10,19 @@ from urllib.parse import quote
 
 import config as _cfg
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for, Response
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for, Response
 
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
 from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
+from webapp.routes import data_collection
 from webapp.routes.source_event_utils import (
     flattened_references,
     linked_pir_uuid,
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
+    product_source_events,
     source_event_references,
     source_event_urls_only,
     source_tag_values,
@@ -240,16 +242,36 @@ def detail(id):
     feedback = misp_store.list_product_feedback(fia.uuid)
     recipients = misp_store.recipient_preview("Flash intel alert", fia.tlp, fia.audience)
     notify_status = audit.latest_notify_status("fia", id)
-    source_refs = source_event_references(fia)
+    source_events = product_source_events(fia)
+    source_refs = source_event_references(fia, source_events)
     return render_template(
         "flash_intel/detail.html",
         fia=fia,
+        source_events=source_events,
         feedback=feedback,
         recipients=recipients,
         notify_status=notify_status,
         reference_items=flattened_references(list(fia.external_references or []), source_refs),
         can_publish=misp_session.current_user_can_publish(),
     )
+
+
+@bp.route("/<string:id>/queue-for-tlr", methods=["POST"])
+def queue_for_tlr(id):
+    """Put the alert's source articles in the threat landscape queue.
+
+    The events are the ones stored on the alert, not ids from the request, so
+    one older than what Data collection holds is queued too.
+    """
+    fia = misp_store.get_fia(id)
+    if fia is None:
+        return jsonify({"ok": False, "error": "FIA not found"}), 404
+    hints = dict(getattr(fia, "source_event_hints", {}) or {})
+    events = [(uuid, hints.get(uuid) or "scraper") for uuid in (fia.source_event_uuids or [])]
+    if not events:
+        return jsonify({"ok": False, "error": "The alert has no source articles."}), 400
+    return jsonify(data_collection.queue_events_for_tlr(
+        events, collected_only=False, audit_type="fia", audit_id=id, audit_label=fia.fia_id))
 
 
 @bp.route("/<string:id>/recipients")

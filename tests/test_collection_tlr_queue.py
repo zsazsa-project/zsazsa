@@ -2,6 +2,10 @@
 
 An immediate MISP refetch may still have the old tags. The queue must keep its
 confirmed cache changes, preserve complete events and report refused writes.
+An event that could not be queued is named in the answer and the audit log with
+the reason, which used to be "The log says why". Ids from the request must be on
+Data collection; the stored sources of a product need not be, and an older one
+is cached when it is queued, as an alert's June article could not be.
 
     python -m unittest tests.test_collection_tlr_queue
 """
@@ -18,6 +22,7 @@ from webapp import collection_cache
 from webapp.routes import data_collection
 
 UUID = "6f4535bb-1b2c-4d5e-8f90-a1b2c3d4e5f6"
+OLD_UUID = "001f09ac-c17e-433c-ad70-81a480a6b7de"
 SOURCE = "manual-newsletter"
 PRODUCT_TAG = 'zsazsa:product="threat-landscape-report"'
 
@@ -39,6 +44,7 @@ class ThreatLandscapeQueue(unittest.TestCase):
         app = Flask(__name__)
         app.secret_key = "test"
         app.register_blueprint(data_collection.bp)
+        self.app = app
         self.client = app.test_client()
         self.seed()
 
@@ -103,7 +109,38 @@ class ThreatLandscapeQueue(unittest.TestCase):
         self.assertFalse(reply["ok"])
         self.assertEqual((reply["tagged"], reply["errors"]), (1, 1))
         self.assertIn("1 event queued", reply["message"])
-        self.assertIn("1 event could not be queued", reply["message"])
+        self.assertIn("Not queued: not-collected: it is not on Data collection under the source manual-newsletter.",
+                      reply["message"])
+        self.assertNotIn("log", reply["message"])
+
+    def test_a_refused_tag_is_named_with_the_reason(self):
+        self.seed("complete")
+        self.misp.tag.return_value = {"errors": "Tag refused"}
+        with self.assertLogs("analyser.tagger", level="ERROR"), self.assertLogs(data_collection.logger, "WARNING"):
+            reply = self.queue()
+        self.assertIn(f'"A collected article": MISP refused the tag {PRODUCT_TAG}', reply["message"])
+        details = data_collection.audit.record.call_args.kwargs["details"]
+        self.assertIn(f'not queued: "A collected article": MISP refused the tag {PRODUCT_TAG}', details)
+
+    def test_the_stored_source_of_a_product_is_queued_and_cached_though_not_collected(self):
+        """The cache holds the last 30 days; an alert's source can be older."""
+        old = MISPEvent()
+        old.uuid, old.id, old.info, old.date = OLD_UUID, 43, "An article from June", "2026-06-23"
+        old.add_tag('workflow:state="ongoing"')
+        self.misp.get_event.return_value = old
+        with self.app.test_request_context():
+            reply = data_collection.queue_events_for_tlr([(OLD_UUID, SOURCE)], collected_only=False,
+                                                         audit_type="fia", audit_id="f", audit_label="FIA-00001")
+        self.assertEqual((reply["ok"], reply["tagged"]), (True, 1))
+        self.misp.tag.assert_any_call(OLD_UUID, PRODUCT_TAG, local=True)
+        rows = collection_cache.get_events_by_uuids([OLD_UUID])
+        self.assertEqual([r["source_id"] for r in rows], [SOURCE])
+
+    def test_but_not_from_the_collection_page(self):
+        with self.assertLogs(data_collection.logger, level="WARNING"):
+            reply = self.queue([{"uuid": OLD_UUID, "sourceId": SOURCE}])
+        self.assertEqual(reply["tagged"], 0)
+        self.misp.tag.assert_not_called()
 
 
 class QueueSelection(unittest.TestCase):

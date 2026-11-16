@@ -6,7 +6,8 @@ drop-downs in the filter card, and groups the table by review state with a
 date leaf per row. A briefing's page has the record banner with its buttons at
 the bottom left, its TLP and its delivery, and the stories and their contents
 under it. The form has numbered sections, the TLP as choices and an "As it
-will appear" card with Save, and the AI actions in a card of their own.
+will appear" card with Save, and the AI actions in a card of their own. A
+story from a MISP event opens that event on Data collection in a new tab.
 
 MISP is patched; the database and log are temporary.
 
@@ -17,6 +18,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest import mock
 
 from bs4 import BeautifulSoup
@@ -137,6 +139,36 @@ class BriefingPages(unittest.TestCase):
         self.assertEqual(sorted(i["value"] for i in page.select('#gms-briefing-mitre-attack input:checked')),
                          ["Command and Scripting Interpreter - T1059", "Valid Accounts - T1078"])
         self.assertIsNone(page.select_one('#gms-briefing-mitre-attack input[value="T1059"]'))
+
+    def test_a_story_jumps_to_its_event_on_data_collection(self):
+        """Next to its AI and MISP buttons, in a new tab: the form may have
+        unsaved changes. A story written by hand has no event to jump to."""
+        galaxies = {name: mock.Mock(return_value=[]) for name in
+                    ("galaxy_geography", "galaxy_sectors", "galaxy_threat_actors", "galaxy_mitre_attack_patterns")}
+        event_uuid = "001f09ac-c17e-433c-ad70-81a480a6b7de"
+        briefing = _briefing("draft", stories=[{"title": "From MISP", "content": "x", "source_event_uuid": event_uuid},
+                                               {"title": "By hand", "content": "y"}])
+        page = self.page(f"/briefing/{UUID}/edit", get_briefing=mock.Mock(return_value=briefing), **galaxies)
+        first, second = page.select(".story-card")
+        link = first.select_one(".card-header a.btn-story-collection")
+        self.assertEqual(link["href"], f"/zsazsa/collection/?event={event_uuid}")
+        self.assertEqual(link["target"], "_blank")
+        self.assertEqual(" ".join(link.get_text().split()), "Jump to story in data collection")
+        self.assertIsNotNone(link.find_previous_sibling(class_="btn-include-attributes"))
+        self.assertIsNone(second.select_one(".btn-story-collection"))
+        # A story added on the page gets it too.
+        self.assertIn("/collection/?event=${encodeURIComponent(sourceUuid)}", str(page))
+
+    def test_data_collection_shows_the_linked_event_on_its_own(self):
+        """By its title, in the search box, with the other filters cleared; the
+        parameter comes off again so a reload keeps the analyst's filters."""
+        script = (Path(misp_store.__file__).parent / "templates" / "data_collection" / "_list_js.html").read_text()
+        linked = script.split("function showLinkedEvent() {", 1)[1].split("\n  }\n", 1)[0]
+        for line in ("params.get('event')", "params.delete('event')", "history.replaceState(",
+                     "clearAllFilters();", "state.q = title;", "searchInput.value = title;", "applyAll();",
+                     "That event is not on Data collection."):
+            self.assertIn(line, linked)
+        self.assertIn("showLinkedEvent();\n    _saveFilterState();", script)
 
 
 if __name__ == "__main__":

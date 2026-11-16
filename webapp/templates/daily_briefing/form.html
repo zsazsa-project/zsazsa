@@ -249,6 +249,13 @@
                   title="Add the source event's attributes (value | type | to_ids), and report text if present, to the story">
             <i class="fas fa-list-ul me-1"></i> Include attributes
           </button>
+          {% if story.source_event_uuid %}
+          <a class="btn btn-xs btn-outline-secondary btn-story-collection" target="_blank" rel="noopener"
+             href="{{ url_for('data_collection.index', event=story.source_event_uuid) }}"
+             title="Open Data collection in a new tab, showing only this story's event">
+            <i class="fas fa-arrow-up-right-from-square me-1"></i> Jump to story in data collection
+          </a>
+          {% endif %}
           <button type="button" class="btn btn-xs btn-outline-danger btn-remove-story">
             <i class="fas fa-trash"></i>
           </button>
@@ -1358,6 +1365,12 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
                   title="Add the source event's attributes (value | type | to_ids), and report text if present, to the story">
             <i class="fas fa-list-ul me-1"></i> Include attributes
           </button>
+          ${sourceUuid ? `
+          <a class="btn btn-xs btn-outline-secondary btn-story-collection" target="_blank" rel="noopener"
+             href="${SCRIPT_ROOT}/collection/?event=${encodeURIComponent(sourceUuid)}"
+             title="Open Data collection in a new tab, showing only this story's event">
+            <i class="fas fa-arrow-up-right-from-square me-1"></i> Jump to story in data collection
+          </a>` : ''}
           <button type="button" class="btn btn-xs btn-outline-danger btn-remove-story">
             <i class="fas fa-trash"></i>
           </button>

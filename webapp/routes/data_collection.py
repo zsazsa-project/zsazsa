@@ -1561,10 +1561,8 @@ def _apply_dismiss_tag(misp, event, source_id: str) -> tuple[bool, str]:
 def queue_for_tlr():
     """Tag one or more collection events as candidates for the threat landscape report.
 
-    Applies zsazsa:product="threat-landscape-report" and advances workflow state
-    from 'incomplete' to 'ongoing'. Events already at 'complete' are not regressed.
-
-    POST JSON: {"events": [{"uuid": "...", "sourceId": "..."}]}
+    Only events the collection page lists can be queued here: the ids come from
+    the request. POST JSON: {"events": [{"uuid": "...", "sourceId": "..."}]}
     """
     data, err = _json_object()
     if err:
@@ -1572,42 +1570,62 @@ def queue_for_tlr():
     events = data.get("events") or []
     if not isinstance(events, list) or not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
+    picked = [((ev.get("uuid") or "").strip(), (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip())
+              if isinstance(ev, dict) else ("", "") for ev in events]
+    return jsonify(queue_events_for_tlr(picked, collected_only=True, audit_type="collection-tlr-queue"))
 
-    tagged = 0
-    errors = 0
-    for ev in events:
-        if not isinstance(ev, dict):
-            logger.warning("queue_for_tlr: invalid event selection")
-            errors += 1
-            continue
-        uuid = (ev.get("uuid") or "").strip()
-        source_id = (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip()
-        if not uuid or not _is_collected(uuid, source_id):
-            logger.warning("queue_for_tlr: event %s is not collected under source %s", uuid, source_id)
-            errors += 1
-            continue
 
-        misp_client, err_msg = _misp_for_source(source_id)
-        if misp_client is None:
-            logger.warning("queue_for_tlr: no MISP client for source %s: %s", source_id, err_msg)
-            errors += 1
-            continue
+def queue_events_for_tlr(events, collected_only, audit_type, audit_id=None, audit_label=None):
+    """Put (uuid, source_id) pairs in the threat landscape queue.
 
-        if misp_store._tag_scraper_event_as_product_source(
-            uuid, "threat-landscape-report", misp_client=misp_client
-        ):
-            # The helper patches the confirmed tags into the cache. An immediate
-            # refetch from MISP may still have the old tags and would undo them.
-            tagged += 1
+    Applies zsazsa:product="threat-landscape-report" and advances workflow state
+    from 'incomplete' to 'ongoing'. Events already at 'complete' are not regressed.
+    With ``collected_only`` an event the collection page does not list is
+    refused; without it, as for the stored sources of a product, an event older
+    than the collection window is queued and cached, and the cache keeps it from
+    then on. Returns the JSON answer, whose message names each event that could
+    not be queued and why.
+    """
+    tagged, problems = 0, []
+    for uuid, source_id in events:
+        problem = _queue_one_for_tlr(uuid, source_id, collected_only)
+        if problem:
+            problems.append(f"{_event_label(uuid)}: {problem}")
+            logger.warning("queue for the threat landscape: %s from %s not queued: %s", uuid, source_id, problem)
         else:
-            errors += 1
+            tagged += 1
 
-    audit.record("tag", "collection-tlr-queue",
-                 details=f"queued {tagged} event(s) for threat landscape; {errors} failed")
     message = f"{tagged} event{'s' if tagged != 1 else ''} queued for the threat landscape report."
-    if errors:
-        message += f" {errors} event{'s' if errors != 1 else ''} could not be queued. The log says why."
-    return jsonify({"ok": not errors, "tagged": tagged, "errors": errors, "message": message})
+    if problems:
+        message += f" Not queued: {'; '.join(problems)}."
+    audit.record("tag", audit_type, entity_id=audit_id, entity_label=audit_label,
+                 details=f"queued {tagged} event(s) for threat landscape"
+                         + (f"; not queued: {'; '.join(problems)}" if problems else ""))
+    return {"ok": not problems, "tagged": tagged, "errors": len(problems), "message": message}
+
+
+def _queue_one_for_tlr(uuid, source_id, collected_only):
+    """Queue one event for the threat landscape. Returns why not, or ""."""
+    if not uuid:
+        return "no event was named"
+    collected = _is_collected(uuid, source_id)
+    if collected_only and not collected:
+        return f"it is not on Data collection under the source {source_id}"
+    misp_client, why = _misp_for_source(source_id)
+    if misp_client is None:
+        return f"the source {source_id} cannot be reached: {why}"
+    problem = misp_store.product_source_problem(uuid, "threat-landscape-report", misp_client=misp_client)
+    # The helper patches the confirmed tags into the cache. An event older than
+    # the collection window is not in it yet, so it is read and cached here.
+    if not problem and not collected:
+        _refresh_cached_event(uuid, source_id, misp_client, context="queueing it for the threat landscape")
+    return problem
+
+
+def _event_label(uuid):
+    """The title of a cached event, or its uuid when it is not cached."""
+    rows = collection_cache.get_events_by_uuids([uuid]) if uuid else []
+    return f'"{rows[0]["info"]}"' if rows and rows[0].get("info") else (uuid or "an event")
 
 
 @bp.route("/bulk-reject-excluded", methods=["POST"])

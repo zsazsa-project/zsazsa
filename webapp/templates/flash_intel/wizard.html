@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import draft_actions %}
+{% from "_product_actions.html" import draft_actions, tlr_queue_button %}
 {% from "_macros.html" import galaxy_multiselect, review_state_badge, tag_input %}
 
 {% set title_text = ('Edit ' + fia.fia_id) if is_edit else 'New flash intel alert' %}
@@ -39,7 +39,11 @@
            id="source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
         <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
         <div class="d-flex gap-2 align-items-center">
-          <span class="zs-toolbar-label">AI assistance</span>
+          {% if is_edit %}
+          {{ tlr_queue_button((fia.source_event_uuids or []) | length,
+                              url_for('flash_intel.queue_for_tlr', id=request.view_args.id)) }}
+          {% endif %}
+          <span class="zs-toolbar-label ms-2">AI assistance</span>
           <div class="zs-pill-group" id="build-ai-group" role="group">
             <button type="button" class="zs-pill" id="build-ai-btn"
                     data-source-uuids='{{ source_events | map(attribute="uuid") | list | tojson }}'
@@ -101,112 +105,7 @@
       </div>
       {% endif %}
       <div id="source-events-accordion" style="display:none;">
-        <div class="accordion accordion-flush" id="src-acc">
-          {% for ev in source_events %}
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button {{ 'collapsed' if not loop.first }} py-2 small fw-semibold" type="button"
-                      data-bs-toggle="collapse" data-bs-target="#src-acc-{{ loop.index }}"
-                      aria-expanded="{{ 'true' if loop.first else 'false' }}">
-                <span class="font-monospace text-muted me-2" style="font-size:.72rem;">{{ ev.uuid[:8] }}…</span>
-                {{ ev.info or '(untitled)' }}
-                {% if ev.date %}<span class="mini-chip ms-2 fw-normal">{{ ev.date }}</span>{% endif %}
-                {% if ev.orgc %}<span class="mini-chip ms-1 fw-normal">{{ ev.orgc }}</span>{% endif %}
-                {% if ev.source_label %}<span class="mini-chip ms-1 fw-normal">{{ ev.source_label }}</span>{% endif %}
-              </button>
-            </h2>
-            <div id="src-acc-{{ loop.index }}" class="accordion-collapse collapse {{ 'show' if loop.first }}" data-bs-parent="#src-acc">
-              <div class="accordion-body py-2 px-3"
-                   data-ev-id="{{ ev.uuid }}" data-ev-info="{{ ev.info | e }}">
-                {% if ev.tags %}
-                <div class="mb-2">
-                  {% for t in ev.tags %}
-                  <span class="badge chip-tag-generic me-1" style="font-size:.7rem;">{{ t }}</span>
-                  {% endfor %}
-                </div>
-                {% endif %}
-
-                {% if ev.reports %}
-                <div class="mb-3">
-                  <div class="fw-semibold small mb-1"><i class="fas fa-file-lines me-1 text-muted"></i>Reports</div>
-                  {% for r in ev.reports %}
-                  <div class="border rounded p-2 mb-2 small">
-                    <div class="fw-semibold mb-1">
-                      {{ r.name }}
-                      {% if r.date %}
-                      <span class="text-muted fw-normal ms-2" style="font-size:.72rem;"
-                            title="Report last updated in MISP">{{ r.date }}</span>
-                      {% endif %}
-                    </div>
-                    <div class="report-md-body text-muted" data-md="{{ r.content | truncate(2000, True) }}"
-                         style="font-size:.82rem;max-height:12rem;overflow-y:auto;"></div>
-                  </div>
-                  {% endfor %}
-                </div>
-                {% endif %}
-
-                {% if ev.attributes %}
-                <div class="mb-3">
-                  <div class="fw-semibold small mb-1"><i class="fas fa-list me-1 text-muted"></i>Attributes ({{ ev.attributes | length }})</div>
-                  <div style="max-height:14rem;overflow-y:auto;">
-                    <table class="table table-sm table-borderless mb-0" style="font-size:.78rem;">
-                      <tbody>
-                        {% for a in ev.attributes %}
-                        <tr>
-                          <td style="width:1.5rem;padding-right:0;">
-                            <button type="button" class="btn btn-xs btn-outline-secondary add-fact-btn p-0"
-                                    style="font-size:.65rem;line-height:1.4;padding:.1rem .3rem!important;"
-                                    title="Add to observed facts"
-                                    data-value="{{ a.value | e }}" data-type="{{ a.type | e }}">
-                              <i class="fas fa-plus"></i>
-                            </button>
-                          </td>
-                          <td class="text-muted pe-2" style="white-space:nowrap;">{{ a.category }}</td>
-                          <td class="text-muted pe-2 font-monospace" style="white-space:nowrap;font-size:.72rem;">{{ a.type }}</td>
-                          <td class="font-monospace" style="word-break:break-all;">{{ a.value }}</td>
-                          {% if a.comment %}<td class="text-muted ps-2" style="font-size:.72rem;">{{ a.comment }}</td>{% endif %}
-                        </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                {% endif %}
-
-                {% if ev.objects %}
-                <div>
-                  <div class="fw-semibold small mb-1"><i class="fas fa-cube me-1 text-muted"></i>Objects ({{ ev.objects | length }})</div>
-                  {% for obj in ev.objects %}
-                  <div class="border rounded p-2 mb-2" style="font-size:.8rem;">
-                    <div class="fw-semibold mb-1">{{ obj.name }}</div>
-                    <table class="table table-sm table-borderless mb-0" style="font-size:.75rem;">
-                      <tbody>
-                        {% for a in obj.attributes %}
-                        <tr>
-                          <td style="width:1.5rem;padding-right:0;">
-                            <button type="button" class="btn btn-xs btn-outline-secondary add-fact-btn p-0"
-                                    style="font-size:.65rem;line-height:1.4;padding:.1rem .3rem!important;"
-                                    title="Add to observed facts"
-                                    data-value="{{ a.value | e }}" data-type="{{ a.relation | e }}">
-                              <i class="fas fa-plus"></i>
-                            </button>
-                          </td>
-                          <td class="text-muted pe-2" style="white-space:nowrap;">{{ a.relation }}</td>
-                          <td class="font-monospace" style="word-break:break-all;">{{ a.value }}</td>
-                        </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
-                  {% endfor %}
-                </div>
-                {% endif %}
-
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
+        {% with fact_buttons = true %}{% include "flash_intel/_source_events.html" %}{% endwith %}
       </div>
     </div>
     {% endif %}
@@ -652,6 +551,7 @@
 {% block scripts %}
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
+{% include "_tlr_queue_js.html" %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
 <script>
@@ -815,7 +715,7 @@
     srcToggleBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleSrcAccordion(); });
     if (srcHeader) {
       srcHeader.addEventListener('click', function(e) {
-        if (e.target.closest('#source-events-toggle, #build-ai-group')) return;
+        if (e.target.closest('#source-events-toggle, #build-ai-group, [data-tlr-url]')) return;
         toggleSrcAccordion();
       });
     }

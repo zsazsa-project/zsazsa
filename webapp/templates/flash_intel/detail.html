@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import hero_resend, read_again_note %}
+{% from "_product_actions.html" import hero_resend, read_again_note, tlr_queue_button %}
 {% from "_macros.html" import audience_badges, review_state_badge %}
 
 {% block title %}{{ fia.fia_id }} | Flash intel{% endblock %}
@@ -78,6 +78,8 @@
         <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete FIA</button>
       </form>
       {% endif %}
+      {{ tlr_queue_button(fia.source_event_uuids | length, url_for('flash_intel.queue_for_tlr', id=fia.uuid),
+                       "btn btn-sm btn-hero-ghost") }}
     </div>
   </div>
 
@@ -113,6 +115,22 @@
     <div class="card content-card border-danger mb-4 rise rise-1" id="rejection-card">
       <div class="card-header text-danger"><i class="fas fa-xmark me-2"></i>Rejected</div>
       <div class="card-body"><p class="mb-0" style="white-space:pre-wrap;">{{ fia.rejection_reason }}</p></div>
+    </div>
+    {% endif %}
+
+    {% if source_events %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header d-flex justify-content-between align-items-center"
+           id="source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
+        <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
+        <button type="button" class="btn btn-xs btn-link text-muted p-0" id="source-events-toggle"
+                aria-controls="source-events-accordion" aria-expanded="false">
+          <i class="fas fa-chevron-down me-1"></i>Show
+        </button>
+      </div>
+      <div id="source-events-accordion" style="display:none;">
+        {% include "flash_intel/_source_events.html" %}
+      </div>
     </div>
     {% endif %}
 
@@ -455,8 +473,22 @@
 {% block scripts %}
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
+{% include "_tlr_queue_js.html" %}
 <script>
 (function() {
+  var srcHeader = document.getElementById('source-events-header');
+  if (srcHeader) {
+    var srcToggle = document.getElementById('source-events-toggle');
+    var srcAccordion = document.getElementById('source-events-accordion');
+    srcHeader.addEventListener('click', function() {
+      var open = srcAccordion.style.display === 'none';
+      srcAccordion.style.display = open ? '' : 'none';
+      srcToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      srcToggle.innerHTML = open
+        ? '<i class="fas fa-chevron-up me-1"></i>Hide'
+        : '<i class="fas fa-chevron-down me-1"></i>Show';
+    });
+  }
   document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
     zsazsaRenderMarkdown(el, el.getAttribute('data-md'));
     el.removeAttribute('data-md');

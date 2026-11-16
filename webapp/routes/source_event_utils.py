@@ -142,7 +142,19 @@ def source_event_urls_only(product):
     ]
 
 
-def source_event_references(product):
+def product_source_events(product):
+    """The product's source events as fetch_source_events() returns them.
+
+    This reads MISP, so it is for single-product views. Pass the result to
+    source_event_references() when the page shows both.
+    """
+    uuids, hints = _product_source_events(product)
+    if not uuids:
+        return []
+    return misp_store.fetch_source_events(uuids, hints, strict_source=bool(hints))
+
+
+def source_event_references(product, events=None):
     """Enriched references for a product's source MISP events.
 
     Returns a list of dicts with keys: url, info, date, orgc, source_label, links.
@@ -152,12 +164,14 @@ def source_event_references(product):
     when the event metadata cannot be fetched.
 
     This reads MISP, so it is for single-product views. Use
-    source_event_urls_only() in lists.
+    source_event_urls_only() in lists. ``events`` is what product_source_events()
+    returned, for a page that already has them.
     """
     uuids, hints = _product_source_events(product)
     if not uuids:
         return []
-    events = misp_store.fetch_source_events(uuids, hints, strict_source=bool(hints))
+    if events is None:
+        events = misp_store.fetch_source_events(uuids, hints, strict_source=bool(hints))
     events_by_uuid = {ev.get("uuid"): ev for ev in events}
     refs = []
     for uid in uuids:

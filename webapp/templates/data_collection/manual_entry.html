@@ -109,7 +109,20 @@
           </div>
           <div class="form-text mb-3">Markdown. Kept as the event report, so it reads the same in MISP.</div>
 
-          <label class="form-label" for="summary">Summary</label>
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+            <label class="form-label mb-0" for="summary">Summary</label>
+            <div class="zs-toolbar">
+              <span class="zs-toolbar-label">Fills</span>
+              <span class="ai-fills" id="ai-fills">
+                <a href="#summary" data-ai-target="summary"><i class="fas fa-align-left"></i>Summary</a>
+                <a href="#step-scope" data-ai-target="step-scope"><i class="fas fa-crosshairs"></i>Scope</a>
+              </span>
+              <button type="button" class="zs-pill" id="btn-llm-summary"
+                      title="Writes the summary from the content and ticks the scope items its MISP context names. Create the event before it is done and the summary still goes into it; the scope is only ticked on this page.">
+                <i class="fas fa-wand-magic-sparkles"></i>Build with AI
+              </button>
+            </div>
+          </div>
           <textarea name="summary" id="summary" class="form-control" rows="3"
                     placeholder="Two or three lines a reader of the briefing sees first. Leave it empty and ask for an AI summary."></textarea>
           <div id="llm-summary-status" class="form-text" style="display:none"></div>
@@ -224,16 +237,6 @@
           </div>
           {% endfor %}
           <div class="form-text mt-0">Saved on the event as admiralty-scale tags.</div>
-        </div>
-      </div>
-
-      <div class="card content-card">
-        <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>Assistance</div>
-        <div class="ai-actions">
-          <button type="button" class="btn-ai" id="btn-llm-summary">
-            <i class="fas fa-wand-magic-sparkles"></i>
-            <span>Write the summary with AI<small>From the content. Save before it is done and it goes into the event when ready.</small></span>
-          </button>
         </div>
       </div>
       </div>
@@ -496,7 +499,28 @@ document.addEventListener('DOMContentLoaded', function() {
     return ticked;
   }
 
-  document.getElementById('btn-llm-summary').addEventListener('click', function() {
+  /* Build with AI writes the summary and ticks scope items, so both are
+     outlined while the button is pointed at and while the job runs. */
+  var aiBtn = document.getElementById('btn-llm-summary');
+  var aiTargets = [document.getElementById('summary'), document.getElementById('step-scope')];
+  var aiBusy = false;
+  function markTargets(on) {
+    aiBusy = on;
+    aiTargets.forEach(function(el) { el.classList.toggle('ai-target', on); });
+  }
+  function hintTargets(on) {
+    if (aiBusy) return;
+    aiTargets.forEach(function(el) { el.classList.toggle('ai-target', on); });
+  }
+  ['mouseenter', 'focus'].forEach(function(ev) { aiBtn.addEventListener(ev, function() { hintTargets(true); }); });
+  ['mouseleave', 'blur'].forEach(function(ev) { aiBtn.addEventListener(ev, function() { hintTargets(false); }); });
+  document.querySelectorAll('#ai-fills a').forEach(function(a) {
+    var target = document.getElementById(a.dataset.aiTarget);
+    a.addEventListener('mouseenter', function() { if (!aiBusy) target.classList.add('ai-target'); });
+    a.addEventListener('mouseleave', function() { if (!aiBusy) target.classList.remove('ai-target'); });
+  });
+
+  aiBtn.addEventListener('click', function() {
     var content = document.getElementById('description').value.trim();
     var status = document.getElementById('llm-summary-status');
     var btn = this;
@@ -523,8 +547,9 @@ document.addEventListener('DOMContentLoaded', function() {
        Creating it asks first, since the summary is not in the box yet. */
     function busy(on) {
       btn.disabled = on;
-      btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i><span>Writing the summary…</span>' : originalHtml;
+      btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i>Building…' : originalHtml;
       summary.readOnly = on;
+      markTargets(on);
       createWait.hidden = !on;
       if (on) {
         createBtn.dataset.submitConfirm = 'The AI summary is still being written. Create the event now? '

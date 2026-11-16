@@ -8,7 +8,10 @@ counting as a draft. The detection requests keep their engineering board, with
 the hooks its script drags by. A record page has the record banner with its
 buttons at the bottom left, Resend only for those who may publish, its TLP and
 where it stands, and names the sections with nothing in them on one line. A
-failed notification is listed step by step. A form has numbered sections and an
+failed notification is listed step by step. An alert with source events shows
+its source articles in a card above the summary, read from MISP once, and its
+page and form each have a button that queues them all for the threat landscape
+and says how many. A form has numbered sections and an
 "As it will appear" card with Save in the side column, and a new profile's form
 gets the scripts that fill it. A collection event's page says where the event
 stands from its tags, offers the products to make from it in the banner, and
@@ -32,6 +35,7 @@ from webapp import audit, collection_cache, create_app, job_store, misp_session,
 from webapp.routes import data_collection, threat_landscape
 
 UUID = "8261112b-619c-4ee0-9409-c898df74520c"
+SOURCES = {"0c1d6a8e-61b4-4f0b-9a55-1f4f1d2f0a01": "scraper", "5e2f9b3c-0d7a-4c41-8e66-2a5b3c4d0b02": "partner"}
 
 
 def _event():
@@ -165,6 +169,90 @@ class FlashIntelPages(Pages):
         hero = page.select_one("section.record-hero")
         self.assertEqual(hero.select_one(".hero-actions .btn-hero").get_text(strip=True), "Edit")
         self.assertIsNotNone(hero.select_one(f'form[action="/products/flash-intel/{UUID}/delete"]'))
+
+    def with_sources(self, path, count=2):
+        """A page of an alert with source events, read from MISP as fetch_source_events() gives them."""
+        sources = [{"uuid": uid, "info": f"Article {n}", "date": "2026-11-10", "orgc": "CIRCL",
+                    "source_id": sid, "source_label": sid, "source_url": "", "tags": [], "attributes": [],
+                    "objects": [], "reports": [{"name": "Report", "date": "", "content": f"Full text {n}"}]}
+                   for n, (uid, sid) in enumerate(list(SOURCES.items())[:count])]
+        alert = _fia("draft", source_event_uuids=[ev["uuid"] for ev in sources],
+                     source_event_hints={ev["uuid"]: ev["source_id"] for ev in sources})
+        with mock.patch.object(misp_store, "get_fia", return_value=alert), \
+             mock.patch.object(misp_store, "list_fias", return_value=[]), \
+             mock.patch.object(misp_store, "fetch_source_events", return_value=sources) as fetched:
+            page = self.page(path)
+        return page, fetched
+
+    def test_an_alert_page_shows_its_source_articles_above_the_summary(self):
+        page, fetched = self.with_sources(f"/products/flash-intel/{UUID}")
+        # Read once, for the references and for the card both.
+        fetched.assert_called_once()
+        header = page.select_one("#source-events-header")
+        self.assertEqual(header.find("span").get_text(strip=True), "Source events (2)")
+        self.assertEqual(header.select_one("#source-events-toggle").get_text(strip=True), "Show")
+        self.assertIsNone(header.select_one("[data-tlr-url], .zs-pill"))
+        cards = [c.select_one(".card-header").get_text(" ", strip=True) for c in page.select(".col-lg-8 > .card")]
+        self.assertLess(cards.index("Source events (2) Show"), cards.index("Summary SOC"))
+        bodies = [el["data-md"] for el in page.select("#source-events-accordion .report-md-body")]
+        self.assertEqual(bodies, ["Full text 0", "Full text 1"])
+        self.assertIsNone(page.select_one("#source-events-accordion .add-fact-btn"))
+
+    def test_an_alert_page_queues_its_source_articles_for_the_threat_landscape(self):
+        page, _ = self.with_sources(f"/products/flash-intel/{UUID}")
+        actions = page.select("section.record-hero .hero-actions > *")
+        button = actions[-1]
+        self.assertEqual(" ".join(button.get_text().split()), "Queue 2 articles for threat landscape")
+        self.assertIn("Delete FIA", actions[-2].get_text())
+        # The route queues the sources stored on the alert, not ids from the page.
+        self.assertEqual(button["data-tlr-url"], f"/products/flash-intel/{UUID}/queue-for-tlr")
+
+    def test_one_source_article_is_counted_as_one(self):
+        page, _ = self.with_sources(f"/products/flash-intel/{UUID}", count=1)
+        button = page.select_one("[data-tlr-url]")
+        self.assertEqual(" ".join(button.get_text().split()), "Queue 1 article for threat landscape")
+
+    def queue(self, alert):
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        with mock.patch.object(misp_store, "get_fia", return_value=alert), \
+             mock.patch.object(data_collection, "queue_events_for_tlr",
+                               return_value={"ok": True, "message": "2 events queued"}) as queued:
+            reply = self.client.post(f"/products/flash-intel/{UUID}/queue-for-tlr",
+                                     headers={"X-CSRF-Token": "test-token"})
+        return reply, queued
+
+    def test_the_route_queues_the_sources_stored_on_the_alert(self):
+        """Wherever they are: one older than Data collection holds is queued too."""
+        uuids = list(SOURCES)
+        reply, queued = self.queue(_fia("approved", source_event_uuids=uuids,
+                                        source_event_hints={uuids[1]: "partner"}))
+        self.assertEqual(reply.get_json()["message"], "2 events queued")
+        self.assertEqual(queued.call_args.args[0], [(uuids[0], "scraper"), (uuids[1], "partner")])
+        self.assertEqual(queued.call_args.kwargs["collected_only"], False)
+        self.assertEqual(queued.call_args.kwargs["audit_id"], UUID)
+
+    def test_the_route_answers_for_an_alert_only(self):
+        reply, queued = self.queue(None)
+        self.assertEqual(reply.status_code, 404)
+        queued.assert_not_called()
+
+    def test_an_alert_without_source_events_offers_neither(self):
+        with mock.patch.object(misp_store, "get_fia", return_value=_fia("draft")):
+            page = self.page(f"/products/flash-intel/{UUID}")
+        self.assertIsNone(page.select_one("#source-events-header"))
+        self.assertIsNone(page.select_one("[data-tlr-url]"))
+
+    def test_the_form_queues_the_source_articles_left_of_the_ai_assistance(self):
+        page, _ = self.with_sources(f"/products/flash-intel/{UUID}/edit")
+        tools = page.select_one("#source-events-header > div")
+        button = tools.select_one("[data-tlr-url]")
+        self.assertEqual(button["data-tlr-url"], f"/products/flash-intel/{UUID}/queue-for-tlr")
+        self.assertEqual(" ".join(button.get_text().split()), "Queue 2 articles for threat landscape")
+        labels = [el.get_text(strip=True) for el in tools.find_all(recursive=False)]
+        self.assertLess(labels.index("Queue 2 articles for threat landscape"), labels.index("AI assistance"))
+        # The form keeps adding attributes to the observed facts.
+        self.assertIsNone(page.select_one("#source-events-accordion .report-md-body:not(.text-muted)"))
 
     def test_the_form(self):
         with mock.patch.object(misp_store, "get_fia", return_value=_fia("draft")), \

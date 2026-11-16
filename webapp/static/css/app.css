@@ -877,6 +877,28 @@ body {
   padding-right: .6rem;
 }
 
+/* The fields an AI action writes into, named beside its pill. */
+.ai-fills { display: inline-flex; gap: .25rem; margin-right: .2rem; }
+.ai-fills a {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  border: 1px dashed var(--accent-blue);
+  border-radius: 999px;
+  padding: .12rem .5rem;
+  font-size: .7rem;
+  color: var(--accent-blue);
+  background: var(--surface-tint);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ai-fills a i { font-size: .65rem; }
+.ai-target {
+  outline: 2px dashed var(--accent-blue);
+  outline-offset: 3px;
+  transition: outline-color .15s;
+}
+
 /* Denser pill, for a tray of many of them. */
 .zs-pill-sm { padding: .18rem .55rem; font-size: .72rem; }
 
