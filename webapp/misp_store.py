@@ -5688,8 +5688,9 @@ def scope_stats() -> list[dict]:
 
     Returns one entry per category: {"label", "attr", "items", "total", "distinct"},
     where items is [{"value", "count", "entries"}] sorted by count descending and
-    entries is the [{"kind", "label", "uuid"}] the value was counted from. Values
-    that differ only in case are one value, and a record counts once for it.
+    entries is the [{"kind", "label", "uuid", "retired"}] the value was counted
+    from, retired being true for a retired PIR or GIR. Values that differ only in
+    case are one value, and a record counts once for it.
     """
     # Entity types that carry scope, with the description shown in the drill-down
     # list. The kind is what the template maps to a detail page.
@@ -5709,6 +5710,7 @@ def scope_stats() -> list[dict]:
                     "kind": kind,
                     "label": describe(entity).strip() or entity.uuid,
                     "uuid": entity.uuid,
+                    "retired": kind in ("pir", "gir") and getattr(entity, "status", "") == "Retired",
                 }))
         except Exception:
             logger.warning("scope_stats: %s failed", fetch.__name__)

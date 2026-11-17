@@ -7,7 +7,8 @@ after their type whatever tag value the settings give it, every page of them is
 read, a rejected one is left out, and a stakeholder is covered by an active PIR
 they own. Indicator health counts every enabled server once, from a cache. Scope values are
 counted once per record, whatever their case, a value that is a focus point is
-marked, and the page and its CSV filter alike. The pipeline never purges history
+marked, a retired PIR or GIR among the records says so, and the page and its
+CSV filter alike. The pipeline never purges history
 on an answer MISP refused, and the audit log says when it shows only part of
 itself. A day chosen on its chart narrows the who, what and on what, not the
 figures that say they cover the last 90 days.
@@ -157,10 +158,10 @@ class ProgramHealth(unittest.TestCase):
 
 
 class ScopeStats(unittest.TestCase):
-    def categories(self, pirs=(), fias=()):
-        empty = {name: mock.Mock(return_value=[]) for name in
-                 ("list_girs", "list_threat_actor_profiles", "list_briefings")}
+    def categories(self, pirs=(), fias=(), girs=()):
+        empty = {name: mock.Mock(return_value=[]) for name in ("list_threat_actor_profiles", "list_briefings")}
         with mock.patch.multiple(misp_store, list_pirs=mock.Mock(return_value=list(pirs)),
+                                 list_girs=mock.Mock(return_value=list(girs)),
                                  list_fias=mock.Mock(return_value=list(fias)), **empty):
             return {c["attr"]: c for c in misp_store.scope_stats()}
 
@@ -175,6 +176,15 @@ class ScopeStats(unittest.TestCase):
         geography = self.categories([pir], [alert])["geographic_scope"]
         self.assertEqual([(i["value"], i["count"]) for i in geography["items"]], [("Belgium", 2)])
         self.assertEqual([e["kind"] for e in geography["items"][0]["entries"]], ["pir", "fia"])
+
+    def test_a_retired_pir_or_gir_is_marked_so(self):
+        retired = SimpleNamespace(uuid="p1", pir_id="PIR-001", question="q", status="Retired", geographic_scope=["BE"])
+        active = SimpleNamespace(uuid="p2", pir_id="PIR-002", question="q", status="Active", geographic_scope=["BE"])
+        gir = SimpleNamespace(uuid="g1", gir_id="GIR-001", topic="t", status="Retired", geographic_scope=["BE"])
+        alert = SimpleNamespace(uuid="f", fia_id="FIA-00001", title="t", geographic_scope=["BE"])
+        entries = self.categories([retired, active], [alert], [gir])["geographic_scope"]["items"][0]["entries"]
+        self.assertEqual([(e["uuid"], e["retired"]) for e in entries],
+                         [("p1", True), ("p2", False), ("g1", True), ("f", False)])
 
 
 class IndicatorHealth(unittest.TestCase):
@@ -526,8 +536,8 @@ class ScopePage(_App):
 
     def setUp(self):
         super().setUp()
-        pir = {"kind": "pir", "label": "PIR-001 Wipers", "uuid": PIR}
-        alert = {"kind": "fia", "label": "FIA-00001 Grid", "uuid": "f" * 36}
+        pir = {"kind": "pir", "label": "PIR-001 Wipers", "uuid": PIR, "retired": True}
+        alert = {"kind": "fia", "label": "FIA-00001 Grid", "uuid": "f" * 36, "retired": False}
 
         def categories():
             return [
@@ -556,6 +566,11 @@ class ScopePage(_App):
         self.assertEqual(self.rows(self.page, "geographic_scope"), ["1 Belgium 2", "2 Europe 1"])
         records = [(a.find_previous_sibling().get_text(), a["href"]) for a in geography.select(".scope-entries a")]
         self.assertEqual(records[:2], [("PIR", f"/pirs/{PIR}"), ("Alert", f"/products/flash-intel/{'f' * 36}")])
+
+    def test_a_retired_requirement_says_so_after_its_name(self):
+        pir, alert = self.page.select("#scope-geographic_scope .scope-entries li")[:2]
+        self.assertEqual(pir.select_one("a + .scope-retired").get_text(), "(retired)")
+        self.assertIsNone(alert.select_one(".scope-retired"))
 
     def test_bars_are_split_by_record_type(self):
         belgium = self.page.select_one("#scope-geographic_scope .chart-bar")

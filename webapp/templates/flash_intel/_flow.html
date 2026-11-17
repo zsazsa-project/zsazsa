@@ -40,7 +40,7 @@
     </div>
     {% if is_site_admin %}
     <div class="flow-links">
-      <a href="{{ url_for('config_page.index', tab='tab-products') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-filter me-1"></i>Title exclusions</a>
+      <a href="{{ url_for('config_page.index', tab='tab-products', _anchor='products-exclusions') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-filter me-1"></i>Title exclusions</a>
     </div>
     {% endif %}
   </div>
@@ -59,7 +59,7 @@
       <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-star me-1"></i>PIRs</a>
       <a href="{{ url_for('requirements.gir_list') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-list-check me-1"></i>GIRs</a>
       {% if is_site_admin %}
-      <a href="{{ url_for('config_page.index', tab='tab-products') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-crosshairs me-1"></i>Focus points</a>
+      <a href="{{ url_for('config_page.index', tab='tab-products', _anchor='products-focus') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-crosshairs me-1"></i>Focus points</a>
       {% endif %}
     </div>
   </div>

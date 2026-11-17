@@ -120,6 +120,7 @@
           </td>
           <td>
             <a href="{{ url_for('flash_intel.detail', id=f.uuid) }}" class="title{{ ' untitled' if not f.title }}">{{ f.title or 'No title' }}</a>
+            {% if f.created_at %}<span class="made-on" title="Made on {{ f.created_at.strftime('%Y-%m-%d') }}">{{ f.created_at.strftime('%Y-%m-%d') }}</span>{% endif %}
             {{ audience_badges(f.audience, limit=3) }}
             {% if f.analyser_reason %}<div class="small text-muted">{{ f.analyser_reason | md_inline }}</div>{% endif %}
           </td>

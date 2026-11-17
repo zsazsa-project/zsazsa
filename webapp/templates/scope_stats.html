@@ -52,6 +52,7 @@
   .scope-entries li { display: flex; align-items: baseline; gap: .4rem; padding: .1rem 0; }
   .scope-entries a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
   .scope-entries a:hover { text-decoration: underline; }
+  .scope-retired { flex-shrink: 0; font-size: .7rem; color: var(--text-muted); }
   .scope-kind { font-size: .65rem; font-weight: 600; border-radius: 4px; padding: .1rem .35rem; flex-shrink: 0;
                 background: color-mix(in srgb, var(--kind-color) 14%, transparent); color: var(--kind-color); }
   .scope-empty { border: 1px dashed var(--border-light); border-radius: var(--border-radius); background: var(--card-bg); }
@@ -211,6 +212,7 @@
               <span class="scope-kind" style="--kind-color:{{ kind.color if kind else 'var(--text-muted)' }};">{{ kind.label if kind else entry.kind }}</span>
               {% if kind %}
               <a href="{{ url_for(kind.endpoint, id=entry.uuid) }}" title="{{ entry.label }}">{{ entry.label }}</a>
+              {% if entry.retired %}<span class="scope-retired">(retired)</span>{% endif %}
               {% else %}
               {{ entry.label }}
               {% endif %}

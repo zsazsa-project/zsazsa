@@ -128,6 +128,7 @@
           <td><code class="small" style="white-space:nowrap;">{{ v.cve_id or '-' }}</code></td>
           <td>
             <a href="{{ url_for('vea.detail', id=v.uuid) }}" class="title{{ ' untitled' if not (v.title or v.cve_id) }}">{{ v.title or v.cve_id or 'No title' }}</a>
+            {% if v.created_at %}<span class="made-on" title="Made on {{ v.created_at.strftime('%Y-%m-%d') }}">{{ v.created_at.strftime('%Y-%m-%d') }}</span>{% endif %}
             {{ audience_badges(v.audience, limit=3) }}
             {% if v.analyser_reason %}<div class="small text-muted">{{ v.analyser_reason | md_inline }}</div>{% endif %}
           </td>

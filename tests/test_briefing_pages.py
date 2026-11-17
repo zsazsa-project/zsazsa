@@ -3,7 +3,7 @@ PIR, GIR and RFI pages.
 
 The list opens on the compact banner with its figures and breakdowns, has the
 drop-downs in the filter card, and groups the table by review state with a
-date leaf per row. A briefing's page has the record banner with its buttons at
+date leaf per row that opens the briefing. A briefing's page has the record banner with its buttons at
 the bottom left, its TLP and its delivery, and the stories and their contents
 under it. The form has numbered sections, the TLP as choices and an "As it
 will appear" card with Save, and the AI actions in a card of their own. A
@@ -84,6 +84,11 @@ class BriefingPages(unittest.TestCase):
         leaf = page.select_one("#briefing-row-briefing-1 .date-leaf")
         self.assertEqual((leaf.b.get_text(), leaf.span.get_text(), leaf["class"]), ("Oct", "27", ["date-leaf", "draft"]))
         self.assertEqual(page.select_one("#briefing-row-briefing-0 .date-leaf")["class"], ["date-leaf"])
+        # The leaf is the link, without the date written out beside it.
+        link = leaf.parent
+        self.assertEqual((link.name, link["href"]), ("a", "/zsazsa/briefing/briefing-1"))
+        self.assertEqual((link["title"], link["aria-label"]), ("2026-10-27", "Daily briefing 2026-10-27"))
+        self.assertEqual(link.find_parent("td").get_text(" ", strip=True), "Oct 27")
 
     def test_a_published_briefing_page(self):
         briefing = _briefing("published", approved_by="admin@example.org", author="analyser")

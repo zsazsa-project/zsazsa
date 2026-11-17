@@ -5,7 +5,8 @@ the schedule settings: the briefing's hour, the alert checks that are switched
 on, whether advisories are scheduled. The advisory flow says whether the asset
 inventory is on, and the detection request flow whether Rulezet is. Links to
 the settings pages are only shown to site admins, since those pages refuse
-everyone else. Each list route passes the settings in.
+everyone else, and open on the card they name. Each list route passes the
+settings in.
 
     python -m unittest tests.test_product_flows
 """
@@ -51,7 +52,8 @@ class Flows(unittest.TestCase):
         return " ".join(page.select_one(".flow-mode.flow-auto").get_text(" ").split())
 
     def settings_links(self, page):
-        return [a["href"] for a in page.select("a") if "/config" in a["href"]]
+        """The settings pages linked to, without the card each link opens on."""
+        return [a["href"].split("#")[0] for a in page.select("a") if "/config" in a["href"]]
 
     def test_each_flow_has_its_steps(self):
         for template, steps in (("daily_briefing/_flow.html", 6), ("flash_intel/_flow.html", 6),
@@ -121,6 +123,22 @@ class Flows(unittest.TestCase):
             with self.subTest("indicator_feed/_flow.html", admin=admin):
                 page = self.render("indicator_feed/_flow.html", is_site_admin=admin)
                 self.assertEqual(self.settings_links(page), [sources] if admin else [])
+
+    def test_a_setting_named_in_the_flow_opens_on_its_card(self):
+        """The links opened the Products tab at its top, not at the card named."""
+        settings = (Path(__file__).resolve().parent.parent / "webapp" / "templates" / "config_page.html").read_text()
+        for template, cards in (("daily_briefing/_flow.html", {"Title exclusions": "products-exclusions"}),
+                                ("flash_intel/_flow.html", {"Title exclusions": "products-exclusions",
+                                                            "Focus points": "products-focus"})):
+            with self.subTest(template):
+                page = self.render(template, **FLOWS[template])
+                links = {a.get_text(strip=True): a["href"] for a in page.select('a[href*="tab=tab-products"]')}
+                with self.app.test_request_context("/"):
+                    wanted = {label: url_for("config_page.index", tab="tab-products", _anchor=card)
+                              for label, card in cards.items()}
+                self.assertEqual(links, wanted)
+                for card in cards.values():
+                    self.assertIn(f'id="{card}"', settings)
 
     def test_the_lists_pass_their_schedule(self):
         listed = {name: mock.Mock(return_value=[]) for name in ("list_briefings", "list_fias", "list_veas")}

@@ -4,7 +4,8 @@ detection engineering requests, threat landscape reports and collection events.
 
 A list opens on the compact banner with its figures and the button that opens
 how the product is made, and groups its table by state, a state no lane has
-counting as a draft. The detection requests keep their engineering board, with
+counting as a draft; an alert and an advisory say after their title when they
+were made. The detection requests keep their engineering board, with
 the hooks its script drags by. A record page has the record banner with its
 buttons at the bottom left, Resend only for those who may publish, its TLP and
 where it stands, and names the sections with nothing in them on one line. A
@@ -149,7 +150,20 @@ class FlowPanel(Pages):
                 self.assertIn("collapse", page.select_one("#product-flow")["class"])
 
 
+
 class FlashIntelPages(Pages):
+    def test_each_listed_alert_and_advisory_says_when_it_was_made(self):
+        """After the title: the published date is another one, in its own column."""
+        for path, lister, record in (("/products/flash-intel/", "list_fias", _fia("draft")),
+                                     ("/products/vea/", "list_veas", _vea("draft"))):
+            with self.subTest(path), mock.patch.object(misp_store, lister, return_value=[record]):
+                page = self.page(path)
+                made = page.select_one(f"td a.title[href$='{UUID}'] + .made-on")
+                self.assertEqual((made.get_text(), made["title"]), ("2026-10-26", "Made on 2026-10-26"))
+        undated = _fia("draft", created_at=None)
+        with mock.patch.object(misp_store, "list_fias", return_value=[undated]):
+            self.assertIsNone(self.page("/products/flash-intel/").select_one(".made-on"))
+
     def test_the_list_groups_the_alerts_by_review_state(self):
         alerts = [_fia("approved"), _fia("pending-review"), _fia("draft")]
         for n, alert in enumerate(alerts):

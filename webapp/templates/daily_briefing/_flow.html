@@ -40,7 +40,7 @@
     </div>
     {% if is_site_admin %}
     <div class="flow-links">
-      <a href="{{ url_for('config_page.index', tab='tab-products') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-filter me-1"></i>Title exclusions</a>
+      <a href="{{ url_for('config_page.index', tab='tab-products', _anchor='products-exclusions') }}" class="btn btn-xs btn-outline-secondary"><i class="fas fa-filter me-1"></i>Title exclusions</a>
     </div>
     {% endif %}
   </div>

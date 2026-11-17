@@ -3179,6 +3179,9 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .date-leaf span { display: block; font-size: 1.05rem; font-weight: 700; line-height: 1.55; }
 .date-leaf.draft b { background: var(--neutral-600); }
 .date-leaf.rejected b { background: var(--accent-red); }
+.date-leaf-link { display: inline-block; border-radius: 8px; text-decoration: none; }
+.date-leaf-link:hover .date-leaf { border-color: var(--accent-blue); }
+.date-leaf-link:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
 
 /* ─── Record banners: tile, TLP and review ── */
 /* The white tile a record banner starts with: a stakeholder's initial or a
@@ -3239,6 +3242,8 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .product-table .who { display: flex; align-items: center; gap: .75rem; }
 .product-table .title { font-weight: 600; text-decoration: none; }
 .product-table .untitled { color: var(--text-muted); font-style: italic; font-weight: 500; }
+/* When the product was made, after its title: the published date has a column of its own. */
+.product-table .made-on { margin-left: .4rem; font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
 .product-table tr.draft-row > td { background: color-mix(in srgb, var(--accent-orange) 5%, var(--card-bg)); }
 
 /* The AI assistance card of a form: each action with a line on what it does.
