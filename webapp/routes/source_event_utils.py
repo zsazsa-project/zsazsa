@@ -129,6 +129,13 @@ def _product_source_events(product):
     return [u for u in uuids if u], dict(getattr(product, "source_event_hints", {}) or {})
 
 
+def stored_source_pairs(product):
+    """The (uuid, source id) of each source event stored on the product, for
+    queueing them; one without a recorded source is the scraper's."""
+    uuids, hints = _product_source_events(product)
+    return [(uuid, hints.get(uuid) or "scraper") for uuid in uuids]
+
+
 def source_event_urls_only(product):
     """Source-event references built from config alone, without reading MISP.
 

@@ -1570,7 +1570,7 @@ def queue_for_tlr():
     events = data.get("events") or []
     if not isinstance(events, list) or not events:
         return jsonify({"ok": False, "error": "No events provided"}), 400
-    picked = [((ev.get("uuid") or "").strip(), (ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip())
+    picked = [(str(ev.get("uuid") or "").strip(), str(ev.get("sourceId") or _SCRAPER_SOURCE_ID).strip())
               if isinstance(ev, dict) else ("", "") for ev in events]
     return jsonify(queue_events_for_tlr(picked, collected_only=True, audit_type="collection-tlr-queue"))
 
@@ -1608,16 +1608,20 @@ def _queue_one_for_tlr(uuid, source_id, collected_only):
     """Queue one event for the threat landscape. Returns why not, or ""."""
     if not uuid:
         return "no event was named"
-    collected = _is_collected(uuid, source_id)
-    if collected_only and not collected:
+    cached = [row["source_id"] for row in collection_cache.get_events_by_uuids([uuid])]
+    if collected_only and source_id not in cached:
         return f"it is not on Data collection under the source {source_id}"
+    if cached and source_id not in cached:
+        # A product of the analyser names a manual entry's source "webapp";
+        # Data collection lists it under the manual source it came in through.
+        source_id = cached[0]
     misp_client, why = _misp_for_source(source_id)
     if misp_client is None:
         return f"the source {source_id} cannot be reached: {why}"
     problem = misp_store.product_source_problem(uuid, "threat-landscape-report", misp_client=misp_client)
     # The helper patches the confirmed tags into the cache. An event older than
     # the collection window is not in it yet, so it is read and cached here.
-    if not problem and not collected:
+    if not problem and not cached:
         _refresh_cached_event(uuid, source_id, misp_client, context="queueing it for the threat landscape")
     return problem
 

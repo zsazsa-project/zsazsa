@@ -153,13 +153,14 @@
 {% endmacro %}
 
 {# Adds a product's source articles to the threat landscape queue. ``url``
-   is the product's route that queues its stored source events. Needs
-   _tlr_queue_js.html. #}
-{% macro tlr_queue_button(count, url, class_="zs-pill") %}
+   is the product's route that queues its stored source events; ``uuid``
+   narrows it to one of them, as for a briefing story. Needs _tlr_queue_js.html. #}
+{% macro tlr_queue_button(count, url, class_="zs-pill", uuid="") %}
 {%- if count -%}
-<button type="button" class="{{ class_ }}" data-tlr-url="{{ url }}"
+<button type="button" class="{{ class_ }}" data-tlr-url="{{ url }}"{% if uuid %} data-tlr-uuid="{{ uuid }}"{% endif %}
         title="Add {{ 'the source article' if count == 1 else 'all ' ~ count ~ ' source articles' }} to the threat landscape queue">
-  <i class="fas fa-map"></i> Queue {{ count }} article{{ 's' if count != 1 }} for threat landscape
+  {#- The count stays when a narrow row hides the words around it. -#}
+  <i class="fas fa-map"></i><span class="tlr-lbl"> Queue</span> {{ count }}<span class="tlr-lbl"> article{{ 's' if count != 1 }} for threat landscape</span>
 </button>
 {%- endif -%}
 {% endmacro %}

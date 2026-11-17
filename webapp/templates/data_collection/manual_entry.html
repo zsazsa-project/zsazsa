@@ -114,10 +114,10 @@
             <div class="zs-toolbar">
               <span class="zs-toolbar-label">Fills</span>
               <span class="ai-fills" id="ai-fills">
-                <a href="#summary" data-ai-target="summary"><i class="fas fa-align-left"></i>Summary</a>
-                <a href="#step-scope" data-ai-target="step-scope"><i class="fas fa-crosshairs"></i>Scope</a>
+                <a href="#summary" data-ai-targets="#summary"><i class="fas fa-align-left"></i>Summary</a>
+                <a href="#step-scope" data-ai-targets="#step-scope"><i class="fas fa-crosshairs"></i>Scope</a>
               </span>
-              <button type="button" class="zs-pill" id="btn-llm-summary"
+              <button type="button" class="zs-pill" id="btn-llm-summary" data-ai-targets="#summary, #step-scope"
                       title="Writes the summary from the content and ticks the scope items its MISP context names. Create the event before it is done and the summary still goes into it; the scope is only ticked on this page.">
                 <i class="fas fa-wand-magic-sparkles"></i>Build with AI
               </button>
@@ -248,6 +248,7 @@
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_ai_targets_js.html" %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
 <script>
@@ -499,27 +500,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return ticked;
   }
 
-  /* Build with AI writes the summary and ticks scope items, so both are
-     outlined while the button is pointed at and while the job runs. */
   var aiBtn = document.getElementById('btn-llm-summary');
-  var aiTargets = [document.getElementById('summary'), document.getElementById('step-scope')];
-  var aiBusy = false;
-  function markTargets(on) {
-    aiBusy = on;
-    aiTargets.forEach(function(el) { el.classList.toggle('ai-target', on); });
-  }
-  function hintTargets(on) {
-    if (aiBusy) return;
-    aiTargets.forEach(function(el) { el.classList.toggle('ai-target', on); });
-  }
-  ['mouseenter', 'focus'].forEach(function(ev) { aiBtn.addEventListener(ev, function() { hintTargets(true); }); });
-  ['mouseleave', 'blur'].forEach(function(ev) { aiBtn.addEventListener(ev, function() { hintTargets(false); }); });
-  document.querySelectorAll('#ai-fills a').forEach(function(a) {
-    var target = document.getElementById(a.dataset.aiTarget);
-    a.addEventListener('mouseenter', function() { if (!aiBusy) target.classList.add('ai-target'); });
-    a.addEventListener('mouseleave', function() { if (!aiBusy) target.classList.remove('ai-target'); });
-  });
-
   aiBtn.addEventListener('click', function() {
     var content = document.getElementById('description').value.trim();
     var status = document.getElementById('llm-summary-status');
@@ -549,7 +530,7 @@ document.addEventListener('DOMContentLoaded', function() {
       btn.disabled = on;
       btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i>Building…' : originalHtml;
       summary.readOnly = on;
-      markTargets(on);
+      zsazsaAiTargets(btn, on);
       createWait.hidden = !on;
       if (on) {
         createBtn.dataset.submitConfirm = 'The AI summary is still being written. Create the event now? '

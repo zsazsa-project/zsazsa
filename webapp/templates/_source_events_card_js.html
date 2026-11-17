@@ -1,0 +1,37 @@
+{# Opens and closes the card of _source_events_card.html, reading its events
+   on the first Show when the card names where from. #}
+<script>
+(function() {
+  var header = document.getElementById('source-events-header');
+  if (!header) return;
+  var toggle = document.getElementById('source-events-toggle');
+  var body = document.getElementById('source-events-accordion');
+
+  function load() {
+    var url = body.dataset.src;
+    if (!url) return;
+    delete body.dataset.src;
+    body.innerHTML = '<p class="text-muted small px-3 py-2 mb-0"><i class="fas fa-spinner fa-spin me-1"></i>Reading the source events from MISP…</p>';
+    fetch(url, {redirect: 'manual'})
+      .then(zsazsaReadHtml)
+      .then(function(html) { body.innerHTML = html; })
+      .catch(function(err) {
+        var p = document.createElement('p');
+        p.className = 'text-danger small px-3 py-2 mb-0';
+        p.textContent = 'Could not read the source events: ' + zsazsaErrorText(err);
+        body.replaceChildren(p);
+        body.dataset.src = url;
+      });
+  }
+
+  header.addEventListener('click', function() {
+    var open = body.style.display === 'none';
+    body.style.display = open ? '' : 'none';
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.innerHTML = open
+      ? '<i class="fas fa-chevron-up me-1"></i>Hide'
+      : '<i class="fas fa-chevron-down me-1"></i>Show';
+    if (open) load();
+  });
+})();
+</script>

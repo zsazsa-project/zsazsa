@@ -119,19 +119,7 @@
     {% endif %}
 
     {% if source_events %}
-    <div class="card content-card mb-4 rise rise-1">
-      <div class="card-header d-flex justify-content-between align-items-center"
-           id="source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
-        <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
-        <button type="button" class="btn btn-xs btn-link text-muted p-0" id="source-events-toggle"
-                aria-controls="source-events-accordion" aria-expanded="false">
-          <i class="fas fa-chevron-down me-1"></i>Show
-        </button>
-      </div>
-      <div id="source-events-accordion" style="display:none;">
-        {% include "flash_intel/_source_events.html" %}
-      </div>
-    </div>
+    {% with source_count = source_events | length %}{% include "_source_events_card.html" %}{% endwith %}
     {% endif %}
 
     <div class="card content-card mb-4 rise rise-1">
@@ -474,21 +462,9 @@
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
 {% include "_tlr_queue_js.html" %}
+{% include "_source_events_card_js.html" %}
 <script>
 (function() {
-  var srcHeader = document.getElementById('source-events-header');
-  if (srcHeader) {
-    var srcToggle = document.getElementById('source-events-toggle');
-    var srcAccordion = document.getElementById('source-events-accordion');
-    srcHeader.addEventListener('click', function() {
-      var open = srcAccordion.style.display === 'none';
-      srcAccordion.style.display = open ? '' : 'none';
-      srcToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      srcToggle.innerHTML = open
-        ? '<i class="fas fa-chevron-up me-1"></i>Hide'
-        : '<i class="fas fa-chevron-down me-1"></i>Show';
-    });
-  }
   document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
     zsazsaRenderMarkdown(el, el.getAttribute('data-md'));
     el.removeAttribute('data-md');

@@ -38,6 +38,14 @@ UUID = "8261112b-619c-4ee0-9409-c898df74520c"
 SOURCES = {"0c1d6a8e-61b4-4f0b-9a55-1f4f1d2f0a01": "scraper", "5e2f9b3c-0d7a-4c41-8e66-2a5b3c4d0b02": "partner"}
 
 
+def _sources(count=2):
+    """Source events as fetch_source_events() gives them."""
+    return [{"uuid": uid, "info": f"Article {n}", "date": "2026-11-10", "orgc": "CIRCL",
+             "source_id": sid, "source_label": sid, "source_url": "", "tags": [], "attributes": [],
+             "objects": [], "reports": [{"name": "Report", "date": "", "content": f"Full text {n}"}]}
+            for n, (uid, sid) in enumerate(list(SOURCES.items())[:count])]
+
+
 def _event():
     event = MISPEvent()
     event.uuid, event.id, event.date, event.info = UUID, "42", "2026-10-26", "Example product"
@@ -114,6 +122,19 @@ class Pages(unittest.TestCase):
         self.assertEqual(response.status_code, 200, path)
         return BeautifulSoup(response.data, "html.parser")
 
+    def with_sources(self, path, kind="fia", count=2):
+        """A page of an alert, or with kind "vea" an advisory, with source events
+        read from MISP as fetch_source_events() gives them."""
+        sources = _sources(count)
+        make, getter, lister = {"fia": (_fia, "get_fia", "list_fias"), "vea": (_vea, "get_vea", "list_veas")}[kind]
+        record = make("draft", source_event_uuids=[ev["uuid"] for ev in sources],
+                      source_event_hints={ev["uuid"]: ev["source_id"] for ev in sources})
+        with mock.patch.object(misp_store, getter, return_value=record), \
+             mock.patch.object(misp_store, lister, return_value=[]), \
+             mock.patch.object(misp_store, "fetch_source_events", return_value=sources) as fetched:
+            page = self.page(path)
+        return page, fetched
+
 
 class FlowPanel(Pages):
     def test_each_list_opens_how_its_product_is_made_from_its_banner(self):
@@ -170,20 +191,6 @@ class FlashIntelPages(Pages):
         self.assertEqual(hero.select_one(".hero-actions .btn-hero").get_text(strip=True), "Edit")
         self.assertIsNotNone(hero.select_one(f'form[action="/products/flash-intel/{UUID}/delete"]'))
 
-    def with_sources(self, path, count=2):
-        """A page of an alert with source events, read from MISP as fetch_source_events() gives them."""
-        sources = [{"uuid": uid, "info": f"Article {n}", "date": "2026-11-10", "orgc": "CIRCL",
-                    "source_id": sid, "source_label": sid, "source_url": "", "tags": [], "attributes": [],
-                    "objects": [], "reports": [{"name": "Report", "date": "", "content": f"Full text {n}"}]}
-                   for n, (uid, sid) in enumerate(list(SOURCES.items())[:count])]
-        alert = _fia("draft", source_event_uuids=[ev["uuid"] for ev in sources],
-                     source_event_hints={ev["uuid"]: ev["source_id"] for ev in sources})
-        with mock.patch.object(misp_store, "get_fia", return_value=alert), \
-             mock.patch.object(misp_store, "list_fias", return_value=[]), \
-             mock.patch.object(misp_store, "fetch_source_events", return_value=sources) as fetched:
-            page = self.page(path)
-        return page, fetched
-
     def test_an_alert_page_shows_its_source_articles_above_the_summary(self):
         page, fetched = self.with_sources(f"/products/flash-intel/{UUID}")
         # Read once, for the references and for the card both.
@@ -194,8 +201,10 @@ class FlashIntelPages(Pages):
         self.assertIsNone(header.select_one("[data-tlr-url], .zs-pill"))
         cards = [c.select_one(".card-header").get_text(" ", strip=True) for c in page.select(".col-lg-8 > .card")]
         self.assertLess(cards.index("Source events (2) Show"), cards.index("Summary SOC"))
-        bodies = [el["data-md"] for el in page.select("#source-events-accordion .report-md-body")]
+        # Rendered on the server, so the card reads the same when it loads them later.
+        bodies = [el.get_text(strip=True) for el in page.select("#source-events-accordion .report-md-body")]
         self.assertEqual(bodies, ["Full text 0", "Full text 1"])
+        self.assertIsNone(page.select_one("#source-events-accordion [data-md]"))
         self.assertIsNone(page.select_one("#source-events-accordion .add-fact-btn"))
 
     def test_an_alert_page_queues_its_source_articles_for_the_threat_landscape(self):
@@ -249,7 +258,7 @@ class FlashIntelPages(Pages):
         button = tools.select_one("[data-tlr-url]")
         self.assertEqual(button["data-tlr-url"], f"/products/flash-intel/{UUID}/queue-for-tlr")
         self.assertEqual(" ".join(button.get_text().split()), "Queue 2 articles for threat landscape")
-        labels = [el.get_text(strip=True) for el in tools.find_all(recursive=False)]
+        labels = [" ".join(el.get_text().split()) for el in tools.find_all(recursive=False)]
         self.assertLess(labels.index("Queue 2 articles for threat landscape"), labels.index("AI assistance"))
         # The form keeps adding attributes to the observed facts.
         self.assertIsNone(page.select_one("#source-events-accordion .report-md-body:not(.text-muted)"))
@@ -314,6 +323,41 @@ class FormPreview(Pages):
             script = "".join(s.get_text() for s in self.page("/products/vea/new").select("script"))
         self.assertIn("if (el && !el.value.trim()) zsazsaSetField(el, val);", script)
         self.assertIn("el.dispatchEvent(new Event('input', {bubbles: true}));", script)
+
+
+class AiTargets(Pages):
+    """Build with AI outlines the sections it fills, as the manual entry does:
+    each one it names is on the page, and the script that outlines them is."""
+
+    def targets(self, page, selector):
+        return [t.strip() for t in page.select_one(selector)["data-ai-targets"].split(",")]
+
+    def assert_on_page(self, page, targets):
+        for target in targets:
+            self.assertIsNotNone(page.select_one(target), target)
+        self.assertIn("window.zsazsaAiTargets = function(el, on)", str(page))
+
+    def test_the_alert_s_build_names_the_six_sections_it_fills(self):
+        page, _ = self.with_sources(f"/products/flash-intel/{UUID}/edit")
+        wanted = ["#step-summary", "#step-happened", "#step-matters", "#step-scope", "#step-actions", "#step-detection"]
+        self.assertEqual(self.targets(page, "#build-ai-btn"), wanted)
+        for option in page.select(".build-ai-option"):
+            self.assertEqual([t.strip() for t in option["data-ai-targets"].split(",")], wanted)
+        self.assert_on_page(page, wanted)
+
+    def test_the_advisory_s_build_names_what_its_mode_fills(self):
+        page, _ = self.with_sources(f"/products/vea/{UUID}/edit", "vea")
+        lookup, summary = page.select(".build-ai-option")
+        self.assertEqual(self.targets(page, "#build-ai-btn"), [t.strip() for t in lookup["data-ai-targets"].split(",")])
+        # Only the lookup fills the identification and the references.
+        self.assertIn("#step-ident", lookup["data-ai-targets"])
+        self.assertNotIn("#step-ident", summary["data-ai-targets"])
+        self.assert_on_page(page, self.targets(page, "#build-ai-btn"))
+
+    def test_drafting_an_advisory_without_sources_names_its_sections_too(self):
+        with mock.patch.object(misp_store, "list_veas", return_value=[]):
+            page = self.page("/products/vea/new")
+        self.assert_on_page(page, self.targets(page, "#btn-draft-vea"))
 
 
 class AdvisoryPages(Pages):
@@ -397,6 +441,53 @@ class AdvisoryPages(Pages):
         self.assertIsNotNone(page.select_one(".ai-actions #btn-draft-vea"))
         self.assertIsNotNone(page.select_one(".ai-actions .qa-review-btn"))
 
+    def test_an_advisory_page_shows_its_source_articles_above_the_summary(self):
+        page, fetched = self.with_sources(f"/products/vea/{UUID}", "vea")
+        fetched.assert_called_once()
+        header = page.select_one("#source-events-header")
+        self.assertEqual(header.find("span").get_text(strip=True), "Source events (2)")
+        cards = [h.get_text(" ", strip=True) for h in page.select(".col-lg-8 > .card > .card-header")]
+        self.assertEqual(cards.index("Source events (2) Show") + 1, [i for i, c in enumerate(cards) if c.startswith("Summary")][0])
+        self.assertEqual([el.get_text(strip=True) for el in page.select("#source-events-accordion .report-md-body")],
+                         ["Full text 0", "Full text 1"])
+
+    def test_an_advisory_page_queues_its_source_articles_for_the_threat_landscape(self):
+        page, _ = self.with_sources(f"/products/vea/{UUID}", "vea")
+        actions = page.select("section.record-hero .hero-actions > *")
+        self.assertIn("Delete VEA", actions[-2].get_text())
+        self.assertEqual(" ".join(actions[-1].get_text().split()), "Queue 2 articles for threat landscape")
+        self.assertEqual(actions[-1]["data-tlr-url"], f"/products/vea/{UUID}/queue-for-tlr")
+
+    def test_the_form_queues_the_source_articles_left_of_the_ai_assistance(self):
+        page, _ = self.with_sources(f"/products/vea/{UUID}/edit", "vea")
+        tools = page.select_one("#vea-source-events-header > div")
+        labels = [el.get_text(" ", strip=True) for el in tools.find_all(recursive=False)]
+        self.assertLess(labels.index("Queue 2 articles for threat landscape"), labels.index("AI assistance"))
+        self.assertEqual(tools.select_one("[data-tlr-url]")["data-tlr-url"], f"/products/vea/{UUID}/queue-for-tlr")
+
+    def test_the_route_queues_the_sources_stored_on_the_advisory(self):
+        uuids = list(SOURCES)
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        with mock.patch.object(misp_store, "get_vea", return_value=_vea("approved", source_event_uuids=uuids,
+                                                                        source_event_hints={uuids[1]: "partner"})), \
+             mock.patch.object(data_collection, "queue_events_for_tlr", return_value={"ok": True}) as queued:
+            reply = self.client.post(f"/products/vea/{UUID}/queue-for-tlr", headers={"X-CSRF-Token": "test-token"})
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual(queued.call_args.args[0], [(uuids[0], "scraper"), (uuids[1], "partner")])
+        self.assertEqual((queued.call_args.kwargs["collected_only"], queued.call_args.kwargs["audit_type"]),
+                         (False, "vea"))
+
+    def test_the_route_refuses_an_unknown_advisory_or_one_without_sources(self):
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "test-token"
+        for advisory, status in ((None, 404), (_vea("draft"), 400)):
+            with self.subTest(status), mock.patch.object(misp_store, "get_vea", return_value=advisory), \
+                 mock.patch.object(data_collection, "queue_events_for_tlr") as queued:
+                reply = self.client.post(f"/products/vea/{UUID}/queue-for-tlr", headers={"X-CSRF-Token": "test-token"})
+                self.assertEqual(reply.status_code, status)
+                queued.assert_not_called()
+
 
 class ProfilePages(Pages):
     def test_the_list_groups_the_profiles_by_state(self):
@@ -465,7 +556,9 @@ class ProfilePages(Pages):
         self.assertIsNotNone(card.select_one("#tap-submit"))
         self.assertTrue(page.select_one("input[name=tlp][value=amber]").has_attr("checked"))
         self.assertTrue(page.select_one("input.tap-audience[value=SOC]").has_attr("checked"))
-        self.assertIsNotNone(page.select_one(".ai-actions #tap-enrich-btn"))
+        # Completing from the galaxy is no AI action: it sits with the actors it reads.
+        self.assertIsNotNone(page.select_one("#step-actors .card-body > #tap-enrich #tap-enrich-btn"))
+        self.assertIsNone(page.select_one(".ai-actions #tap-enrich-btn"))
         self.assertIsNotNone(page.select_one(".ai-actions #tap-draft-btn"))
 
 
@@ -651,6 +744,18 @@ class CollectionEventPage(Pages):
         rule = next(line for line in css.splitlines() if line.startswith(".rise {"))
         self.assertIn("backwards", rule)
         self.assertNotIn(" both", rule)
+
+    def test_the_save_card_of_a_form_stays_where_it_is(self):
+        """It followed the page down, which confused; the stakeholder form's
+        side column still does."""
+        css = (Path(__file__).resolve().parent.parent / "webapp" / "static" / "css" / "app.css").read_text()
+        sticky = [line.strip() for line in css.splitlines() if "position: sticky" in line]
+        self.assertFalse([line for line in sticky if ".form-save" in line], sticky)
+        self.assertIn(".form-aside { position: sticky; top: var(--form-top); }", sticky)
+
+    def test_the_ai_assistance_card_is_tinted(self):
+        css = (Path(__file__).resolve().parent.parent / "webapp" / "static" / "css" / "app.css").read_text()
+        self.assertIn(".content-card:has(> .ai-actions) > .card-header {", css)
 
 
 if __name__ == "__main__":

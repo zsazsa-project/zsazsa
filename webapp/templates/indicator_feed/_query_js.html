@@ -290,15 +290,14 @@ document.addEventListener('DOMContentLoaded', function() {
   function runSearch() {
     if (!form || !results) return;
     results.style.opacity = '.5';
-    fetch(form.dataset.resultsUrl + '?' + new URLSearchParams(new FormData(form)))
-      .then(function(r) {
-        if (!r.ok) throw new Error(r.status);
-        return r.text();
-      })
+    fetch(form.dataset.resultsUrl + '?' + new URLSearchParams(new FormData(form)), {redirect: 'manual'})
+      .then(zsazsaReadHtml)
       .then(function(html) { results.innerHTML = html; initSort(); })
       .catch(function(err) {
-        results.innerHTML = '<div class="alert alert-warning mt-4 mb-0">' +
-          'Could not run the search (' + err.message + '). Reload the page to try again.</div>';
+        var div = document.createElement('div');
+        div.className = 'alert alert-warning mt-4 mb-0';
+        div.textContent = 'Could not run the search: ' + zsazsaErrorText(err);
+        results.replaceChildren(div);
       })
       .then(function() { results.style.opacity = ''; });
   }

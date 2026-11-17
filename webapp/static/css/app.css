@@ -893,7 +893,8 @@ body {
   white-space: nowrap;
 }
 .ai-fills a i { font-size: .65rem; }
-.ai-target {
+/* Hinted while its action is pointed at, held while it runs (_ai_targets_js.html). */
+.ai-target, .ai-target-busy {
   outline: 2px dashed var(--accent-blue);
   outline-offset: 3px;
   transition: outline-color .15s;
@@ -3067,7 +3068,7 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 /* The default theme's top bar stays at the top of the window; the others scroll away. */
 /* Under the sticky bar: the top bar, or the menu across the top in the
    themes that have one. */
-.form-step, .form-aside, .form-save { --form-top: 5rem; }
+.form-step, .form-aside { --form-top: 5rem; }
 .form-step { scroll-margin-top: var(--form-top); }
 .step-num { display: inline-grid; place-items: center; width: 1.45rem; height: 1.45rem; margin-right: .55rem; border-radius: 50%;
   background: var(--misp-navy); color: #fff; font-size: .72rem; font-weight: 700; }
@@ -3102,10 +3103,11 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .form-tips { margin: 0; padding-left: 1.1rem; font-size: .84rem; }
 .form-tips li + li { margin-top: .45rem; }
 .form-note { padding: .7rem .85rem; border-radius: 8px; background: var(--surface-tint); color: var(--text-primary); font-size: .84rem; }
+/* The stakeholder form's side column follows the page. The "As it will
+   appear" card of the other forms stays where it is: moving with the page,
+   it confused more than it helped. */
 @media (min-width: 992px) {
   .form-aside { position: sticky; top: var(--form-top); }
-  /* Above the cards under it, which scroll on behind it. */
-  .form-save { position: sticky; top: var(--form-top); z-index: 3; }
 }
 
 /* ─── Compact banner ── */
@@ -3239,8 +3241,16 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .product-table .untitled { color: var(--text-muted); font-style: italic; font-weight: 500; }
 .product-table tr.draft-row > td { background: color-mix(in srgb, var(--accent-orange) 5%, var(--card-bg)); }
 
-/* The AI assistance card of a form: each action with a line on what it does. */
+/* The AI assistance card of a form: each action with a line on what it does.
+   Tinted in the accent, as the ATT&CK card is in purple, so it is found at a
+   glance without competing with Save. */
 .ai-actions { display: flex; flex-direction: column; padding: .3rem 0; }
+.content-card:has(> .ai-actions) { border-color: color-mix(in srgb, var(--accent-blue) 30%, var(--border-light));
+  border-left: 3px solid var(--accent-blue); }
+.content-card:has(> .ai-actions) > .card-header {
+  background: color-mix(in srgb, var(--accent-blue) 8%, var(--card-bg));
+  border-bottom-color: color-mix(in srgb, var(--accent-blue) 25%, var(--border-light)); }
+.content-card:has(> .ai-actions) > .card-header > i:first-child { color: var(--accent-blue); }
 .ai-actions .btn-ai { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr); gap: .55rem; width: 100%; padding: .5rem 1rem;
   border: 0; background: transparent; color: var(--text-primary); font-size: .84rem; font-weight: 600; text-align: left; }
 .ai-actions .btn-ai:hover:not(:disabled) { background: var(--surface-hover); }

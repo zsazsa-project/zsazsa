@@ -23,17 +23,18 @@
       e.stopPropagation();
       var originalHtml = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Queueing…';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span class="tlr-lbl"> Queueing…</span>';
       var csrf = document.querySelector('meta[name="csrf-token"]');
       fetch(btn.dataset.tlrUrl, {
         method: 'POST',
-        headers: {'X-CSRF-Token': csrf ? csrf.content : ''}
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf ? csrf.content : ''},
+        body: JSON.stringify(btn.dataset.tlrUuid ? {uuid: btn.dataset.tlrUuid} : {})
       })
       .then(zsazsaReadJson)
       .then(function(data) {
         say(data.message || ('Could not queue the articles: ' + (data.error || 'unknown error')), data.ok);
         if (data.ok) {
-          btn.innerHTML = '<i class="fas fa-check"></i> Queued for threat landscape';
+          btn.innerHTML = '<i class="fas fa-check"></i><span class="tlr-lbl"> Queued for threat landscape</span>';
         } else {
           btn.innerHTML = originalHtml;
           btn.disabled = false;

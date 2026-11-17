@@ -12,12 +12,14 @@
 - A stakeholder's page lists the scope items of the PIRs and GIRs it owns or is listed in.
 - Major rework of the UI for more consistency in styling, colours, font and layout.
 - A story in the daily briefing form has a "Jump to story in data collection" button.
+- Vulnerability advisories and daily briefings show their source events on their page, and can queue their source articles for the threat landscape.
 
 ### Changed
 
 - New consistent layout throughout the entire app.
 - An event that cannot be queued for the threat landscape is named with the reason, in the message and the audit log.
 - The threat landscape queue keeps an event older than the collection window of its source.
+- The "As it will appear" card of a form stays in place when the page scrolls.
 
 ### Security
 

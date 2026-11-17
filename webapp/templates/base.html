@@ -12,11 +12,12 @@
   // a Flask error page, a CSRF 403, or the MISP login page after the session
   // expired. response.json() then throws "Unexpected token '<'", which tells an
   // analyst nothing, so say what actually happened.
+  var ZSAZSA_SESSION_EXPIRED = 'your session has expired. Reload the page and sign in again.';
   function zsazsaReadJson(response) {
     var type = response.headers.get('content-type') || '';
     if (type.indexOf('application/json') !== -1) return response.json();
     if (response.redirected || response.status === 403) {
-      throw new Error('your session has expired. Reload the page and sign in again.');
+      throw new Error(ZSAZSA_SESSION_EXPIRED);
     }
     if (response.status >= 502 && response.status <= 504) {
       throw new Error('the server did not answer in time (HTTP ' + response.status
@@ -24,6 +25,22 @@
     }
     throw new Error('the server answered with a page instead of data (HTTP ' + response.status
       + '). Check the application log for details.');
+  }
+  // Read an HTML fragment that goes into the page, asked for with
+  // {redirect: 'manual'}. An expired session sends the request on to the MISP
+  // login page, which would otherwise be put in the page in the fragment's
+  // place; MISP may be on another origin, where following it fails as a
+  // network error that says nothing. Our routes refuse with a line of text,
+  // which is passed on; any other error page is not.
+  function zsazsaReadHtml(response) {
+    if (response.type === 'opaqueredirect' || response.redirected || response.status === 403) {
+      throw new Error(ZSAZSA_SESSION_EXPIRED);
+    }
+    return response.text().then(function(text) {
+      if (response.ok) return text;
+      throw new Error(text && text.trim().charAt(0) !== '<' ? text.trim()
+        : 'the server answered HTTP ' + response.status + '. Check the application log for details.');
+    });
   }
   // Reason for a rejected request, without the "Error:" prefix the browser adds.
   function zsazsaErrorText(err) {

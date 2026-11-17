@@ -45,7 +45,7 @@
           {% endif %}
           <span class="zs-toolbar-label ms-2">AI assistance</span>
           <div class="zs-pill-group" id="build-ai-group" role="group">
-            <button type="button" class="zs-pill" id="build-ai-btn"
+            <button type="button" class="zs-pill" id="build-ai-btn" data-ai-targets="#step-summary, #step-happened, #step-matters, #step-scope, #step-actions, #step-detection"
                     data-source-uuids='{{ source_events | map(attribute="uuid") | list | tojson }}'
                     {% if is_edit %}data-confirm="Build with AI replaces the text in the fields it fills. Continue?"{% endif %}
                     {% if not any_reports %}disabled{% endif %}>
@@ -61,7 +61,7 @@
                 <span style="font-size:.62rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--admiralty-section-fg);">Report source</span>
               </li>
               <li>
-                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="both">
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="both" data-ai-targets="#step-summary, #step-happened, #step-matters, #step-scope, #step-actions, #step-detection">
                   <div class="d-flex align-items-start gap-2">
                     <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);visibility:visible;">&#10003;</span>
                     <i class="fas fa-layer-group" style="color:var(--adm-tlp-green-border);margin-top:2px;width:13px;font-size:.8rem;"></i>
@@ -74,7 +74,7 @@
               </li>
               <li><hr class="dropdown-divider mx-2 my-1"></li>
               <li>
-                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="raw_only">
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="raw_only" data-ai-targets="#step-summary, #step-happened, #step-matters, #step-scope, #step-actions, #step-detection">
                   <div class="d-flex align-items-start gap-2">
                     <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);visibility:hidden;">&#10003;</span>
                     <i class="fas fa-file-lines" style="color:var(--admiralty-section-fg);margin-top:2px;width:13px;font-size:.8rem;"></i>
@@ -105,7 +105,7 @@
       </div>
       {% endif %}
       <div id="source-events-accordion" style="display:none;">
-        {% with fact_buttons = true %}{% include "flash_intel/_source_events.html" %}{% endwith %}
+        {% with fact_buttons = true %}{% include "_source_events.html" %}{% endwith %}
       </div>
     </div>
     {% endif %}
@@ -552,6 +552,7 @@
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
 {% include "_tlr_queue_js.html" %}
+{% include "_ai_targets_js.html" %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
 <script>
@@ -832,6 +833,7 @@
     buildAiBtn.disabled = true;
     if (buildAiModeToggle) buildAiModeToggle.disabled = true;
     buildAiBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Building…';
+    zsazsaAiTargets(buildAiBtn, true);
 
     var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
@@ -876,6 +878,7 @@
     }
 
     function resetBtn() {
+      zsazsaAiTargets(buildAiBtn, false);
       buildAiBtn.disabled = false;
       if (buildAiModeToggle) buildAiModeToggle.disabled = false;
       buildAiBtn.innerHTML = originalHtml;

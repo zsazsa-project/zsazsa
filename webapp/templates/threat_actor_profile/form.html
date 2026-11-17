@@ -67,6 +67,13 @@
         </label>
         {{ galaxy_multiselect("threat_actors", values=(src.threat_actors if src else []), items=threat_actor_items) }}
         <div id="tap-galaxy-links" class="form-text"></div>
+        {# Shown once a galaxy actor is picked. #}
+        <div class="mt-3" id="tap-enrich" style="display:none;">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="tap-enrich-btn">
+            <i class="fas fa-database me-1"></i> Complete from the MISP galaxy
+          </button>
+          <div class="form-text">Fills synonyms, origin, motivation, references and scope from the threat actors picked.</div>
+        </div>
         <div id="tap-enrich-status" class="form-text"></div>
       </div>
     </div>
@@ -374,12 +381,8 @@
     </div>
 
     <div class="card content-card">
-      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>Assistance</div>
+      <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>AI assistance</div>
       <div class="ai-actions">
-        <button type="button" class="btn-ai" id="tap-enrich-btn" style="display:none;">
-          <i class="fas fa-database"></i>
-          <span>Complete from the MISP galaxy<small>Fills synonyms, origin, motivation, references and scope from the threat actors picked.</small></span>
-        </button>
         <button type="button" class="btn-ai" id="tap-draft-btn">
           <i class="fas fa-wand-magic-sparkles"></i>
           <span>Draft profile with AI<small>Drafts the narrative fields from the galaxy data and the notes already on this form. Empty fields only.</small></span>
@@ -551,7 +554,7 @@ document.querySelectorAll('.actor-type-pill').forEach(function(pill) {
   }
 
   function refresh() {
-    btn.style.display = selectedActors().length ? '' : 'none';
+    document.getElementById('tap-enrich').style.display = selectedActors().length ? '' : 'none';
     showLinks();
   }
   document.addEventListener('change', function(e) {

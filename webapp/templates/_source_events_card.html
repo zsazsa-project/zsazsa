@@ -1,0 +1,18 @@
+{# The source events of a product on its page, folded away under a Show
+   button: source_count of them, from source_events when the page has read
+   them, or from source_events_url on the first Show when reading them all
+   would slow every view of the page. Needs _source_events_card_js.html. #}
+<div class="card content-card mb-4 rise rise-1">
+  <div class="card-header d-flex justify-content-between align-items-center"
+       id="source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
+    <span><i class="fas fa-database me-2"></i>Source events ({{ source_count }})</span>
+    <button type="button" class="btn btn-xs btn-link text-muted p-0" id="source-events-toggle"
+            aria-controls="source-events-accordion" aria-expanded="false">
+      <i class="fas fa-chevron-down me-1"></i>Show
+    </button>
+  </div>
+  <div id="source-events-accordion" style="display:none;"
+       {% if source_events_url %}data-src="{{ source_events_url }}"{% endif %}>
+    {% if not source_events_url %}{% include "_source_events.html" %}{% endif %}
+  </div>
+</div>

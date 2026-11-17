@@ -1,6 +1,7 @@
-{# The source events of a flash intel alert, one accordion item each: tags,
-   reports, attributes and objects. The wizard passes fact_buttons to add an
-   attribute to the observed facts; the detail page shows the reports in full. #}
+{# The source events of a product, one accordion item each: tags, reports,
+   attributes and objects. The flash intel wizard passes fact_buttons to add an
+   attribute to the observed facts; a product's page shows the reports in full.
+   ``missing`` says how many could not be read. #}
 <div class="accordion accordion-flush" id="src-acc">
   {% for ev in source_events %}
   <div class="accordion-item">
@@ -42,8 +43,9 @@
             <div class="report-md-body text-muted" data-md="{{ r.content | truncate(2000, True) }}"
                  style="font-size:.82rem;max-height:12rem;overflow-y:auto;"></div>
             {% else %}
-            <div class="report-md-body" data-md="{{ r.content }}"
-                 style="font-size:.85rem;max-height:32rem;overflow-y:auto;"></div>
+            {# Rendered here rather than in the browser, so it reads the same when
+               the card loads it later. md escapes before it renders. #}
+            <div class="report-md-body" style="font-size:.85rem;max-height:32rem;overflow-y:auto;">{{ r.content | md }}</div>
             {% endif %}
           </div>
           {% endfor %}
@@ -116,3 +118,6 @@
   </div>
   {% endfor %}
 </div>
+{% if missing %}
+<p class="text-muted small px-3 py-2 mb-0">{{ missing }} source event{{ 's' if missing != 1 }} could not be read from MISP.</p>
+{% endif %}

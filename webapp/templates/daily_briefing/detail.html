@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import read_again_note %}
+{% from "_product_actions.html" import read_again_note, tlr_queue_button %}
 {% from "_macros.html" import ai_job_badge, date_leaf, story_scope %}
 
 {% block title %}Briefing {{ briefing.date }} | zsazsa CTI{% endblock %}
@@ -94,6 +94,7 @@
         <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
       </form>
       {% endif %}
+      {{ tlr_queue_button(source_count, url_for('daily_briefing.queue_for_tlr', id=briefing.uuid), "btn btn-sm btn-hero-ghost") }}
     </div>
   </div>
 
@@ -127,6 +128,12 @@
         {% else %}<p class="mb-0 text-muted">No reason was given.</p>{% endif %}
       </div>
     </div>
+    {% endif %}
+
+    {% if source_count %}
+    {% with source_events_url = url_for('daily_briefing.source_events_fragment', id=briefing.uuid) %}
+    {% include "_source_events_card.html" %}
+    {% endwith %}
     {% endif %}
 
     {% if briefing.summary %}
@@ -191,6 +198,8 @@
                 {% if ev.get('orgc') %}
                 <span class="badge text-bg-light border ms-1">{{ ev.orgc }}</span>
                 {% endif %}
+                {{ tlr_queue_button(1, url_for('daily_briefing.queue_for_tlr', id=briefing.uuid),
+                                    "btn btn-xs btn-outline-secondary ms-2", uuid=story.source_event_uuid) }}
                 {% if ev.get('info') %}
                 <div class="text-muted ms-1 mt-1" style="font-size:.78rem;font-style:italic;">{{ ev.info | truncate(120) }}</div>
                 {% endif %}
@@ -389,6 +398,8 @@
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_tlr_queue_js.html" %}
+{% include "_source_events_card_js.html" %}
 <script>
 /* Mute the "What happened:" style label that opens a story line, matching
    mute_lead_labels() in webapp/utils.py which does this for the PDF. */

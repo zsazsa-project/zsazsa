@@ -4,7 +4,7 @@ import logging
 from types import SimpleNamespace
 
 import config as _cfg
-from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 from core import asset_inventory
 from core.vuln_lookup import CVE_RE
 from webapp.routes.source_event_utils import (
@@ -13,9 +13,12 @@ from webapp.routes.source_event_utils import (
     lookup_source_event_meta,
     normalise_source_event_rows,
     parse_source_tokens,
+    product_source_events,
     source_event_cves,
     source_event_references,
+    stored_source_pairs,
 )
+from webapp.routes import data_collection
 from webapp import audit, branding, collection_cache, misp_session, misp_store, notify_jobs, product_log
 from webapp.models import STAKEHOLDER_ROLES
 from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
@@ -252,10 +255,12 @@ def detail(id):
             linked_pir = misp_store.get_pir(vea.linked_pir_uuid)
         except Exception:
             linked_pir = None
-    source_refs = source_event_references(vea)
+    source_events = product_source_events(vea)
+    source_refs = source_event_references(vea, source_events)
     return render_template(
         "vea/detail.html",
         vea=vea,
+        source_events=source_events,
         reference_items=flattened_references(list(vea.references or []), source_refs),
         feedback=feedback,
         recipients=recipients,
@@ -263,6 +268,20 @@ def detail(id):
         linked_pir=linked_pir,
         can_publish=misp_session.current_user_can_publish(),
     )
+
+
+@bp.route("/<string:id>/queue-for-tlr", methods=["POST"])
+def queue_for_tlr(id):
+    """Put the advisory's source articles in the threat landscape queue: the
+    ones stored on it, so one older than Data collection holds is queued too."""
+    vea = misp_store.get_vea(id)
+    if vea is None:
+        return jsonify({"ok": False, "error": "VEA not found"}), 404
+    events = stored_source_pairs(vea)
+    if not events:
+        return jsonify({"ok": False, "error": "The advisory has no source articles."}), 400
+    return jsonify(data_collection.queue_events_for_tlr(
+        events, collected_only=False, audit_type="vea", audit_id=id, audit_label=vea.vea_id))
 
 
 @bp.route("/<string:id>/recipients")

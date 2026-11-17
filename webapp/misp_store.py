@@ -780,7 +780,7 @@ def product_source_problem(src_uuid: str, product_label: str, misp_client=None, 
             return f"its source {source_id or 'scraper'} is not configured"
         event = client.get_event(src_uuid, pythonify=True)
         if not event or isinstance(event, dict):
-            return "MISP did not return the event, so it was deleted or this key may not read it"
+            return "MISP did not return the event: it was deleted, or this key may not read it"
         # A source is something collected. On the webapp MISP an id from a
         # product form could name one of zsazsa's own records instead.
         if _is_own_record(t.name for t in event.tags):

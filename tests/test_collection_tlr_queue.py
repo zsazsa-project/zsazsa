@@ -5,7 +5,9 @@ confirmed cache changes, preserve complete events and report refused writes.
 An event that could not be queued is named in the answer and the audit log with
 the reason, which used to be "The log says why". Ids from the request must be on
 Data collection; the stored sources of a product need not be, and an older one
-is cached when it is queued, as an alert's June article could not be.
+is cached when it is queued, as an alert's June article could not be. One the
+cache holds is queued under the source it is listed under, whatever the
+product calls that source.
 
     python -m unittest tests.test_collection_tlr_queue
 """
@@ -113,6 +115,13 @@ class ThreatLandscapeQueue(unittest.TestCase):
                       reply["message"])
         self.assertNotIn("log", reply["message"])
 
+    def test_a_selection_that_is_no_event_is_named_rather_than_failing(self):
+        with self.assertLogs(data_collection.logger, level="WARNING"):
+            reply = self.queue([{"uuid": 5, "sourceId": SOURCE}, {"uuid": UUID, "sourceId": ["x"]}, "x"])
+        self.assertEqual((reply["tagged"], reply["errors"]), (0, 3))
+        self.assertIn("an event: no event was named", reply["message"])
+        self.misp.tag.assert_not_called()
+
     def test_a_refused_tag_is_named_with_the_reason(self):
         self.seed("complete")
         self.misp.tag.return_value = {"errors": "Tag refused"}
@@ -135,6 +144,17 @@ class ThreatLandscapeQueue(unittest.TestCase):
         self.misp.tag.assert_any_call(OLD_UUID, PRODUCT_TAG, local=True)
         rows = collection_cache.get_events_by_uuids([OLD_UUID])
         self.assertEqual([r["source_id"] for r in rows], [SOURCE])
+
+    def test_a_manual_entry_named_as_the_analyser_names_it_is_queued_under_its_source(self):
+        """The analyser stores "webapp" as the source of a manual entry; Data
+        collection knows it by its manual source. Queued under "webapp", it
+        failed as an unknown source, or was cached a second time under it."""
+        with self.app.test_request_context():
+            reply = data_collection.queue_events_for_tlr([(UUID, "webapp")], collected_only=False,
+                                                         audit_type="fia", audit_id="f", audit_label="FIA-00001")
+        self.assertTrue(reply["ok"], reply["message"])
+        data_collection._misp_for_source.assert_called_once_with(SOURCE)
+        self.assertEqual([r["source_id"] for r in collection_cache.get_events_by_uuids([UUID])], [SOURCE])
 
     def test_but_not_from_the_collection_page(self):
         with self.assertLogs(data_collection.logger, level="WARNING"):

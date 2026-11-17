@@ -3,7 +3,8 @@ in the layout of the record pages.
 
 The manual entry has numbered sections, the source as tiles, the TLP and the
 Admiralty ratings as choices, and an "As it will appear" card with Create
-event. The import picks the newsletter from tiles and says how many already
+event. Build with AI on the Summary line outlines the summary and the scope it
+fills. The import picks the newsletter from tiles and says how many already
 wait in the mailbox. A newsletter under review is a record with its articles
 to tick, each with its site, and a card that sends the ticked ones; one from
 the queue says when it came in and which one waits after it.
@@ -85,6 +86,17 @@ class ManualEntry(Pages):
         for hook in ("btn-fetch-url", "btn-llm-summary", "md-tab-edit", "md-tab-preview", "md-tab-split",
                      "description", "summary", "ref-add", "admiralty-preview"):
             self.assertIsNotNone(page.find(id=hook), hook)
+
+    def test_build_with_ai_outlines_the_summary_and_the_scope(self):
+        page = self.form()
+        button = page.select_one("#btn-llm-summary")
+        self.assertEqual(" ".join(button.get_text().split()), "Build with AI")
+        targets = [t.strip() for t in button["data-ai-targets"].split(",")]
+        self.assertEqual(targets, ["#summary", "#step-scope"])
+        self.assertEqual([a["data-ai-targets"] for a in page.select("#ai-fills a")], targets)
+        for target in targets:
+            self.assertIsNotNone(page.select_one(target), target)
+        self.assertIn("window.zsazsaAiTargets = function(el, on)", str(page))
 
     def test_a_saved_entry_keeps_the_ratings_picked(self):
         sources = [mock.Mock(enabled=True)]

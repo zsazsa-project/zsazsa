@@ -11,12 +11,13 @@ from datetime import datetime, timezone
 
 import config
 import weasyprint
-from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 from webapp import (audit, branding, collection_cache, job_store, misp_session,
                     misp_store, notify_jobs, product_log)
 from webapp.collection_cache import AI_SUMMARY_PREFIX
 from webapp.utils import (TLP_NAMES, dedup_lower, matching, md_to_html, mute_lead_labels, ordered_counts,
                           sort_products, tlp_counts, tlp_of)
+from webapp.routes import data_collection
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
 
 logger = logging.getLogger(__name__)
@@ -530,6 +531,42 @@ def save():
         return redirect(url_for("daily_briefing.compose"))
 
 
+@bp.route("/<string:id>/source-events")
+def source_events_fragment(id):
+    """The stories' source events, read from MISP when the page asks for them:
+    a briefing has many, too many to read on every view of its page."""
+    briefing = misp_store.get_briefing(id)
+    if briefing is None:
+        return "Briefing not found", 404
+    sources = misp_store._briefing_sources(briefing.stories)
+    hints = {uuid: source_id for uuid, source_id in sources.items() if source_id}
+    events = misp_store.fetch_source_events(list(sources), hints, strict_source=bool(hints))
+    return render_template("_source_events.html", source_events=events, missing=len(sources) - len(events))
+
+
+@bp.route("/<string:id>/queue-for-tlr", methods=["POST"])
+def queue_for_tlr(id):
+    """Put the stories' source articles in the threat landscape queue, or the
+    one of the story named by {"uuid": ...}. Only articles saved on the
+    briefing, so one older than Data collection holds is queued too."""
+    briefing = misp_store.get_briefing(id)
+    if briefing is None:
+        return jsonify({"ok": False, "error": "Briefing not found"}), 404
+    events = [(uuid, source_id or "scraper")
+              for uuid, source_id in misp_store._briefing_sources(briefing.stories).items()]
+    data = request.get_json(silent=True)
+    wanted = str(data.get("uuid") or "").strip() if isinstance(data, dict) else ""
+    if wanted:
+        events = [event for event in events if event[0] == wanted]
+        if not events:
+            return jsonify({"ok": False, "error": "That story's article is not saved in the briefing. Save it first."}), 400
+    if not events:
+        return jsonify({"ok": False, "error": "The briefing has no source articles."}), 400
+    return jsonify(data_collection.queue_events_for_tlr(
+        events, collected_only=False, audit_type="daily-briefing", audit_id=id,
+        audit_label=briefing.title or f"Daily briefing {briefing.date}"))
+
+
 @bp.route("/<string:id>")
 def detail(id):
     briefing = misp_store.get_briefing(id)
@@ -556,6 +593,7 @@ def detail(id):
         blocked=misp_store.stakeholders_blocked_by_tlp("Daily threat briefing", briefing.tlp),
         notify_status=notify_status,
         source_meta=source_meta,
+        source_count=len(misp_store._briefing_sources(briefing.stories)),
         scope_summary=misp_store.briefing_combined_scope_summary(briefing),
         misp_webapp_url=config.MISP_WEBAPP_URL.rstrip("/"),
         can_publish=misp_session.current_user_can_publish(),

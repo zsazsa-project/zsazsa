@@ -1,0 +1,23 @@
+{# Outlines what an AI action fills. An element with data-ai-targets (CSS
+   selectors, comma separated) outlines them while it is pointed at or has
+   focus, and zsazsaAiTargets(el, on) keeps them outlined while the action
+   runs. The selectors are read at the time, so a button whose mode changes
+   what it fills can change them. #}
+<script>
+(function() {
+  function mark(el, cls, on) {
+    if (!el.dataset.aiTargets) return;
+    document.querySelectorAll(el.dataset.aiTargets).forEach(function(t) { t.classList.toggle(cls, on); });
+  }
+  window.zsazsaAiTargets = function(el, on) {
+    if (!el) return;
+    mark(el, 'ai-target-busy', on);
+    // A disabled button may get no mouseleave, which would leave its hint on.
+    if (!on) mark(el, 'ai-target', false);
+  };
+  document.querySelectorAll('[data-ai-targets]').forEach(function(el) {
+    ['mouseenter', 'focus'].forEach(function(ev) { el.addEventListener(ev, function() { mark(el, 'ai-target', true); }); });
+    ['mouseleave', 'blur'].forEach(function(ev) { el.addEventListener(ev, function() { mark(el, 'ai-target', false); }); });
+  });
+})();
+</script>

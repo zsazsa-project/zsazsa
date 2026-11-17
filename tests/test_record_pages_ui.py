@@ -3,8 +3,8 @@ once a browser lays the page out.
 
 A record's banner is as tall as a stakeholder's, with its buttons at the bottom
 left. A status badge in a stakeholder's requirements stays inside the card.
-A form's Save button stays on screen, clear of the menu, to the end of the
-form. "Triage it on the list" opens the record's triage form on the list and
+A form's "As it will appear" card stays where it is when the page scrolls;
+the stakeholder form's side column follows it. "Triage it on the list" opens the record's triage form on the list and
 brings its row into view.
 
 The app is served with the records stubbed, so these need no MISP, but they
@@ -121,22 +121,23 @@ class RecordPagesInTheBrowser(unittest.TestCase):
             .map(b => b.textContent.trim())""")
         self.assertEqual(outside, [])
 
-    def test_the_save_button_stays_in_view_to_the_end_of_the_form(self):
-        for path in ("/pirs/new", "/girs/new", "/rfis/new", f"/pirs/{_uuid(1)}/edit"):
+    def test_the_save_card_stays_where_it_is_when_the_page_scrolls(self):
+        """It followed the page down, which confused more than it helped. The
+        stakeholder form's side column still follows it."""
+        for path, card, moves in (("/pirs/new", ".form-save", False), ("/girs/new", ".form-save", False),
+                                  ("/rfis/new", ".form-save", False), (f"/pirs/{_uuid(1)}/edit", ".form-save", False),
+                                  (f"/stakeholders/{UUID}/edit", ".form-aside", True)):
             with self.subTest(path):
                 self.open(path)
+                tops = []
                 for share in (0, .5, 1):
-                    # Instantly: the page scrolls smoothly, and mid-scroll the
-                    # card has not reached where it sticks yet.
                     self.page.evaluate("share => window.scrollTo({top: document.documentElement.scrollHeight * share,"
                                        " behavior: 'instant'})", share)
                     self.page.wait_for_timeout(100)
-                    on_top = self.page.evaluate("""() => {
-                        const b = document.querySelector('.form-save button[type=submit]');
-                        const r = b.getBoundingClientRect();
-                        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-                        return r.top >= 0 && r.bottom <= innerHeight && b.contains(hit); }""")
-                    self.assertTrue(on_top, f"Save is hidden at {share:.0%} of the page")
+                    # Where the card is on the page, not in the window.
+                    tops.append(self.page.evaluate(
+                        "sel => Math.round(document.querySelector(sel).getBoundingClientRect().top + scrollY)", card))
+                self.assertEqual(len(set(tops)) > 1, moves, tops)
 
     def test_triage_on_the_list_opens_the_records_triage_form(self):
         """The pending PIR is under thirty active ones, so the list has to

@@ -316,11 +316,8 @@
       var csrf = document.querySelector('meta[name="csrf-token"]');
       var headers = {'X-Requested-With': 'XMLHttpRequest'};
       if (csrf) headers['X-CSRF-Token'] = csrf.content;
-      fetch(form.getAttribute('action'), {method: 'POST', body: new FormData(form), headers: headers})
-        .then(function(r) {
-          if (!r.ok) return r.text().then(function(t) { throw new Error(t || ('HTTP ' + r.status)); });
-          return r.text();
-        })
+      fetch(form.getAttribute('action'), {method: 'POST', body: new FormData(form), headers: headers, redirect: 'manual'})
+        .then(zsazsaReadHtml)
         .then(function(html) {
           section.innerHTML = html;
           renderMarkdown(section);

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import hero_resend, read_again_note %}
+{% from "_product_actions.html" import hero_resend, read_again_note, tlr_queue_button %}
 {% from "_macros.html" import audience_badges, review_state_badge, notify_card %}
 
 {% block title %}{{ vea.vea_id }} | VEA{% endblock %}
@@ -86,6 +86,8 @@
         <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete VEA</button>
       </form>
       {% endif %}
+      {{ tlr_queue_button(vea.source_event_uuids | length, url_for('vea.queue_for_tlr', id=vea.uuid),
+                          "btn btn-sm btn-hero-ghost") }}
     </div>
   </div>
 
@@ -121,6 +123,10 @@
       <div class="card-header text-danger"><i class="fas fa-xmark me-2"></i>Rejected</div>
       <div class="card-body"><p class="mb-0" style="white-space:pre-wrap;">{{ vea.rejection_reason }}</p></div>
     </div>
+    {% endif %}
+
+    {% if source_events %}
+    {% with source_count = source_events | length %}{% include "_source_events_card.html" %}{% endwith %}
     {% endif %}
 
     <div class="card content-card mb-4 rise rise-1">
@@ -416,6 +422,8 @@
 {% block scripts %}
 {% include "_qa_review_js.html" %}
 {% include "_markdown_js.html" %}
+{% include "_tlr_queue_js.html" %}
+{% include "_source_events_card_js.html" %}
 <script>
 (function() {
   document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {

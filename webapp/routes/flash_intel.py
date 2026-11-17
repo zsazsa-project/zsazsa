@@ -26,6 +26,7 @@ from webapp.routes.source_event_utils import (
     source_event_references,
     source_event_urls_only,
     source_tag_values,
+    stored_source_pairs,
 )
 
 logger = logging.getLogger(__name__)
@@ -266,8 +267,7 @@ def queue_for_tlr(id):
     fia = misp_store.get_fia(id)
     if fia is None:
         return jsonify({"ok": False, "error": "FIA not found"}), 404
-    hints = dict(getattr(fia, "source_event_hints", {}) or {})
-    events = [(uuid, hints.get(uuid) or "scraper") for uuid in (fia.source_event_uuids or [])]
+    events = stored_source_pairs(fia)
     if not events:
         return jsonify({"ok": False, "error": "The alert has no source articles."}), 400
     return jsonify(data_collection.queue_events_for_tlr(

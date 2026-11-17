@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_product_actions.html" import draft_actions %}
+{% from "_product_actions.html" import draft_actions, tlr_queue_button %}
 {% from "_macros.html" import review_state_badge %}
 
 {% set title_text = ('Edit ' + vea.vea_id) if is_edit else 'New vulnerability advisory' %}
@@ -53,9 +53,13 @@
            id="vea-source-events-header" style="cursor:pointer;" title="Click to expand/collapse">
         <span><i class="fas fa-database me-2"></i>Source events ({{ source_events | length }})</span>
         <div class="d-flex gap-2 align-items-center">
-          <span class="zs-toolbar-label">AI assistance</span>
+          {% if is_edit %}
+          {{ tlr_queue_button((vea.source_event_uuids or []) | length,
+                              url_for('vea.queue_for_tlr', id=request.view_args.id)) }}
+          {% endif %}
+          <span class="zs-toolbar-label ms-2">AI assistance</span>
           <div class="zs-pill-group" id="build-ai-group" role="group">
-            <button type="button" class="zs-pill" id="build-ai-btn"
+            <button type="button" class="zs-pill" id="build-ai-btn" data-ai-targets="#step-ident, #step-tech, #step-expl, #step-risk, #step-actions, #step-detection, #step-references"
                     data-source-uuids='{{ source_events | map(attribute="uuid") | list | tojson }}'>
               <i class="fas fa-wand-magic-sparkles"></i>Build with AI
             </button>
@@ -65,7 +69,7 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end p-1" style="min-width:270px;" id="build-ai-menu">
               <li>
-                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="lookup">
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="lookup" data-ai-targets="#step-ident, #step-tech, #step-expl, #step-risk, #step-actions, #step-detection, #step-references">
                   <div class="d-flex align-items-start gap-2">
                     <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);">&#10003;</span>
                     <i class="fas fa-layer-group" style="color:var(--adm-tlp-green-border);margin-top:2px;width:13px;font-size:.8rem;"></i>
@@ -78,7 +82,7 @@
               </li>
               <li><hr class="dropdown-divider mx-2 my-1"></li>
               <li>
-                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="summary">
+                <a class="dropdown-item rounded-2 py-2 build-ai-option" href="#" data-mode="summary" data-ai-targets="#step-tech, #step-expl, #step-risk, #step-actions, #step-detection">
                   <div class="d-flex align-items-start gap-2">
                     <span class="build-ai-check" style="width:13px;font-size:.75rem;color:var(--adm-tlp-green-border);visibility:hidden;">&#10003;</span>
                     <i class="fas fa-file-lines" style="color:var(--admiralty-section-fg);margin-top:2px;width:13px;font-size:.8rem;"></i>
@@ -601,7 +605,7 @@
       <div class="card-header"><i class="fas fa-wand-magic-sparkles me-2"></i>AI assistance</div>
       <div class="ai-actions">
         {% if not source_events %}
-        <button type="button" class="btn-ai" id="btn-draft-vea"
+        <button type="button" class="btn-ai" id="btn-draft-vea" data-ai-targets="#step-tech, #step-expl, #step-risk, #step-actions, #step-detection"
                 {{ '' if (vea and vea.cve_id) else 'disabled' }}>
           <i class="fas fa-wand-magic-sparkles"></i>
           <span>Draft sections<small>Fills the empty sections from the CVE. Look the CVE up first.</small></span>
@@ -666,6 +670,8 @@
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
 {% include "_markdown_js.html" %}
+{% include "_ai_targets_js.html" %}
+{% include "_tlr_queue_js.html" %}
 <script>
 // A field the lookup or the AI fills is told as typing is, so the section
 // steps and "As it will appear" follow, and leaving asks about unsaved edits.
@@ -709,7 +715,7 @@ function zsazsaSelectOption(el, value) {
     veaSrcToggle.addEventListener('click', function(e) { e.stopPropagation(); toggleVeaSrc(); });
     if (veaSrcHeader) {
       veaSrcHeader.addEventListener('click', function(e) {
-        if (e.target.closest('#vea-source-events-toggle, #build-ai-group')) return;
+        if (e.target.closest('#vea-source-events-toggle, #build-ai-group, [data-tlr-url]')) return;
         toggleVeaSrc();
       });
     }
@@ -1116,7 +1122,10 @@ function draftVea(btn, sourceUuids) {
 
 var draftVeaBtn = document.getElementById('btn-draft-vea');
 if (draftVeaBtn) {
-  draftVeaBtn.addEventListener('click', function() { draftVea(draftVeaBtn, []); });
+  draftVeaBtn.addEventListener('click', function() {
+    zsazsaAiTargets(draftVeaBtn, true);
+    draftVea(draftVeaBtn, []).finally(function() { zsazsaAiTargets(draftVeaBtn, false); });
+  });
 }
 
 /* ── Build with AI (source events header) ── */
@@ -1130,10 +1139,12 @@ if (draftVeaBtn) {
     var sourceUuids = JSON.parse(buildAiBtn.dataset.sourceUuids || '[]');
     buildAiBtn.disabled = true;
     modeToggle.disabled = true;
+    zsazsaAiTargets(buildAiBtn, true);
     var lookup = currentMode === 'lookup' ? runVulnLookup() : Promise.resolve();
     lookup
       .then(function() { return draftVea(buildAiBtn, sourceUuids); })
       .finally(function() {
+        zsazsaAiTargets(buildAiBtn, false);
         buildAiBtn.disabled = false;
         modeToggle.disabled = false;
       });
@@ -1144,6 +1155,8 @@ if (draftVeaBtn) {
     opt.addEventListener('click', function(e) {
       e.preventDefault();
       currentMode = this.dataset.mode;
+      // What the button outlines follows what it now fills.
+      buildAiBtn.dataset.aiTargets = this.dataset.aiTargets;
       document.querySelectorAll('.build-ai-check').forEach(function(check) {
         check.style.visibility = check.closest('.build-ai-option') === opt ? 'visible' : 'hidden';
       });
