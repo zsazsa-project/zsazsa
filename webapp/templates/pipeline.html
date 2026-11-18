@@ -21,13 +21,16 @@
 {% else %}<span class="badge outcome-info">Not yet polled</span>{% endif %}
 {%- endmacro %}
 
-{# The events per data-collection-source tag on the scraper, live from MISP. #}
-{% macro feed_list(feeds) -%}
+{# The events per data-collection-source tag on the scraper, live from MISP.
+   Each feed opens Data collection on the events with its tag, which can be
+   fewer: that page holds the scraper's last collection_days days only. #}
+{% macro feed_list(feeds, collection_days) -%}
 <div class="chart-label mt-3 mb-1" title="Live counts of the events with each data-collection-source tag on the scraper MISP">Events per feed</div>
 {% set max_n = feeds[0].n %}
 {% for row in feeds %}
 <div class="pipeline-feed{{ ' source-extra d-none' if loop.index > 8 }}">
-  <span class="name" title="{{ row.source_feed }}">{{ row.source_feed or 'Unknown' }}</span>
+  <a class="name" href="{{ url_for('data_collection.index', tag=row.tag) }}"
+     title="Open Data collection on the events of {{ row.source_feed or 'this feed' }}. The count here is every event the scraper MISP has from it. Data collection lists only {{ 'those of the last %d days' % collection_days if collection_days else 'the newest' }}, up to its limit, and hides the ones already set aside, so it can show fewer.">{{ row.source_feed or 'Unknown' }}</a>
   <span class="stats-track" style="--icon-color:var(--accent-blue);"><div style="width:{{ (row.n / max_n * 100) | int }}%;"></div></span>
   <span class="num">{{ row.n }}</span>
 </div>
@@ -369,7 +372,7 @@
                     <div>{{ src.newest_event or '-' }}</div>
                   </div>
                 </div>
-                {% if is_scraper and feeds %}{{ feed_list(feeds) }}{% endif %}
+                {% if is_scraper and feeds %}{{ feed_list(feeds, collection_days) }}{% endif %}
               </div>
               {% if is_scraper and imap_mailboxes %}
               <div class="col-lg-6">{{ mailbox_list(imap_mailboxes, newsletter_sources) }}</div>
@@ -387,7 +390,7 @@
       {% if not shown.scraper and (feeds or imap_mailboxes) %}
       <div class="col-12">
         <div class="card content-card"><div class="card-body"><div class="row g-4">
-          {% if feeds %}<div class="col-lg-6">{{ feed_list(feeds) }}</div>{% endif %}
+          {% if feeds %}<div class="col-lg-6">{{ feed_list(feeds, collection_days) }}</div>{% endif %}
           {% if imap_mailboxes %}<div class="col-lg-6">{{ mailbox_list(imap_mailboxes, newsletter_sources) }}</div>{% endif %}
         </div></div></div>
       </div>

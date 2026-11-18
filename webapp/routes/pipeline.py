@@ -658,6 +658,7 @@ def index():
         pipeline=pipeline,
         log_days=getattr(config, "EVENT_LOG_RETENTION_DAYS", 90),
         feeds=source_counts,
+        collection_days=collection_cache.scraper_since_days(),
         overview=overview,
         attention=_attention(scraper_misp, webapp_misp, source_health, imap_mailboxes, recent_runs,
                              indicator_stats, pipeline["problems_7d"] if pipeline else 0),

@@ -312,7 +312,8 @@ class SourceCounts(unittest.TestCase):
                                                       "scraper:data-collection-source:B": "0"}}
         with mock.patch.object(misp_store, "scraper_enabled", return_value=True), \
              mock.patch.object(misp_store, "_scraper_misp", return_value=misp):
-            self.assertEqual(misp_store.data_collection_source_counts(), [{"source_feed": "A", "n": 3}])
+            self.assertEqual(misp_store.data_collection_source_counts(),
+                             [{"source_feed": "A", "tag": "scraper:data-collection-source:A", "n": 3}])
 
 
 class _App(_TempDatabase):

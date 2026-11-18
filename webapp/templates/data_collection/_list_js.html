@@ -2103,17 +2103,24 @@
     applyAll();
   };
 
-  /* A link to one event, as from a briefing story (?event=<uuid>): clear the
-     filters and search on its title, so it shows on its own and the search
-     box says why. The parameter is then taken off, so a reload keeps the
-     analyst's own filters. */
-  function showLinkedEvent() {
+  /* A link that sets the filters (?event=, ?tag=) is read once: the parameter
+     is taken off the address, so a reload keeps the analyst's own filters. */
+  function takeParam(name) {
     var params = new URLSearchParams(window.location.search);
-    var wanted = params.get('event');
-    if (!wanted) return;
-    params.delete('event');
+    var value = params.get(name);
+    if (!value) return '';
+    params.delete(name);
     var rest = params.toString();
     history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+    return value;
+  }
+
+  /* A link to one event, as from a briefing story (?event=<uuid>): clear the
+     filters and search on its title, so it shows on its own and the search
+     box says why. */
+  function showLinkedEvent() {
+    var wanted = takeParam('event');
+    if (!wanted) return;
     var target = rows.filter(function(r) { return r.dataset.uuid === wanted; })[0];
     if (!target) {
       showFeedback('That event is not on Data collection. It may be older than what the sources collect, '
@@ -2127,6 +2134,24 @@
     if (searchInput) searchInput.value = title;
     if (searchClear) searchClear.style.display = title ? '' : 'none';
     applyAll();
+  }
+
+  /* A link to the events with one tag, as from a feed on the pipeline page
+     (?tag=scraper:data-collection-source:<feed>): only that tag included. The
+     list hides what was set aside, so an empty list says why. */
+  function showLinkedTag() {
+    var tag = takeParam('tag');
+    if (!tag) return;
+    window.zsazsaRestoreFilterState({include: [tag]});
+    var tagged = rows.map(function(r) { return JSON.parse(r.dataset.tags || '[]'); })
+                     .filter(function(tags) { return tags.indexOf(tag) !== -1; });
+    if (!tagged.length) {
+      showFeedback('No event on Data collection has the tag ' + tag + '. Its events may be older than '
+                   + 'what the sources collect.', 'warning');
+    } else if (tagged.every(function(tags) { return tags.indexOf(REJECTED_TAG) !== -1 || tags.indexOf(DISMISSED_TAG) !== -1; })) {
+      showFeedback('The events with the tag ' + tag + ' on Data collection are all set aside, '
+                   + 'so the list hides them.', 'info');
+    }
   }
 
   /* ── Restore full filter state on page load ── */
@@ -2176,6 +2201,7 @@
       window.scrollTo(0, note.scroll || 0);
       showFeedback(note.message, note.category || 'success');
     }
+    showLinkedTag();
     showLinkedEvent();
     _saveFilterState();
   })();

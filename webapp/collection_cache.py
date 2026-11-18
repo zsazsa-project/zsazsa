@@ -486,6 +486,14 @@ def _sync_flags(conn, source_id: str, rows: list, since: float) -> None:
                      [(r["uuid"], since) for r in rows if r["uuid"] not in keep])
 
 
+def scraper_since_days() -> int:
+    """How many days back the scraper is read, 0 for no limit. Unset, 30."""
+    try:
+        return int(getattr(config, "MISP_SCRAPER_SINCE_DAYS", 30))
+    except (TypeError, ValueError):
+        return 30
+
+
 def _queued_beyond_window(misp, search: dict) -> tuple[list, str | None]:
     """The events queued for the threat landscape, whatever their date, so the
     queue keeps an older article an analyst put in it. ``search`` is the
@@ -523,11 +531,7 @@ def refresh_source(src: dict) -> dict:
 
     if src["kind"] == "scraper":
         scraper_limit = getattr(config, "MISP_SCRAPER_LIMIT", 500)
-        # Default to a 30-day window when unset; an explicit 0 disables it.
-        try:
-            since_days = int(getattr(config, "MISP_SCRAPER_SINCE_DAYS", 30))
-        except (TypeError, ValueError):
-            since_days = 30
+        since_days = scraper_since_days()
         try:
             misp = PyMISP(config.MISP_URL, config.MISP_KEY, config.MISP_VERIFYCERT, False,
                           timeout=misp_store.HTTP_TIMEOUT)

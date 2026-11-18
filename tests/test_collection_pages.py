@@ -4,8 +4,9 @@ in the layout of the record pages.
 The manual entry has numbered sections, the source as tiles, the TLP and the
 Admiralty ratings as choices, and an "As it will appear" card with Create
 event. Build with AI on the Summary line outlines the summary and the scope it
-fills. The import picks the newsletter from tiles and says how many already
-wait in the mailbox. A newsletter under review is a record with its articles
+fills. A link with ?tag= opens the list on the events with that tag, and says
+why when the list is empty. The import picks the newsletter from tiles and
+says how many already wait in the mailbox. A newsletter under review is a record with its articles
 to tick, each with its site, and a card that sends the ticked ones; one from
 the queue says when it came in and which one waits after it.
 
@@ -112,6 +113,20 @@ class ManualEntry(Pages):
                 "source_reliability": "B", "information_credibility": "2"})
         data = create.call_args[0][0]
         self.assertEqual((data["tlp"], data["source_reliability"], data["information_credibility"]), ("amber", "B", "2"))
+
+
+class LinkedTag(unittest.TestCase):
+    def test_a_link_with_a_tag_opens_the_list_on_that_tag_alone(self):
+        """As a feed on the pipeline page links here: the parameter comes off
+        again, and the list says so when no event it holds has the tag, or
+        when all of them are set aside and so hidden."""
+        script = (Path(misp_store.__file__).parent / "templates" / "data_collection" / "_list_js.html").read_text()
+        linked = script.split("function showLinkedTag() {", 1)[1].split("\n  }\n", 1)[0]
+        for line in ("takeParam('tag')", "window.zsazsaRestoreFilterState({include: [tag]});",
+                     "No event on Data collection has the tag ", "are all set aside",
+                     "tags.indexOf(REJECTED_TAG) !== -1 || tags.indexOf(DISMISSED_TAG) !== -1"):
+            self.assertIn(line, linked)
+        self.assertIn("showLinkedTag();\n    showLinkedEvent();", script)
 
 
 class NewsletterImport(Pages):

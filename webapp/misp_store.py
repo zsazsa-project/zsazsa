@@ -4829,7 +4829,7 @@ _DATA_COLLECTION_SOURCE_TAG_PREFIX = "scraper:data-collection-source:"
 def data_collection_source_counts() -> list[dict]:
     """Live event count per data-collection-source on the scraper MISP.
 
-    Returns ``[{"source_feed": name, "n": count}, ...]`` sorted by count, read
+    Returns ``[{"source_feed": name, "tag": tag, "n": count}, ...]`` sorted by count, read
     from MISP's tag statistics in a single call so it reflects the actual events
     carrying each ``scraper:data-collection-source`` tag rather than the
     analyser's processing log. Returns ``[]`` if there is no scraper or the
@@ -4856,7 +4856,7 @@ def data_collection_source_counts() -> list[dict]:
         # A tag no event has any more is no volume, and the panel scales its
         # bars by the busiest source.
         if n > 0:
-            rows.append({"source_feed": name[len(_DATA_COLLECTION_SOURCE_TAG_PREFIX):], "n": n})
+            rows.append({"source_feed": name[len(_DATA_COLLECTION_SOURCE_TAG_PREFIX):], "tag": name, "n": n})
     rows.sort(key=lambda r: r["n"], reverse=True)
     return rows
 

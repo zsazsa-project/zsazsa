@@ -1,7 +1,8 @@
 """The Pipeline page's Overview and the activity filters: the outcomes per day
 and by reason, what "Needs a look" lists and in what order, the counts beside
-each filter choice, each counted under the other filters, and a day of the
-chart opening the activity on it.
+each filter choice, each counted under the other filters, a day of the chart
+opening the activity on it, and a feed of the scraper opening Data collection
+on the events with its tag.
 
 The database is temporary; MISP is not asked.
 
@@ -155,9 +156,8 @@ class OneDay(_TempLog):
         self.assertEqual([p["value"] for p in self.periods(period="7d")], ["", "today", "48h", "7d", "30d"])
 
 
-class ChartLinks(_TempLog):
-    def test_each_day_and_its_date_open_the_activity_on_it(self):
-        _log("product_created")
+class PageLinks(_TempLog):
+    def page(self, feeds=()):
         for patch in (
             mock.patch.object(config, "LOG_FILE", str(Path(config.DB_FILE).with_name("test.log")), create=True),
             mock.patch.object(config, "MISP_SESSION_COOKIE_NAME", "MISP-test", create=True),
@@ -168,17 +168,34 @@ class ChartLinks(_TempLog):
             mock.patch.object(misp_store, "_test_connection", return_value={"ok": True}),
             mock.patch.object(misp_store, "test_scraper_misp", return_value={"ok": True}),
             mock.patch.object(misp_store, "test_webapp_misp", return_value={"ok": True}),
-            mock.patch.object(misp_store, "data_collection_source_counts", return_value=[]),
+            mock.patch.object(misp_store, "data_collection_source_counts", return_value=list(feeds)),
+            mock.patch.object(config, "MISP_SCRAPER_SINCE_DAYS", 30, create=True),
         ):
             self.enterContext(patch)
         response = create_app().test_client().get("/pipeline")
         self.assertEqual(response.status_code, 200)
-        page = BeautifulSoup(response.data, "html.parser")
+        return BeautifulSoup(response.data, "html.parser")
+
+    def test_each_day_and_its_date_open_the_activity_on_it(self):
+        _log("product_created")
+        page = self.page()
         dates = [d["date"] for d in pipeline._overview()["days"]]
         for selector in ("a.day-chart-col", ".day-chart-labels a"):
             links = page.select(selector)
             self.assertEqual([a["data-period"] for a in links], dates)
             self.assertEqual({a["data-pipeline-tab"] for a in links}, {"activity"})
+
+    def test_each_feed_opens_data_collection_on_its_tag(self):
+        """Counted from the tag, so filtered on it, and the link says why the
+        list there can be shorter than the count here."""
+        tag = "scraper:data-collection-source:Security.NL"
+        page = self.page([{"source_feed": "Security.NL", "tag": tag, "n": 274}])
+        link = page.select_one(".pipeline-feed a.name")
+        self.assertEqual(link.get_text(), "Security.NL")
+        self.assertEqual(link["href"], "/collection/?tag=scraper:data-collection-source:Security.NL")
+        self.assertIn("every event the scraper MISP has from it", link["title"])
+        self.assertIn("only those of the last 30 days", link["title"])
+        self.assertIn("hides the ones already set aside", link["title"])
 
 
 class Attention(unittest.TestCase):

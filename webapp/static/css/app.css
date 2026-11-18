@@ -2145,6 +2145,8 @@ a.pipeline-outcome:hover { background: var(--surface-hover); color: inherit; }
 @media (max-width: 575.98px) { .pipeline-source-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pipeline-feed { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 3.4rem; gap: .5rem; align-items: center; padding: .15rem 0; font-size: .78rem; }
 .pipeline-feed .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pipeline-feed a.name { text-decoration: none; }
+.pipeline-feed a.name:hover { text-decoration: underline; }
 .pipeline-feed .num { text-align: right; font-variant-numeric: tabular-nums; }
 .pipeline-mailbox { padding: .5rem 0; border-top: 1px dashed var(--border-light); }
 

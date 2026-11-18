@@ -3,8 +3,8 @@ PIR, GIR and RFI pages.
 
 The list opens on the compact banner with its figures and breakdowns, has the
 drop-downs in the filter card, and groups the table by review state with a
-date leaf per row that opens the briefing. A briefing's page has the record banner with its buttons at
-the bottom left, its TLP and its delivery, and the stories and their contents
+date leaf per row that opens the briefing. A briefing's page has the record
+banner with its buttons at the bottom left, its TLP and its delivery, and the stories and their contents
 under it. The form has numbered sections, the TLP as choices and an "As it
 will appear" card with Save, and the AI actions in a card of their own. A
 story from a MISP event opens that event on Data collection in a new tab. A
@@ -177,10 +177,12 @@ class BriefingPages(unittest.TestCase):
         parameter comes off again so a reload keeps the analyst's filters."""
         script = (Path(misp_store.__file__).parent / "templates" / "data_collection" / "_list_js.html").read_text()
         linked = script.split("function showLinkedEvent() {", 1)[1].split("\n  }\n", 1)[0]
-        for line in ("params.get('event')", "params.delete('event')", "history.replaceState(",
-                     "clearAllFilters();", "state.q = title;", "searchInput.value = title;", "applyAll();",
-                     "That event is not on Data collection."):
+        for line in ("takeParam('event')", "clearAllFilters();", "state.q = title;", "searchInput.value = title;",
+                     "applyAll();", "That event is not on Data collection."):
             self.assertIn(line, linked)
+        take = script.split("function takeParam(name) {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("params.delete(name);", take)
+        self.assertIn("history.replaceState(", take)
         self.assertIn("showLinkedEvent();\n    _saveFilterState();", script)
 
     def with_stories(self):
