@@ -14,6 +14,7 @@
 - A story in the daily briefing form has a "Jump to story in data collection" button.
 - Vulnerability advisories and daily briefings show their source events on their page, and can queue their source articles for the threat landscape.
 - Each feed under "Events per feed" on the Pipeline page opens Data collection filtered on that feed.
+- Reporting has a pew-pew map: the indicators collected recently fly to the country of their address, and Zsazsa catches the ones an active PIR or GIR is about. With its own chase tune.
 
 ### Changed
 

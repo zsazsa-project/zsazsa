@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Pew-pew map | zsazsa CTI{% endblock %}
+{% block page_title %}Pew-pew map{% endblock %}
+
+{% block content %}
+<style>
+  /* The map is a night screen whatever the theme. */
+  .pew-map { --map-ink: #05141a; --map-ink-2: #0a222a; --map-edge: #12323a; --map-text: #c4e9ed; --map-dim: #6f9ca4;
+             --m-scraper: #38e1cf; --m-misp: #6aa8ff; --m-newsletter: #ffb547; --m-manual: #b8f36a;
+             background: radial-gradient(ellipse 70% 60% at 50% 40%, var(--map-ink-2) 0%, var(--map-ink) 70%);
+             border: 1px solid var(--map-edge); border-radius: 14px; overflow: hidden; color: var(--map-text);
+             box-shadow: var(--card-shadow); }
+  .means-scraper { --c: #38e1cf; } .means-misp { --c: #6aa8ff; } .means-newsletter { --c: #ffb547; } .means-manual { --c: #b8f36a; }
+
+  .pew-hud { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1.2rem;
+             padding: .7rem 1rem; border-bottom: 1px solid var(--map-edge); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .pew-hud-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; min-width: 0; }
+  .pew-live { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; font-size: .78rem; letter-spacing: .12em; color: var(--m-newsletter); }
+  .pew-live i { width: 8px; height: 8px; background: currentColor; border-radius: 1px; animation: pew-blink 1.1s steps(2, start) infinite; }
+  .pew-live.paused { color: var(--map-dim); }
+  .pew-live.paused i { animation: none; }
+  @keyframes pew-blink { to { visibility: hidden; } }
+  .pew-catline { font-size: .78rem; color: var(--map-dim); min-width: 0; overflow-wrap: anywhere; }
+  .pew-catline b { color: var(--map-text); font-weight: 600; }
+  .pew-clock { font-size: .72rem; color: var(--map-dim); font-variant-numeric: tabular-nums; }
+  .pew-hud form { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0; }
+  .pew-hud label { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--map-dim); }
+  .pew-hud select { font-family: inherit; font-size: .76rem; color: var(--map-text); background: var(--map-ink);
+                    border: 1px solid var(--map-edge); border-radius: 6px; padding: .2rem .45rem; color-scheme: dark; }
+  .pew-hud .pew-apply { font-size: .72rem; color: var(--map-text); background: var(--map-ink); border: 1px solid var(--map-edge); border-radius: 6px;
+                        padding: .2rem .55rem; }
+  .pew-hud .pew-apply:hover { border-color: var(--map-dim); }
+  .pew-hud .pew-toggle { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; border: 1px solid var(--map-edge);
+                         border-radius: 6px; padding: .2rem .55rem; text-transform: none; letter-spacing: 0; font-size: .74rem; color: var(--map-text); }
+  .pew-hud .pew-toggle:has(input:checked) { border-color: var(--m-newsletter); color: var(--m-newsletter); }
+  .pew-hud .pew-toggle input { accent-color: var(--m-newsletter); margin: 0; }
+
+  /* Maximised: the map fills the browser window, the land kept in proportion. */
+  .pew-map.maximised { position: fixed; inset: 0; z-index: 2000; border-radius: 0; border: 0; margin: 0 !important;
+                       display: flex; flex-direction: column; animation: none; }
+  .pew-map.maximised .pew-stage { flex: 0 0 auto; width: min(100%, calc((100vh - 7.5rem) * 144 / 57)); margin: auto; }
+  body.pew-maximised { overflow: hidden; }
+
+  .pew-stage { position: relative; aspect-ratio: 144 / 57; width: 100%; }
+  .pew-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .pew-stage::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+                      background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px); }
+  .pew-combo { position: absolute; top: 6%; right: 2.5%; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800;
+               font-size: clamp(1rem, 3vw, 2.2rem); color: var(--m-newsletter); letter-spacing: .04em; opacity: 0; pointer-events: none;
+               text-shadow: 0 0 18px rgba(255,181,71,.55), 3px 3px 0 #05141a; }
+  .pew-combo.pop { animation: pew-combo 1.1s ease-out; }
+  @keyframes pew-combo { 0% { opacity: 0; transform: scale(.6) rotate(-6deg); } 15% { opacity: 1; transform: scale(1.15) rotate(3deg); }
+                         30% { transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+  .pew-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 1rem;
+               font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85rem; color: var(--map-text); pointer-events: none; }
+  .pew-empty span { background: rgba(5,20,26,.8); border: 1px solid var(--map-edge); border-radius: 8px; padding: .6rem 1rem; }
+  .pew-legend { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; padding: .7rem 1rem .8rem; border-top: 1px solid var(--map-edge); font-size: .78rem; }
+  .pew-legend span { display: inline-flex; align-items: center; gap: .5rem; }
+  .pew-legend i { width: 18px; height: 3px; border-radius: 2px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .pew-legend .note { color: var(--map-dim); margin-left: auto; }
+
+  .pew-means { display: flex; flex-direction: column; gap: .15rem; }
+  .pew-mean { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-rows: auto 5px; column-gap: .6rem; row-gap: .25rem;
+              align-items: center; text-align: left; background: none; border: 1px solid transparent; border-radius: 8px;
+              padding: .3rem .45rem; font-size: .82rem; color: var(--text-primary); }
+  .pew-mean:hover { background: var(--surface-muted); }
+  .pew-mean .chart-swatch { background: var(--c); }
+  .pew-mean .bar { grid-column: 2 / 4; height: 5px; border-radius: 3px; background: var(--border-faint); overflow: hidden; }
+  .pew-mean .bar i { display: block; height: 100%; background: var(--c); border-radius: 3px; }
+  .pew-mean[aria-pressed="false"] { opacity: .45; }
+  .pew-mean[aria-pressed="false"] .name { text-decoration: line-through; }
+  .btn-hero[aria-pressed="true"], .btn-hero-ghost[aria-pressed="true"] { background: #05141a; border-color: #05141a; color: #ffb547; }
+
+  .pew-feed td { vertical-align: middle; font-size: .8rem; }
+  .pew-feed .t { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pew-feed .v { font-family: "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; min-width: 12rem; }
+  .pew-feed .ty { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--accent-cyan); white-space: nowrap; }
+  .pew-feed .ev { min-width: 14rem; }
+  .pew-feed tr.fresh { animation: pew-fresh 1.6s ease-out; }
+  @keyframes pew-fresh { from { background: color-mix(in srgb, var(--accent-orange) 18%, transparent); } to { background: transparent; } }
+  .pew-via { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+  .pew-via i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+  .pew-tlp { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .68rem; font-weight: 700; background: #000; padding: .1rem .35rem; border-radius: 3px; white-space: nowrap; }
+  .pew-tlp.clear { color: #fff; } .pew-tlp.green { color: #33ff00; } .pew-tlp.amber { color: #ffc000; }
+  .pew-catch { font-size: .72rem; font-weight: 600; border-radius: 999px; padding: .1rem .5rem; white-space: nowrap;
+               background: color-mix(in srgb, var(--accent-green) 14%, transparent); color: var(--accent-green); }
+  .pew-loose { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
+
+  .pew-litter { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+  .pew-litter li { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 0 .6rem; padding: .4rem .6rem; border-radius: 8px;
+                   background: var(--surface-muted); font-size: .76rem; }
+  .pew-litter .k { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .68rem; color: var(--accent-cyan); grid-row: 1 / 3; align-self: center; overflow-wrap: anywhere; }
+  .pew-litter .val { font-family: "JetBrains Mono", ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pew-litter .why { color: var(--text-muted); font-size: .7rem; }
+  .pew-spots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .45rem; }
+  .pew-spots li { display: grid; grid-template-columns: 2rem minmax(0, 1fr) 2.5rem; align-items: center; gap: .6rem; font-size: .8rem; }
+  .pew-spots .cc { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; }
+  .pew-spots .b { height: 7px; border-radius: 4px; background: var(--border-faint); overflow: hidden; }
+  .pew-spots .b i { display: block; height: 100%; background: var(--brand-gradient); }
+  .pew-spots .n { text-align: right; font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pew-live i, .pew-combo.pop, .pew-feed tr.fresh { animation: none; }
+  }
+</style>
+
+{% set totals = data.totals %}
+{% set biggest = (data.means | map(attribute='count') | max) or 1 %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-cat"></i></span>
+    <p class="lead-text">
+      The indicators zsazsa collected in the last {{ data.days }} day{{ 's' if data.days != 1 }}, replayed. Each one flies from the
+      collection means that brought it in to the country its address is in. Zsa Zsa pounces on the ones an active PIR or GIR
+      is about, naming any open RFI linked to it, and only sniffs at the rest. Domains, URLs, hashes, CVEs and addresses without a known country go in the litter box.
+    </p>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ totals.indicators }}</b><span>indicators</span></div>
+      <div class="record-kpi"><b>{{ (totals.caught * 100 / totals.indicators) | round | int if totals.indicators else 0 }}%</b><span>caught by a PIR or GIR</span></div>
+      <div class="record-kpi"><b>{{ totals.countries }}</b><span>countries</span></div>
+      <div class="record-kpi"><b>{{ totals.litter }}</b><span>in the litter box</span></div>
+    </div>
+    <div class="hero-actions">
+      <button type="button" class="btn btn-sm btn-hero" id="pew-tune" aria-pressed="false"><i class="fas fa-music me-1"></i> <span>Play the chase tune</span></button>
+      <button type="button" class="btn btn-sm btn-hero-ghost" id="pew-sfx" aria-pressed="false"><i class="fas fa-volume-high me-1"></i> Pew and meow sounds</button>
+      <button type="button" class="btn btn-sm btn-hero-ghost" id="pew-pause" aria-pressed="false"><i class="fas fa-pause me-1"></i> <span>Pause</span></button>
+    </div>
+  </div>
+  <div class="record-panel">
+    <div>
+      <div class="chart-label mb-0">By collection means</div>
+      <div class="text-muted" style="font-size:.7rem;">Click one to take it off the map.</div>
+    </div>
+    <div class="pew-means">
+      {% for m in data.means %}
+      <button type="button" class="pew-mean means-{{ m.id }}" data-means="{{ m.id }}" aria-pressed="true">
+        <span class="chart-swatch"></span>
+        <span class="name">{{ m.label }}</span>
+        <strong>{{ m.count }}</strong>
+        <span class="bar"><i style="width: {{ (m.count * 100 / biggest) | round(1) }}%;"></i></span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="pew-map rise rise-1 mb-3" aria-label="Pew-pew map">
+  <div class="pew-hud">
+    <div class="pew-hud-left">
+      <span class="pew-live" id="pew-live"><i></i>REPLAY</span>
+      <span class="pew-catline" id="pew-catline">Zsa Zsa is <b>napping</b></span>
+      <span class="pew-clock" id="pew-clock"></span>
+    </div>
+    <form method="get" action="{{ url_for('stats.pewpew_map') }}" id="pew-filters">
+      <label for="pew-days">Window</label>
+      <select id="pew-days" name="days">
+        {% for d in windows %}<option value="{{ d }}"{{ ' selected' if d == data.days }}>{{ '24 hours' if d == 1 else d ~ ' days' }}</option>{% endfor %}
+      </select>
+      <label for="pew-tlp">Show up to</label>
+      <select id="pew-tlp" name="tlp">
+        {% for level in tlp_levels %}<option value="{{ level }}"{{ ' selected' if level == data.tlp }}>TLP:{{ level | upper }}</option>{% endfor %}
+      </select>
+      <label class="pew-toggle" for="pew-hashes">
+        <input type="checkbox" id="pew-hashes" name="exclude_hashes" value="1"{{ ' checked' if data.exclude_hashes }}>
+        Exclude hashes
+      </label>
+      <noscript><button type="submit" class="pew-apply">Show</button></noscript>
+      <button type="button" class="pew-apply" id="pew-max" aria-pressed="false"><i class="fas fa-expand me-1"></i> <span>Maximise</span></button>
+    </form>
+  </div>
+  <div class="pew-stage" id="pew-stage">
+    <canvas id="pew-canvas" role="img" data-json-url="{{ url_for('stats.pewpew_json', days=data.days, tlp=data.tlp, exclude_hashes='1' if data.exclude_hashes else None) }}"
+            aria-label="World map on which the indicators collected fly from their collection means to the country of their address, while a cat chases the ones in scope. The table below lists them."></canvas>
+    <div class="pew-combo" id="pew-combo" aria-hidden="true"></div>
+    {% if not totals.indicators %}
+    <div class="pew-empty"><span>No indicators in this window up to TLP:{{ data.tlp | upper }}. Zsa Zsa is napping.</span></div>
+    {% endif %}
+  </div>
+  <div class="pew-legend">
+    {% for m in data.means %}<span class="means-{{ m.id }}"><i></i>{{ m.label }}</span>{% endfor %}
+    <span class="note">TLP:AMBER+STRICT and TLP:RED never fly. Only TLP:CLEAR and TLP:GREEN addresses are looked up at ip.circl.lu.</span>
+  </div>
+</section>
+
+<div class="row g-3 rise rise-2">
+  <div class="col-xl-8">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+        <span class="fw-semibold">Latest pews</span>
+        <span class="text-muted small">As the replay fires them, values defanged</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 pew-feed">
+          <thead><tr><th>Seen</th><th>Collected via</th><th>Type</th><th>Indicator</th><th>Event</th><th>TLP</th><th>Zsa Zsa</th></tr></thead>
+          <tbody id="pew-feed" data-event-url="{{ url_for('data_collection.detail', uuid='__uuid__') }}"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4 d-flex flex-column gap-3">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <span class="fw-semibold">Litter box</span>
+        <span class="text-muted small">{{ totals.litter }} in this window</span>
+      </div>
+      <div class="card-body">
+        <ul class="pew-litter" id="pew-litter">
+          {% for i in (data.indicators | selectattr('country', 'undefined') | list)[-4:] | reverse %}
+          <li><span class="k">{{ i.type }}</span><span class="val" title="{{ i.value }}">{{ i.value }}</span>
+              <span class="why">{{ i.why_not ~ ', ' if i.why_not }}{{ 'caught by ' ~ i.caught[0] if i.caught else 'via ' ~ i.source }}</span></li>
+          {% else %}
+          <li class="text-muted pew-litter-empty">Nothing in the litter box in this window.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <span class="fw-semibold">Busiest landing spots</span>
+        <span class="text-muted small">by the country of the address</span>
+      </div>
+      <div class="card-body">
+        {% if data.countries %}
+        {% set most = data.countries[0].count %}
+        <ul class="pew-spots">
+          {% for c in data.countries %}
+          <li><span class="cc" title="{{ c.name }}">{{ c.code }}</span><span class="b"><i style="width: {{ (c.count * 100 / most) | round(1) }}%;"></i></span><span class="n">{{ c.count }}</span></li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted small mb-0">No address in this window has a country yet. The collection cache looks them up after each refresh.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="pew-data">{{ data | tojson }}</script>
+<script src="{{ url_for('static', filename='js/pewpew.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -4,10 +4,10 @@ import logging
 from collections import Counter
 from datetime import date, datetime, timezone
 
-from flask import Blueprint, Response, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request
 
 from analyser.relevance import focus_names
-from webapp import audit, misp_store
+from webapp import audit, misp_store, pewpew
 from webapp.utils import PRODUCT_TAG_PREFIX, product_type_label
 
 logger = logging.getLogger(__name__)
@@ -485,3 +485,20 @@ def scope_csv():
     audit.record("export", "scope", details=filename)
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _pewpew_args():
+    return (request.args.get("days", pewpew.DEFAULT_WINDOW, type=int), request.args.get("tlp", pewpew.DEFAULT_TLP),
+            request.args.get("exclude_hashes") == "1")
+
+
+@bp.route("/stats/pewpew")
+def pewpew_map():
+    return render_template("pewpew.html", data=pewpew.map_data(*_pewpew_args()),
+                           windows=pewpew.WINDOWS, tlp_levels=pewpew.MAP_TLP_LEVELS)
+
+
+@bp.route("/stats/pewpew.json")
+def pewpew_json():
+    """The same data, which the page reads again each time its replay ends."""
+    return jsonify(pewpew.map_data(*_pewpew_args()))
