@@ -337,9 +337,11 @@ class CachedScraperEvents(unittest.TestCase):
         tmp.close()
         self.addCleanup(os.unlink, tmp.name)
         # The sweep also reads the indicator statistics of every configured
-        # server, which would reach this install's MISP and its partners.
+        # server, which would reach this install's MISP and its partners, and
+        # looks up addresses at ip.circl.lu.
         for patcher in (mock.patch.object(collection_cache, "_DB_FILE", tmp.name),
-                        mock.patch.object(collection_cache, "refresh_indicator_stats")):
+                        mock.patch.object(collection_cache, "refresh_indicator_stats"),
+                        mock.patch.object(collection_cache, "locate_ips")):
             patcher.start()
             self.addCleanup(patcher.stop)
         collection_cache.init_db()

@@ -128,6 +128,29 @@ def init_db():
                 fetched_at REAL,
                 error TEXT
             );
+            -- The indicators of the cached events that the pew-pew map shows,
+            -- replaced with their events on every refresh of a source.
+            CREATE TABLE IF NOT EXISTS indicators (
+                source_id TEXT NOT NULL,
+                event_uuid TEXT NOT NULL,
+                uuid TEXT NOT NULL,
+                type TEXT NOT NULL,
+                value TEXT NOT NULL,
+                timestamp REAL,
+                fetched_at REAL,
+                PRIMARY KEY (source_id, uuid)
+            );
+            CREATE INDEX IF NOT EXISTS indicators_event ON indicators(source_id, event_uuid);
+            -- Where ip.circl.lu puts an address. country is '' for one it does
+            -- not know, so it is not asked again on every sweep.
+            CREATE TABLE IF NOT EXISTS ip_geo (
+                ip TEXT PRIMARY KEY,
+                country TEXT NOT NULL,
+                name TEXT,
+                lat REAL,
+                lon REAL,
+                looked_up_at REAL
+            );
         """)
         # Migrations: add columns to existing databases that lack them. Only a
         # "duplicate column" error (column already present) is expected and
@@ -335,7 +358,49 @@ def _extract_row(e, source_id: str) -> dict:
         "source_report_count": sum(not is_ai_summary_report(n) for n in names),
         "vulnerability_ids": event_cves(e),
         "source_id": source_id,
+        "indicators": _extract_indicators(e),
     }
+
+
+# The attribute types the pew-pew map shows. An address flies to its country;
+# the rest have no place on a map and land in its litter box.
+IP_TYPES = {"ip-src", "ip-dst", "ip-src|port", "ip-dst|port", "domain|ip"}
+INDICATOR_TYPES = IP_TYPES | {"domain", "hostname", "url", "md5", "sha1", "sha256", "vulnerability"}
+# An event of a few thousand addresses would fill the map on its own.
+_INDICATORS_PER_EVENT = 200
+
+
+def indicator_ip(type_: str, value: str) -> str:
+    """The address in an attribute of one of the IP_TYPES."""
+    if type_ == "domain|ip":
+        return value.rpartition("|")[2]
+    return value.partition("|")[0]
+
+
+def _extract_indicators(e) -> list[dict]:
+    """The attributes of an event, its objects' included, that the map shows."""
+    attributes = list(getattr(e, "attributes", []) or [])
+    for obj in getattr(e, "objects", []) or []:
+        attributes.extend(getattr(obj, "attributes", []) or [])
+    found, seen = [], set()
+    for a in attributes:
+        # The type first: PyMISP reads some values as something other than
+        # text, a datetime attribute's as a datetime.
+        type_ = getattr(a, "type", "")
+        if type_ not in INDICATOR_TYPES:
+            continue
+        value, uuid = str(getattr(a, "value", "") or "").strip(), getattr(a, "uuid", "")
+        if not value or not uuid or getattr(a, "deleted", False):
+            continue
+        if (type_, value) in seen:
+            continue
+        seen.add((type_, value))
+        stamp = getattr(a, "timestamp", None)
+        found.append({"uuid": uuid, "type": type_, "value": value,
+                      "timestamp": stamp.timestamp() if hasattr(stamp, "timestamp") else None})
+        if len(found) >= _INDICATORS_PER_EVENT:
+            break
+    return found
 
 
 def _split_tags(raw: str) -> list[str]:
@@ -661,6 +726,7 @@ def refresh_source(src: dict) -> dict:
                       json.dumps(r.get("vulnerability_ids") or []), now)
                      for r in rows],
                 )
+            _replace_indicators(conn, source_id, rows, t0, now)
             _sync_flags(conn, source_id, rows, t0)
         # event_count is intentionally not written: get_source_status computes
         # it live from the events table, so persisting a copy here would only
@@ -679,6 +745,119 @@ def refresh_source(src: dict) -> dict:
         )
     logger.info("collection cache: %s done - %d events in %.1fs", source_id, len(rows), duration)
     return {"events": len(rows), "new": new_count or 0, "error": error or ""}
+
+
+def _replace_indicators(conn, source_id: str, rows: list, since: float, now: float) -> None:
+    """Swap a source's indicators for the ones this refresh read, as the events
+    are swapped: only what was cached before the refresh started goes."""
+    conn.execute("DELETE FROM indicators WHERE source_id = ? AND (fetched_at IS NULL OR fetched_at < ?)",
+                 (source_id, since))
+    _insert_indicators(conn, rows, now)
+
+
+def _insert_indicators(conn, rows: list, now: float) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO indicators (source_id, event_uuid, uuid, type, value, timestamp, fetched_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(r["source_id"], r["uuid"], i["uuid"], i["type"], i["value"], i["timestamp"], now)
+         for r in rows for i in r.get("indicators") or []],
+    )
+
+
+def event_indicators(events: list) -> list[dict]:
+    """The cached indicators of these events, each with the source_id and
+    event_uuid it belongs to."""
+    wanted = {(e["source_id"], e["uuid"]) for e in events}
+    if not wanted:
+        return []
+    sources = sorted({source_id for source_id, _uuid in wanted})
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM indicators WHERE source_id IN ({','.join('?' * len(sources))})", sources,
+            ).fetchall()
+    except sqlite3.Error as exc:
+        logger.warning("event_indicators failed: %s", exc)
+        return []
+    return [dict(r) for r in rows if (r["source_id"], r["event_uuid"]) in wanted]
+
+
+def ip_locations(ips) -> dict:
+    """{ip: {"country", "name", "lat", "lon"}} of the addresses already looked
+    up, an unknown one with an empty country."""
+    ips = sorted(set(ips))
+    found = {}
+    try:
+        with _db() as conn:
+            # In slices: SQLite caps the number of placeholders in one query.
+            for start in range(0, len(ips), 500):
+                part = ips[start:start + 500]
+                for r in conn.execute(f"SELECT * FROM ip_geo WHERE ip IN ({','.join('?' * len(part))})", part):
+                    found[r["ip"]] = {"country": r["country"], "name": r["name"], "lat": r["lat"], "lon": r["lon"]}
+    except sqlite3.Error as exc:
+        logger.warning("ip_locations failed: %s", exc)
+    return found
+
+
+# Addresses looked up after one sweep. The rest wait for the next, so a source
+# that brings in thousands does not hold the worker for long.
+_LOOKUPS_PER_SWEEP = 200
+
+
+def ips_to_locate(limit: int = _LOOKUPS_PER_SWEEP) -> list[str]:
+    """Addresses on cached events not looked up yet, newest first, from events
+    marked TLP:CLEAR or TLP:GREEN only: the lookup sends the address to CIRCL,
+    which TLP:AMBER and above do not allow."""
+    with _db() as conn:
+        rows = conn.execute(
+            f"SELECT i.type, i.value, e.tags FROM indicators i"
+            f" JOIN events e ON e.source_id = i.source_id AND e.uuid = i.event_uuid"
+            f" WHERE i.type IN ({','.join('?' * len(IP_TYPES))})"
+            f" ORDER BY i.timestamp DESC",
+            sorted(IP_TYPES),
+        ).fetchall()
+        known = {r[0] for r in conn.execute("SELECT ip FROM ip_geo")}
+    ips = []
+    for r in rows:
+        ip = indicator_ip(r["type"], r["value"])
+        if ip in known or ip in ips or event_tlp(json.loads(r["tags"] or "[]")) not in ("clear", "green"):
+            continue
+        ips.append(ip)
+        if len(ips) >= limit:
+            break
+    return ips
+
+
+def event_tlp(tags) -> str:
+    """The strictest TLP tag of an event, amber when it has none, as a product
+    without one is read."""
+    from webapp import misp_store
+
+    levels = [t for t in tags if t.lower().startswith("tlp:")]
+    return misp_store.strictest_tlp(levels) if levels else "amber"
+
+
+def locate_ips() -> int:
+    """Look up the addresses ips_to_locate() names. Returns how many were stored."""
+    import requests
+
+    from core import ip_geolocation
+
+    stored = 0
+    with requests.Session() as session:
+        for ip in ips_to_locate():
+            found = ip_geolocation.lookup(ip, session=session)
+            if found is None:
+                # The service is down or refusing: the rest can wait for the next sweep.
+                break
+            with _db() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO ip_geo (ip, country, name, lat, lon, looked_up_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (ip, found.get("country", ""), found.get("name"), found.get("lat"), found.get("lon"), time.time()))
+            stored += 1
+    if stored:
+        logger.info("collection cache: located %d address(es)", stored)
+    return stored
 
 
 _refresh_event = threading.Event()
@@ -752,6 +931,13 @@ def _sweep():
     all_failed = failures > 0 and failures == len(sources)
     report(status="failed" if all_failed else "completed", message=message,
            result={"events": events, "new": new, "sources": len(sources), "failures": failures})
+
+    # Last, after the job has its answer: the lookups go to ip.circl.lu one
+    # address at a time, and a Refresh click need not wait for them.
+    try:
+        locate_ips()
+    except Exception:
+        logger.exception("collection cache: locating addresses failed")
 
 
 def _worker_loop(interval: int):
@@ -831,6 +1017,9 @@ def insert_event(row: dict) -> None:
                 time.time(),
             ),
         )
+        if "indicators" in row:
+            conn.execute("DELETE FROM indicators WHERE source_id = ? AND event_uuid = ?", (row["source_id"], row["uuid"]))
+            _insert_indicators(conn, [row], time.time())
 
 
 def get_events_by_uuids(uuids: list) -> list:
@@ -931,6 +1120,7 @@ def forget_source(source_id: str) -> None:
     try:
         with _db() as conn:
             cur = conn.execute("DELETE FROM events WHERE source_id = ?", (source_id,))
+            conn.execute("DELETE FROM indicators WHERE source_id = ?", (source_id,))
             conn.execute("DELETE FROM source_status WHERE source_id = ?", (source_id,))
             if cur.rowcount:
                 logger.info("collection cache: dropped %d row(s) for removed source %s",
