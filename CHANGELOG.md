@@ -15,6 +15,7 @@
 - Vulnerability advisories and daily briefings show their source events on their page, and can queue their source articles for the threat landscape.
 - Each feed under "Events per feed" on the Pipeline page opens Data collection filtered on that feed.
 - Data collection can import a threat report from PDF or URL. zsazsa drafts the stories, the AI can name, classify and read them, and an analyst reviews them before each becomes a collection event in the threat landscape queue.
+- Reporting has a pew-pew map: the indicators collected recently fly to the country of their address, and Zsazsa catches the ones an active PIR or GIR is about. With its own chase tune.
 
 ### Changed
 

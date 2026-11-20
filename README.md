@@ -199,6 +199,10 @@ The statistics pages combine operational metrics with CTI maturity.
 
 The scope and focus points statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
 
+The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. Domains, URLs, hashes, CVEs and addresses without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It can leave out file hashes and fill the browser window.
+
+After each refresh, the collection cache looks up the country of up to 200 new addresses at [ip.circl.lu](https://ip.circl.lu). It only sends addresses from TLP:CLEAR and TLP:GREEN events, and never a private one. The service knows the country, not the city, so an address lands near the middle of its country.
+
 ### AI support
 
 zsazsa works with **OpenAI** and with a **local LLM** behind an OpenAI-compatible API, such as [Ollama](https://ollama.com/). Each AI feature chooses its own provider, model, temperature and prompt on the AI tab. The features send raw MISP event text to the provider, so a local model keeps that content in-house.

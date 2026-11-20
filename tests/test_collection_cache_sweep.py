@@ -25,9 +25,11 @@ class Sweep(unittest.TestCase):
         # create in job_store's in-memory fallback. Without this they land in
         # the Redis the app is using and show up in its Background jobs panel.
         # The sweep also reads the indicator statistics of every configured
-        # server, which would reach this install's MISP, its partners and its cache.
+        # server, which would reach this install's MISP, its partners and its cache,
+        # and looks up the addresses in this install's cache at ip.circl.lu.
         for patcher in (mock.patch.object(job_store, "_command", return_value=None),
-                        mock.patch.object(collection_cache, "refresh_indicator_stats")):
+                        mock.patch.object(collection_cache, "refresh_indicator_stats"),
+                        mock.patch.object(collection_cache, "locate_ips")):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.addCleanup(job_store._memory.clear)
