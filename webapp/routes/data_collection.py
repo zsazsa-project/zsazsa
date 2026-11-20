@@ -239,7 +239,9 @@ def _build_list_context() -> dict:
         briefing_excluded_uuids=briefing_excluded_uuids,
         briefing_pending_reject_uuids=briefing_pending_reject_uuids,
         collection_tag_strip_prefixes=getattr(config, "COLLECTION_TAG_STRIP_PREFIXES", []) or [],
-        collection_tag_hide_prefixes=getattr(config, "COLLECTION_TAG_HIDE_PREFIXES", []) or [],
+        # A threat report's story shows "From threat report" with its provider instead of these.
+        collection_tag_hide_prefixes=(getattr(config, "COLLECTION_TAG_HIDE_PREFIXES", []) or [])
+        + [misp_store.REPORT_TAG_PREFIX, misp_store.REPORT_KIND_TAG_PREFIX, misp_store.PROVIDER_TAG_PREFIX],
         scope_galaxy=misp_store.scope_galaxy_items(),
         draft_briefings=_draft_briefings(),
         events_being_summarised=_events_being_summarised(),

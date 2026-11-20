@@ -111,6 +111,12 @@ When something relevant did not come in through a source, an analyst adds the ar
 
 Articles can also come from a security newsletter, pasted in or read from a mailbox (see [Importing newsletters](#importing-newsletters-and-mailboxes)).
 
+A **threat report**, a long report such as a vendor's yearly one, is imported under "Threat report": upload the PDF or give its address, pick the manual source its stories go under, and name the provider who published it. Not to be confused with the threat landscape reports zsazsa writes, which its stories feed. zsazsa reads the PDF without its running headers and footers, and drafts the stories it tells from its outline, or from its headings when it has none. The PDF is kept with the import, and the same file imported again opens that import; the form says so as soon as the file is picked, and a threat report from the same provider with the same title or file name is flagged as one that may be imported twice. A scanned threat report, without text, cannot be read. **Imported threat reports**, also linked from the threat landscape page, lists them all; deleting one there removes its PDF and its review, and leaves the stories already made from it, whose "From threat report" link then opens a page saying it was deleted.
+
+When asked, the AI then names and classifies the stories, by the kinds set under Settings > Products (assessment, incident, finding, outlook and context to start with) or as left out, and reads the context of each: a summary, the period, the threat type, sectors, geography, actors and techniques from the MISP galaxies, and what it says of the affected assets, impact, motivation and mitigation. Every value points at the paragraph it was read from, and a value from no paragraph of the story, or from none of the galaxies, is dropped. "Continue with AI" on the threat report's page goes on where the AI stopped, and says how many calls are left. The import, the AI and the making of the stories are listed with the other runs on the Pipeline page.
+
+In **Review the stories**, the threat report is shown paragraph by paragraph with a bar where each story starts: move a bar a paragraph up or down, merge a story into the one before, split one at any paragraph, leave a story out, and correct its context. A paragraph that does not belong in its story, such as a sales pitch or a list of references, is left out of it too: it is then in neither the story's event nor what the AI reads. The text itself stays the threat report's own words. **Make and queue** makes each story a manual entry linked to its threat report, with the local tag `zsazsa:report="<uuid>"`, and puts it in the threat landscape queue. The analyser leaves these stories alone, as their news is months old; an analyst can still use one in a briefing or an alert from Data collection. In the queue a threat report's stories are listed together and count as one source in the drafted trends, and the stories of a kind Settings leaves unticked, outlook and context to start with, are left out of "select all".
+
 ![docs/6-importnewsletter-auto-review.png](docs/6-importnewsletter-auto-review.png)
 
 ### Intelligence products
@@ -462,6 +468,7 @@ The six `FOCUS_POINTS_*` lists are what the relevance verdict judges each articl
 | `FOCUS_POINTS_THREAT_TYPES` | Threat type focus points |
 | `FOCUS_POINTS_THREAT_ACTORS` | Threat actor focus points |
 | `THREAT_ACTOR_TYPES` | Threat actor types and descriptions (ENISA taxonomy) |
+| `REPORT_STORY_KINDS` | The kinds a story of an imported threat report can be, with what each means, as the AI and the review are told, and whether "select all" ticks it in the threat landscape queue. "Left out" is always there besides them |
 
 Renaming a product type does not rename it in stakeholder subscriptions already stored in MISP. The System tab has a migration for the one rename that shipped with zsazsa.
 
@@ -511,7 +518,7 @@ The Analyser tab has the settings in the order the analyser works (see [The anal
 
 ### System
 
-**MISP event distribution** sets the distribution of every event zsazsa creates. **Logging** sets the log level and how long the audit log under Reporting > Logs is kept; a product's delivery badge comes from the audit log and goes with it. **Web server** covers the built-in server. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there replaces `PORT`; the Docker setup sets both. Restart after changing the port or TLS settings. **Single sign-on** has its own section below.
+**MISP event distribution** sets the distribution of every event zsazsa creates. **Logging** sets the log level and how long the audit log under Reporting > Logs is kept; a product's delivery badge comes from the audit log and goes with it. **Web server** covers the built-in server, and the largest PDF a threat report can be. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there replaces `PORT`; the Docker setup sets both. Restart after changing the port or TLS settings. **Single sign-on** has its own section below.
 
 | Setting | Description |
 |---|---|
@@ -520,6 +527,7 @@ The Analyser tab has the settings in the order the analyser works (see [The anal
 | `LOG_LEVEL` | Logging verbosity |
 | `HOSTNAME` | Hostname used to build links. It does not change the listener |
 | `PORT` | Port the application listens on |
+| `REPORT_IMPORT_MAX_MB` | The largest PDF Data collection imports as a threat report, in MB (30, at most 200). MISP is sent it base64-encoded, so its request limits must allow a third more, and under MISP's address the upload passes through MISP's web server too |
 | `SSL_ENABLED` | Whether the built-in server uses TLS |
 | `SSL_CERT` | Path to the TLS certificate file |
 | `SSL_KEY` | Path to the TLS private key file |
@@ -582,6 +590,8 @@ This tab lists the prompt files in `zsazsaprompts/`. Most features parse the ans
 | `daily_briefing_overlap` | Must keep returning the `summary` and `overlaps` JSON structure, with 1-based story indexes |
 | `daily_briefing_summary` | Must keep returning one plain paragraph |
 | `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, as each fills a form field or panel |
+| `split_report_stories` | Must keep returning the `stories` JSON list, each with the `start` block, `title` and `kind` |
+| `analyse_report_story` | Must keep returning the context fields it lists, each value with the `block` it was read from |
 
 A prompt whose structure changes makes its feature fail silently.
 
@@ -818,6 +828,8 @@ Each record is one MISP event, with its data in a custom MISP object. The object
 | Threat actor profile | zsazsa-threat-actor-profile |
 | Detection engineering request | zsazsa-detection-eng-request |
 | Collection source | zsazsa-collection-source |
+| Imported threat report | zsazsa-report-document, with the PDF, what was read from it and the manifest of its stories as attachments |
+| A story of an imported threat report | a manual entry with zsazsa-report-story |
 
 Every record also has a type tag, local like every tag in the `zsazsa:` namespace. The defaults are:
 

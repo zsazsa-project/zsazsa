@@ -7,7 +7,8 @@ from collections import Counter
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
 from analyser import tagger
-from webapp import audit, branding, collection_cache, matching, misp_session, misp_store, notify_jobs, product_log
+from webapp import (audit, branding, collection_cache, matching, misp_session, misp_store, notify_jobs, product_log,
+                    report_stories)
 from webapp.models import INTEL_LEVELS
 from webapp.rate_limit import rate_limited
 
@@ -40,8 +41,44 @@ def _source_reliabilities():
         return {}
 
 
-def _entry_from_event(ev, reliabilities):
-    """A new entry for a queued event, filled in from its tags so triage is mostly confirming."""
+def _reports_of(events) -> dict:
+    """The imported reports the stories among these events come from, by UUID."""
+    if not any(misp_store.report_of(ev["tags"]) for ev in events):
+        return {}
+    try:
+        return {r.uuid: r for r in misp_store.list_report_documents()}
+    except Exception as exc:
+        logger.warning("TLR: could not read the imported reports: %s", exc)
+        return {}
+
+
+def _story_fields(ev, reports) -> dict:
+    """What a story of an imported report adds to its entry: the context the
+    review gave it, and in the note where in the report it is."""
+    report_uuid = misp_store.report_of(ev["tags"])
+    if not report_uuid:
+        return {}
+    try:
+        story = misp_store.report_story_details(ev["uuid"])
+    except Exception as exc:
+        logger.warning("TLR: could not read the story %s: %s", ev["uuid"], exc)
+        return {}
+    if not story:
+        return {}
+    fields = {key: story[key] for key in ("affected_assets", "impact", "motivation", "mitigation") if story[key]}
+    if story["threat_type"] in misp_store.TLR_THREAT_TYPES:
+        fields["threat_type"] = story["threat_type"]
+    # The context is the story's own; only the note needs its threat report, which may have been deleted.
+    report = reports.get(report_uuid)
+    if report is not None:
+        pages = f"page {story['pages']}" if "-" not in story["pages"] else f"pages {story['pages'].replace('-', ' to ')}"
+        fields["note"] = f"From {report.title}, {report.provider}, {pages}."
+    return fields
+
+
+def _entry_from_event(ev, reliabilities, reports=None):
+    """A new entry for a queued event, filled in from its tags so triage is
+    mostly confirming, and for a report's story from its reviewed context."""
     context = misp_store.context_from_tags(ev["tags"])
     return {
         "event_uuid": ev["uuid"],
@@ -57,7 +94,29 @@ def _entry_from_event(ev, reliabilities):
         # the bare IDs the briefing keeps.
         "techniques": [t.split("=", 1)[1].strip('"') for t in ev["tags"]
                        if t.startswith("misp-galaxy:mitre-attack-pattern=")],
+        **_story_fields(ev, reports or {}),
     }
+
+
+def _queue_rows(events, reports):
+    """The queue as it is listed: each event in its place, but the stories of
+    one report together under it, where the first of them is.
+
+    Each row is ("event", event) or ("report", report, its stories), and a
+    report that is gone has its stories listed as events.
+    """
+    rows, groups = [], {}
+    for ev in events:
+        ev["story_kind"] = misp_store.story_kind(ev["tags"])
+        report = reports.get(misp_store.report_of(ev["tags"]))
+        if report is None:
+            rows.append(("event", ev))
+        elif report.uuid in groups:
+            groups[report.uuid].append(ev)
+        else:
+            groups[report.uuid] = [ev]
+            rows.append(("report", report, groups[report.uuid]))
+    return rows
 
 
 def _filter_queue(queued, args):
@@ -252,6 +311,7 @@ def review():
     shown = _filter_queue(queued, request.args)
     return render_template(
         "threat_landscape/list.html", tlrs=tlrs, queued=queued, shown=shown, more_waiting=more_waiting,
+        rows=_queue_rows(shown, _reports_of(shown)), unticked_kinds=report_stories.unticked_kinds(),
         filters=request.args,
         sources=sorted({ev["source_id"] for ev in queued}),
         sectors=sorted({v for ev in queued for v in ev["context"]["sectors"]}),
@@ -293,7 +353,8 @@ def build():
             uuid = misp_store.create_tlr(data)
             label = data["tlr_id"]
             audit.record("create", "tlr", entity_id=uuid, entity_label=label)
-        added = misp_store.add_tlr_entries(uuid, [_entry_from_event(ev, reliabilities) for ev in events])
+        reports = _reports_of(events)
+        added = misp_store.add_tlr_entries(uuid, [_entry_from_event(ev, reliabilities, reports) for ev in events])
     except Exception as exc:
         logger.warning("TLR build failed: %s", exc)
         flash(f"Could not build the report: {exc}", "warning")
@@ -402,8 +463,7 @@ def draft_trends():
         source = sorted(collection_cache.get_events_by_uuids(uuids), key=lambda ev: ev["date"], reverse=True)
     else:
         source = _queued_events(misp_store.list_tlrs())
-    # A long queue would be cut mid-way by the prompt's own size limit, so keep
-    # the most recent events rather than an arbitrary slice of one of them.
+    documents = _documents(source, _reports_of(source))
     events = [
         {
             "title": ev.get("info") or "",
@@ -412,21 +472,52 @@ def draft_trends():
             "cves": ev.get("vulnerability_ids") or [],
             "source": ev.get("source_id") or "",
         }
-        for ev in source[:150]
-    ]
-    if not events:
+        # A story is read with its threat report, or as an event of its own once
+        # the threat report is deleted or its stories cannot be read.
+        for ev in source if misp_store.report_of(ev.get("tags") or []) not in documents
+    ][:150]
+    if not events and not documents:
         return jsonify({"sections": {}, "error": "There are no events to draft from."})
 
     try:
         from analyser import llm
-        sections = llm.draft_landscape_trends(request.form.get("reporting_period", "").strip(), events)
+        sections = llm.draft_landscape_trends(request.form.get("reporting_period", "").strip(), events,
+                                              list(documents.values()), report_stories.kind_notes())
     except Exception as exc:
         logger.warning("TLR trend draft failed: %s", exc)
         return jsonify({"sections": {}, "error": "Failed to draft the report."}), 502
 
     if not sections:
         return jsonify({"sections": {}, "error": "The model returned no usable draft. Check the LLM settings and the analyser log."}), 502
-    return jsonify({"sections": sections, "event_count": len(events), "error": None})
+    return jsonify({"sections": sections, "event_count": len(events), "document_count": len(documents),
+                    "error": None})
+
+
+def _documents(events, reports) -> dict:
+    """The imported reports among the events, by UUID, each with the stories
+    of it the events are, as the trend draft reads them: one source each,
+    however many stories it has. A story's summary and period come from the
+    report's manifest, read once per report."""
+    wanted = {}
+    for ev in events:
+        report = misp_store.report_of(ev.get("tags") or [])
+        if report in reports:
+            wanted.setdefault(report, set()).add(ev["uuid"])
+    documents = {}
+    for uuid, events_of in wanted.items():
+        report = reports[uuid]
+        try:
+            stories = misp_store.report_manifest(report)["stories"]
+        except Exception as exc:
+            logger.warning("TLR: could not read the stories of %s: %s", report.title, exc)
+            continue
+        documents[uuid] = {
+            "title": report.title, "publisher": report.provider, "published": report.published,
+            "stories": [{"title": s["title"], "kind": s["kind"], "period": (s.get("context") or {}).get("period", ""),
+                         "summary": (s.get("context") or {}).get("summary", "")}
+                        for s in stories if s.get("event") in events_of],
+        }
+    return documents
 
 
 @bp.route("/<string:id>")

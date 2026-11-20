@@ -1,0 +1,672 @@
+{% extends "base.html" %}
+
+{% block misp_object_url %}{{ report.misp_url }}{% endblock %}
+{% block title %}Review: {{ report.title }} | zsazsa CTI{% endblock %}
+{% block page_title %}Review the stories{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('report_import.detail', uuid=report.uuid) }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-arrow-left me-1"></i> Back to the threat report
+</a>
+{% endblock %}
+
+{% block content %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-scissors"></i></span>
+  <div class="hero-main">
+    <h1>{{ report.title }}</h1>
+    <p class="lead-text">Each dashed bar starts a story. Move it a block up or down, merge it into the story before,
+      split a story at any paragraph, or leave a story or a paragraph out. The context of the story you open is on the
+      right; each value points at the block it was read from.</p>
+  </div>
+</section>
+
+{% if busy %}
+<div class="alert alert-primary d-flex align-items-center gap-2" role="status">
+  <i class="fas fa-spinner fa-spin"></i>
+  <span>{{ busy.message }}. The review is read only until it is done; reload the page then.</span>
+</div>
+{% endif %}
+
+<div class="splitter{{ ' is-locked' if busy }}" id="splitter">
+  <aside class="card content-card split-rail">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Stories <span class="text-muted small ms-1" id="rail-count"></span></span>
+      <button type="button" class="zs-pill zs-pill-sm" id="to-top" title="Back to the top of the page"><i class="fas fa-arrow-up"></i>Top</button>
+    </div>
+    <div class="split-rail-list" id="rail"></div>
+  </aside>
+
+  <div class="card content-card split-doc">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-book-open me-2"></i>{{ report.provider }}</span>
+      <span class="text-muted small">{{ report.pages }} pages</span>
+    </div>
+    <div class="split-doc-body" id="doc"><div class="doc-target" id="doc-target" hidden></div></div>
+  </div>
+
+  <aside class="card content-card split-ctx" id="ctx" aria-live="polite"></aside>
+</div>
+
+<div class="split-foot" id="split-foot">
+  <span class="split-counts" id="foot-counts"></span>
+  <span class="split-status" id="foot-status" role="status"></span>
+  <span class="split-why" id="create-why"></span>
+  <span class="d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-outline-primary" id="save-btn"><i class="fas fa-floppy-disk me-1"></i> Save review</button>
+    <form method="post" action="{{ url_for('report_import.create_stories', uuid=report.uuid) }}" id="create-form">
+      <input type="hidden" name="version" id="create-version">
+      <button type="submit" class="btn btn-sm btn-primary" id="create-btn"><i class="fas fa-map me-1"></i> <span id="create-label">Make and queue</span></button>
+    </form>
+  </span>
+</div>
+
+<datalist id="list-sectors"></datalist>
+<datalist id="list-geographic_scope"></datalist>
+<datalist id="list-threat_actors"></datalist>
+<datalist id="list-techniques"></datalist>
+<script type="application/json" id="review-data">{{ data | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var data = JSON.parse(document.getElementById('review-data').textContent);
+  var blocks = data.blocks, stories = data.stories, version = data.version;
+  var skipped = new Set(data.skipped);
+  var locked = document.getElementById('splitter').classList.contains('is-locked');
+  var analyseUrl = {{ url_for('report_import.analyse', uuid=report.uuid) | tojson }};
+  var saveUrl = {{ url_for('report_import.save_review', uuid=report.uuid) | tojson }};
+  var jobUrl = {{ url_for('dashboard.pipeline_job_status', job_id='JOB') | tojson }};
+  var eventUrl = {{ url_for('data_collection.manual_detail', uuid='EVENT') | tojson }};
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var LISTS = [['sectors', 'Sectors'], ['geographic_scope', 'Geography'], ['threat_actors', 'Threat actors'],
+               ['techniques', 'Techniques']];
+  var TEXTS = [['affected_assets', 'Affected assets'], ['impact', 'Impact'], ['motivation', 'Motivation'],
+               ['mitigation', 'Mitigation']];
+  var known = {};
+  var doc = document.getElementById('doc'), rail = document.getElementById('rail'), ctx = document.getElementById('ctx');
+  var status = document.getElementById('foot-status');
+  var CATEGORY = {sectors: 'fp-cat-sector', geographic_scope: 'fp-cat-geography', threat_actors: 'fp-cat-threat-actor',
+                  techniques: 'chip-mitre', threat_type: 'fp-cat-threat-type'};
+  var FIELD_NAMES = {sectors: 'Sector', geographic_scope: 'Geography', threat_actors: 'Threat actor', techniques: 'Technique',
+                     threat_type: 'Threat type', affected_assets: 'Affected assets', impact: 'Impact',
+                     motivation: 'Motivation', mitigation: 'Mitigation'};
+  var openIndex = 0, dirty = false, blockEls = [];
+  var target = document.getElementById('doc-target');
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+  function button(cls, text, title, onClick) {
+    var b = el('button', cls, text);
+    b.type = 'button';
+    if (title) { b.title = title; b.setAttribute('aria-label', title); }
+    b.disabled = locked;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  function newId() { return Math.random().toString(16).slice(2, 12).padEnd(10, '0'); }
+  function pages(s) { return s.pages[0] === s.pages[1] ? 'p. ' + s.pages[0] : 'p. ' + s.pages[0] + ' to ' + s.pages[1]; }
+  // Only what the AI read can have moved since: a context typed in by hand has no range.
+  function stale(s) { return !!(s.context && s.context_for && (s.context_for[0] !== s.start || s.context_for[1] !== s.end)); }
+  function say(text, bad) { status.textContent = text; status.classList.toggle('text-danger', !!bad); }
+  // "excluded" is what Leave out sets, and is called so on the page.
+  function kindName(k) { return k === 'excluded' ? 'left out' : k; }
+  function kindChip(k) { return el('span', 'story-kind k-' + k, kindName(k)); }
+
+  /* What a button would change, outlined as Build with AI outlines what it
+     fills: one dashed box over the paragraphs from..to, with what happens. */
+  function outline(from, to, label) {
+    var first = blockEls[from], last = blockEls[to - 1];
+    if (!first || !last) return;
+    target.style.top = (first.offsetTop - 3) + 'px';
+    target.style.height = (last.offsetTop + last.offsetHeight - first.offsetTop + 6) + 'px';
+    target.dataset.label = label;
+    target.hidden = false;
+  }
+  function hint(btn, spec) {
+    function on() { var s = spec(); if (s) outline(s[0], s[1], s[2]); }
+    function off() { target.hidden = true; }
+    btn.addEventListener('mouseenter', on);
+    btn.addEventListener('focus', on);
+    ['mouseleave', 'blur', 'click'].forEach(function(type) { btn.addEventListener(type, off); });
+    return btn;
+  }
+
+  Object.keys(data.lists).forEach(function(key) {
+    var list = document.getElementById('list-' + key);
+    known[key] = {};
+    data.lists[key].forEach(function(value) {
+      known[key][value.trim().toLowerCase()] = value;
+      var option = document.createElement('option');
+      option.value = value;
+      list.appendChild(option);
+    });
+  });
+
+  /* Each story's end, pages and length follow from where the next one starts. */
+  function measure() {
+    stories.forEach(function(s, i) {
+      s.end = i + 1 < stories.length ? stories[i + 1].start : blocks.length;
+      s.pages = [blocks[s.start].page, blocks[s.end - 1].page];
+      var n = 0;
+      for (var b = s.start; b < s.end; b++) if (!skipped.has(b)) n += blocks[b].text.length;
+      s.chars = n;
+    });
+  }
+  function changed(message) {
+    dirty = true;
+    measure();
+    render();
+    say(message || 'Not saved yet');
+  }
+  function storyAt(blockId) {
+    for (var i = stories.length - 1; i >= 0; i--) if (stories[i].start <= blockId) return i;
+    return 0;
+  }
+  /* A bar can move when neither story beside it is an event already. */
+  function movable(i) { return i > 0 && !stories[i].event && !stories[i - 1].event; }
+
+  function move(i, delta) {
+    var to = stories[i].start + delta;
+    if (!movable(i) || to <= stories[i - 1].start || to >= (stories[i + 1] ? stories[i + 1].start : blocks.length)) return;
+    stories[i].start = to;
+    openIndex = i;
+    changed();
+  }
+  function merge(i) {
+    if (!movable(i)) return;
+    stories.splice(i, 1);
+    openIndex = i - 1;
+    changed('Merged into the story before. Not saved yet');
+  }
+  function split(blockId) {
+    var i = storyAt(blockId), s = stories[i];
+    if (s.event || blockId === s.start) return;
+    var b = blocks[blockId];
+    stories.splice(i + 1, 0, {id: newId(), title: b.kind === 'h' ? b.text.slice(0, 200) : 'New story', start: blockId,
+                              path: s.path, kind: s.kind, context: null, context_for: null, context_failed: false,
+                              event: ''});
+    openIndex = i + 1;
+    changed('Split. Give the new story a title. Not saved yet');
+  }
+
+  /* A paragraph left out is in no story's event, length or what the AI reads. */
+  function skip(blockId) {
+    if (stories[storyAt(blockId)].event) return;
+    if (skipped.has(blockId)) skipped.delete(blockId);
+    else skipped.add(blockId);
+    changed();
+  }
+  /* A story left out is kept in the review, but no event is made of it. The
+     kind it had comes back with it. */
+  function leaveOut(i) {
+    var s = stories[i];
+    if (s.event) return;
+    if (s.kind === 'excluded') {
+      s.kind = s.keptKind || '';
+    } else {
+      s.keptKind = s.kind;
+      s.kind = 'excluded';
+    }
+    openIndex = i;
+    changed();
+  }
+
+  /* The report, a block each, built once; the story bars are put between them. */
+  function buildDoc() {
+    var page = 0;
+    blocks.forEach(function(b) {
+      var node = el('div', 'blk blk-' + b.kind);
+      node.dataset.block = b.id;
+      if (b.page !== page) {
+        page = b.page;
+        node.appendChild(el('span', 'blk-page', 'p. ' + page));
+      }
+      node.appendChild(el('span', 'blk-text', b.text));
+      var tools = el('span', 'blk-tools');
+      tools.appendChild(hint(button('blk-skip', 'Leave out', 'Leave this paragraph out of its story', function() { skip(b.id); }),
+                             function() { return [b.id, b.id + 1, skipped.has(b.id) ? 'Back in the story' : 'Left out of the story']; }));
+      tools.appendChild(hint(button('blk-cut', 'Split here', 'Start a new story at this paragraph', function() { split(b.id); }),
+                             function() { return [b.id, stories[storyAt(b.id)].end, 'Becomes a new story']; }));
+      node.appendChild(tools);
+      doc.appendChild(node);
+      blockEls.push(node);
+    });
+  }
+
+  function head(s, i) {
+    var bar = el('div', 'story-bar' + (s.event ? ' is-made' : '') + (i === openIndex ? ' is-open' : ''));
+    bar.dataset.story = i;
+    var line = el('div', 'story-bar-line');
+    line.appendChild(el('span', 'story-n', String(i + 1).padStart(2, '0')));
+    var title = el('button', 'story-title', s.title);
+    title.type = 'button';
+    title.addEventListener('click', function() { openStory(i, false); });
+    line.appendChild(title);
+    if (s.kind) line.appendChild(kindChip(s.kind));
+    if (stale(s)) line.appendChild(el('span', 'story-flag', 'moved since the AI read it'));
+    line.appendChild(el('span', 'story-meta', pages(s) + ' · ' + (s.chars >= 1000 ? (s.chars / 1000).toFixed(1) + 'k' : s.chars)));
+    bar.appendChild(line);
+    var tools = el('div', 'story-tools');
+    if (s.event) {
+      var made = el('a', 'story-made', 'Made into an event');
+      made.href = eventUrl.replace('EVENT', encodeURIComponent(s.event));
+      tools.appendChild(made);
+    } else if (i > 0) {
+      [[-1, '▲ Up', 'Start this story one block earlier', function() { return [s.start - 1, s.start, 'Joins this story']; }],
+       [1, '▼ Down', 'Start this story one block later', function() { return [s.start, s.start + 1, 'Goes to the story before']; }]]
+        .forEach(function(spec) {
+          var b = hint(button('mini', spec[1], spec[2], function() { move(i, spec[0]); }), spec[3]);
+          b.disabled = locked || !movable(i);
+          tools.appendChild(b);
+        });
+      var m = hint(button('mini', 'Merge', 'Merge this story into the one before', function() { merge(i); }),
+                   function() { return [stories[i - 1].start, s.end, 'One story']; });
+      m.disabled = locked || !movable(i);
+      tools.appendChild(m);
+    }
+    if (!s.event) {
+      var out = s.kind === 'excluded';
+      tools.appendChild(hint(button('mini', out ? 'Bring back' : 'Leave out',
+                                    out ? 'Make this story an event after all' : 'Leave this story out: no event is made of it',
+                                    function() { leaveOut(i); }),
+                             function() { return [s.start, s.end, out ? 'Made into an event after all' : 'No event is made of this']; }));
+    }
+    bar.appendChild(tools);
+    return bar;
+  }
+
+  function render() {
+    doc.querySelectorAll('.story-bar').forEach(function(bar) { bar.remove(); });
+    stories.forEach(function(s, i) {
+      doc.insertBefore(head(s, i), blockEls[s.start]);
+      for (var b = s.start; b < s.end; b++) {
+        blockEls[b].classList.toggle('in-odd', i % 2 === 1);
+        blockEls[b].classList.toggle('is-excluded', s.kind === 'excluded');
+        blockEls[b].classList.toggle('is-first', b === s.start);
+        blockEls[b].classList.toggle('in-made', !!s.event);
+        blockEls[b].classList.toggle('is-skipped', skipped.has(b));
+        blockEls[b].querySelector('.blk-skip').textContent = skipped.has(b) ? 'Bring back' : 'Leave out';
+      }
+    });
+    renderRail();
+    renderContext();
+    renderFoot();
+  }
+
+  function renderRail() {
+    rail.replaceChildren();
+    stories.forEach(function(s, i) {
+      var item = el('button', 'rail-item' + (i === openIndex ? ' is-open' : '') + (s.kind === 'excluded' ? ' is-excluded' : ''));
+      item.type = 'button';
+      item.appendChild(el('span', 'rail-n', String(i + 1).padStart(2, '0')));
+      var text = el('span', 'rail-t');
+      text.appendChild(el('span', 'rail-title', s.title));
+      var meta = el('span', 'rail-meta');
+      if (s.event) meta.appendChild(el('i', 'fas fa-circle-check text-success me-1'));
+      if (s.kind) meta.appendChild(kindChip(s.kind));
+      meta.appendChild(document.createTextNode(' ' + pages(s)));
+      text.appendChild(meta);
+      item.appendChild(text);
+      item.addEventListener('click', function() { openStory(i, true); });
+      rail.appendChild(item);
+    });
+    document.getElementById('rail-count').textContent = stories.length;
+  }
+
+  function openStory(i, scroll) {
+    openIndex = i;
+    render();
+    if (scroll) doc.querySelector('.story-bar[data-story="' + i + '"]').scrollIntoView({block: 'start', behavior: 'smooth'});
+    var item = rail.children[i];
+    if (item) item.scrollIntoView({block: 'nearest'});
+  }
+
+  function showBlock(id) {
+    var node = blockEls[id];
+    if (!node) return;
+    node.scrollIntoView({block: 'center', behavior: 'smooth'});
+    node.classList.remove('is-flash');
+    void node.offsetWidth;
+    node.classList.add('is-flash');
+  }
+  function evidence(blockId) {
+    if (typeof blockId !== 'number' || !blocks[blockId]) return el('span', 'ev ev-own', 'yours');
+    var chip = button('ev', 'p. ' + blocks[blockId].page, 'Show the paragraph this was read from', function() { showBlock(blockId); });
+    chip.disabled = false;
+    return chip;
+  }
+  function context(s) {
+    if (!s.context) {
+      s.context = {summary: '', period: '', threat_type: null, affected_assets: null, impact: null, motivation: null,
+                   mitigation: null, sectors: [], geographic_scope: [], threat_actors: [], techniques: [], left_out: []};
+    }
+    return s.context;
+  }
+  function edited() { dirty = true; say('Not saved yet'); renderFoot(); }
+
+  function field(label, input, extra) {
+    var wrap = el('div', 'ctx-field');
+    var top = el('div', 'ctx-label');
+    var l = el('label', '', label);
+    if (input.id) l.htmlFor = input.id;
+    top.appendChild(l);
+    if (extra) top.appendChild(extra);
+    wrap.appendChild(top);
+    wrap.appendChild(input);
+    return wrap;
+  }
+  function section(body, icon, title) {
+    var box = el('section', 'ctx-section');
+    var h = el('h3', 'ctx-h');
+    h.appendChild(el('i', 'fas ' + icon));
+    h.appendChild(document.createTextNode(title));
+    box.appendChild(h);
+    body.appendChild(box);
+    return box;
+  }
+
+  function renderContext() {
+    var s = stories[openIndex];
+    var editable = !locked && !s.event;
+    var c = s.context || {};
+    ctx.replaceChildren();
+    var header = el('div', 'card-header d-flex justify-content-between align-items-center');
+    header.appendChild(el('span', '', 'Story ' + (openIndex + 1) + ' of ' + stories.length));
+    header.appendChild(el('span', 'text-muted small', pages(s)));
+    ctx.appendChild(header);
+    var body = el('div', 'card-body ctx-body');
+    ctx.appendChild(body);
+
+    if (s.event) {
+      var made = el('div', 'ctx-note ctx-note-done');
+      made.appendChild(document.createTextNode('Made into a collection event, so it is not changed here. '));
+      var link = el('a', '', 'Open the event');
+      link.href = eventUrl.replace('EVENT', encodeURIComponent(s.event));
+      made.appendChild(link);
+      body.appendChild(made);
+    }
+
+    // The story: what it is called and what kind it is.
+    var story = section(body, 'fa-bookmark', 'Story');
+    var title = el('input', 'form-control form-control-sm');
+    title.id = 'ctx-title';
+    title.value = s.title;
+    title.maxLength = 200;
+    title.disabled = !editable;
+    // Only the rail and the story's bar change: rebuilding this panel would
+    // take away the field the analyst moves on to.
+    title.addEventListener('input', function() {
+      s.title = title.value;
+      edited();
+      renderRail();
+      doc.querySelector('.story-bar[data-story="' + openIndex + '"] .story-title').textContent = title.value;
+    });
+    story.appendChild(field('Title', title));
+    var kind = el('select', 'form-select form-select-sm');
+    kind.id = 'ctx-kind';
+    kind.disabled = !editable;
+    // A kind Settings has removed since stays on the story that has it.
+    var gone = s.kind && data.kinds.indexOf(s.kind) === -1;
+    [''].concat(data.kinds, gone ? [s.kind] : []).forEach(function(k) {
+      var option = el('option', '', k ? kindName(k) : 'Pick a kind');
+      option.value = k;
+      option.selected = k === (s.kind || '');
+      kind.appendChild(option);
+    });
+    kind.addEventListener('change', function() { s.kind = kind.value; changed(); });
+    story.appendChild(field('Kind', kind));
+    story.appendChild(el('div', 'ctx-help' + (s.kind ? '' : ' is-missing'),
+                         !s.kind ? 'A story needs a kind before it is made into an event.'
+                           : gone ? 'Settings no longer has this kind. The story keeps it; pick another to change it.'
+                           : data.kind_notes[s.kind]));
+
+    // What the AI read, and what it left out.
+    var read = section(body, 'fa-wand-magic-sparkles', 'Read by the AI');
+    if (stale(s)) read.appendChild(el('div', 'ctx-note', 'The story has moved since the AI read it, so this may not fit any more.'));
+    else if (!s.context && s.context_failed) read.appendChild(el('div', 'ctx-note', 'The AI\'s answer for this story could not be used.'));
+    else if (!s.context) read.appendChild(el('div', 'ctx-help', 'Nothing read yet.'));
+    if (editable) {
+      var again = button('zs-pill', s.context ? 'Ask the AI again' : 'Ask the AI', 'Have the AI read this story as it is cut now',
+                         function() { analyse(s, again); });
+      again.insertBefore(el('i', 'fas fa-wand-magic-sparkles'), again.firstChild);
+      read.appendChild(again);
+    }
+    var summary = el('textarea', 'form-control form-control-sm');
+    summary.id = 'ctx-summary';
+    summary.rows = 4;
+    summary.value = c.summary || '';
+    summary.disabled = !editable;
+    summary.addEventListener('input', function() { context(s).summary = summary.value; edited(); });
+    read.appendChild(field('Summary', summary));
+    var period = el('input', 'form-control form-control-sm');
+    period.id = 'ctx-period';
+    period.value = c.period || '';
+    period.placeholder = 'e.g. 2025, or H1 2026';
+    period.disabled = !editable;
+    period.addEventListener('input', function() { context(s).period = period.value; edited(); });
+    read.appendChild(field('Period it covers', period));
+    if ((c.left_out || []).length) {
+      var dropped = el('details', 'ctx-dropped');
+      dropped.appendChild(el('summary', '', 'The AI also named ' + c.left_out.length + ', left out'));
+      var list = el('ul', '');
+      c.left_out.forEach(function(item) {
+        var li = el('li', '');
+        li.appendChild(el('b', '', item.value));
+        li.appendChild(document.createTextNode(' · ' + (FIELD_NAMES[item.field] || item.field).toLowerCase() + ': ' + item.why));
+        list.appendChild(li);
+      });
+      dropped.appendChild(list);
+      read.appendChild(dropped);
+    }
+
+    // The scope, in the colours of the PIR and GIR scope items.
+    var scope = section(body, 'fa-crosshairs', 'Scope');
+    var threat = el('select', 'form-select form-select-sm');
+    threat.id = 'ctx-threat';
+    threat.disabled = !editable;
+    [''].concat(data.threat_types).forEach(function(t) {
+      var option = el('option', '', t || 'None');
+      option.value = t;
+      option.selected = t === ((c.threat_type || {}).value || '');
+      threat.appendChild(option);
+    });
+    threat.addEventListener('change', function() {
+      context(s).threat_type = threat.value ? {value: threat.value, block: null} : null;
+      changed();
+    });
+    var threatBox = el('div', 'ctx-field');
+    var threatTop = el('div', 'ctx-label');
+    var threatLabel = el('label', 'ctx-cat ' + CATEGORY.threat_type, 'Threat type');
+    threatLabel.htmlFor = 'ctx-threat';
+    threatTop.appendChild(threatLabel);
+    if (c.threat_type && typeof c.threat_type.block === 'number') threatTop.appendChild(evidence(c.threat_type.block));
+    threatBox.appendChild(threatTop);
+    threatBox.appendChild(threat);
+    scope.appendChild(threatBox);
+
+    LISTS.forEach(function(spec) {
+      var key = spec[0];
+      var box = el('div', 'ctx-field');
+      var top = el('div', 'ctx-label');
+      top.appendChild(el('span', 'ctx-cat ' + CATEGORY[key], spec[1]));
+      box.appendChild(top);
+      var chips = el('div', 'ctx-chips');
+      (c[key] || []).forEach(function(item, n) {
+        var chip = el('span', 'ctx-chip ' + CATEGORY[key]);
+        chip.appendChild(el('span', '', item.value));
+        chip.appendChild(evidence(item.block));
+        if (editable) {
+          chip.appendChild(button('ctx-x', '×', 'Remove ' + item.value, function() {
+            context(s)[key].splice(n, 1);
+            changed();
+          }));
+        }
+        chips.appendChild(chip);
+      });
+      if (!(c[key] || []).length) chips.appendChild(el('span', 'ctx-none', 'None'));
+      box.appendChild(chips);
+      if (editable) {
+        var add = el('div', 'ctx-add');
+        var input = el('input', 'form-control form-control-sm');
+        input.setAttribute('list', 'list-' + key);
+        input.setAttribute('aria-label', 'Add to ' + spec[1].toLowerCase());
+        input.placeholder = 'Add from the galaxy…';
+        var go = button('btn btn-sm btn-outline-secondary', '', 'Add', function() {
+          var value = known[key][input.value.trim().toLowerCase()];
+          if (!value) { say('"' + input.value + '" is not in the galaxy.', true); return; }
+          var list = context(s)[key];
+          if (!list.some(function(v) { return v.value === value; })) list.push({value: value, block: null});
+          changed();
+        });
+        go.appendChild(el('i', 'fas fa-plus'));
+        input.addEventListener('keydown', function(ev) { if (ev.key === 'Enter') { ev.preventDefault(); go.click(); } });
+        add.appendChild(input);
+        add.appendChild(go);
+        box.appendChild(add);
+      }
+      scope.appendChild(box);
+    });
+
+    // What the story says of the four questions a landscape asks.
+    var says = section(body, 'fa-circle-question', 'What it says');
+    TEXTS.forEach(function(spec) {
+      var key = spec[0], item = c[key];
+      var area = el('textarea', 'form-control form-control-sm');
+      area.id = 'ctx-' + key;
+      area.rows = 2;
+      area.value = item ? item.text : '';
+      area.placeholder = 'The story does not say';
+      area.disabled = !editable;
+      area.addEventListener('input', function() {
+        var current = context(s)[key];
+        context(s)[key] = area.value.trim() ? {text: area.value, block: current ? current.block : null} : null;
+        edited();
+      });
+      says.appendChild(field(spec[1], area, item && typeof item.block === 'number' ? evidence(item.block) : null));
+    });
+  }
+
+  function renderFoot() {
+    var left = stories.filter(function(s) { return s.kind === 'excluded'; }).length;
+    var made = stories.filter(function(s) { return s.event; }).length;
+    var todo = stories.filter(function(s) { return s.kind !== 'excluded' && !s.event; });
+    var unkind = todo.filter(function(s) { return !s.kind; }).length;
+    document.getElementById('foot-counts').textContent = stories.length + ' stories · ' + left + ' left out · '
+      + made + ' made' + (skipped.size ? ' · ' + skipped.size + ' paragraph' + (skipped.size === 1 ? '' : 's') + ' left out' : '')
+      + (unkind ? ' · ' + unkind + ' without a kind' : '');
+    var create = document.getElementById('create-btn');
+    document.getElementById('create-label').textContent = todo.length
+      ? 'Make ' + todo.length + ' stor' + (todo.length === 1 ? 'y' : 'ies') + ' and queue for threat landscape'
+      : 'Every story is made';
+    create.disabled = locked || !todo.length || unkind > 0;
+    var why = document.getElementById('create-why');
+    why.replaceChildren();
+    if (locked) {
+      why.textContent = 'A job is working on this threat report.';
+    } else if (unkind) {
+      var first = stories.findIndex(function(s) { return s.kind !== 'excluded' && !s.event && !s.kind; });
+      why.appendChild(document.createTextNode(unkind + ' stor' + (unkind === 1 ? 'y has' : 'ies have') + ' no kind yet. '));
+      why.appendChild(button('btn btn-link btn-sm p-0 align-baseline', 'Show the first', '', function() { openStory(first, true); }));
+    } else if (!todo.length) {
+      why.textContent = 'Every story is made or left out.';
+    } else if (dirty) {
+      why.textContent = 'Your changes are saved first.';
+    }
+    why.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+    document.getElementById('save-btn').disabled = locked;
+  }
+
+  function payload() {
+    return {version: version, skipped: Array.from(skipped), stories: stories.map(function(s) {
+      return {id: s.id, start: s.start, title: s.title, kind: s.kind, context: s.context, context_for: s.context_for};
+    })};
+  }
+  function save() {
+    say('Saving…');
+    return fetch(saveUrl, {method: 'POST',
+                           headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf}, body: JSON.stringify(payload())})
+      .then(zsazsaReadJson)
+      .then(function(reply) {
+        if (!reply.ok) throw new Error(reply.error);
+        version = reply.version;
+        stories = reply.stories;
+        skipped = new Set(reply.skipped);
+        dirty = false;
+        render();
+        say('Saved');
+        return true;
+      })
+      .catch(function(err) { say(zsazsaErrorText(err), true); return false; });
+  }
+  document.getElementById('save-btn').addEventListener('click', save);
+  document.getElementById('create-form').addEventListener('submit', function(ev) {
+    ev.preventDefault();
+    var form = this;
+    (dirty ? save() : Promise.resolve(true)).then(function(saved) {
+      if (!saved) return;
+      document.getElementById('create-version').value = version;
+      form.submit();
+    });
+  });
+  window.addEventListener('beforeunload', function(ev) {
+    if (!dirty) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
+
+  /* One story read again by the AI, on a job the page follows. Its answer is
+     only applied here: it is saved with the review. */
+  function analyse(s, btn) {
+    btn.disabled = true;
+    say('The AI is reading "' + s.title + '"…');
+    fetch(analyseUrl, {method: 'POST',
+                       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+                       body: JSON.stringify({id: s.id, start: s.start, end: s.end, title: s.title, kind: s.kind, path: s.path,
+                                             skipped: Array.from(skipped).filter(function(b) { return b >= s.start && b < s.end; })})})
+      .then(zsazsaReadJson)
+      .then(function(reply) {
+        if (!reply.ok) throw new Error(reply.error);
+        follow(reply.job);
+      })
+      .catch(function(err) { btn.disabled = false; say(zsazsaErrorText(err), true); });
+  }
+  function follow(jobId) {
+    var timer = setInterval(function() {
+      fetch(jobUrl.replace('JOB', encodeURIComponent(jobId)), {headers: {'Accept': 'application/json'}})
+        .then(zsazsaReadJson)
+        .then(function(reply) {
+          if (!reply.ok) { clearInterval(timer); say(reply.error || 'The job is gone.', true); return; }
+          var job = reply.job;
+          if (job.status === 'failed') { clearInterval(timer); say(job.error || 'The AI could not read the story.', true); render(); }
+          if (job.status !== 'completed') return;
+          clearInterval(timer);
+          var s = stories.filter(function(x) { return x.id === job.result.story; })[0];
+          if (!s) { say('The story was merged away before the AI was done.', true); return; }
+          s.context = job.result.context;
+          s.context_for = job.result.context_for;
+          s.context_failed = false;
+          if (job.result.kind) s.kind = job.result.kind;
+          changed('The AI read "' + s.title + '". Look it over, then save');
+        })
+        .catch(function(err) { clearInterval(timer); say(zsazsaErrorText(err), true); });
+    }, 1500);
+  }
+
+  document.getElementById('to-top').addEventListener('click', function() {
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    rail.parentElement.scrollTo({top: 0, behavior: 'smooth'});
+  });
+
+  buildDoc();
+  measure();
+  render();
+  say(locked ? 'Read only while a job works on this threat report' : '');
+})();
+</script>
+{% endblock %}

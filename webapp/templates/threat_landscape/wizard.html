@@ -481,7 +481,9 @@
         drafted.push(sections[name]);
       });
       status.textContent = drafted.length
-        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' events. Review before saving.'
+        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' events'
+          + (data.document_count ? ' and ' + data.document_count + ' imported threat report' + (data.document_count === 1 ? '' : 's') : '')
+          + '. Review before saving.'
         : 'Nothing to draft: every section already has content.';
     })
     .catch(function(err) { status.textContent = 'Drafting did not complete: ' + zsazsaErrorText(err); })

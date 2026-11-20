@@ -640,14 +640,83 @@ def draft_tap_sections(actors: list, context: dict) -> dict:
     return _flatten_sections(_json_object(text, "draft_tap_sections") or {})
 
 
-def draft_landscape_trends(reporting_period: str, events: list) -> dict:
-    """Draft threat landscape report sections from the events queued for the period."""
+# What the trend draft is given to read, in characters of JSON.
+_TRENDS_INPUT_CHARS = 14000
+
+
+def _trends_input(payload: dict) -> str:
+    """The trend draft's material as JSON within _TRENDS_INPUT_CHARS.
+
+    Trimmed rather than cut, so the model never reads half an object: the
+    stories' summaries are shortened first, then the oldest events go, then
+    the last stories of the longest document. The events come newest first.
+    """
+    def text():
+        return json.dumps(payload, ensure_ascii=True)
+
+    stories = [story for doc in payload["documents"] for story in doc["stories"]]
+    for limit in (300, 150, 0):
+        if len(text()) <= _TRENDS_INPUT_CHARS:
+            return text()
+        for story in stories:
+            story["summary"] = story["summary"][:limit]
+    while payload["events"] and len(text()) > _TRENDS_INPUT_CHARS:
+        payload["events"].pop()
+    while len(text()) > _TRENDS_INPUT_CHARS and any(doc["stories"] for doc in payload["documents"]):
+        max(payload["documents"], key=lambda doc: len(doc["stories"]))["stories"].pop()
+    return text()
+
+
+def draft_landscape_trends(reporting_period: str, events: list, documents: list = (), kinds: dict = None) -> dict:
+    """Draft threat landscape report sections from the events queued for the
+    period, and the imported reports whose stories are among them. ``kinds``
+    says what each kind of story means, as Settings has them."""
     fc = _feature_cfg("draft_landscape_trends")
     system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "threat_landscape_trends.md"))
-    payload = {"reporting_period": reporting_period, "events": events}
-    text = _call(system, json.dumps(payload, ensure_ascii=True)[:14000], 4000,
-                 feature="draft_landscape_trends", cfg=fc)
+    payload = {"reporting_period": reporting_period, "events": list(events),
+               "documents": [dict(doc, stories=[dict(s) for s in doc["stories"]]) for doc in documents]}
+    if documents:
+        used = {s["kind"] for doc in documents for s in doc["stories"]}
+        payload["kinds"] = {name: note for name, note in (kinds or {}).items() if name in used}
+    text = _call(system, _trends_input(payload), 4000, feature="draft_landscape_trends", cfg=fc)
     return _flatten_sections(_json_object(text, "draft_landscape_trends") or {})
+
+
+def _report_heading(report: dict) -> str:
+    return (f"Report: {report.get('title') or '(untitled)'}\nPublisher: {report.get('provider') or '(unknown)'}\n"
+            f"Published: {report.get('published') or '(unknown)'}")
+
+
+def _kinds_text(kinds: list) -> str:
+    """The kinds of story an analyst set, as the prompts expect them listed."""
+    return "Kinds:\n" + "\n".join(f'- "{k["name"]}": {k["description"]}' for k in kinds)
+
+
+def split_report_stories(report: dict, drafts: str, kinds: list) -> dict | None:
+    """Where the stories of one part of an imported report start, with their
+    titles and kinds, as the model proposes them. None when its answer could
+    not be read. ``drafts`` is the part as text, from webapp.report_stories."""
+    fc = _feature_cfg("split_report_stories")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "split_report_stories.md"))
+    # The titles come from the PDF as much as the drafts do.
+    material = _untrusted_block(f"{_report_heading(report)}\n\n{drafts}")
+    text = _call(system, f"{_kinds_text(kinds)}\n\n{material}", 2500, feature="split_report_stories", cfg=fc)
+    return _json_object(text, "split_report_stories")
+
+
+def analyse_report_story(report: dict, story: dict, blocks: str, kinds: list, sectors: list,
+                         threat_types: list) -> dict | None:
+    """The context of one story of an imported report, as the model proposes
+    it, each value with its block. None when its answer could not be read.
+    The caller checks each value against the story and the galaxies."""
+    fc = _feature_cfg("analyse_report_story")
+    system = _build_system_prompt(_resolve_prompt(fc.get("prompt") or "analyse_report_story.md"))
+    story_text = (f"{_report_heading(report)}\nStory: {story['title']}\nKind: {story.get('kind') or 'not set'}\n"
+                  f"Under: {' > '.join(story.get('path') or []) or '(top level)'}\n\n{blocks}")
+    message = (f"{_kinds_text(kinds)}\n\nThreat types: {', '.join(threat_types)}\n"
+               f"Sectors: {', '.join(sectors) or '(any)'}\n\n{_untrusted_block(story_text)}")
+    text = _call(system, message, 2000, feature="analyse_report_story", cfg=fc)
+    return _json_object(text, "analyse_report_story")
 
 
 def review_product_draft(product_type: str, draft: str, source_material: str) -> dict:

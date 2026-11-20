@@ -24,3 +24,6 @@ weasyprint>=70          # below 70 is CVE-2026-55073, an SSRF in the
                         # renderer that reaches every product PDF
 pillow>=10.0,<14        # used directly by the Diamond Model renderer
 beautifulsoup4>=4.12,<5
+pymupdf>=1.24.3,<2      # reads the reports imported on Data collection. The
+                        # module is pymupdf, not fitz, from 1.24.3. 2.0 pulls
+                        # in a layout model, onnxruntime and numpy, unused here

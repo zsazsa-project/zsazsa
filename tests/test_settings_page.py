@@ -108,6 +108,29 @@ class TabLayout(unittest.TestCase):
                 self.assertEqual(products.find_all(attrs={"name": key}), [])
 
 
+class NamedLists(unittest.TestCase):
+    """The threat actor types and the story kinds are laid out as the product
+    types are: a row of one input group each, written by the server."""
+
+    def test_each_row_has_its_name_meaning_and_remove(self):
+        types = [{"name": "Hacktivists", "description": 'Driven by "causes" <b>'}]
+        kinds = [{"name": "incident", "description": "One attack.", "ticked": True},
+                 {"name": "outlook", "description": "Forecasts.", "ticked": False}]
+        with mock.patch.multiple(config, create=True, THREAT_ACTOR_TYPES=types, REPORT_STORY_KINDS=kinds):
+            page = BeautifulSoup(render_page(), "html.parser")
+        rows = page.select("#tat-list .named-row .input-group")
+        self.assertEqual([(r.select_one(".named-name")["value"], r.select_one(".named-desc").text) for r in rows],
+                         [("Hacktivists", 'Driven by "causes" <b>')])
+        self.assertEqual(rows[0].select_one(".named-remove")["aria-label"], "Remove Hacktivists")
+        self.assertIsNone(rows[0].select_one(".named-ticked"))
+        kind_rows = page.select("#kind-list .named-row")
+        self.assertEqual([(r.select_one(".named-name")["value"], r.select_one(".named-ticked").has_attr("checked"))
+                          for r in kind_rows], [("incident", True), ("outlook", False)])
+        # What is saved is filled in by the page's script, under the names the form posts.
+        self.assertEqual(page.select_one("#tat-json")["name"], "THREAT_ACTOR_TYPES")
+        self.assertEqual(page.select_one("#kind-json")["name"], "REPORT_STORY_KINDS")
+
+
 def render_page() -> str:
     """The settings page as a site admin sees it, the galaxies stubbed."""
     with tempfile.TemporaryDirectory() as tmp:

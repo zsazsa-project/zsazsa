@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Imported threat reports | zsazsa CTI{% endblock %}
+{% block page_title %}Imported threat reports{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-arrow-left me-1"></i> Back to collection
+</a>
+{% endblock %}
+
+{% block content %}
+{% set made = reports | selectattr('import_state', 'equalto', 'created') | list | length %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-book-open"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ reports | length }}</b><span>threat report{{ 's' if reports | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ providers | length }}</b><span>provider{{ 's' if providers | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ reports | sum(attribute='stories') }}</b><span>stories</span></div>
+      <div class="record-kpi"><b>{{ made }}</b><span>made into events</span></div>
+    </div>
+    <p class="lead-text">Long reports, such as a vendor's yearly threat report, split into the stories they tell for
+      the threat landscape. Not to be confused with the threat landscape reports zsazsa writes.</p>
+    <div class="hero-actions">
+      <a href="{{ url_for('report_import.new') }}" class="btn btn-sm btn-hero"><i class="fas fa-file-import me-1"></i> Import a threat report</a>
+      <a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-map me-1"></i> Threat landscape reports</a>
+    </div>
+  </div>
+</section>
+
+<div class="card content-card rise rise-1">
+  {% if reports %}
+  <div class="table-responsive">
+    <table class="table table-hover zsazsa-table mb-0">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Provider</th>
+          <th>Published</th>
+          <th class="text-end">Pages</th>
+          <th class="text-end">Stories</th>
+          <th>State</th>
+          <th>TLP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>
+            <a href="{{ url_for('report_import.detail', uuid=r.uuid) }}" class="fw-semibold text-decoration-none">{{ r.title }}</a>
+            <div class="text-muted" style="font-size:.72rem;">{{ r.filename }}</div>
+          </td>
+          <td class="small">{{ r.provider }}</td>
+          <td class="small text-muted" style="white-space:nowrap;">{{ r.published or '-' }}</td>
+          <td class="small text-end">{{ r.pages }}</td>
+          <td class="small text-end">{{ r.stories }}</td>
+          <td class="small">{{ states.get(r.import_state, r.import_state or '-') }}</td>
+          <td>{% if r.tlp %}<span class="tlp-badge tlp-{{ r.tlp | slug }}">TLP:{{ r.tlp | upper }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state py-5 text-center">
+    <i class="fas fa-book-open text-muted d-block mb-2"></i>
+    <p class="text-muted mb-3">No threat report has been imported yet.</p>
+    <a href="{{ url_for('report_import.new') }}" class="btn btn-sm btn-primary"><i class="fas fa-file-import me-1"></i> Import a threat report</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

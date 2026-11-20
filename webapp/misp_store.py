@@ -30,6 +30,7 @@ import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from uuid import UUID, uuid5
 
 import config
 import requests
@@ -4933,6 +4934,360 @@ def get_manual_collection_event(uuid: str):
             for r in reports
         ],
     }
+
+
+# ── Imported reports ─────────────────────────────────────────────────────────
+#
+# A long report imported on Data collection is a zsazsa record: the PDF, what
+# was read from it (core.report_document) and the manifest of its stories are
+# attachments, and its object holds the details. The record is never a
+# collection event itself; each story made from it is one, a manual entry
+# under the source the report was imported under.
+#
+# The manifest is a file rather than an attribute: with the context of every
+# story it outgrows what MISP keeps in one. Its object names the attachment
+# that is current, and a save adds the new file before it drops the old one.
+
+TAG_REPORT_DOCUMENT = 'zsazsa:type="report-document"'
+REPORT_DOCUMENT_OBJECT = "zsazsa-report-document"
+REPORT_PDF_COMMENT = "zsazsa:report-pdf"
+REPORT_READING_COMMENT = "zsazsa:report-reading"
+REPORT_MANIFEST_COMMENT = "zsazsa:report-manifest"
+# The provider as a local tag, so Data collection can list one provider's
+# reports and stories with its tag filter.
+PROVIDER_TAG_PREFIX = "zsazsa:provider="
+_REPORT_FIELDS = ("title", "provider", "published", "collection_source", "source_reliability", "filename",
+                  "sha256", "source_url", "pages", "characters", "structure", "import_state", "stories",
+                  "manifest", "version")
+_REPORT_NUMBERS = ("pages", "characters", "stories", "version")
+_report_write_lock = threading.Lock()
+
+
+class ReportChanged(RuntimeError):
+    """The report was saved by someone else since the caller read it."""
+
+
+def provider_tag(name: str) -> str:
+    return f'{PROVIDER_TAG_PREFIX}"{name.strip().replace(chr(34), chr(39))}"'
+
+
+def _report_document_obj(data: dict):
+    obj = _build_obj(REPORT_DOCUMENT_OBJECT)
+    for field in _REPORT_FIELDS:
+        _oa(obj, field.replace("_", "-"), data.get(field))
+    return obj
+
+
+def _report_ns(event):
+    obj = _get_obj(event, REPORT_DOCUMENT_OBJECT)
+    if obj is None:
+        return None
+    files = {a.comment: a.uuid for a in getattr(event, "attributes", []) or []
+             if a.type == "attachment" and not getattr(a, "deleted", False)}
+    tlp = next((t.name[4:] for t in getattr(event, "tags", []) or [] if t.name.startswith("tlp:")), "")
+    misp_url = (getattr(config, "MISP_WEBAPP_URL", "") or "").rstrip("/")
+    return SimpleNamespace(
+        uuid=event.uuid, id=event.id, tlp=tlp,
+        misp_url=f"{misp_url}/events/view/{event.uuid}",
+        pdf=files.get(REPORT_PDF_COMMENT), reading=files.get(REPORT_READING_COMMENT),
+        **{field: _obj_attr(obj, field.replace("_", "-")) or "" for field in _REPORT_FIELDS
+           if field not in _REPORT_NUMBERS},
+        **{field: _obj_int(obj, field, 0) for field in _REPORT_NUMBERS},
+    )
+
+
+def _attach_file(misp, event_uuid, filename, file_bytes, comment, label):
+    import base64
+    attr = MISPAttribute()
+    attr.type = "attachment"
+    attr.category = "External analysis"
+    attr.value = filename
+    attr.data = base64.b64encode(file_bytes).decode("utf-8")
+    attr.comment = comment
+    attr.to_ids = False
+    return _check(misp.add_attribute(event_uuid, attr, pythonify=True), label).uuid
+
+
+def _attach_manifest(misp, event_uuid, manifest: dict, version: int) -> str:
+    """Attach a manifest under a name of its own version: MISP refuses an
+    attribute with the value of one the event has, and the new manifest is
+    attached before the one it replaces goes."""
+    return _attach_file(misp, event_uuid, f"manifest-{version}.json", json.dumps(manifest).encode("utf-8"),
+                        REPORT_MANIFEST_COMMENT, "attach the report's manifest")
+
+
+def create_report_document(data: dict, pdf: bytes, reading: dict, manifest: dict) -> str:
+    """Store an imported report with its PDF, what was read from it and the
+    manifest of its stories.
+
+    ``data`` holds the _REPORT_FIELDS but the manifest, and the TLP. Returns the
+    new event's UUID. When a step after creating the event fails, the event is
+    deleted again, so a retry does not find a half-stored copy under the same
+    sha256.
+    """
+    misp = _misp()
+    event = _make_event(f"[zsazsa:report] {data['title']}", extra_tags=[f"tlp:{data['tlp']}"])
+    if data.get("published"):
+        event.date = data["published"]
+    created = _check(misp.add_event(event, pythonify=True), "create report document")
+    try:
+        for tag in (TAG_REPORT_DOCUMENT, provider_tag(data["provider"])):
+            _tag_local(misp, created.uuid, tag)
+        _attach_file(misp, created.uuid, data["filename"], pdf, REPORT_PDF_COMMENT, "attach the report's PDF")
+        _attach_file(misp, created.uuid, "reading.json", json.dumps(reading).encode("utf-8"),
+                     REPORT_READING_COMMENT, "attach what was read from the report")
+        data = {**data, "manifest": _attach_manifest(misp, created.uuid, manifest, data["version"]),
+                "stories": len(manifest.get("stories", []))}
+        _check(misp.add_object(created.uuid, _report_document_obj(data), pythonify=True), "add report document object")
+    except Exception:
+        _delete_unfinished(misp, created.uuid, "report import")
+        raise
+    return created.uuid
+
+
+def get_report_document(uuid):
+    """An imported report, or None when ``uuid`` names any other event."""
+    event = _zsazsa_event(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT)
+    return _report_ns(event) if event is not None else None
+
+
+def find_report_document(sha256: str):
+    """The UUID of the report imported from this very file, or None.
+
+    Raises when MISP cannot say, rather than letting a second copy be made.
+    """
+    found = _check(_misp().search(controller="events", value=sha256, tags=[TAG_REPORT_DOCUMENT],
+                                  pythonify=True), "look for an earlier import")
+    for event in found or []:
+        ns = _report_ns(event)
+        if ns and ns.sha256 == sha256:
+            return ns.uuid
+    return None
+
+
+def list_report_documents() -> list:
+    """Every imported report, the most recent import first."""
+    reports = [ns for ns in map(_report_ns, _tagged_events(TAG_REPORT_DOCUMENT)) if ns]
+    return sorted(reports, key=lambda ns: int(ns.id or 0), reverse=True)
+
+
+def delete_report_document(uuid: str):
+    """Delete an imported threat report: its PDF, what was read from it and its
+    manifest, never the events of the stories made from it."""
+    return _delete_record(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT, "threat report")
+
+
+def report_providers(reports) -> list[str]:
+    """The providers of these reports, each once, in alphabetical order."""
+    names = {}
+    for ns in reports:
+        if ns.provider:
+            names.setdefault(ns.provider.casefold(), ns.provider)
+    return [names[k] for k in sorted(names)]
+
+
+def report_reading(ns) -> dict:
+    """What core.report_document read from the report's PDF."""
+    return json.loads(fetch_attachment(ns.reading).data.getvalue())
+
+
+def report_manifest(ns) -> dict:
+    """The stories of a report, as the import and the review left them."""
+    return json.loads(fetch_attachment(ns.manifest).data.getvalue())
+
+
+def report_pdf(ns) -> bytes:
+    return fetch_attachment(ns.pdf).data.getvalue()
+
+
+def _locked_report(uuid: str, version: int):
+    """The report's event and record, when it is still at ``version``."""
+    event = _zsazsa_event(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT)
+    ns = _report_ns(event) if event is not None else None
+    if ns is None:
+        raise ValueError(f"report {uuid} not found")
+    if ns.version != version:
+        raise ReportChanged(f"report {uuid} is at version {ns.version}, not {version}")
+    return event, ns
+
+
+def save_report_manifest(uuid: str, manifest: dict, version: int, import_state: str = "") -> int:
+    """Store a new manifest of the report's stories over ``version``, and
+    return the version it is saved as.
+
+    Raises ReportChanged when the report was saved since, as
+    update_report_details does. The new file is attached before the record
+    names it and the old one goes, so a failure leaves the manifest that was.
+    """
+    misp = _misp()
+    with _report_write_lock:
+        event, ns = _locked_report(uuid, version)
+        new_file = _attach_manifest(misp, event.uuid, manifest, ns.version + 1)
+        data = {**{field: getattr(ns, field) for field in _REPORT_FIELDS}, "manifest": new_file,
+                "stories": len(manifest.get("stories", [])), "version": ns.version + 1}
+        if import_state:
+            data["import_state"] = import_state
+        try:
+            _sync_object_attributes(misp, event, REPORT_DOCUMENT_OBJECT, _report_document_obj(data), "report document")
+        except Exception:
+            _drop_manifest(misp, new_file, uuid)
+            raise
+        if ns.manifest:
+            _drop_manifest(misp, ns.manifest, uuid)
+    return data["version"]
+
+
+def _drop_manifest(misp, attr_uuid: str, report_uuid: str) -> None:
+    """Delete a manifest the record does not name, for good: a review and the
+    AI save one every few stories, and soft-deleted they would pile up in MISP.
+    The record names the current one, so a file left behind is only clutter."""
+    result = misp.delete_attribute(attr_uuid, hard=True)
+    if isinstance(result, dict) and "errors" in result and not _is_not_found(result):
+        logger.warning("threat report %s: could not delete the manifest %s: %s", report_uuid, attr_uuid,
+                       result["errors"])
+
+
+def update_report_details(uuid: str, details: dict, version: int):
+    """Change a report's title, provider, publication date or TLP.
+
+    ``version`` is the one the analyst's page was showing. When the report was
+    saved since, nothing is written and ReportChanged is raised, so the later
+    save cannot undo the earlier one without the analyst seeing it.
+    """
+    misp = _misp()
+    with _report_write_lock:
+        event, ns = _locked_report(uuid, version)
+        data = {field: getattr(ns, field) for field in _REPORT_FIELDS}
+        data.update({k: details[k] for k in ("title", "provider", "published")}, version=ns.version + 1)
+        _sync_object_attributes(misp, event, REPORT_DOCUMENT_OBJECT, _report_document_obj(data), "report document")
+        _check(misp.update_event({"Event": {"id": event.id, "info": f"[zsazsa:report] {data['title']}",
+                                            "date": data["published"] or str(event.date)}}), "rename report document")
+        _sync_tlp_tag(misp, event, details["tlp"])
+        wanted = provider_tag(data["provider"])
+        for tag in getattr(event, "tags", []) or []:
+            if tag.name.startswith(PROVIDER_TAG_PREFIX) and tag.name != wanted:
+                _check(misp.untag(event.uuid, tag.name), "remove the old provider tag")
+        if not _event_has_tag(event, wanted):
+            _tag_local(misp, event.uuid, wanted)
+    return get_report_document(uuid)
+
+
+# ── The stories of an imported report ────────────────────────────────────────
+#
+# Each story is a manual collection entry with the story object, linked to its
+# report by extends_uuid for MISP and by the local tag zsazsa:report="<uuid>"
+# for zsazsa: the analyser leaves every event with that tag alone
+# (analyser/sources.py), Data collection lists a report's stories by it, and
+# the threat landscape queue groups them by it. Its kind is a tag too, as the
+# queue reads it from the collection cache.
+
+REPORT_STORY_OBJECT = "zsazsa-report-story"
+REPORT_TAG_PREFIX = 'zsazsa:report="'
+REPORT_KIND_TAG_PREFIX = "zsazsa:report-kind="
+_STORY_FIELDS = ("report_uuid", "story_id", "kind", "period", "section", "pages", "blocks", "threat_type",
+                 "affected_assets", "impact", "motivation", "mitigation", "evidence")
+
+
+def report_tag(report_uuid: str) -> str:
+    return f'{REPORT_TAG_PREFIX}{report_uuid}"'
+
+
+def report_of(tag_names) -> str:
+    """The UUID of the report an event is a story of, or ""."""
+    return next((t[len(REPORT_TAG_PREFIX):-1] for t in tag_names if t.startswith(REPORT_TAG_PREFIX)), "")
+
+
+def story_kind(tag_names) -> str:
+    return next((t[len(REPORT_KIND_TAG_PREFIX):].strip('"') for t in tag_names
+                 if t.startswith(REPORT_KIND_TAG_PREFIX)), "")
+
+
+def story_event_uuid(report_uuid: str, story_id: str) -> str:
+    """The UUID a story's event is made with. The same for every try, so a
+    retry finds the event an earlier one made instead of making a second."""
+    return str(uuid5(UUID(report_uuid), story_id))
+
+
+def _context_values(context: dict, key: str) -> list:
+    return [v["value"] for v in context.get(key) or [] if v.get("value")]
+
+
+def _context_text(context: dict, key: str) -> str:
+    return (context.get(key) or {}).get("text") or ""
+
+
+def _story_values(report, story: dict) -> dict:
+    """The story object's fields, by their names in _STORY_FIELDS."""
+    context = story.get("context") or {}
+    first, last = story["pages"]
+    return {
+        "report_uuid": report.uuid, "story_id": story["id"], "kind": story["kind"],
+        "period": context.get("period"), "section": " › ".join(story.get("path") or []),
+        "pages": str(first) if first == last else f"{first}-{last}",
+        "blocks": f"{story['start']}-{story['end'] - 1}",
+        "threat_type": (context.get("threat_type") or {}).get("value"),
+        **{key: _context_text(context, key) for key in ("affected_assets", "impact", "motivation", "mitigation")},
+        "evidence": json.dumps(context) if context else "",
+    }
+
+
+def _report_story_obj(values: dict):
+    obj = _build_obj(REPORT_STORY_OBJECT)
+    for field in _STORY_FIELDS:
+        _oa(obj, field.replace("_", "-"), values.get(field))
+    return obj
+
+
+def create_report_story(report, story: dict, text: str) -> tuple[str, bool]:
+    """Make the collection event of one story of a report.
+
+    Returns its UUID, and whether it was made now: an event an earlier try
+    made is left as it is. One that cannot be made whole is deleted again.
+    """
+    misp = _misp()
+    uuid = story_event_uuid(report.uuid, story["id"])
+    existing = misp.get_event(uuid, pythonify=True)
+    if not isinstance(existing, dict):
+        return uuid, False
+    if not _is_not_found(existing):
+        _check(existing, "look for the story's event")
+    context = story.get("context") or {}
+    data = {
+        "source": report.collection_source, "title": story["title"], "tlp": report.tlp or "amber",
+        "source_reference": report.source_url, "source_provider": report.provider,
+        "source_reliability": report.source_reliability, "summary": context.get("summary") or "",
+        "description": text,
+        **{key: _context_values(context, key) for key in ("geographic_scope", "sectors", "threat_actors")},
+        "mitre_attack_techniques": _context_values(context, "techniques"),
+    }
+    event = _make_event(story["title"], extra_tags=[f"tlp:{data['tlp']}"])
+    event.uuid = uuid
+    event.extends_uuid = report.uuid
+    if report.published:
+        event.date = report.published
+    created = _check(misp.add_event(event, pythonify=True), "create a story's event")
+    try:
+        # The report's tag before the manual entry's, which is what the
+        # analyser looks for: it must never find a story without it.
+        for tag in (report_tag(report.uuid), f'{REPORT_KIND_TAG_PREFIX}"{story["kind"]}"', provider_tag(report.provider)):
+            _tag_local(misp, created.uuid, tag)
+        _fill_manual_collection_event(misp, created, data, story["title"])
+        _check(misp.add_object(created.uuid, _report_story_obj(_story_values(report, story)), pythonify=True),
+               "add story object")
+    except Exception:
+        _delete_unfinished(misp, created.uuid, "story")
+        raise
+    return uuid, True
+
+
+def report_story_details(event_uuid: str) -> dict:
+    """The fields of a story's object, by their names in _STORY_FIELDS, or {}
+    when the event is no story. For a threat landscape entry made from it."""
+    event = _manual_entry_event(event_uuid)
+    obj = _get_obj(event, REPORT_STORY_OBJECT) if event is not None else None
+    if obj is None:
+        return {}
+    return {field: _obj_attr(obj, field.replace("_", "-")) or "" for field in _STORY_FIELDS}
 
 
 def _join_lines(items):

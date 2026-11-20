@@ -420,6 +420,27 @@ class DraftTrends(unittest.TestCase):
         queue.assert_not_called()
         self.assertEqual([ev["title"] for ev in llm.call_args.args[1]], ["Event e1"])
 
+    def test_a_story_of_a_deleted_threat_report_is_drafted_as_an_event(self):
+        gone = _cached("s1", tags=[misp_store.report_tag("9" * 8 + "-0000-4000-8000-000000000009")])
+        with mock.patch.object(threat_landscape, "_queued_events", return_value=[gone, _cached("e1")]), \
+             mock.patch.object(threat_landscape.misp_store, "list_tlrs", return_value=[]), \
+             mock.patch.object(threat_landscape.misp_store, "list_report_documents", return_value=[]), \
+             mock.patch("analyser.llm.draft_landscape_trends", return_value={"outlook": "x"}) as llm:
+            _client().post("/products/threat-landscape/draft-trends", data={})
+        self.assertEqual([ev["title"] for ev in llm.call_args.args[1]], ["Event s1", "Event e1"])
+        self.assertEqual(llm.call_args.args[2], [])
+
+    def test_the_stories_of_a_threat_report_that_cannot_be_read_are_drafted_as_events(self):
+        report = SimpleNamespace(uuid="9" * 8 + "-0000-4000-8000-000000000009", title="R", provider="P", published="")
+        story = _cached("s1", tags=[misp_store.report_tag(report.uuid)])
+        with mock.patch.object(threat_landscape, "_queued_events", return_value=[story]), \
+             mock.patch.object(threat_landscape.misp_store, "list_tlrs", return_value=[]), \
+             mock.patch.object(threat_landscape.misp_store, "list_report_documents", return_value=[report]), \
+             mock.patch.object(threat_landscape.misp_store, "report_manifest", side_effect=RuntimeError("gone")), \
+             mock.patch("analyser.llm.draft_landscape_trends", return_value={"outlook": "x"}) as llm:
+            _client().post("/products/threat-landscape/draft-trends", data={})
+        self.assertEqual(([ev["title"] for ev in llm.call_args.args[1]], llm.call_args.args[2]), (["Event s1"], []))
+
 
 if __name__ == "__main__":
     unittest.main()

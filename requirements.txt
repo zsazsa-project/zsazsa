@@ -92,6 +92,8 @@ pydyf==0.12.1
     # via weasyprint
 pymisp==2.5.34.4
     # via -r requirements.in
+pymupdf==1.28.2
+    # via -r requirements.in
 pyphen==0.18.1
     # via weasyprint
 python-dateutil==2.9.0.post0

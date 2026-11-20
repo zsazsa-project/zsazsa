@@ -14,6 +14,7 @@
 - A story in the daily briefing form has a "Jump to story in data collection" button.
 - Vulnerability advisories and daily briefings show their source events on their page, and can queue their source articles for the threat landscape.
 - Each feed under "Events per feed" on the Pipeline page opens Data collection filtered on that feed.
+- Data collection can import a threat report from PDF or URL. zsazsa drafts the stories, the AI can name, classify and read them, and an analyst reviews them before each becomes a collection event in the threat landscape queue.
 
 ### Changed
 
@@ -29,6 +30,10 @@
 ### Upgrading
 
 - Flash intel alerts the analyser drafted before this release keep admin@admin.test as their creator, and those it published as their approver. Nothing needs doing; the alerts read and work as before.
+- Importing a threat report needs PyMuPDF, which `pip install -r requirements.txt` installs, and the Docker image has after a rebuild. An imported threat report is a MISP event with the new `zsazsa-report-document` object, and each of its stories has the new `zsazsa-report-story` object; nothing needs doing in MISP, as the templates are read from zsazsa's own copy.
+- The new setting `REPORT_STORY_KINDS` holds the kinds a story of a threat report can be. Nothing needs doing: until Settings is saved, zsazsa uses its built-in five.
+- The new setting `REPORT_IMPORT_MAX_MB`, under Settings > System > Web server, is the largest PDF a threat report can be, 30 MB until it is changed. MISP is sent the PDF base64-encoded, so raise MISP's `post_max_size`, `memory_limit` and its web server's body size with it if needed.
+- Two new prompts, `split_report_stories.md` and `analyse_report_story.md`, are copied into a Docker installation's `docker/volumes/prompts` when it starts. `threat_landscape_trends.md` now also reads the stories of imported threat reports: if you changed it on the Prompts tab, or keep your own copy, as a Docker installation does, take its new version.
 - `product_qa_review.md` tells the model to leave a product's own ID and date alone. If you changed that prompt on the Prompts tab, or keep your own copy, as a Docker installation does in `docker/volumes/prompts`, add that paragraph to it.
 
 ## 1.0.10

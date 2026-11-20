@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{% block title %}Import a threat report | zsazsa CTI{% endblock %}
+{% block page_title %}Import a threat report{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-arrow-left me-1"></i> Back to collection
+</a>
+{% endblock %}
+
+{% block content %}
+{% set steps = [('document', 'Document'), ('source', 'Source')] %}
+{% set reliability_names = {'A': 'Completely', 'B': 'Usually', 'C': 'Fairly', 'D': 'Rarely', 'E': 'Unreliable', 'F': 'Unknown'} %}
+{% set reliability_titles = {'A': 'Completely reliable', 'B': 'Usually reliable', 'C': 'Fairly reliable',
+                             'D': 'Not usually reliable', 'E': 'Unreliable', 'F': 'Reliability cannot be judged'} %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <span class="hero-icon" aria-hidden="true"><i class="fas fa-book-open"></i></span>
+  <div class="hero-main">
+    <p class="lead-text">A threat report, such as a vendor's yearly report, read and split into the stories it tells,
+      for the threat landscape.</p>
+    <nav class="form-steps" aria-label="Sections of the form">
+      {% for key, label in steps %}<a href="#step-{{ key }}">{{ loop.index }} {{ label }}</a>{% endfor %}
+    </nav>
+  </div>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="row g-4" id="report-form" data-unsaved-warning>
+  <div class="col-lg-8">
+    <div class="card content-card form-step mb-4" id="step-document" data-step='input[name="document"], input[name="url"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Document</div>
+      <div class="card-body">
+        <label class="report-drop" id="report-drop" for="report-file">
+          <span class="sheet" aria-hidden="true"><i class="fas fa-file-pdf"></i></span>
+          <span>
+            <b id="report-file-name">Drop the PDF here, or choose a file</b>
+            <span class="hint" id="report-file-hint">A PDF with text, up to {{ max_mb }} MB. A scanned threat report cannot be read.</span>
+          </span>
+          <input type="file" name="document" id="report-file" accept="application/pdf,.pdf">
+        </label>
+
+        <div class="alert alert-warning small mt-3 mb-0" id="report-earlier" role="status" hidden>
+          <i class="fas fa-triangle-exclamation me-1"></i><span id="report-earlier-text"></span>
+        </div>
+
+        <div class="report-or">or from its address</div>
+        <label class="form-label" for="report-url">Address of the PDF</label>
+        <input type="url" name="url" id="report-url" class="form-control font-monospace" placeholder="https://…"
+               value="{{ form.get('url', '') }}">
+        <div class="form-text">The address of the PDF itself. A page that shows the threat report in a viewer is not enough:
+          download the PDF from it and upload that.</div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-md-8">
+            <label class="form-label" for="report-title">Title</label>
+            <input type="text" name="title" id="report-title" class="form-control" maxlength="200"
+                   placeholder="Taken from the PDF" value="{{ form.get('title', '') }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="report-published">Published</label>
+            <input type="date" name="published" id="report-published" class="form-control" value="{{ form.get('published', '') }}">
+          </div>
+        </div>
+        <div class="form-text">Left empty, both are read from the PDF. They can be changed on the import's page.</div>
+      </div>
+    </div>
+
+    <div class="card content-card form-step mb-4" id="step-source" data-step='input[name="source"]'>
+      <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Source</div>
+      <div class="card-body">
+        <span class="form-label d-block required-label">Manual source</span>
+        <div class="product-tiles source-tiles mb-1">
+          {% for s in sources %}
+          <label class="product-tile" for="source-{{ loop.index }}">
+            <span class="tile-icon" aria-hidden="true"><i class="fas fa-inbox fa-fw"></i></span>
+            {{ s.name }}
+            <input class="form-check-input" type="radio" name="source" value="{{ s.name | e }}" id="source-{{ loop.index }}"
+                   data-reliability="{{ s.source_reliability }}" required {{ 'checked' if form.get('source') == s.name }}>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="form-text mb-3">The source the threat report's stories are entered under, as for a manual entry. One source
+          serves every provider.</div>
+
+        <label class="form-label required-label" for="report-provider">Provider</label>
+        <input type="text" name="provider" id="report-provider" class="form-control" maxlength="120" required
+               list="report-providers" placeholder="e.g. Recorded Future, ENISA, CERT-EU" value="{{ form.get('provider', '') }}">
+        <datalist id="report-providers">{% for p in providers %}<option value="{{ p }}">{% endfor %}</datalist>
+        {% if providers %}
+        <div class="provider-picks" aria-label="Providers of earlier threat reports">
+          {% for p in providers %}<button type="button" class="zs-pill provider-pick">{{ p }}</button>{% endfor %}
+        </div>
+        {% endif %}
+        <div class="form-text mb-3">Who published the threat report, kept on it as the tag <code>zsazsa:provider</code>.</div>
+
+        <div class="d-flex align-items-baseline justify-content-between">
+          <span class="form-label">Source reliability</span>
+          <button type="button" class="btn btn-link btn-sm p-0" id="reliability-clear">Not rated</button>
+        </div>
+        <div class="choice-group admiralty mb-1" role="radiogroup" aria-label="Source reliability">
+          {% for v in reliabilities %}
+          <input class="btn-check" type="radio" name="source_reliability" value="{{ v }}" id="reliability-{{ v }}"
+                 {{ 'checked' if form.get('source_reliability') == v }}>
+          <label class="choice" for="reliability-{{ v }}" title="{{ reliability_titles[v] }}"><b>{{ v }}</b><small>{{ reliability_names[v] }}</small></label>
+          {% endfor %}
+        </div>
+        <div class="form-text mt-0">The source's rating to start with. Rate the provider here when it differs: an agency
+          and a vendor are not always rated alike.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    {% if job %}
+    <div class="card content-card mb-4" id="import-progress" data-job="{{ job.id }}"
+         data-status-url="{{ url_for('dashboard.pipeline_job_status', job_id=job.id) }}"
+         data-record-url="{{ url_for('report_import.detail', uuid='UUID') }}">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-gears me-2"></i>Importing</span>
+        <span class="text-muted small font-monospace">job {{ job.id[:8] }}</span>
+      </div>
+      <div class="card-body">
+        <ol class="import-steps" id="import-steps">
+          {% for step in job.steps %}
+          <li class="{{ step.state }}" data-step="{{ step.id }}">
+            <span class="tick" aria-hidden="true"></span>
+            <div><span class="label">{{ step.label }}</span><small>{{ (job.notes or {}).get(step.id, '') }}</small></div>
+          </li>
+          {% endfor %}
+        </ol>
+        <div class="form-text text-danger" id="import-message" role="status">{{ job.error or '' }}</div>
+        <div class="form-text mt-1" id="import-leave"{{ " hidden" if job.status == "failed" }}>You can leave this page: the import goes on, under Background jobs.
+          It opens on the import's page when it is done.</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card content-card form-save mb-4">
+      <div class="card-header">Ready to import</div>
+      <div class="card-body d-flex flex-column gap-3">
+        <dl class="form-facts">
+          <dt>Document</dt><dd id="document-summary" class="text-muted">None chosen yet</dd>
+          <dt>Source</dt><dd data-preview-choice="source" data-required data-empty="None picked yet"></dd>
+          <dt>Provider</dt><dd data-preview-text="provider" data-required data-empty="Not named yet"></dd>
+          <dt>TLP</dt><dd data-preview-choice="tlp"></dd>
+        </dl>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" name="with_ai" value="1" id="with-ai"
+                 {{ 'checked' if not form or form.get('with_ai') }}>
+          <label class="form-check-label small fw-semibold" for="with-ai">Have the AI name, classify and read the stories</label>
+          <div class="form-text mt-0">About one model call per story. Left off, or stopped, it is continued from the threat report's page.</div>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1" id="import-btn"><i class="fas fa-file-import me-1"></i> Import and draft stories</button>
+          <a href="{{ url_for('data_collection.index') }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+        <div class="form-text mt-0">The PDF is kept with the import in MISP. The same file imported again opens the import it already has.</div>
+      </div>
+    </div>
+
+    <div class="d-flex flex-column gap-4">
+      <div class="card content-card">
+        <div class="card-header"><i class="fas fa-sliders me-2"></i>Classification</div>
+        <div class="card-body">
+          <span class="form-label d-block">TLP</span>
+          <div class="choice-group" role="radiogroup" aria-label="TLP">
+            {% set chosen = form.get('tlp', 'document') %}
+            <input class="btn-check" type="radio" name="tlp" value="document" id="tlp-document" {{ 'checked' if chosen == 'document' }}>
+            <label class="choice" for="tlp-document"><span class="badge text-bg-light border">As marked</span></label>
+            {% for t in tlp_levels %}
+            <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="tlp-{{ loop.index }}" {{ 'checked' if chosen == t }}>
+            <label class="choice" for="tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
+            {% endfor %}
+          </div>
+          <div class="form-text">"As marked" takes the TLP printed in the threat report's headers, footers or cover, and TLP:AMBER when it has none.</div>
+        </div>
+      </div>
+
+      <div class="card content-card">
+        <div class="card-header"><i class="fas fa-route me-2"></i>What happens next</div>
+        <div class="card-body">
+          <ol class="pipeline">
+            <li class="here"><span class="dot" aria-hidden="true"><i class="fas fa-file-pdf"></i></span><div><b>Read</b><span>The text, page by page, without running headers and footers.</span></div></li>
+            <li><span class="dot" aria-hidden="true"><i class="fas fa-scissors"></i></span><div><b>Draft</b><span>The stories, from the threat report's outline, else its headings.</span></div></li>
+            <li><span class="dot" aria-hidden="true"><i class="fas fa-database"></i></span><div><b>MISP</b><span>The threat report, its PDF and its drafts, as one record.</span></div></li>
+            <li><span class="dot" aria-hidden="true"><i class="fas fa-wand-magic-sparkles"></i></span><div><b>AI</b><span>Each story named, classified and read for its context.</span></div></li>
+            <li><span class="dot" aria-hidden="true"><i class="fas fa-list-check"></i></span><div><b>Review</b><span>You move where stories start and correct what the AI proposed.</span></div></li>
+            <li><span class="dot" aria-hidden="true"><i class="fas fa-map"></i></span><div><b>Threat landscape</b><span>Each story a collection event, in the queue.</span></div></li>
+          </ol>
+        </div>
+      </div>
+
+      {% if reports %}
+      <div class="card content-card">
+        <div class="card-header d-flex justify-content-between"><span><i class="fas fa-book me-2"></i>Imported threat reports</span>
+          <a class="small" href="{{ url_for('report_import.index') }}">All {{ report_count }}</a></div>
+        <div class="list-group list-group-flush">
+          {% for r in reports %}
+          <a class="list-group-item list-group-item-action py-2" href="{{ url_for('report_import.detail', uuid=r.uuid) }}">
+            <div class="fw-semibold small text-truncate">{{ r.title }}</div>
+            <div class="text-muted" style="font-size:.72rem;">{{ r.provider }}{% if r.published %} · {{ r.published }}{% endif %} · {{ r.stories }} stor{{ 'y' if r.stories == 1 else 'ies' }}</div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="report-known">{{ known | tojson }}</script>
+{% include "_form_steps_js.html" %}
+{% include "requirements/_form_preview_js.html" %}
+<script>
+/* The chosen PDF on the stack of pages and in "Ready to import", a file
+   dropped on it, and a link given instead of a file. */
+(function() {
+  var drop = document.getElementById('report-drop');
+  var input = document.getElementById('report-file');
+  var url = document.getElementById('report-url');
+  var name = document.getElementById('report-file-name');
+  var hint = document.getElementById('report-file-hint');
+  var summary = document.getElementById('document-summary');
+  var blankName = name.textContent, blankHint = hint.textContent;
+  var limit = {{ max_mb }} * 1024 * 1024;
+
+  function show() {
+    var file = input.files[0];
+    drop.classList.toggle('has-file', !!file);
+    name.textContent = file ? file.name : blankName;
+    hint.textContent = file ? (file.size / 1024 / 1024).toFixed(1) + ' MB'
+      + (file.size > limit ? ', over the limit of {{ max_mb }} MB' : '') : blankHint;
+    hint.classList.toggle('text-danger', !!file && file.size > limit);
+    var link = url.value.trim();
+    summary.textContent = file ? file.name : link || 'None chosen yet';
+    summary.classList.toggle('text-muted', !file && !link);
+    summary.classList.toggle('font-monospace', !file && !!link);
+  }
+  input.addEventListener('change', function() { if (input.files.length) url.value = ''; show(); });
+  url.addEventListener('input', function() {
+    if (url.value.trim() && input.files.length) { input.value = ''; }
+    show();
+  });
+  ['dragenter', 'dragover'].forEach(function(type) {
+    drop.addEventListener(type, function(ev) { ev.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function(type) {
+    drop.addEventListener(type, function() { drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function(ev) {
+    ev.preventDefault();
+    if (!ev.dataTransfer.files.length) return;
+    input.files = ev.dataTransfer.files;
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  show();
+})();
+
+/* A threat report imported before, said so before it is sent: the same file,
+   by its SHA-256, opens the import it has; one from the same provider with the
+   same title or file name may be a new version, or the same one again. */
+(function() {
+  var known = JSON.parse(document.getElementById('report-known').textContent);
+  var input = document.getElementById('report-file'), url = document.getElementById('report-url');
+  var provider = document.getElementById('report-provider'), title = document.getElementById('report-title');
+  var box = document.getElementById('report-earlier'), text = document.getElementById('report-earlier-text');
+  var hash = '';
+  function norm(value) { return (value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+  // The file name as the import stores it (core.report_document.pdf_filename).
+  function fileName() {
+    var raw = '';
+    if (input.files.length) raw = input.files[0].name;
+    else try { raw = decodeURIComponent(new URL(url.value.trim()).pathname.split('/').pop() || ''); } catch (e) { raw = ''; }
+    var name = raw.replace(/[^\p{L}\p{N}_.\-]+/gu, '_').replace(/^[._]+|[._]+$/g, '');
+    return !name ? '' : /\.pdf$/i.test(name) ? name : name + '.pdf';
+  }
+  function link(r) {
+    var a = document.createElement('a');
+    a.href = r.url;
+    a.textContent = r.title;
+    return a;
+  }
+  function show(lead, found, tail) {
+    text.replaceChildren(document.createTextNode(lead));
+    found.forEach(function(r, n) {
+      if (n) text.appendChild(document.createTextNode(', '));
+      text.appendChild(link(r));
+      text.appendChild(document.createTextNode(' (' + r.provider + (r.published ? ', ' + r.published : '') + ')'));
+    });
+    text.appendChild(document.createTextNode(tail));
+    box.hidden = false;
+  }
+  function check() {
+    var same = hash ? known.filter(function(r) { return r.sha256 === hash; }) : [];
+    if (same.length) {
+      show('This PDF was imported before: ', same, '. Importing it again opens that import; nothing is read or analysed again.');
+      return;
+    }
+    var name = fileName(), who = norm(provider.value), what = norm(title.value);
+    var alike = who ? known.filter(function(r) {
+      return norm(r.provider) === who && ((what && norm(r.title) === what) || (name && r.filename === name));
+    }) : [];
+    if (alike.length) {
+      show('A threat report like this one was imported before: ', alike,
+           '. Import it again only if it is a new version, or its stories are made twice.');
+      return;
+    }
+    box.hidden = true;
+  }
+  input.addEventListener('change', function() {
+    hash = '';
+    check();
+    var file = input.files[0];
+    // The browser hashes only on HTTPS; without it the server still opens the earlier import.
+    if (!file || !window.crypto || !crypto.subtle) return;
+    file.arrayBuffer().then(function(data) { return crypto.subtle.digest('SHA-256', data); }).then(function(digest) {
+      // A file picked since has its own hash on the way.
+      if (input.files[0] !== file) return;
+      hash = Array.from(new Uint8Array(digest)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      check();
+    }).catch(function() {});
+  });
+  // A provider picked with one click comes in as input too.
+  [url, provider, title].forEach(function(field) { field.addEventListener('input', check); });
+})();
+
+/* A provider used before, picked with one click; and the reliability of the
+   source picked, ticked to start with. */
+(function() {
+  var provider = document.getElementById('report-provider');
+  document.querySelectorAll('.provider-pick').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      provider.value = btn.textContent;
+      provider.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+  });
+  function rate(value) {
+    document.querySelectorAll('input[name="source_reliability"]').forEach(function(box) { box.checked = box.value === value; });
+  }
+  document.querySelectorAll('input[name="source"]').forEach(function(box) {
+    box.addEventListener('change', function() { rate(box.dataset.reliability || ''); });
+  });
+  document.getElementById('reliability-clear').addEventListener('click', function() { rate(''); });
+})();
+
+/* The import's steps as the job runs, and its page once it is done. */
+(function() {
+  var panel = document.getElementById('import-progress');
+  if (!panel) return;
+  var message = document.getElementById('import-message');
+  var leave = document.getElementById('import-leave');
+  var timer;
+  function paint(job) {
+    (job.steps || []).forEach(function(step) {
+      var row = panel.querySelector('li[data-step="' + step.id + '"]');
+      if (!row) return;
+      row.className = step.state;
+      row.querySelector('small').textContent = (job.notes || {})[step.id] || '';
+    });
+    // The step running is the message while it runs; only a failure has more to say.
+    message.textContent = job.error || '';
+    if (job.status === 'failed') leave.hidden = true;
+    if (job.status === 'completed' && job.result && job.result.uuid) {
+      clearInterval(timer);
+      window.location = panel.dataset.recordUrl.replace('UUID', encodeURIComponent(job.result.uuid))
+        + (job.result.earlier ? '?earlier=1' : '');
+    }
+    if (job.status === 'failed') {
+      clearInterval(timer);
+      // Stopped by the AI: the threat report itself is saved, and opens to go on.
+      if (job.result && job.result.uuid && !document.getElementById('import-open')) {
+        var open = document.createElement('a');
+        open.id = 'import-open';
+        open.className = 'btn btn-sm btn-outline-primary mt-2';
+        open.href = panel.dataset.recordUrl.replace('UUID', encodeURIComponent(job.result.uuid));
+        open.textContent = 'Open the threat report';
+        message.after(open);
+      }
+    }
+  }
+  function poll() {
+    fetch(panel.dataset.statusUrl, {headers: {'Accept': 'application/json'}})
+      .then(zsazsaReadJson)
+      .then(function(data) { if (data.ok) paint(data.job); })
+      .catch(function(err) { message.textContent = 'Could not read the import\'s progress: ' + zsazsaErrorText(err); });
+  }
+  timer = setInterval(poll, 1200);
+  poll();
+})();
+</script>
+{% endblock %}

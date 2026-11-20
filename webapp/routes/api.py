@@ -4,7 +4,6 @@ All endpoints require the CSRF token (POST methods are covered by the global
 before_request hook). Results are returned as JSON.
 """
 
-import ipaddress
 import logging
 import re
 import threading
@@ -13,7 +12,7 @@ import config
 from flask import Blueprint, jsonify, url_for
 
 from analyser.products.flash_intel import parse_fia_draft
-from core.net_safety import resolve_public_url
+from core.net_safety import pinned_curl_options, resolve_public_url
 from core.rulezet_lookup import (enabled as rulezet_enabled, get_rule, search_rules_by_attack,
                                  search_rules_by_cve, validate_rule)
 from core.vuln_lookup import CVE_RE, fetch_cve_info
@@ -739,20 +738,12 @@ def fetch_url():
         }), 400
     host, port, ips = resolved
     try:
-        from curl_cffi import CurlOpt
         from curl_cffi import requests as cf_requests
         from bs4 import BeautifulSoup
         from markdownify import markdownify as md
 
-        # Pin the connection to the addresses just validated, so the client's own
-        # DNS resolution cannot rebind the host to an internal address between the
-        # check above and the fetch (CWE-367). An IP-literal host has no name to
-        # rebind, so it is fetched as-is.
-        try:
-            ipaddress.ip_address(host)
-            pinned = {}
-        except ValueError:
-            pinned = {CurlOpt.RESOLVE: [f"{host}:{port}:{','.join(ips)}"]}
+        # Pinned to the addresses just validated (CWE-367).
+        pinned = pinned_curl_options(host, port, ips)
         # allow_redirects=False so a public URL cannot 30x-redirect the fetch
         # to an internal target that bypasses the pre-fetch validation above.
         with cf_requests.Session(curl_options=pinned) as session:
