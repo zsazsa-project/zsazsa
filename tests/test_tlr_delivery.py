@@ -32,7 +32,8 @@ def _report(**fields):
     data.update(uuid=UUID, tlr_id="TLR-00009", title="Q3 landscape", reporting_period="2026 Q3", tlp="red",
                 author="CTI", audience="SOC", top_threats="**Ransomware** first", trending_actors="",
                 key_incidents="", recommendations="", outlook="", threat_sections=[], review_log=[], corrections=[], entries=[],
-                review_state="published", creator="", approved_by="", created_at=None, misp_url="")
+                review_state="published", creator="", approved_by="", created_at=None, misp_url="",
+                executive_summary="", key_judgements=[], ai_drafted=[], threat_ranking=[], hidden_figures=[])
     data.update(fields)
     return SimpleNamespace(**data)
 
@@ -46,6 +47,8 @@ class Pdf(unittest.TestCase):
             mock.patch.object(config, "LOG_FILE", str(Path(tmp.name) / "test.log"), create=True),
             mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch.object(collection_cache, "start_worker"),
+            mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
+            mock.patch.object(misp_store, "list_tlrs", return_value=[]),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -94,6 +97,8 @@ class Delivery(unittest.TestCase):
                         SimpleNamespace(uuid="s2", role="SOC", tlp_clearance="amber", products=product),
                         SimpleNamespace(uuid="s3", role="SOC", tlp_clearance="red", products=[])]
         with mock.patch.object(misp_store, "get_tlr", return_value=report), \
+             mock.patch.object(misp_store, "list_tlrs", return_value=[report]), \
+             mock.patch.object(misp_store, "list_collection_sources", return_value=[]), \
              mock.patch.object(misp_store, "list_stakeholders", return_value=stakeholders), \
              mock.patch.object(dispatcher, "send_threat_landscape_report", return_value={}) as send, \
              mock.patch.object(dispatcher, "delivery_outcome", return_value=(True, "sent")):

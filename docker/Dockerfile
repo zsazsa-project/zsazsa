@@ -18,7 +18,7 @@ WORKDIR /app
 # than leaving PDF export broken until someone exports a product.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -c "import weasyprint"
+    && python -c "import weasyprint, pymupdf"
 
 RUN useradd --create-home --uid 1000 --user-group zsazsa
 

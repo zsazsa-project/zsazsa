@@ -231,6 +231,25 @@
 </div>
 {% endmacro %}
 
+{# One row of a list of names with what each means, laid out as a product
+   type's: its icon, the name and the meaning, and Remove, in one input group.
+   A story kind also says whether select all ticks it. #}
+{% macro named_row(icon, what, name='', description='', ticked=none, rows=2) %}
+<div class="col-12 named-row">
+  <div class="input-group input-group-sm">
+    <span class="input-group-text"><i class="fas fa-{{ icon }} fa-fw text-muted me-1"></i></span>
+    <input type="text" class="form-control named-name" value="{{ name }}" aria-label="{{ what }}">
+    <textarea class="form-control named-desc" rows="{{ rows }}" aria-label="What it means" placeholder="What it means">{{ description }}</textarea>
+    {% if ticked is not none %}
+    <label class="input-group-text gap-2" title="Whether select all ticks a story of this kind in the threat landscape queue">
+      <input class="form-check-input mt-0 named-ticked" type="checkbox" aria-label="Ticked by select all" {{ 'checked' if ticked }}><span class="d-none d-sm-inline">Select all</span>
+    </label>
+    {% endif %}
+    <button type="button" class="btn btn-outline-secondary named-remove" aria-label="Remove {{ name }}" title="Remove"><i class="fas fa-xmark"></i></button>
+  </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 {% if key_shortcomings %}
 <div class="alert alert-warning small" id="key-shortcomings" role="alert">
@@ -441,6 +460,8 @@
             <a href="#products-focus"><i class="fas fa-bullseye"></i>Focus points</a>
             <a href="#products-exclusions"><i class="fas fa-filter"></i>Title exclusions</a>
             <a href="#products-actor-types"><i class="fas fa-user-secret"></i>Threat actor types</a>
+            <a href="#products-story-kinds"><i class="fas fa-book-open"></i>Threat report story kinds</a>
+            <a href="#products-threat-types"><i class="fas fa-biohazard"></i>Threat landscape threat types</a>
           </nav>
         </div>
         <div class="col-lg-9">
@@ -476,50 +497,6 @@
               </div>
               {# What is saved, as before: one product type per line. #}
               <textarea name="PRODUCT_TYPES" id="product_types" class="d-none" aria-hidden="true" tabindex="-1">{{ cfg.PRODUCT_TYPES | join('\n') }}</textarea>
-              <script>
-                // The list above is what the analyst edits; the field it fills is what is saved.
-                (function() {
-                  var list = document.getElementById('product-type-list');
-                  var saved = document.getElementById('product_types');
-                  var added = document.getElementById('product-type-new');
-                  function sync() {
-                    var names = [];
-                    list.querySelectorAll('.product-type-name').forEach(function(input) {
-                      var name = input.value.trim();
-                      if (name && names.indexOf(name) === -1) names.push(name);
-                    });
-                    saved.value = names.join('\n');
-                    // A type added or removed is a change too: the Save button
-                    // and the warning on leaving go by these events.
-                    saved.dispatchEvent(new Event('change', {bubbles: true}));
-                  }
-                  function add() {
-                    var name = added.value.trim();
-                    if (!name) return;
-                    var row = document.getElementById('product-type-row').content.firstElementChild.cloneNode(true);
-                    row.querySelector('.product-type-name').value = name;
-                    row.querySelector('.product-type-remove').setAttribute('aria-label', 'Remove ' + name);
-                    list.appendChild(row);
-                    added.value = '';
-                    sync();
-                  }
-                  list.addEventListener('input', sync);
-                  list.addEventListener('click', function(e) {
-                    var remove = e.target.closest('.product-type-remove');
-                    if (!remove) return;
-                    var row = remove.closest('.product-type-row');
-                    var name = row.querySelector('.product-type-name').value.trim();
-                    if (name && !window.confirm('Remove the product type "' + name + '"? It goes once you save.')) return;
-                    row.remove();
-                    sync();
-                  });
-                  document.getElementById('product-type-add').addEventListener('click', add);
-                  added.addEventListener('keydown', function(e) {
-                    // Enter adds the type rather than saving the whole page.
-                    if (e.key === 'Enter') { e.preventDefault(); add(); }
-                  });
-                })();
-              </script>
             </div>
           </div>
 
@@ -592,28 +569,74 @@
           </div>
 
           <div class="card content-card mb-4" id="products-actor-types">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <span><i class="fas fa-user-secret me-2"></i>Threat actor types</span>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="add-tat-btn">
-                <i class="fas fa-plus me-1"></i>Add type
-              </button>
-            </div>
-            <div class="card-body p-0">
+            <div class="card-header"><i class="fas fa-user-secret me-2"></i>Threat actor types</div>
+            <div class="card-body">
+              <p class="small mb-3">Threat actor taxonomy based on ENISA categories. Add your own types as needed.
+                Available to all CTI products: daily briefing, flash intel, vulnerability advisory.</p>
+              <div class="row g-2" id="tat-list">
+                {% for t in cfg.THREAT_ACTOR_TYPES %}{{ named_row('user-secret', 'Threat actor type', t.name, t.description, rows=3) }}{% endfor %}
+              </div>
+              <template id="tat-row">{{ named_row('user-secret', 'Threat actor type', rows=3) }}</template>
+              <div class="input-group input-group-sm mt-3" style="max-width: 28rem;">
+                <input type="text" class="form-control" id="tat-new" placeholder="A new threat actor type" aria-label="A new threat actor type">
+                <button type="button" class="btn btn-outline-primary" id="tat-add"><i class="fas fa-plus me-1"></i>Add</button>
+              </div>
               <input type="hidden" name="THREAT_ACTOR_TYPES" id="tat-json">
-              <table class="table mb-0" id="tat-table">
-                <thead class="table-light">
-                  <tr>
-                    <th style="width:22%;padding:.5rem .75rem;">Name</th>
-                    <th style="padding:.5rem .75rem;">Description</th>
-                    <th style="width:2.5rem;"></th>
-                  </tr>
-                </thead>
-                <tbody id="tat-tbody"></tbody>
-              </table>
             </div>
-            <div class="card-footer text-muted small">
-              Threat actor taxonomy based on ENISA categories. Add your own types as needed.
-              Available to all CTI products: daily briefing, flash intel, vulnerability advisory.
+          </div>
+
+          <div class="card content-card mb-4" id="products-story-kinds">
+            <div class="card-header"><i class="fas fa-book-open me-2"></i>Threat report story kinds</div>
+            <div class="card-body">
+              <p class="small mb-3">The kinds a story of an imported threat report can be. The AI is given each name
+                with what it means, and the review shows what it means under the story's kind. A kind left unticked
+                under "Select all" is still made into an event and queued, for an analyst to tick by hand. "Left out",
+                for what is not made into an event at all, is always there besides these. A name is kept in lower case
+                with hyphens; a story keeps a kind removed here.</p>
+              <div class="row g-2" id="kind-list">
+                {% for k in cfg.REPORT_STORY_KINDS %}{{ named_row('bookmark', 'Story kind', k.name, k.description, k.ticked) }}{% endfor %}
+              </div>
+              <template id="kind-row">{{ named_row('bookmark', 'Story kind', ticked=true) }}</template>
+              <div class="input-group input-group-sm mt-3" style="max-width: 28rem;">
+                <input type="text" class="form-control" id="kind-new" placeholder="A new story kind" aria-label="A new story kind">
+                <button type="button" class="btn btn-outline-primary" id="kind-add"><i class="fas fa-plus me-1"></i>Add</button>
+              </div>
+              <input type="hidden" name="REPORT_STORY_KINDS" id="kind-json">
+            </div>
+          </div>
+
+          <div class="card content-card mb-4" id="products-threat-types">
+            <div class="card-header"><i class="fas fa-biohazard me-2"></i>Threat landscape threat types</div>
+            <div class="card-body">
+              <p class="small mb-3">What a threat landscape report's entries and sections, and the stories of an imported
+                threat report, are classified by. The AI picks from these too. They start from the prime threats of the
+                ENISA Threat Landscape and vulnerability exploitation; with none left here, those come back. An entry or section keeps a type
+                removed here, but it can no longer be picked.</p>
+              <div class="row g-2" id="threat-type-list">
+                {% for t in cfg.THREAT_LANDSCAPE_THREAT_TYPES %}
+                <div class="col-md-6 threat-type-row">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="fas fa-biohazard fa-fw text-muted"></i></span>
+                    <input type="text" class="form-control threat-type-name" value="{{ t }}" aria-label="Threat type">
+                    <button type="button" class="btn btn-outline-secondary threat-type-remove" aria-label="Remove {{ t }}" title="Remove"><i class="fas fa-xmark"></i></button>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              <template id="threat-type-row">
+                <div class="col-md-6 threat-type-row">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="fas fa-biohazard fa-fw text-muted"></i></span>
+                    <input type="text" class="form-control threat-type-name" aria-label="Threat type">
+                    <button type="button" class="btn btn-outline-secondary threat-type-remove" aria-label="Remove" title="Remove"><i class="fas fa-xmark"></i></button>
+                  </div>
+                </div>
+              </template>
+              <div class="input-group input-group-sm mt-3" style="max-width: 28rem;">
+                <input type="text" class="form-control" id="threat-type-new" placeholder="A new threat type" aria-label="A new threat type">
+                <button type="button" class="btn btn-outline-primary" id="threat-type-add"><i class="fas fa-plus me-1"></i>Add</button>
+              </div>
+              <textarea name="THREAT_LANDSCAPE_THREAT_TYPES" id="threat_landscape_threat_types" class="d-none" aria-hidden="true" tabindex="-1">{{ cfg.THREAT_LANDSCAPE_THREAT_TYPES | join('\n') }}</textarea>
             </div>
           </div>
 
@@ -1002,6 +1025,18 @@
                          min="1" max="65535">
                   <div class="form-text">TCP port the application listens on.</div>
                 </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label" for="report-import-max-mb">Largest threat report PDF (MB)</label>
+                <input type="number" name="REPORT_IMPORT_MAX_MB" id="report-import-max-mb" class="form-control"
+                       style="max-width:8rem;" value="{{ cfg.REPORT_IMPORT_MAX_MB }}" min="1" max="200">
+                <div class="form-text">The largest PDF Data collection imports as a threat report, uploaded or
+                  downloaded, from 1 to 200 MB. zsazsa stores the PDF in MISP, base64-encoded, so MISP's own limits
+                  must allow a request a third larger: PHP's <code>post_max_size</code> and <code>memory_limit</code>,
+                  and the body size of MISP's web server (<code>client_max_body_size</code> in nginx), which an upload
+                  to zsazsa under MISP's address passes through too. A vendor's yearly report is usually 3 to
+                  16 MB.</div>
               </div>
 
               <hr>
@@ -3457,94 +3492,118 @@
   }
 })();
 
-/* ── Threat actor types dynamic table ─────────────────────────────── */
-(function() {
-  var initialData = {{ cfg.THREAT_ACTOR_TYPES | tojson }};
-  var tbody = document.getElementById('tat-tbody');
-  var jsonInput = document.getElementById('tat-json');
-  var addBtn = document.getElementById('add-tat-btn');
-  if (!tbody || !jsonInput) return;
-
-  function syncJson() {
-    var types = [];
-    tbody.querySelectorAll('tr').forEach(function(row) {
-      var nameEl = row.querySelector('.tat-name');
-      var descEl = row.querySelector('.tat-desc');
-      var name = (nameEl ? nameEl.value : '').trim();
-      var desc = (descEl ? descEl.value : '').trim();
-      if (name || desc) types.push({name: name, description: desc});
+/* ── Product types and threat types ────────────────────────────────── */
+// The list of names is what the analyst edits; the hidden field it fills,
+// one name per line, is what is saved.
+function plainList(prefix, savedId, what) {
+  var list = document.getElementById(prefix + '-list');
+  var saved = document.getElementById(savedId);
+  var added = document.getElementById(prefix + '-new');
+  if (!list || !saved) return;
+  function sync() {
+    var names = [];
+    list.querySelectorAll('.' + prefix + '-name').forEach(function(input) {
+      var name = input.value.trim();
+      if (name && names.indexOf(name) === -1) names.push(name);
     });
-    jsonInput.value = JSON.stringify(types);
+    saved.value = names.join('\n');
+    // A name added or removed is a change too: the Save button and the
+    // warning on leaving go by these events.
+    saved.dispatchEvent(new Event('change', {bubbles: true}));
   }
-
-  function makeRow(name, desc) {
-    var tr = document.createElement('tr');
-
-    var tdName = document.createElement('td');
-    tdName.style.verticalAlign = 'top';
-    tdName.style.padding = '.4rem .75rem';
-    var nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.className = 'form-control form-control-sm tat-name';
-    nameInput.value = name;
-    nameInput.placeholder = 'Type name';
-    nameInput.addEventListener('input', syncJson);
-    tdName.appendChild(nameInput);
-
-    var tdDesc = document.createElement('td');
-    tdDesc.style.padding = '.4rem .5rem .4rem .75rem';
-    var descArea = document.createElement('textarea');
-    descArea.className = 'form-control form-control-sm tat-desc';
-    descArea.rows = 3;
-    descArea.placeholder = 'Description';
-    descArea.style.resize = 'vertical';
-    descArea.textContent = desc;
-    descArea.addEventListener('input', syncJson);
-    tdDesc.appendChild(descArea);
-
-    var tdDel = document.createElement('td');
-    tdDel.style.verticalAlign = 'top';
-    tdDel.style.padding = '.4rem .5rem';
-    var delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'btn btn-xs btn-outline-danger';
-    delBtn.title = 'Remove this type';
-    delBtn.innerHTML = '<i class="fas fa-xmark"></i>';
-    delBtn.addEventListener('click', function() {
-      var typeName = nameInput.value.trim();
-      if (typeName && !window.confirm('Remove the threat actor type "' + typeName + '"? It goes once you save.')) return;
-      tr.remove();
-      syncJson();
-      // Removing a row is a change too: the Save button and the warning on
-      // leaving go by these events.
-      jsonInput.dispatchEvent(new Event('change', {bubbles: true}));
-    });
-    tdDel.appendChild(delBtn);
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdDesc);
-    tr.appendChild(tdDel);
-    return tr;
+  function add() {
+    var name = added.value.trim();
+    if (!name) return;
+    var row = document.getElementById(prefix + '-row').content.firstElementChild.cloneNode(true);
+    row.querySelector('.' + prefix + '-name').value = name;
+    row.querySelector('.' + prefix + '-remove').setAttribute('aria-label', 'Remove ' + name);
+    list.appendChild(row);
+    added.value = '';
+    sync();
   }
-
-  (initialData || []).forEach(function(t) {
-    tbody.appendChild(makeRow(t.name || '', t.description || ''));
+  list.addEventListener('input', sync);
+  list.addEventListener('click', function(e) {
+    var remove = e.target.closest('.' + prefix + '-remove');
+    if (!remove) return;
+    var row = remove.closest('.' + prefix + '-row');
+    var name = row.querySelector('.' + prefix + '-name').value.trim();
+    if (name && !window.confirm('Remove the ' + what + ' "' + name + '"? It goes once you save.')) return;
+    row.remove();
+    sync();
   });
-  syncJson();
+  document.getElementById(prefix + '-add').addEventListener('click', add);
+  added.addEventListener('keydown', function(e) {
+    // Enter adds the name rather than saving the whole page.
+    if (e.key === 'Enter') { e.preventDefault(); add(); }
+  });
+}
+plainList('product-type', 'product_types', 'product type');
+plainList('threat-type', 'threat_landscape_threat_types', 'threat type');
 
-  if (addBtn) {
-    addBtn.addEventListener('click', function() {
-      var row = makeRow('', '');
-      tbody.appendChild(row);
-      row.querySelector('.tat-name').focus();
-      syncJson();
+/* ── Threat actor types and story kinds ────────────────────────────── */
+// Each list is edited as the product types are; the hidden field it fills
+// with JSON is what is saved. A row without a name or meaning is not saved.
+function namedList(prefix, what) {
+  var list = document.getElementById(prefix + '-list');
+  var saved = document.getElementById(prefix + '-json');
+  var added = document.getElementById(prefix + '-new');
+  if (!list || !saved) return;
+  function write() {
+    var items = [];
+    list.querySelectorAll('.named-row').forEach(function(row) {
+      var item = {name: row.querySelector('.named-name').value.trim(),
+                  description: row.querySelector('.named-desc').value.trim()};
+      var tick = row.querySelector('.named-ticked');
+      if (tick) item.ticked = tick.checked;
+      if (item.name || item.description) items.push(item);
     });
+    saved.value = JSON.stringify(items);
   }
-
-  /* Sync before the enclosing form submits */
-  var form = tbody.closest('form');
-  if (form) form.addEventListener('submit', syncJson);
-})();
+  function sync() {
+    write();
+    // A row added or removed is a change too: the Save button and the
+    // warning on leaving go by these events.
+    saved.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  function add() {
+    var name = added.value.trim();
+    if (!name) return;
+    var row = document.getElementById(prefix + '-row').content.firstElementChild.cloneNode(true);
+    row.querySelector('.named-name').value = name;
+    row.querySelector('.named-remove').setAttribute('aria-label', 'Remove ' + name);
+    list.appendChild(row);
+    added.value = '';
+    sync();
+    row.querySelector('.named-desc').focus();
+  }
+  list.addEventListener('input', function(e) {
+    if (e.target.classList.contains('named-name')) {
+      e.target.closest('.named-row').querySelector('.named-remove')
+        .setAttribute('aria-label', 'Remove ' + e.target.value.trim());
+    }
+    sync();
+  });
+  list.addEventListener('change', sync);
+  list.addEventListener('click', function(e) {
+    var remove = e.target.closest('.named-remove');
+    if (!remove) return;
+    var row = remove.closest('.named-row');
+    var name = row.querySelector('.named-name').value.trim();
+    if (name && !window.confirm('Remove the ' + what + ' "' + name + '"? It goes once you save.')) return;
+    row.remove();
+    sync();
+  });
+  document.getElementById(prefix + '-add').addEventListener('click', add);
+  added.addEventListener('keydown', function(e) {
+    // Enter adds the row rather than saving the whole page.
+    if (e.key === 'Enter') { e.preventDefault(); add(); }
+  });
+  write();
+  var form = list.closest('form');
+  if (form) form.addEventListener('submit', write);
+}
+namedList('tat', 'threat actor type');
+namedList('kind', 'story kind');
 
 /* ── Migration runner ─────────────────────────────────────────────── */
 (function() {

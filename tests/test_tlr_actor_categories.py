@@ -25,7 +25,8 @@ def _report(**fields):
         key_incidents="", recommendations="", outlook="",
         actors_nation_state="", actors_cybercrime="", actors_hacker_for_hire="",
         actors_hacktivists="", purpose="", audience_level="", period_start="", period_end="", methodology="",
-        scope_sectors=[], scope_geography=[], linked_pir_uuids=[], threat_sections=[], review_log=[], corrections=[], entries=[])
+        scope_sectors=[], scope_geography=[], linked_pir_uuids=[], threat_sections=[], review_log=[], corrections=[], entries=[],
+        executive_summary="", key_judgements=[], ai_drafted=[], threat_ranking=[], hidden_figures=[])
     base.update(fields)
     return SimpleNamespace(**base)
 

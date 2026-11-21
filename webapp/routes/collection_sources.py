@@ -115,6 +115,7 @@ def edit(id):
         "location": source.location,
         "description": source.description,
         "source_reliability": source.source_reliability,
+        "internal": source.internal,
     }
     return render_template("collection_sources/form.html", source=source, data=data,
                            admiralty_options=ADMIRALTY_OPTIONS)
@@ -186,6 +187,7 @@ def _form_data(form):
         "location": form.get("location", "").strip(),
         "description": form.get("description", "").strip(),
         "source_reliability": reliability if reliability in _VALID_RELIABILITY else "",
+        "internal": form.get("internal") == "on",
     }
     # The inline edit form carries the enabled switch; the new-source form does not.
     if form.get("enabled_field"):

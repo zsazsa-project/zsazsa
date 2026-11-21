@@ -1,0 +1,99 @@
+{
+  "name": "zsazsa-report-document",
+  "meta-category": "intelligence",
+  "description": "A long CTI report imported into the zsazsa CTI program to be split into threat landscape stories",
+  "uuid": "5b309d33-3648-4498-877b-a48327e8a8b7",
+  "version": 1,
+  "attributes": {
+    "title": {
+      "misp-attribute": "text",
+      "ui-priority": 0,
+      "description": "Title of the report",
+      "disable_correlation": true
+    },
+    "provider": {
+      "misp-attribute": "text",
+      "ui-priority": 1,
+      "description": "Who published the report, such as a vendor or an agency",
+      "disable_correlation": true
+    },
+    "published": {
+      "misp-attribute": "text",
+      "ui-priority": 2,
+      "description": "Date the report was published (YYYY-MM-DD)",
+      "disable_correlation": true
+    },
+    "collection-source": {
+      "misp-attribute": "text",
+      "ui-priority": 3,
+      "description": "Manual collection source the report's stories are entered under",
+      "disable_correlation": true
+    },
+    "source-reliability": {
+      "misp-attribute": "text",
+      "ui-priority": 4,
+      "description": "Admiralty scale source reliability of this provider (A-F)",
+      "disable_correlation": true
+    },
+    "filename": {
+      "misp-attribute": "text",
+      "ui-priority": 5,
+      "description": "File name of the PDF, attached to this event",
+      "disable_correlation": true
+    },
+    "sha256": {
+      "misp-attribute": "text",
+      "ui-priority": 6,
+      "description": "SHA-256 of the PDF, so the same file opens the same import",
+      "disable_correlation": true
+    },
+    "source-url": {
+      "misp-attribute": "text",
+      "ui-priority": 7,
+      "description": "Address the PDF was downloaded from, when it was not uploaded",
+      "disable_correlation": true
+    },
+    "pages": {
+      "misp-attribute": "text",
+      "ui-priority": 8,
+      "description": "Number of pages",
+      "disable_correlation": true
+    },
+    "characters": {
+      "misp-attribute": "text",
+      "ui-priority": 9,
+      "description": "Characters of text read, without running headers and footers",
+      "disable_correlation": true
+    },
+    "structure": {
+      "misp-attribute": "text",
+      "ui-priority": 10,
+      "description": "What the stories were drafted from: outline, headings, size or document",
+      "disable_correlation": true
+    },
+    "import-state": {
+      "misp-attribute": "text",
+      "ui-priority": 11,
+      "description": "Where the import stands: drafted, reviewed or created",
+      "disable_correlation": true
+    },
+    "stories": {
+      "misp-attribute": "text",
+      "ui-priority": 12,
+      "description": "Number of stories in the manifest",
+      "disable_correlation": true
+    },
+    "manifest": {
+      "misp-attribute": "text",
+      "ui-priority": 13,
+      "description": "UUID of the attachment that holds the manifest: the stories, their kind and their context",
+      "disable_correlation": true
+    },
+    "version": {
+      "misp-attribute": "text",
+      "ui-priority": 14,
+      "description": "Number of the last saved change, so two analysts cannot overwrite each other",
+      "disable_correlation": true
+    }
+  }
+}

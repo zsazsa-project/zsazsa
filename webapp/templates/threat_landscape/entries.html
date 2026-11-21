@@ -1,31 +1,218 @@
 {% extends "base.html" %}
-{% from "_macros.html" import galaxy_multiselect %}
+{% from "_macros.html" import galaxy_multiselect, review_state_badge %}
+{% import "_charts.html" as charts with context %}
 
 {% block title %}{{ tlr.tlr_id }} dataset | zsazsa CTI{% endblock %}
 {% block page_title %}{{ tlr.tlr_id }}: dataset{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('threat_landscape.detail', id=tlr.uuid) }}" class="btn btn-sm btn-light border shadow-sm">
-  <i class="fas fa-arrow-left me-1"></i> Back to report
-</a>
+<div class="d-flex flex-wrap gap-2">
+  <a href="{{ url_for('threat_landscape.review') }}#queue" class="btn btn-sm btn-light border shadow-sm"
+     title="The events waiting for a threat landscape report">
+    <i class="fas fa-inbox me-1"></i> Threat landscape queue
+  </a>
+  <a href="{{ url_for('threat_landscape.detail', id=tlr.uuid) }}" class="btn btn-sm btn-light border shadow-sm">
+    <i class="fas fa-arrow-left me-1"></i> Back to report
+  </a>
+</div>
 {% endblock %}
 
+{# A value no longer in the list, such as a threat type removed in Settings, stays as it was. #}
 {% macro options(values, current, blank='-') %}
 <option value="">{{ blank }}</option>
+{% if current and current not in values %}<option value="{{ current }}" selected>{{ current }}</option>{% endif %}
 {% for value in values %}
 <option value="{{ value }}" {{ 'selected' if current == value }}>{{ value }}</option>
 {% endfor %}
 {% endmacro %}
 
-{# Field, label and galaxy of the classification lists of an entry. #}
+{# Field, label, galaxy and icon of the classification lists of an entry. #}
 {% set classification = [
-  ('sectors', 'Sectors', sector_items),
-  ('geographic_scope', 'Geography', geo_items),
-  ('threat_actors', 'Actors', threat_actor_items),
-  ('techniques', 'Techniques', mitre_items),
+  ('sectors', 'Sectors', sector_items, 'fa-industry'),
+  ('geographic_scope', 'Geography', geo_items, 'fa-location-dot'),
+  ('threat_actors', 'Actors', threat_actor_items, 'fa-user-secret'),
+  ('techniques', 'Techniques', mitre_items, 'fa-crosshairs'),
 ] %}
+{% set relevance_looks = {'high': ('High', 'danger'), 'medium': ('Medium', 'warning'), 'low': ('Low', 'success')} %}
+{% set reliability_titles = {'A': 'completely reliable', 'B': 'usually reliable', 'C': 'fairly reliable',
+                             'D': 'not usually reliable', 'E': 'unreliable', 'F': 'reliability cannot be judged'} %}
+{% set credibility_titles = {'1': 'confirmed by other sources', '2': 'probably true', '3': 'possibly true',
+                             '4': 'doubtful', '5': 'improbable', '6': 'truth cannot be judged'} %}
+
+{# Where an event or a set of duplicates stands. The page script writes the same words. #}
+{% macro triage_state(lacks, out, grouped=false) -%}
+{% if out %}<span class="dataset-state-out"><i class="fas fa-eye-slash me-1"></i>Left out, counts as triaged</span>
+{%- elif lacks %}<span class="dataset-state-todo"><i class="fas fa-circle-exclamation me-1"></i>To do{{ ' with its duplicates' if grouped }}: {{ lacks | join(', ') }}</span>
+{%- else %}<span class="dataset-state-done"><i class="fas fa-circle-check me-1"></i>Triaged{{ ' with its duplicates' if grouped }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{# The header of a set of duplicates: its number, how many events, where it stands. #}
+{% macro group_line(number, size, lacks, out) -%}
+<div class="dataset-group-line">
+  <span class="name"><i class="fas fa-clone me-1"></i>Duplicates <span data-group-number>{{ number }}</span></span>
+  <span><span data-group-size>{{ size }}</span> events report the same story and count once.</span>
+  <span class="dataset-state" data-group-state>{{ triage_state(lacks, out) }}</span>
+  <span class="text-muted" data-group-hint {% if not lacks %}hidden{% endif %}>A field set on any one of them is enough.</span>
+  <button type="button" class="btn btn-xs btn-outline-secondary ms-auto" data-split
+          title="Each of these events reports something else, and counts on its own"><i class="fas fa-object-ungroup me-1"></i>Not duplicates</button>
+</div>
+{%- endmacro %}
+
+{# The Admiralty rating in words, as "B2: usually reliable, probably true". #}
+{% macro grade(reliability, credibility) -%}
+{% if reliability or credibility %}<b>{{ reliability or '?' }}{{ credibility or '?' }}</b>: {{ reliability_titles.get(reliability, 'source not rated') }}, {{ credibility_titles.get(credibility, 'information not rated') }}
+{%- else %}Not rated yet{% endif %}
+{%- endmacro %}
 
 {% block content %}
+<style>
+  /* The banner's figures that filter the table are buttons. */
+  .record-kpi.dataset-kpi { padding: 0; border: 0; background: none; color: inherit; text-align: left; }
+  .record-kpi.dataset-kpi:hover span { text-decoration: underline; }
+  .dataset-panel { flex: 0 1 24rem; align-self: flex-start; min-width: 0; }
+
+  .dataset-filters .form-check { margin-bottom: 0; white-space: nowrap; font-size: .8rem; }
+  .bulk-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-weight: 400; }
+  .bulk-bar[hidden] { display: none; }
+
+  /* The triage table has fixed columns, so it fits its card and never scrolls sideways. */
+  .dataset-table { table-layout: fixed; width: 100%; }
+  .dataset-table td { vertical-align: top; }
+  .dataset-table .col-tick { width: 2.4rem; }
+  .dataset-table .col-out { width: 4.6rem; }
+  .dataset-table .col-assess { width: 17.5rem; }
+  .dataset-table .col-type { width: 12.5rem; }
+  .dataset-table .col-class { width: 14rem; }
+  /* The left edge says where an event stands: triaged, to do or left out. */
+  .dataset-table tr[data-entry-row] > td:first-child { box-shadow: inset 4px 0 var(--edge, transparent); }
+  .dataset-table tr.is-done { --edge: var(--accent-green); }
+  .dataset-table tr.is-todo { --edge: var(--accent-orange); }
+  .dataset-table tr.is-left-out { --edge: var(--neutral-400); }
+  .dataset-table tr.is-left-out td:not(.keep) { opacity: .45; }
+  .dataset-table tr.is-dup > td { background: color-mix(in srgb, var(--accent-purple) 4%, var(--card-bg)); }
+  .dataset-table tr.is-dup > td.c-story { box-shadow: inset 3px 0 var(--accent-purple); }
+  .dataset-table tr.is-ticked > td { background: color-mix(in srgb, var(--accent-blue) 6%, var(--card-bg)); }
+  .dataset-table tr.is-picked > td { background: color-mix(in srgb, var(--accent-purple) 14%, var(--card-bg)); }
+  .dataset-group > td { padding: .4rem .7rem; background: color-mix(in srgb, var(--accent-purple) 10%, var(--card-bg));
+    border-top: 1px solid color-mix(in srgb, var(--accent-purple) 30%, transparent); }
+  .dataset-group-line { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .8rem; font-size: .76rem; }
+  .dataset-group-line .name { color: var(--accent-purple); font-weight: 700; }
+
+  .dataset-story { display: grid; grid-template-columns: 1rem minmax(0, 1fr); gap: .1rem .45rem; }
+  .dataset-src { display: inline-grid; place-items: center; width: 1rem; height: 1rem; margin-top: .2rem; border-radius: 4px; font-size: .55rem;
+    color: var(--icon-color); background: color-mix(in srgb, var(--icon-color) 14%, transparent); }
+  .dataset-story-body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+  .dataset-head { display: flex; align-items: flex-start; gap: .3rem; }
+  /* A triaged event folds to its title and threat type; the arrow opens it again. */
+  .dataset-fold { display: none; flex: none; place-items: center; width: 1.1rem; height: 1.1rem; margin-top: .1rem; border-radius: 4px;
+    font-size: .62rem; color: var(--text-muted); cursor: pointer; }
+  .dataset-fold:hover, .dataset-fold:focus-visible { color: var(--accent-blue); background: var(--surface-tint); outline: none; }
+  .dataset-fold i { transition: transform .15s ease; }
+  .dataset-table tr.is-done .dataset-fold { display: inline-grid; }
+  .dataset-table tr:not(.is-collapsed) .dataset-fold i { transform: rotate(90deg); }
+  .dataset-table tr.is-collapsed .dataset-story-body > :not(.dataset-head),
+  .dataset-table tr.is-collapsed > td:is(.c-out, .c-assess, .c-class) > * { display: none; }
+  /* While "Same story as…" picks the other event, a folded one still offers to be picked. */
+  .dataset-table tr.is-collapsed .dataset-story-body > .dataset-actions:has([data-join]:not([hidden])) { display: flex; }
+  .dataset-story .entry-title { font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; line-height: 1.35; text-decoration: none; }
+  .dataset-story .entry-title:hover { color: var(--accent-blue); text-decoration: underline; }
+  .dataset-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .35rem; font-size: .72rem; color: var(--text-muted); }
+  .dataset-unsaved { background: color-mix(in srgb, var(--accent-blue) 14%, transparent); color: var(--misp-deep); }
+  .dataset-state { font-size: .72rem; font-weight: 600; }
+  .dataset-state-done { color: var(--accent-green); }
+  .dataset-state-todo { color: var(--accent-orange); }
+  .dataset-state-out { color: var(--text-muted); font-weight: 500; }
+  .dataset-note { display: flex; align-items: flex-start; gap: .35rem; font-size: .74rem; font-style: italic; color: var(--text-muted); }
+  .dataset-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .1rem .9rem; }
+  .dataset-link { padding: 0; border: 0; background: none; font-size: .7rem; font-style: normal; color: var(--text-muted); }
+  .dataset-link:hover, .dataset-link:focus-visible { color: var(--accent-blue); }
+  .dataset-link.dup:hover, .dataset-link.dup:focus-visible { color: var(--accent-purple); }
+  .dataset-join { --bs-btn-color: #fff; --bs-btn-bg: var(--accent-purple); --bs-btn-border-color: var(--accent-purple);
+    --bs-btn-hover-color: #fff; --bs-btn-hover-bg: var(--accent-purple); font-weight: 600; }
+
+  .dataset-assess { display: flex; flex-direction: column; gap: .3rem; }
+  .dataset-line { display: flex; align-items: center; gap: .35rem; }
+  .dataset-line-label { flex: 0 0 4.4rem; font-size: .6rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+  .dataset-relevance .btn { padding: .1rem .42rem; font-size: .7rem; font-weight: 600; }
+  /* Medium in the app's orange: Bootstrap's yellow is hard to read on white. */
+  .dataset-relevance .btn-outline-warning { --bs-btn-color: var(--accent-orange); --bs-btn-border-color: var(--accent-orange);
+    --bs-btn-hover-bg: var(--accent-orange); --bs-btn-hover-border-color: var(--accent-orange); --bs-btn-hover-color: #fff;
+    --bs-btn-active-bg: var(--accent-orange); --bs-btn-active-border-color: var(--accent-orange); --bs-btn-active-color: #fff; }
+  .dataset-admiralty { display: flex; gap: .3rem; }
+  .dataset-admiralty .form-select { width: 3.3rem; padding-right: 1.3rem; background-position: right .3rem center; font-weight: 700; }
+  .dataset-grade { font-size: .68rem; line-height: 1.25; color: var(--text-muted); }
+  .dataset-grade b { color: var(--text-primary); }
+  .dataset-type { width: 100%; }
+  .dataset-table .not-set { border-color: var(--accent-orange); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-orange) 45%, transparent); }
+  .dataset-relevance.not-set, .dataset-chips.not-set { border-radius: var(--bs-border-radius-sm); }
+  .dataset-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem; padding: .1rem; }
+  .dataset-chip { display: inline-flex; align-items: center; gap: .25rem; max-width: 100%; padding: .02rem .45rem; border-radius: 999px;
+    overflow: hidden; text-overflow: ellipsis; font-size: .68rem; white-space: nowrap; background: color-mix(in srgb, var(--chip) 12%, transparent);
+    color: color-mix(in srgb, var(--chip) 80%, var(--text-primary)); }
+  .dataset-chip i { font-size: .6rem; opacity: .8; }
+  .chip-sectors { --chip: var(--accent-blue); }
+  .chip-geographic_scope { --chip: var(--accent-green); }
+  .chip-threat_actors { --chip: var(--accent-purple); }
+  .chip-techniques { --chip: var(--misp-navy); }
+  .chip-question, .chip-more, .chip-none { --chip: var(--neutral-600); }
+  .dataset-none { font-size: .7rem; color: var(--accent-orange); }
+
+  /* Duplicates: how to mark them, the suggestions, and the bar while picking one. */
+  .dataset-dups { padding: .55rem 1rem; border-bottom: 1px solid var(--border-light); font-size: .76rem;
+    background: color-mix(in srgb, var(--accent-purple) 5%, var(--card-bg)); }
+  .dataset-dups-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; }
+  .dataset-dups-head .lead-label { color: var(--accent-purple); font-weight: 600; }
+  .dataset-dups-head .how { flex: 1 1 26rem; min-width: 0; color: var(--text-muted); }
+  .dataset-suggestion { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem 1rem; padding: .45rem 0; border-top: 1px solid var(--border-faint); }
+  .dataset-pick { position: fixed; z-index: 1030; left: 50%; bottom: 1.25rem; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 2rem);
+    display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .55rem 1rem; border-radius: 10px;
+    color: #fff; background: var(--accent-purple); box-shadow: 0 10px 30px -10px rgba(0,0,0,.45); font-size: .8rem; }
+  .dataset-pick[hidden] { display: none; }
+  .dataset-pick .btn { color: #fff; border-color: rgba(255,255,255,.6); }
+
+  #entry-preview .report-md-body :is(h1, h2, h3, h4) { font-size: .95rem; font-weight: 700; margin: .6rem 0 .3rem; }
+
+  .dataset-progress-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; font-size: .78rem; }
+  .dataset-progress-head b { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+  .dataset-progress .chart-filter { padding: 0; border: 0; background: none; font-size: inherit; }
+
+  /* Narrow screens: each event becomes a card. */
+  .dataset-out-label { display: none; }
+  @media (max-width: 1100px) {
+    .dataset-table thead { display: none; }
+    .dataset-table, .dataset-table tbody { display: block; }
+    .dataset-table tr[data-entry-row] { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); border-bottom: 1px solid var(--border-light); }
+    .dataset-table tr[data-entry-row] > td { border: 0; }
+    .dataset-table tr[data-entry-row] > td.c-tick { grid-row: 1 / span 5; }
+    .dataset-table tr[data-entry-row] > td:not(.c-tick) { grid-column: 2; }
+    .dataset-group, .dataset-group > td { display: block; }
+    .dataset-table tr.is-collapsed > td:is(.c-out, .c-assess, .c-class) { display: none; }
+    .dataset-out-label { display: inline; }
+  }
+
+  .dataset-stat .chart-row { grid-template-columns: minmax(0, 1fr) auto auto; padding: .25rem .35rem; }
+  .dataset-delta { font-size: .68rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dataset-delta.up { color: var(--accent-green); }
+  .dataset-delta.down { color: var(--accent-red); }
+  .dataset-delta.same { color: var(--text-muted); }
+  .dataset-months { display: flex; align-items: flex-end; gap: .4rem; height: 7rem; padding: .25rem .35rem 0; }
+  .dataset-months > div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: .15rem;
+    height: 100%; min-width: 0; }
+  .dataset-months b { font-size: .7rem; }
+  .dataset-months i { display: block; width: 100%; max-width: 2.2rem; border-radius: 4px 4px 0 0; background: var(--icon-color); }
+  .dataset-months span { font-size: .64rem; color: var(--text-muted); white-space: nowrap; }
+
+  .dataset-pir + .dataset-pir { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--border-faint); }
+  .dataset-cover { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; gap: .2rem .6rem; align-items: center; margin-top: .45rem; }
+  .dataset-cover .term { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dataset-gap { display: inline-block; padding: .02rem .45rem; border-radius: 999px; font-size: .68rem; font-weight: 700;
+    background: color-mix(in srgb, var(--accent-red) 12%, transparent); color: var(--accent-red); }
+  .dataset-cover-meter { display: flex; align-items: center; gap: .5rem; margin-top: .5rem; font-size: .72rem; color: var(--text-muted); }
+  .dataset-cover-meter .track { flex: 1; height: 6px; border-radius: 4px; overflow: hidden; background: var(--surface-muted); }
+  .dataset-cover-meter .track span { display: block; height: 100%; }
+</style>
+
 {% if not tlr.entries %}
 <div class="card content-card">
   <div class="card-body text-muted">
@@ -35,175 +222,339 @@
 </div>
 {% else %}
 
-<div class="row g-4 mb-4">
-  {% if stats %}
-  <div class="{{ 'col-xl-8' if coverage else 'col-12' }}">
-    <div class="card content-card h-100">
-      <div class="card-header"><i class="fas fa-chart-column me-2"></i>Statistics</div>
-      <div class="card-body">
-        <p class="small text-muted">
-          Counted over the {{ tlr.entries | rejectattr('excluded') | list | length }} events in the analysis.
-          An event can count towards several sectors, actors or techniques.
-          {% if previous %}The second column is {{ previous.tlr_id }}, the last report published before this one.{% endif %}
-        </p>
-        <div class="row g-3">
-          {% for heading, counts in stats %}
-          <div class="col-md-6 {{ 'col-xxl-4' if coverage else 'col-xl-4' }}">
-            <div class="fw-semibold small mb-1">{{ heading }}</div>
-            <table class="table table-sm mb-0 small">
-              {% for value, count, before in counts[:10] %}
-              <tr>
-                <td>{{ value }}</td>
-                <td class="text-end font-monospace" style="width:3rem;">{{ count }}</td>
-                {% if previous %}<td class="text-end font-monospace text-muted" style="width:3rem;">{{ before }}</td>{% endif %}
-              </tr>
-              {% endfor %}
-            </table>
-            {% if counts | length > 10 %}<div class="text-muted small">and {{ counts | length - 10 }} more</div>{% endif %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3" style="min-width:0;">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-map"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow">Threat landscape report · {{ tlr.tlr_id }} · {{ review_state_badge(tlr.review_state) }} · Dataset</div>
+          <h1>{{ tlr.title or 'No title' }}</h1>
+          <div class="record-facts">
+            <div><span>Period</span>{{ tlr.reporting_period or '-' }}</div>
+            <div><span>Scope</span>{{ (tlr.scope_sectors + tlr.scope_geography) | join(', ') or 'The whole organisation' }}</div>
+            <div><span>Compared with</span>{{ previous.tlr_id if previous else 'no report published before this one' }}</div>
           </div>
-          {% endfor %}
         </div>
       </div>
+      <div class="record-kpis">
+        <div class="record-kpi"><b>{{ summary.used }}</b><span>event{{ 's' if summary.used != 1 }} in the analysis</span></div>
+        {% if summary.own %}
+        <div class="record-kpi" title="Events from the organisation's own sources, duplicates once"><b>{{ summary.own }}</b><span>of our own</span></div>
+        {% endif %}
+        {% if summary.incidents != summary.used %}
+        <div class="record-kpi" title="Events that report the same thing count once"><b>{{ summary.incidents }}</b><span>without duplicates</span></div>
+        {% endif %}
+        <div class="record-kpi"><b>{{ summary.left_out }}</b><span>left out</span></div>
+        <button type="button" class="record-kpi dataset-kpi{{ ' warn' if summary.outside }}" data-show="outside"
+                title="Show only the events outside the scope"><b>{{ summary.outside }}</b><span>outside the scope</span></button>
+        <button type="button" class="record-kpi dataset-kpi{{ ' warn' if summary.unclassified }}" data-show="unclassified"
+                title="Show only the events without a threat type"><b>{{ summary.unclassified }}</b><span>without a threat type</span></button>
+        {% if coverage %}
+        <a href="#pir-coverage" class="record-kpi{{ ' warn' if summary.gaps }}"><b>{{ summary.gaps }}</b><span>PIR gap{{ 's' if summary.gaps != 1 }}</span></a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="hero-actions">
+      {% if not locked %}
+      <button type="submit" form="triage-form" class="btn btn-sm btn-hero"><i class="fas fa-floppy-disk me-1"></i> Save triage</button>
+      <a href="{{ url_for('threat_landscape.wizard_edit', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-pen me-1"></i> Edit the report</a>
+      {% endif %}
+      <a href="{{ url_for('threat_landscape.navigator_layer', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"
+         title="The techniques of the events, as a layer for the MITRE ATT&amp;CK Navigator"><i class="fas fa-download me-1"></i> ATT&amp;CK layer</a>
     </div>
   </div>
-  {% endif %}
 
-  {% if coverage %}
-  <div class="col-xl-4">
-    <div class="card content-card h-100">
-      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Coverage of the linked PIRs</div>
-      <div class="card-body small">
-        <p class="text-muted">How many events in the analysis speak to each item of the PIR's scope. None is a gap.</p>
-        {% for pir, items in coverage %}
-        <div class="fw-semibold mb-1">
-          <a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}" class="text-decoration-none">{{ pir.pir_id }}</a>
-          <span class="fw-normal text-muted">{{ pir.question | truncate(90) }}</span>
-        </div>
-        {% if items %}
-        <table class="table table-sm mb-3">
-          {% for label, term, count in items %}
-          <tr class="{{ 'table-warning' if not count }}">
-            <td class="text-muted" style="width:7rem;">{{ label }}</td>
-            <td>{{ term }}</td>
-            <td class="text-end font-monospace" style="width:3rem;">{{ count if count else 'gap' }}</td>
-          </tr>
-          {% endfor %}
-        </table>
-        {% else %}
-        <p class="text-muted mb-3">This PIR names no sectors, places, actors, threat types or techniques to check.</p>
-        {% endif %}
+  <div class="hero-tlp">
+    <span>Shared as</span>
+    <span class="tlp-badge tlp-{{ tlr.tlp | slug }}">TLP:{{ tlr.tlp | upper }}</span>
+  </div>
+
+  <div class="record-panel dataset-panel" aria-label="Triage">
+    {% set looks = [('done', 'Triaged', 'var(--accent-green)'), ('todo', 'To do', 'var(--accent-orange)'), ('out', 'Left out', 'var(--neutral-400)')] %}
+    <div class="dataset-progress" aria-live="polite">
+      <div class="dataset-progress-head">
+        <span><b data-progress-triaged>{{ summary.triage.done + summary.triage.out }}</b> of <b>{{ tlr.entries | length }}</b> events triaged</span>
+        <span class="small text-muted" data-progress-left>{{ summary.triage.todo ~ ' still to do' if summary.triage.todo else 'all done' }}</span>
+      </div>
+      <div class="chart-segbar my-1">
+        {% for key, _label, color in looks %}<span data-progress-bar="{{ key }}" style="flex:{{ summary.triage[key] }};background:{{ color }};"></span>{% endfor %}
+      </div>
+      <div class="chart-legend">
+        {% for key, label, color in looks %}
+        <button type="button" class="chart-filter" data-state-filter="{{ key }}" title="Show only these events">
+          <span class="chart-swatch" style="background:{{ color }};"></span>{{ label }} <strong data-progress="{{ key }}">{{ summary.triage[key] }}</strong>
+        </button>
         {% endfor %}
       </div>
     </div>
+    {% if summary.threat_types %}
+    <div>{{ charts.mix('Threat type', summary.threat_types, {'Not classified': 'var(--neutral-400)'}) }}</div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="card content-card list-filters record-filters dataset-filters rise rise-1 mb-4" role="search" aria-label="Show">
+  <div class="filter" title="Threat type">
+    <span class="stat-icon icon-xs" style="--icon-color:var(--accent-red);"><i class="fas fa-biohazard"></i></span>
+    <select class="form-select form-select-sm" id="filter-type" aria-label="Threat type">
+      <option value="">All threat types</option>
+      {% for t in tlr.entries | map(attribute='threat_type') | select | unique | sort %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      <option value="-">Not classified</option>
+    </select>
+  </div>
+  <div class="filter" title="Relevance">
+    <span class="stat-icon icon-xs" style="--icon-color:var(--accent-orange);"><i class="fas fa-signal"></i></span>
+    <select class="form-select form-select-sm" id="filter-relevance" aria-label="Relevance">
+      <option value="">All relevance</option>
+      {% for level in relevance_levels %}<option value="{{ level }}">{{ level | capitalize }}</option>{% endfor %}
+      <option value="-">Not assessed</option>
+    </select>
+  </div>
+  <div class="filter" title="Source">
+    <span class="stat-icon icon-xs" style="--icon-color:var(--accent-purple);"><i class="fas fa-satellite-dish"></i></span>
+    <select class="form-select form-select-sm" id="filter-source" aria-label="Source">
+      <option value="">All sources</option>
+      {% for s in tlr.entries | map(attribute='source_id') | select | unique | sort %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  {% if outside_scope %}
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="filter-outside">
+    <label class="form-check-label" for="filter-outside">Outside the scope only</label>
   </div>
   {% endif %}
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="filter-todo">
+    <label class="form-check-label" for="filter-todo">Only what needs triage</label>
+  </div>
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="filter-left-out" checked>
+    <label class="form-check-label" for="filter-left-out">Show the left out</label>
+  </div>
+  <div class="shown">
+    <span id="dataset-shown">{{ tlr.entries | length }} event{{ 's' if tlr.entries | length != 1 }}</span>
+    <button type="button" class="btn btn-xs btn-outline-secondary" id="filter-clear" hidden>Clear</button>
+  </div>
 </div>
 
-<form method="post" data-unsaved-warning>
+<form method="post" id="triage-form" data-unsaved-warning>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="card content-card mb-4">
+  <div class="card content-card rise rise-2 mb-4">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span>
         <i class="fas fa-table-list me-2"></i>Triage <span class="badge text-bg-secondary ms-1">{{ tlr.entries | length }}</span>
-        <span class="small text-muted ms-2">
-          Scope:
-          {% if tlr.scope_sectors or tlr.scope_geography %}
-          {{ (tlr.scope_sectors + tlr.scope_geography) | join(', ') }}
-          {% else %}
-          the whole organisation
-          {% endif %}
+        <span class="small text-muted fw-normal ms-2" id="triage-note"
+              data-rule="Triaged: a relevance, an Admiralty rating, a threat type and a classification, or left out.">
+          Triaged: a relevance, an Admiralty rating, a threat type and a classification, or left out.
         </span>
       </span>
       {% if not locked %}
-      <span class="d-flex align-items-center gap-2 small flex-wrap" id="bulk-bar">
-        <span class="text-muted">For the ticked rows:</span>
-        <select class="form-select form-select-sm w-auto" data-bulk="relevance">{{ options(relevance_levels, '', 'Relevance') }}</select>
-        <select class="form-select form-select-sm w-auto" data-bulk="threat_type">{{ options(threat_types, '', 'Threat type') }}</select>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="1">Leave out</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="0">Include</button>
-        {% if outside_scope %}
-        <button type="button" class="btn btn-sm btn-outline-warning" id="exclude-outside-scope"
-                title="Tick Left out for every event outside the report's scope">
-          Leave out the {{ outside_scope | length }} outside the scope
-        </button>
-        {% endif %}
+      <span class="bulk-bar small" id="bulk-bar" hidden>
+        <span class="text-muted"><b id="bulk-count">0</b> ticked:</span>
+        <select class="form-select form-select-sm w-auto" data-bulk="relevance" aria-label="Relevance for the ticked events">{{ options(relevance_levels, '', 'Relevance') }}</select>
+        <select class="form-select form-select-sm w-auto" data-bulk="threat_type" aria-label="Threat type for the ticked events">{{ options(threat_types, '', 'Threat type') }}</select>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="1"><i class="fas fa-eye-slash me-1"></i>Leave out</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-exclude="0"><i class="fas fa-eye me-1"></i>Include</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bulk-incident="join"
+                title="The ticked events report the same story, and count once"><i class="fas fa-clone me-1"></i>Mark as duplicates</button>
       </span>
+      {% if summary.outside %}
+      <button type="button" class="btn btn-sm btn-outline-warning" id="exclude-outside-scope"
+              title="Tick Left out for every event outside the report's scope">
+        <i class="fas fa-filter-circle-xmark me-1"></i>Leave out the {{ summary.outside }} outside the scope
+      </button>
+      {% endif %}
       {% endif %}
     </div>
+
+    {% if not locked %}
+    <div class="dataset-dups" id="dataset-duplicates">
+      <div class="dataset-dups-head">
+        <span class="lead-label"><i class="fas fa-clone me-1"></i>Duplicates</span>
+        <span class="how">When several sources report the same attack or disclosure, mark them as duplicates: they count once and
+          are triaged together. Use <b>Same story as…</b> under an event and pick the other one, or tick two or more and press
+          <b>Mark as duplicates</b>.</span>
+        {% if not proposals %}<span class="text-muted"><i class="fas fa-wand-magic-sparkles me-1"></i>No suggested duplicates right now.</span>{% endif %}
+      </div>
+      {% if proposals %}
+      <div id="incident-proposals" class="mt-2">
+        <div class="fw-semibold">Suggested <span class="badge text-bg-secondary ms-1" id="proposal-count">{{ proposals | length }}</span>
+          <span class="fw-normal text-muted ms-1">Within a week of each other and sharing a CVE, a threat actor or most of their
+            title. Nothing changes until you decide, and the decision is saved with the triage.</span></div>
+        {% for group in proposals %}
+        <div class="dataset-suggestion" data-proposal="{{ group | map(attribute='uuid') | join(' ') }}">
+          <div class="flex-grow-1" style="min-width:0;">
+            {% for e in group %}
+            <div><span class="fw-semibold">{{ e.event_info or '(untitled)' }}</span>
+              <span class="text-muted">{{ e.event_date }} · {{ e.source_id or '-' }}</span></div>
+            {% endfor %}
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-proposal-join
+                    title="These events report the same story, and count once"><i class="fas fa-clone me-1"></i>Duplicates</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-proposal-apart
+                    title="These events report different things, each counts, and they are not suggested again">Not duplicates</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <div class="card-body p-0">
       <fieldset {{ 'disabled' if locked }}>
-      <table class="table table-sm zsazsa-table mb-0 align-middle">
+      <table class="table table-sm zsazsa-table dataset-table mb-0"
+             data-reliability-titles="{{ reliability_titles | tojson | forceescape }}"
+             data-credibility-titles="{{ credibility_titles | tojson | forceescape }}">
         <thead>
           <tr>
-            <th style="width:2rem;"><input type="checkbox" class="form-check-input" id="entry-select-all" title="Tick all"></th>
-            <th>Event</th>
-            <th>Relevance</th>
-            <th title="Admiralty source reliability and information credibility">Admiralty</th>
-            <th>Threat type</th>
-            <th>Classification</th>
-            <th title="Leave the event out of the analysis">Left out</th>
-            <th>Note</th>
+            <th class="col-tick"><input type="checkbox" class="form-check-input" id="entry-select-all" title="Tick all shown" aria-label="Tick all shown"></th>
+            <th class="col-out" title="Leave the event out of the analysis">Left out</th>
+            <th>Story</th>
+            <th class="col-assess" title="Relevance, and the Admiralty source reliability and information credibility">Relevance and Admiralty</th>
+            <th class="col-type">Threat type</th>
+            <th class="col-class">Classification</th>
           </tr>
         </thead>
         <tbody>
-          {% for e in tlr.entries %}
-          <tr class="{{ 'text-muted opacity-50' if e.excluded }}" {% if e.uuid in outside_scope %}data-outside-scope{% endif %}>
-            <td><input type="checkbox" class="form-check-input entry-pick"></td>
-            <td style="min-width:14rem;">
-              <a href="{{ url_for('data_collection.detail', uuid=e.event_uuid, source=e.source_id or None) }}" class="text-decoration-none entry-title">{{ e.event_info or '(untitled)' }}</a>
-              <div class="text-muted" style="font-size:.72rem;">
-                {{ e.event_date or '-' }} · {{ e.source_id or '-' }}
-                {% if e.uuid in outside_scope %}<span class="badge text-bg-warning ms-1">outside the scope</span>{% endif %}
+          {% for number, members in blocks %}
+          {% if number %}
+          {% set in_analysis = members | rejectattr('excluded') | list %}
+          <tr class="dataset-group" data-group="{{ members[0].incident }}">
+            <td colspan="6">{{ group_line(number, members | length, lacking[in_analysis[0].uuid] if in_analysis else [], not in_analysis) }}</td>
+          </tr>
+          {% endif %}
+          {% for e in members %}
+          {% set source = e.source_id or '' %}
+          {% set source_icon, source_color = ('fa-spider', 'var(--misp-navy)') if source == 'scraper'
+                else ('fa-pen-to-square', 'var(--accent-orange)') if source.startswith('manual-')
+                else ('fa-server', 'var(--accent-blue)') %}
+          {% set lacks = lacking[e.uuid] %}
+          {% set grouped = number and not e.excluded %}
+          <tr class="{{ 'is-left-out' if e.excluded else 'is-todo' if lacks else 'is-done is-collapsed' }}{{ ' is-dup' if number }}"
+              data-entry-row="{{ e.uuid }}" data-event="{{ e.event_uuid }}" data-source="{{ source }}"
+              {% if e.uuid in outside_scope %}data-outside-scope{% endif %}>
+            <td class="keep c-tick"><input type="checkbox" class="form-check-input entry-pick" aria-label="Tick {{ e.event_info or 'this event' }}"></td>
+            <td class="keep c-out">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" name="excluded-{{ e.uuid }}" id="excluded-{{ e.uuid }}"
+                       aria-label="Leave out {{ e.event_info or 'this event' }}" {{ 'checked' if e.excluded }}>
+                <label class="form-check-label small text-muted dataset-out-label" for="excluded-{{ e.uuid }}">Left out</label>
               </div>
             </td>
-            <td>
-              <select name="relevance-{{ e.uuid }}" class="form-select form-select-sm" data-field="relevance">{{ options(relevance_levels, e.relevance) }}</select>
+            <td class="keep c-story">
+              <div class="dataset-story">
+                <span class="dataset-src" style="--icon-color:{{ source_color }};" title="{{ source or 'Unknown source' }}"><i class="fas {{ source_icon }}"></i></span>
+                <div class="dataset-story-body">
+                  <div class="dataset-head">
+                    {# Not a button: a locked report disables the fieldset, and this must still open. #}
+                    <span class="dataset-fold" role="button" tabindex="0" data-fold aria-expanded="false"
+                          title="Show the triage" aria-label="Triage of {{ e.event_info or 'this event' }}"><i class="fas fa-chevron-right"></i></span>
+                    <a href="{{ url_for('data_collection.detail', uuid=e.event_uuid, source=e.source_id or None) }}" class="entry-title"
+                       target="_blank" rel="noopener" data-preview="{{ url_for('data_collection.preview', uuid=e.event_uuid, source=e.source_id or None) }}">{{ e.event_info or '(untitled)' }}</a>
+                  </div>
+                  <div class="dataset-meta">
+                    <span>{{ e.event_date or '-' }} · {{ source or '-' }}</span>
+                    {% if e.uuid in outside_scope %}<span class="badge text-bg-warning">outside the scope</span>{% endif %}
+                    {% if source in internal %}<span class="badge tlr-ours" title="From the organisation's own records">ours</span>{% endif %}
+                    <span class="badge dataset-unsaved" data-unsaved hidden>unsaved</span>
+                  </div>
+                  <div class="dataset-state" data-state>{{ triage_state(lacks, e.excluded, grouped) }}</div>
+                  <div class="dataset-note" data-note {% if not e.note %}hidden{% endif %}>
+                    <span data-note-text>{{ e.note }}</span>
+                    {% if not locked %}<button type="button" class="dataset-link" data-note-edit title="Edit the note" aria-label="Edit the note"><i class="fas fa-pen"></i></button>{% endif %}
+                  </div>
+                  <input type="text" name="note-{{ e.uuid }}" class="form-control form-control-sm" value="{{ e.note }}" aria-label="Note"
+                         placeholder="{{ 'Why it is left out' if e.excluded else 'A note for this report' }}" data-note-input hidden>
+                  {% if not locked %}
+                  <div class="dataset-actions">
+                    <button type="button" class="dataset-link" data-note-add {% if e.note %}hidden{% endif %}><i class="fas fa-plus me-1"></i>Add a note</button>
+                    <button type="button" class="dataset-link dup" data-pick {% if number or e.excluded %}hidden{% endif %}
+                            title="Pick another event that reports the same story"><i class="fas fa-clone me-1"></i>Same story as…</button>
+                    <button type="button" class="dataset-link dup" data-undup {% if not number %}hidden{% endif %}
+                            title="This event reports something else, and counts on its own"><i class="fas fa-xmark me-1"></i>Not a duplicate</button>
+                    <button type="button" class="btn btn-xs dataset-join" data-join hidden><i class="fas fa-clone me-1"></i>Same story</button>
+                  </div>
+                  {% endif %}
+                  <input type="hidden" name="incident-{{ e.uuid }}" value="{{ e.incident }}" data-field="incident">
+                </div>
+              </div>
             </td>
-            <td style="white-space:nowrap;">
-              <select name="reliability-{{ e.uuid }}" class="form-select form-select-sm d-inline-block w-auto">{{ options(reliabilities, e.source_reliability) }}</select>
-              <select name="credibility-{{ e.uuid }}" class="form-select form-select-sm d-inline-block w-auto">{{ options(credibilities, e.information_credibility) }}</select>
+            <td class="c-assess">
+              <div class="dataset-assess">
+                <div class="dataset-line">
+                  <span class="dataset-line-label">Relevance</span>
+                  {# Always one ticked, "-" when not assessed: the route saves only the rows that post their relevance. #}
+                  <div class="btn-group dataset-relevance{{ ' not-set' if 'relevance' in lacks }}" role="group" aria-label="Relevance">
+                    {% set levels = [''] + relevance_levels + ([e.relevance] if e.relevance and e.relevance not in relevance_levels else []) %}
+                    {% for level in levels %}
+                    {% set label, style = relevance_looks.get(level, (level or '-', 'secondary')) %}
+                    <input type="radio" class="btn-check" name="relevance-{{ e.uuid }}" id="relevance-{{ e.uuid }}-{{ loop.index }}"
+                           value="{{ level }}" data-field="relevance" autocomplete="off" {{ 'checked' if (e.relevance or '') == level }}>
+                    <label class="btn btn-outline-{{ style }}" for="relevance-{{ e.uuid }}-{{ loop.index }}"
+                           title="{{ label if level else 'Not assessed' }}">{{ label }}</label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div class="dataset-line">
+                  <span class="dataset-line-label">Admiralty</span>
+                  <div class="dataset-admiralty">
+                    <select name="reliability-{{ e.uuid }}" class="form-select form-select-sm{{ ' not-set' if 'source reliability' in lacks }}"
+                            data-field="reliability" aria-label="Source reliability">{{ options(reliabilities, e.source_reliability) }}</select>
+                    <select name="credibility-{{ e.uuid }}" class="form-select form-select-sm{{ ' not-set' if 'information credibility' in lacks }}"
+                            data-field="credibility" aria-label="Information credibility">{{ options(credibilities, e.information_credibility) }}</select>
+                  </div>
+                </div>
+                <div class="dataset-grade" data-grade>{{ grade(e.source_reliability, e.information_credibility) }}</div>
+              </div>
             </td>
-            <td>
-              <select name="threat_type-{{ e.uuid }}" class="form-select form-select-sm" data-field="threat_type">{{ options(threat_types, e.threat_type) }}</select>
+            <td class="c-type">
+              <select name="threat_type-{{ e.uuid }}" class="form-select form-select-sm dataset-type{{ ' not-set' if 'threat type' in lacks }}"
+                      data-field="threat_type" aria-label="Threat type">{{ options(threat_types, e.threat_type) }}</select>
             </td>
-            <td class="small entry-classification" data-entry="{{ e.uuid }}" style="min-width:12rem;">
-              <div class="entry-classification-text">
-                {% for key, label, _items in classification if e[key] %}
-                <div><span class="text-muted">{{ label }}:</span> {{ e[key] | join(', ') }}</div>
-                {% endfor %}
+            <td class="small entry-classification c-class" data-entry="{{ e.uuid }}">
+              <div class="entry-classification-text dataset-chips{{ ' not-set' if 'classification' in lacks }}">
+                {% for key, label, _items, icon in classification %}{% for value in e[key] %}
+                <span class="dataset-chip chip-{{ key }}" title="{{ label }}: {{ value }}"><i class="fas {{ icon }}"></i>{{ value }}</span>
+                {% endfor %}{% endfor %}
+                {% set chips = namespace(any=e.sectors or e.geographic_scope or e.threat_actors or e.techniques) %}
                 {% for key, label in entry_questions if e[key] %}
-                <div><span class="text-muted">{{ label }}:</span> {{ e[key] }}</div>
+                {% set chips.any = true %}
+                <span class="dataset-chip chip-question" title="{{ e[key] }}"><i class="fas fa-circle-question"></i>{{ label }}</span>
                 {% endfor %}
+                {% if e.no_classification %}
+                <span class="dataset-chip chip-none" title="No sector, place, actor, technique or other classification is relevant"><i class="fas fa-ban"></i>None relevant</span>
+                {% elif not chips.any %}<span class="dataset-none">None yet</span>{% endif %}
+                {% if not locked %}
+                <button type="button" class="btn btn-xs btn-outline-secondary classification-edit" title="Edit the classification"
+                        aria-label="Edit the classification"><i class="fas fa-pen"></i></button>
+                {% endif %}
               </div>
-              {% for key, _label, _items in classification %}{% for value in e[key] %}
+              {% for key, _label, _items, _icon in classification %}{% for value in e[key] %}
               <input type="hidden" name="{{ key }}-{{ e.uuid }}" value="{{ value }}">
               {% endfor %}{% endfor %}
               {% for key, _label in entry_questions %}
               <input type="hidden" name="{{ key }}-{{ e.uuid }}" value="{{ e[key] }}">
               {% endfor %}
-              {% if not locked %}
-              <button type="button" class="btn btn-xs btn-outline-secondary mt-1 classification-edit" title="Edit the classification">
-                <i class="fas fa-pen"></i>
-              </button>
-              {% endif %}
-            </td>
-            <td class="text-center">
-              <input type="checkbox" class="form-check-input" name="excluded-{{ e.uuid }}" {{ 'checked' if e.excluded }}>
-            </td>
-            <td>
-              <input type="text" name="note-{{ e.uuid }}" class="form-control form-control-sm" value="{{ e.note }}"
-                     placeholder="{{ 'Why it is left out' if e.excluded }}">
+              {% if e.no_classification %}<input type="hidden" name="no_classification-{{ e.uuid }}" value="1">{% endif %}
             </td>
           </tr>
+          {% endfor %}
           {% endfor %}
         </tbody>
       </table>
       </fieldset>
+      {# The header of a set of duplicates, as the page script draws it when they change. #}
+      <template id="dataset-group-template">
+        <tr class="dataset-group"><td colspan="6">{{ group_line(0, 0, [], false) }}</td></tr>
+      </template>
     </div>
     {% if not locked %}
-    <div class="card-footer d-flex justify-content-between align-items-center">
+    <div class="card-footer d-flex justify-content-between align-items-center gap-3 flex-wrap">
       <span class="text-muted small">
-        The classification starts from the event's galaxies when it was added; the pencil also takes the
+        Click a story to read it beside the table. The pencil edits the sectors, places, actors and techniques, and the
         affected assets, impact, motivation and mitigation. Changes here stay with this report.
       </span>
       <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-floppy-disk me-1"></i>Save triage</button>
@@ -211,6 +562,42 @@
     {% endif %}
   </div>
 </form>
+{% if not locked %}
+{# While "Same story as…" waits for the other event: in view wherever the table is scrolled. #}
+<div class="dataset-pick" id="pick-bar" role="status" hidden>
+  <i class="fas fa-clone"></i>
+  <span>Pick the event that reports the same story as <b id="pick-title"></b>.</span>
+  <button type="button" class="btn btn-sm" id="pick-cancel">Cancel</button>
+</div>
+{% endif %}
+
+<div id="dataset-stats" class="rise rise-3" data-src="{{ url_for('threat_landscape.entries_statistics', id=tlr.uuid) }}">
+{% include "threat_landscape/_dataset_stats.html" %}
+</div>
+<p class="small text-danger mt-2" id="dataset-stats-error" hidden></p>
+
+{# The story of an event, read beside the table as on Data collection. #}
+<div class="offcanvas offcanvas-end" tabindex="-1" id="entry-preview" aria-labelledby="entry-preview-title" style="width:min(90vw,760px);">
+  <div class="offcanvas-header border-bottom py-2 gap-2">
+    <div style="min-width:0;">
+      <h6 class="offcanvas-title mb-0" id="entry-preview-title"></h6>
+      <small class="text-muted" id="entry-preview-meta"></small>
+    </div>
+    <div class="d-flex gap-1 align-items-center flex-shrink-0">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="entry-preview-prev" title="Previous story (k)" aria-label="Previous story"><i class="fas fa-chevron-up"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="entry-preview-next" title="Next story (j)" aria-label="Next story"><i class="fas fa-chevron-down"></i></button>
+      <a href="#" id="entry-preview-detail" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" title="Open the full page in a new tab">
+        <i class="fas fa-external-link-alt me-1"></i>Detail</a>
+      <button type="button" class="btn-close ms-1" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+  </div>
+  <div class="offcanvas-body">
+    <div class="small rounded p-2 mb-3" style="background:var(--surface-muted);" id="entry-preview-triage"></div>
+    <div class="text-center py-5" id="entry-preview-loading" hidden><i class="fas fa-spinner fa-spin fa-2x text-muted"></i></div>
+    <div id="entry-preview-content"></div>
+    <div class="small text-muted mt-3"><kbd>j</kbd> next · <kbd>k</kbd> previous · <kbd>Esc</kbd> close</div>
+  </div>
+</div>
 
 {% if not locked %}
 {# One picker for every row: the row's values are loaded into it when it opens,
@@ -224,8 +611,8 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          {% for key, label, items in classification %}
-          <div class="col-md-6" data-classification="{{ key }}" data-label="{{ label }}">
+          {% for key, label, items, icon in classification %}
+          <div class="col-md-6" data-classification="{{ key }}" data-label="{{ label }}" data-icon="{{ icon }}">
             <label class="form-label small fw-semibold">{{ label }}</label>
             {% if items %}
             {{ galaxy_multiselect('classification-' ~ key, items=items) }}
@@ -244,6 +631,11 @@
         </div>
       </div>
       <div class="modal-footer py-2">
+        <div class="form-check me-auto">
+          <input class="form-check-input" type="checkbox" id="classification-none">
+          <label class="form-check-label small" for="classification-none"><b>None relevant</b>: nothing above applies to this
+            story, and its classification is done. Ticking it clears what is chosen above.</label>
+        </div>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary" id="classification-apply">Apply</button>
       </div>
@@ -256,48 +648,451 @@
 
 {% block scripts %}
 <script>
+/* ── Triage: where each event stands, duplicates, filters and ticks ── */
 (function() {
+  var table = document.querySelector('.dataset-table');
+  if (!table) return;
+  var body = table.tBodies[0];
+  var rows = Array.prototype.slice.call(body.querySelectorAll('tr[data-entry-row]'));
+  if (!rows.length) return;
+  var ALONE = {{ incident_alone | tojson }};
+  // The classification: the lists from the galaxies, and the questions an analyst answers.
+  var CLASSIFIED = {{ classification | map(attribute=0) | list | tojson }};
+  var QUESTIONS = {{ entry_questions | map(attribute=0) | list | tojson }};
+  var reliabilityTitles = JSON.parse(table.dataset.reliabilityTitles);
+  var credibilityTitles = JSON.parse(table.dataset.credibilityTitles);
+  var groupTemplate = document.getElementById('dataset-group-template');
+  var note = document.getElementById('triage-note');
   var bar = document.getElementById('bulk-bar');
-  if (!bar) return;
   var all = document.getElementById('entry-select-all');
+  var pickBar = document.getElementById('pick-bar');
+  var filters = {
+    type: document.getElementById('filter-type'),
+    relevance: document.getElementById('filter-relevance'),
+    source: document.getElementById('filter-source'),
+    outside: document.getElementById('filter-outside'),
+    todo: document.getElementById('filter-todo'),
+    leftOut: document.getElementById('filter-left-out')
+  };
+  var only = '';        // done, todo or out, from the banner's legend
+  var picking = null;   // the row "Same story as…" was clicked on
+  var grouping = '';    // the duplicates the table is drawn for
+
+  // What a row would post, to tell a changed row from one as it was saved.
+  function posted(row) {
+    return Array.prototype.map.call(row.querySelectorAll('[name]'), function(field) {
+      return field.name + '=' + ((field.type === 'checkbox' || field.type === 'radio') ? field.checked : field.value);
+    }).join('\n');
+  }
+  var saved = new Map(rows.map(function(row) { return [row, posted(row)]; }));
+
+  function value(row, field) {
+    var input = row.querySelector('[data-field="' + field + '"]:checked') || row.querySelector('select[data-field="' + field + '"]');
+    return input ? input.value : '';
+  }
+  function leftOut(row) { return row.querySelector('[name^="excluded-"]').checked; }
+  function classified(row) {
+    return !!row.querySelector('input[name^="no_classification-"]')
+      || CLASSIFIED.some(function(key) { return row.querySelector('input[name^="' + key + '-"]'); })
+      || QUESTIONS.some(function(key) { var field = row.querySelector('input[name^="' + key + '-"]'); return field && field.value.trim(); });
+  }
+  function groupKey(row) {
+    var key = row.querySelector('[data-field="incident"]').value;
+    return key && key !== ALONE ? key : '';
+  }
+  // {key: rows} of the sets of duplicates, in the order the page lists them.
+  function duplicates() {
+    var found = new Map();
+    rows.forEach(function(row) {
+      var key = groupKey(row);
+      if (!key) return;
+      if (!found.has(key)) found.set(key, []);
+      found.get(key).push(row);
+    });
+    found.forEach(function(members, key) { if (members.length < 2) found.delete(key); });
+    return found;
+  }
+
+  // What an event, or a set of duplicates, lacks to count as triaged, as the
+  // report counts it: a field set on any of them is enough. Null when every
+  // one of them is left out.
+  function lacks(members) {
+    var counted = members.filter(function(row) { return !leftOut(row); });
+    if (!counted.length) return null;
+    function any(field) { return counted.some(function(row) { return value(row, field); }); }
+    var missing = [];
+    if (!any('relevance')) missing.push('relevance');
+    if (!any('reliability')) missing.push('source reliability');
+    if (!any('credibility')) missing.push('information credibility');
+    if (!any('threat_type')) missing.push('threat type');
+    if (!counted.some(classified)) missing.push('classification');
+    return missing;
+  }
+  // The same words as the triage_state macro.
+  function drawState(el, missing, out, grouped) {
+    var span = document.createElement('span');
+    var icon = document.createElement('i');
+    var text;
+    if (out) {
+      span.className = 'dataset-state-out'; icon.className = 'fas fa-eye-slash me-1'; text = 'Left out, counts as triaged';
+    } else if (missing.length) {
+      span.className = 'dataset-state-todo'; icon.className = 'fas fa-circle-exclamation me-1';
+      text = 'To do' + (grouped ? ' with its duplicates' : '') + ': ' + missing.join(', ');
+    } else {
+      span.className = 'dataset-state-done'; icon.className = 'fas fa-circle-check me-1';
+      text = 'Triaged' + (grouped ? ' with its duplicates' : '');
+    }
+    span.append(icon, text);
+    el.replaceChildren(span);
+  }
+  // The same words as the grade macro.
+  function drawGrade(el, reliability, credibility) {
+    if (!reliability && !credibility) { el.textContent = 'Not rated yet'; return; }
+    var code = document.createElement('b');
+    code.textContent = (reliability || '?') + (credibility || '?');
+    el.replaceChildren(code, ': ' + (reliabilityTitles[reliability] || 'source not rated') + ', '
+      + (credibilityTitles[credibility] || 'information not rated'));
+  }
+
+  // Each set of duplicates together under its header, where the first of them
+  // is. The rows move only when the sets change, so a field keeps its focus.
+  function drawGroups(found) {
+    var signature = JSON.stringify(Array.from(found.values()).map(function(members) {
+      return members.map(function(row) { return row.dataset.entryRow; });
+    }));
+    if (signature === grouping) return;
+    grouping = signature;
+    body.querySelectorAll('tr.dataset-group').forEach(function(head) { head.remove(); });
+    var placed = new Set(), number = 0;
+    rows.forEach(function(row) {
+      var key = groupKey(row), members = found.get(key);
+      if (!members) { body.appendChild(row); return; }
+      if (placed.has(key)) return;
+      placed.add(key);
+      var head = groupTemplate ? groupTemplate.content.firstElementChild.cloneNode(true) : null;
+      if (head) {
+        head.dataset.group = key;
+        head.querySelector('[data-group-number]').textContent = ++number;
+        body.appendChild(head);
+      }
+      members.forEach(function(member) { body.appendChild(member); });
+    });
+  }
+
+  // The statistics below follow the triage as it changes, before it is saved:
+  // the server counts them from what the form would post, as it will once saved.
+  var form = document.getElementById('triage-form');
+  var stats = document.getElementById('dataset-stats');
+  var statsError = document.getElementById('dataset-stats-error');
+  // What the statistics count: every field but the notes, in any order.
+  function counted() {
+    var parts = [];
+    new FormData(form).forEach(function(value, key) { if (key.indexOf('note-') !== 0) parts.push(key + '=' + value); });
+    return parts.sort().join('\n');
+  }
+  var statsShown = counted(), statsTimer = null, statsRequest = null;
+  function updateStats() {
+    clearTimeout(statsTimer);
+    statsTimer = setTimeout(function() {
+      var now = counted();
+      if (now === statsShown) return;
+      if (statsRequest) statsRequest.abort();
+      var request = statsRequest = new AbortController();
+      stats.style.opacity = '.55';
+      fetch(stats.dataset.src, {method: 'POST', body: new FormData(form), redirect: 'manual', signal: request.signal})
+        .then(zsazsaReadHtml)
+        .then(function(html) {
+          stats.innerHTML = html;
+          statsShown = now;
+          statsError.hidden = true;
+        })
+        .catch(function(err) {
+          if (err.name === 'AbortError') return;
+          statsError.textContent = 'Could not update the statistics: ' + zsazsaErrorText(err);
+          statsError.hidden = false;
+        })
+        .finally(function() { if (request === statsRequest) stats.style.opacity = ''; });
+    }, 400);
+  }
+
+  // A triaged event folds to its title and threat type, and opens again with
+  // its arrow or as soon as it lacks something.
+  function fold(row, folded) {
+    row.classList.toggle('is-collapsed', folded);
+    var arrow = row.querySelector('[data-fold]');
+    arrow.setAttribute('aria-expanded', String(!folded));
+    arrow.title = folded ? 'Show the triage' : 'Fold to the title and threat type';
+  }
+  body.addEventListener('click', function(e) {
+    var arrow = e.target.closest('[data-fold]');
+    if (arrow) fold(arrow.closest('tr'), !arrow.closest('tr').classList.contains('is-collapsed'));
+  });
+  body.addEventListener('keydown', function(e) {
+    var arrow = e.target.closest('[data-fold]');
+    if (arrow && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      arrow.click();
+    }
+  });
+
+  function refresh() {
+    var found = duplicates();
+    drawGroups(found);
+    var changed = 0, count = {done: 0, todo: 0, out: 0};
+    rows.forEach(function(row) {
+      var members = found.get(groupKey(row)) || [row];
+      var grouped = members.length > 1;
+      var out = leftOut(row);
+      var missing = out ? [] : lacks(members);
+      var where = out ? 'out' : missing.length ? 'todo' : 'done';
+      count[where]++;
+      row.dataset.state = where;
+      if (where !== 'done') fold(row, false);
+      row.classList.toggle('is-done', where === 'done');
+      row.classList.toggle('is-todo', where === 'todo');
+      row.classList.toggle('is-left-out', out);
+      row.classList.toggle('is-dup', grouped);
+      row.classList.toggle('is-ticked', row.querySelector('.entry-pick').checked);
+      row.classList.toggle('is-picked', row === picking);
+      drawState(row.querySelector('[data-state]'), missing, out, grouped && !out);
+      row.querySelector('.dataset-relevance').classList.toggle('not-set', missing.indexOf('relevance') >= 0);
+      row.querySelector('[data-field="reliability"]').classList.toggle('not-set', missing.indexOf('source reliability') >= 0);
+      row.querySelector('[data-field="credibility"]').classList.toggle('not-set', missing.indexOf('information credibility') >= 0);
+      row.querySelector('[data-field="threat_type"]').classList.toggle('not-set', missing.indexOf('threat type') >= 0);
+      row.querySelector('.dataset-chips').classList.toggle('not-set', missing.indexOf('classification') >= 0);
+      drawGrade(row.querySelector('[data-grade]'), value(row, 'reliability'), value(row, 'credibility'));
+      row.querySelector('[data-note-input]').placeholder = out ? 'Why it is left out' : 'A note for this report';
+      var isChanged = saved.get(row) !== posted(row);
+      if (isChanged) changed++;
+      row.querySelector('[data-unsaved]').hidden = !isChanged;
+      var pick = row.querySelector('[data-pick]');
+      if (pick) {
+        pick.hidden = grouped || out || !!picking;
+        row.querySelector('[data-undup]').hidden = !grouped || !!picking;
+        var key = groupKey(row);
+        row.querySelector('[data-join]').hidden = !picking || row === picking || out
+          || (key !== '' && key === groupKey(picking) && found.has(key));
+      }
+    });
+    body.querySelectorAll('tr.dataset-group').forEach(function(head) {
+      var members = found.get(head.dataset.group) || [];
+      var missing = lacks(members);
+      head.querySelector('[data-group-size]').textContent = members.length;
+      drawState(head.querySelector('[data-group-state]'), missing || [], missing === null, false);
+      head.querySelector('[data-group-hint]').hidden = !(missing && missing.length);
+    });
+    document.querySelector('[data-progress-triaged]').textContent = count.done + count.out;
+    document.querySelector('[data-progress-left]').textContent = count.todo ? count.todo + ' still to do' : 'all done';
+    Object.keys(count).forEach(function(key) {
+      document.querySelector('[data-progress="' + key + '"]').textContent = count[key];
+      document.querySelector('[data-progress-bar="' + key + '"]').style.flex = count[key];
+    });
+    note.textContent = changed ? changed + ' changed, not saved yet' : note.dataset.rule;
+    var ticked = rows.filter(function(row) { return row.querySelector('.entry-pick').checked; }).length;
+    if (bar) {
+      bar.hidden = !ticked;
+      document.getElementById('bulk-count').textContent = ticked;
+      bar.querySelector('[data-bulk-incident="join"]').disabled = ticked < 2;
+    }
+    show();
+    updateStats();
+  }
+
+  function show() {
+    var shown = 0;
+    rows.forEach(function(row) {
+      var type = value(row, 'threat_type') || '-';
+      var relevance = value(row, 'relevance') || '-';
+      var match = (!filters.type.value || type === filters.type.value)
+        && (!filters.relevance.value || relevance === filters.relevance.value)
+        && (!filters.source.value || row.dataset.source === filters.source.value)
+        && (!filters.outside || !filters.outside.checked || row.hasAttribute('data-outside-scope'))
+        && (!filters.todo.checked || row.dataset.state === 'todo')
+        && (!only || row.dataset.state === only)
+        && (filters.leftOut.checked || !leftOut(row));
+      row.hidden = !match;
+      if (match) shown++;
+    });
+    body.querySelectorAll('tr.dataset-group').forEach(function(head) {
+      var next = head.nextElementSibling, any = false;
+      while (next && next.hasAttribute('data-entry-row') && groupKey(next) === head.dataset.group) {
+        any = any || !next.hidden;
+        next = next.nextElementSibling;
+      }
+      head.hidden = !any;
+    });
+    document.querySelectorAll('[data-state-filter]').forEach(function(button) {
+      button.classList.toggle('selected', button.dataset.stateFilter === only);
+    });
+    document.getElementById('dataset-shown').textContent =
+      (shown === rows.length ? '' : shown + ' of ') + rows.length + ' event' + (rows.length === 1 ? '' : 's');
+    document.getElementById('filter-clear').hidden = !(filters.type.value || filters.relevance.value || filters.source.value
+      || (filters.outside && filters.outside.checked) || filters.todo.checked || only || !filters.leftOut.checked);
+  }
+
+  Object.keys(filters).forEach(function(key) { if (filters[key]) filters[key].addEventListener('change', show); });
+  document.getElementById('filter-clear').addEventListener('click', function() {
+    filters.type.value = filters.relevance.value = filters.source.value = '';
+    if (filters.outside) filters.outside.checked = false;
+    filters.todo.checked = false;
+    filters.leftOut.checked = true;
+    only = '';
+    show();
+  });
+  // The banner's figures show the events they count.
+  document.querySelectorAll('[data-show]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      if (button.dataset.show === 'outside' && filters.outside) filters.outside.checked = true;
+      if (button.dataset.show === 'unclassified') filters.type.value = '-';
+      filters.leftOut.checked = false;
+      show();
+      table.scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
+  });
+  document.querySelectorAll('[data-state-filter]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      only = only === button.dataset.stateFilter ? '' : button.dataset.stateFilter;
+      if (only === 'out') filters.leftOut.checked = true;
+      show();
+    });
+  });
+
+  table.addEventListener('change', refresh);
+  table.addEventListener('input', function(event) { if (!event.target.hasAttribute('data-note-input')) refresh(); });
+  all.addEventListener('change', function() {
+    rows.forEach(function(row) { if (!row.hidden) row.querySelector('.entry-pick').checked = all.checked; });
+    refresh();
+  });
 
   function picked() {
-    return Array.prototype.filter.call(document.querySelectorAll('.entry-pick'), function(box) { return box.checked; });
+    return rows.filter(function(row) { return row.querySelector('.entry-pick').checked; });
   }
   function setExcluded(row, excluded) {
     row.querySelector('[name^="excluded-"]').checked = excluded;
   }
-  all.addEventListener('change', function() {
-    document.querySelectorAll('.entry-pick').forEach(function(box) { box.checked = all.checked; });
+  // One set of duplicates for these rows: the one some of them are in already,
+  // or one named by the oldest of them, which the page lists last.
+  function joinIncident(members) {
+    if (members.length < 2) return;
+    members = members.slice().sort(function(a, b) { return rows.indexOf(a) - rows.indexOf(b); });
+    var held = members.map(groupKey).filter(Boolean)[0];
+    var key = held || members[members.length - 1].dataset.event;
+    members.forEach(function(row) { row.querySelector('[data-field="incident"]').value = key; });
+  }
+  function setApart(members) {
+    members.forEach(function(row) { row.querySelector('[data-field="incident"]').value = ALONE; });
+  }
+
+  // "Same story as…", then "Same story" on the other event.
+  function pick(row) {
+    picking = picking === row ? null : row;
+    pickBar.hidden = !picking;
+    if (picking) document.getElementById('pick-title').textContent = '"' + row.querySelector('.entry-title').textContent + '"';
+    refresh();
+  }
+  if (pickBar) {
+    document.getElementById('pick-cancel').addEventListener('click', function() { pick(picking); });
+    document.addEventListener('keydown', function(event) { if (event.key === 'Escape' && picking) pick(picking); });
+  }
+
+  // A note opens in place, and closes again on Enter, Escape or leaving it.
+  function editNote(row) {
+    var input = row.querySelector('[data-note-input]');
+    row.querySelector('[data-note]').hidden = true;
+    row.querySelector('[data-note-add]').hidden = true;
+    input.hidden = false;
+    input.focus();
+  }
+  function closeNote(input) {
+    var row = input.closest('tr');
+    input.value = input.value.trim();
+    input.hidden = true;
+    row.querySelector('[data-note-text]').textContent = input.value;
+    row.querySelector('[data-note]').hidden = !input.value;
+    row.querySelector('[data-note-add]').hidden = !!input.value;
+    refresh();
+  }
+  table.addEventListener('keydown', function(event) {
+    if (!event.target.hasAttribute('data-note-input') || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var row = event.target.closest('tr');
+    closeNote(event.target);
+    (row.querySelector('[data-note-edit]:not([hidden])') || row.querySelector('[data-note-add]')).focus();
+  });
+  table.addEventListener('focusout', function(event) {
+    if (event.target.hasAttribute('data-note-input') && !event.target.hidden) closeNote(event.target);
   });
 
-  // Sets the field on every ticked row, then resets itself so the same value
-  // can be applied to the next batch.
-  bar.querySelectorAll('[data-bulk]').forEach(function(select) {
-    select.addEventListener('change', function() {
-      if (!select.value) return;
-      picked().forEach(function(box) {
-        box.closest('tr').querySelector('[data-field="' + select.dataset.bulk + '"]').value = select.value;
-      });
-      select.value = '';
-    });
+  table.addEventListener('click', function(event) {
+    var button = event.target.closest('button');
+    if (!button || button.disabled) return;
+    var row = button.closest('tr');
+    if (button.hasAttribute('data-note-add') || button.hasAttribute('data-note-edit')) editNote(row);
+    else if (button.hasAttribute('data-pick')) pick(row);
+    else if (button.hasAttribute('data-join')) { joinIncident([picking, row]); pick(picking); }
+    else if (button.hasAttribute('data-undup')) { setApart([row]); refresh(); }
+    else if (button.hasAttribute('data-split')) { setApart(duplicates().get(row.dataset.group) || []); refresh(); }
   });
-  bar.querySelectorAll('[data-bulk-exclude]').forEach(function(button) {
-    button.addEventListener('click', function() {
-      picked().forEach(function(box) { setExcluded(box.closest('tr'), button.dataset.bulkExclude === '1'); });
+
+  if (bar) {
+    // Sets the field on every ticked row, then resets itself so the same value
+    // can be applied to the next batch.
+    bar.querySelectorAll('[data-bulk]').forEach(function(select) {
+      select.addEventListener('change', function() {
+        if (!select.value) return;
+        picked().forEach(function(row) {
+          if (select.dataset.bulk === 'relevance') {
+            row.querySelector('[data-field="relevance"][value="' + select.value + '"]').checked = true;
+          } else {
+            row.querySelector('select[data-field="' + select.dataset.bulk + '"]').value = select.value;
+          }
+        });
+        select.value = '';
+        refresh();
+      });
     });
+    bar.querySelector('[data-bulk-incident="join"]').addEventListener('click', function() {
+      joinIncident(picked());
+      refresh();
+    });
+    bar.querySelectorAll('[data-bulk-exclude]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        picked().forEach(function(row) { setExcluded(row, button.dataset.bulkExclude === '1'); });
+        refresh();
+      });
+    });
+  }
+  // A suggestion decided here is applied to its rows and saved with the triage.
+  document.querySelectorAll('[data-proposal]').forEach(function(item) {
+    var members = item.dataset.proposal.split(' ').map(function(uuid) {
+      return rows.filter(function(row) { return row.dataset.entryRow === uuid; })[0];
+    }).filter(Boolean);
+    function decided(apply) {
+      apply(members);
+      item.remove();
+      var left = document.querySelectorAll('[data-proposal]').length;
+      document.getElementById('proposal-count').textContent = left;
+      if (!left) document.getElementById('incident-proposals').hidden = true;
+      refresh();
+    }
+    item.querySelector('[data-proposal-join]').addEventListener('click', function() { decided(joinIncident); });
+    item.querySelector('[data-proposal-apart]').addEventListener('click', function() { decided(setApart); });
   });
   var outside = document.getElementById('exclude-outside-scope');
   if (outside) {
     outside.addEventListener('click', function() {
-      document.querySelectorAll('tr[data-outside-scope]').forEach(function(row) { setExcluded(row, true); });
+      rows.forEach(function(row) { if (row.hasAttribute('data-outside-scope')) setExcluded(row, true); });
+      refresh();
     });
   }
+  refresh();
 })();
 
 /* ── Classification picker ── */
 (function() {
   var modal = document.getElementById('classification-modal');
+  document.querySelectorAll('.entry-classification-text').forEach(trim);
   if (!modal) return;
   var cell = null;
 
@@ -349,15 +1144,28 @@
   function field(key) {
     return cell.querySelector('input[name="' + key + '-' + cell.dataset.entry + '"]');
   }
-  function addLine(text, label, value) {
-    var line = document.createElement('div');
+  // A chip as the page draws it: the value with the icon of its kind.
+  function chip(kind, icon, text, title) {
     var span = document.createElement('span');
-    span.className = 'text-muted';
-    span.textContent = label + ': ';
-    line.append(span, value);
-    text.appendChild(line);
+    span.className = 'dataset-chip ' + kind;
+    span.title = title;
+    var i = document.createElement('i');
+    i.className = 'fas ' + icon;
+    span.append(i, text);
+    return span;
   }
 
+  // At most four chips in a row; the others are named in a "+n" chip.
+  function trim(text) {
+    var more = text.querySelector('.chip-more');
+    if (more) more.remove();
+    var chips = Array.prototype.slice.call(text.querySelectorAll('.dataset-chip'));
+    chips.forEach(function(c, i) { c.hidden = i >= 4; });
+    if (chips.length <= 4) return;
+    var rest = chips.slice(4);
+    more = chip('chip-more', 'fa-ellipsis', '+' + rest.length, rest.map(function(c) { return c.textContent; }).join(', '));
+    text.insertBefore(more, chips[3].nextSibling);
+  }
   document.querySelectorAll('.classification-edit').forEach(function(button) {
     button.addEventListener('click', function() {
       cell = button.closest('.entry-classification');
@@ -370,33 +1178,193 @@
       modal.querySelectorAll('[data-question]').forEach(function(part) {
         part.querySelector('textarea').value = field(part.dataset.question).value;
       });
+      noneRelevant.checked = !!cell.querySelector('input[name^="no_classification-"]');
       bootstrap.Modal.getOrCreateInstance(modal).show();
+    });
+  });
+
+  // "None relevant" and a choice above exclude each other: ticking it clears
+  // the choices, and making one unticks it.
+  var noneRelevant = document.getElementById('classification-none');
+  function chosen() {
+    return Array.prototype.some.call(modal.querySelectorAll('[data-classification]'), function(part) { return read(part).length; })
+      || Array.prototype.some.call(modal.querySelectorAll('[data-question] textarea'), function(t) { return t.value.trim(); });
+  }
+  var clearing = false;
+  noneRelevant.addEventListener('change', function() {
+    if (!noneRelevant.checked) return;
+    // Clearing a list fires its own events, while the next still has values.
+    clearing = true;
+    modal.querySelectorAll('[data-classification]').forEach(function(part) { load(part, []); });
+    modal.querySelectorAll('[data-question] textarea').forEach(function(t) { t.value = ''; });
+    clearing = false;
+  });
+  ['change', 'input'].forEach(function(type) {
+    modal.addEventListener(type, function(event) {
+      if (!clearing && event.target !== noneRelevant && noneRelevant.checked && chosen()) noneRelevant.checked = false;
     });
   });
 
   document.getElementById('classification-apply').addEventListener('click', function() {
     var text = cell.querySelector('.entry-classification-text');
+    var pencil = text.querySelector('.classification-edit');
     text.replaceChildren();
     modal.querySelectorAll('[data-classification]').forEach(function(part) {
       var name = part.dataset.classification + '-' + cell.dataset.entry;
       cell.querySelectorAll('input[name="' + name + '"]').forEach(function(i) { i.remove(); });
-      var values = read(part);
-      values.forEach(function(value) {
+      read(part).forEach(function(value) {
         var input = document.createElement('input');
         input.type = 'hidden';
         input.name = name;
         input.value = value;
         cell.appendChild(input);
+        text.appendChild(chip('chip-' + part.dataset.classification, part.dataset.icon, value, part.dataset.label + ': ' + value));
       });
-      if (values.length) addLine(text, part.dataset.label, values.join(', '));
     });
     modal.querySelectorAll('[data-question]').forEach(function(part) {
       var value = part.querySelector('textarea').value.trim();
       field(part.dataset.question).value = value;
-      if (value) addLine(text, part.dataset.label, value);
+      if (value) text.appendChild(chip('chip-question', 'fa-circle-question', part.dataset.label, value));
     });
+    var flag = cell.querySelector('input[name^="no_classification-"]');
+    if (flag) flag.remove();
+    if (noneRelevant.checked && !text.querySelector('.dataset-chip')) {
+      flag = document.createElement('input');
+      flag.type = 'hidden';
+      flag.name = 'no_classification-' + cell.dataset.entry;
+      flag.value = '1';
+      cell.appendChild(flag);
+      text.appendChild(chip('chip-none', 'fa-ban', 'None relevant', 'No sector, place, actor, technique or other classification is relevant'));
+    }
+    if (!text.querySelector('.dataset-chip')) {
+      var none = document.createElement('span');
+      none.className = 'dataset-none';
+      none.textContent = 'None yet';
+      text.appendChild(none);
+    }
+    text.appendChild(pencil);
+    trim(text);
+    // The hidden fields changed: the row counts as changed now.
+    cell.closest('table').dispatchEvent(new Event('change'));
     bootstrap.Modal.getOrCreateInstance(modal).hide();
   });
 })();
+
+/* ── The story panel ── */
+(function() {
+  var panel = document.getElementById('entry-preview');
+  var table = document.querySelector('.dataset-table');
+  if (!panel || !table) return;
+  var canvas = bootstrap.Offcanvas.getOrCreateInstance(panel);
+  var content = document.getElementById('entry-preview-content');
+  var loading = document.getElementById('entry-preview-loading');
+  var cache = {};
+  var current = null;
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function section(icon, title) {
+    var box = el('div', 'mb-3');
+    var heading = el('h6', 'small fw-semibold text-muted mb-2');
+    heading.append(el('i', 'fas ' + icon + ' me-1'), title);
+    box.appendChild(heading);
+    return box;
+  }
+  function draw(data) {
+    var ev = data.event || {};
+    var parts = [];
+    if (ev.tags && ev.tags.length) {
+      var tags = section('fa-tags', 'Tags');
+      var line = el('div', 'd-flex flex-wrap gap-1');
+      ev.tags.forEach(function(t) {
+        var badge = el('span', 'badge', t.name || t);
+        // Stock MISP checks tag colours, but a source MISP is not always stock.
+        badge.style.background = /^#[0-9a-fA-F]{6}$/.test(t.colour || '') ? t.colour : 'var(--chip-tag-generic-fg)';
+        if (/^#[0-9a-fA-F]{6}$/.test(t.text || '')) badge.style.color = t.text;
+        line.appendChild(badge);
+      });
+      tags.appendChild(line);
+      parts.push(tags);
+    }
+    (data.reports || []).forEach(function(report) {
+      var box = section('fa-file-lines', report.name || 'Report');
+      var text = el('div', 'report-md-body small border rounded p-3');
+      zsazsaRenderMarkdown(text, report.content || '', '<em class="text-muted">No content.</em>');
+      box.appendChild(text);
+      parts.push(box);
+    });
+    if (ev.attributes && ev.attributes.length) {
+      var attrs = section('fa-list', 'Attributes (' + ev.attributes.length + ')');
+      var wrap = el('div');
+      wrap.style.cssText = 'max-height:16rem;overflow-y:auto;';
+      var list = el('table', 'table table-sm mb-0 small');
+      ev.attributes.forEach(function(a) {
+        var tr = el('tr');
+        tr.append(el('td', 'text-muted text-nowrap', a.category), el('td', 'font-monospace text-muted text-nowrap', a.type),
+                  el('td', 'font-monospace text-break', a.value));
+        list.appendChild(tr);
+      });
+      wrap.appendChild(list);
+      attrs.appendChild(wrap);
+      parts.push(attrs);
+    }
+    if (!parts.length) parts.push(el('p', 'text-muted small', 'No reports or attributes.'));
+    content.replaceChildren.apply(content, parts);
+  }
+
+  function open(row) {
+    current = row;
+    var link = row.querySelector('.entry-title');
+    document.getElementById('entry-preview-title').textContent = link.textContent;
+    document.getElementById('entry-preview-meta').textContent = row.querySelector('.dataset-meta span').textContent;
+    document.getElementById('entry-preview-detail').href = link.href;
+    document.getElementById('entry-preview-triage').replaceChildren(row.querySelector('[data-state]').cloneNode(true));
+    canvas.show();
+    var url = link.dataset.preview;
+    if (cache[url]) { loading.hidden = true; draw(cache[url]); return; }
+    content.replaceChildren();
+    loading.hidden = false;
+    fetch(url)
+      .then(function(reply) { return reply.json(); })
+      .then(function(data) {
+        if (current !== row) return;
+        loading.hidden = true;
+        if (!data.ok) { content.replaceChildren(el('p', 'text-danger small', data.error || 'Could not load the event.')); return; }
+        cache[url] = data;
+        draw(data);
+      })
+      .catch(function() {
+        if (current !== row) return;
+        loading.hidden = true;
+        content.replaceChildren(el('p', 'text-danger small', 'Could not load the event.'));
+      });
+  }
+  // The next or previous event the table shows.
+  function step(by) {
+    var shown = Array.prototype.filter.call(table.querySelectorAll('tr[data-entry-row]'), function(row) { return !row.hidden; });
+    var next = shown[shown.indexOf(current) + by];
+    if (next) open(next);
+  }
+
+  table.addEventListener('click', function(event) {
+    var link = event.target.closest('.entry-title');
+    // A click with a modifier opens the full page, as a link does.
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    open(link.closest('tr'));
+  });
+  document.getElementById('entry-preview-prev').addEventListener('click', function() { step(-1); });
+  document.getElementById('entry-preview-next').addEventListener('click', function() { step(1); });
+  panel.addEventListener('keydown', function(event) {
+    if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
+    if (event.key === 'j') step(1);
+    else if (event.key === 'k') step(-1);
+  });
+})();
 </script>
+{% include "_markdown_js.html" %}
 {% endblock %}

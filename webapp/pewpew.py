@@ -1,7 +1,9 @@
 """What the pew-pew map shows: the indicators zsazsa collected in a window of
-days, from the collection cache, with the means that brought each in, where an
-address is, and the PIR, GIR or RFI it falls under.
+days, from the collection cache, with the means that brought each in, where it
+is, and the PIR, GIR or RFI it falls under.
 
+An address is where ip.circl.lu says it is; a domain, hostname or URL is where
+its top-level domain says, when that is a country code.
 An indicator is caught when its event matches an active PIR or GIR, the same
 match the collection page makes. An open RFI linked to that PIR or GIR is named
 with it.
@@ -15,7 +17,9 @@ import re
 import time
 from collections import Counter
 from datetime import date, timedelta
+from urllib.parse import urlsplit
 
+from core import tld_countries
 from webapp import collection_cache, matching, misp_store
 
 logger = logging.getLogger(__name__)
@@ -34,9 +38,10 @@ MEANS = {
     "manual": "Manual entries",
 }
 NEWSLETTER_TAG = 'zsazsa:source-type="newsletter"'
-_OPEN_RFI = ("New", "Acknowledged", "In Progress")
 # What "Exclude hashes" leaves out.
 HASH_TYPES = ("md5", "sha1", "sha256")
+# The types placed by their top-level domain.
+HOST_TYPES = ("domain", "hostname", "url")
 # The newest indicators the page replays; more would only make the loop longer.
 # The counts cover them all.
 _MAX_INDICATORS = 800
@@ -67,32 +72,45 @@ def _jitter(ip: str) -> tuple:
     return (digest[0] / 255 - .5) * 3, (digest[1] / 255 - .5) * 3
 
 
-def _source_label(source_id: str, labels: dict) -> str:
-    if source_id.startswith("manual-"):
-        return source_id[len("manual-"):].replace("-", " ")
-    return labels.get(source_id, source_id)
+def _tld(type_: str, value: str) -> str:
+    """The top-level domain of a domain, hostname or URL, empty when it has none."""
+    host = value
+    if type_ == "url":
+        try:
+            host = urlsplit(value if "://" in value else "//" + value).hostname or ""
+        except ValueError:
+            return ""
+    host = host.lower().rstrip(".")
+    return host.rpartition(".")[2] if "." in host else ""
 
 
-def _catches(events) -> dict:
-    """{event uuid: [requirement and RFI ids]} for the events in scope."""
+def _catches(events) -> tuple:
+    """({event uuid: [requirement and RFI ids]}, {id: {"kind", "label"}}) for
+    the events in scope."""
     pirs, girs = matching.get_requirements()
     matched = matching.match_events(events, pirs, girs)
     by_requirement = {}
     try:
         for rfi in misp_store.list_rfis():
-            if rfi.status not in _OPEN_RFI:
+            if rfi.status not in misp_store.RFI_OPEN_STATUSES:
                 continue
             for linked in (rfi.linked_pir_uuid, rfi.linked_gir_uuid):
                 if linked:
-                    by_requirement.setdefault(linked, []).append(rfi.rfi_id)
+                    by_requirement.setdefault(linked, []).append(rfi)
     except Exception as exc:
         logger.warning("pew-pew map: could not read the RFIs: %s", exc)
-    catches = {}
+    catches, names = {}, {}
     for uuid, matches in matched.items():
         ids = [m["id"] for m in matches if m["id"]]
-        ids += [rfi for m in matches for rfi in by_requirement.get(m["uuid"], [])]
+        for m in matches:
+            if m["id"]:
+                names[m["id"]] = {"kind": m["type"].upper(), "label": m["label"]}
+        for m in matches:
+            for rfi in by_requirement.get(m["uuid"], []):
+                ids.append(rfi.rfi_id)
+                names[rfi.rfi_id] = {"kind": "RFI", "label": (getattr(rfi, "question", "") or "")[:120]}
         catches[uuid] = list(dict.fromkeys(ids))
-    return catches
+    return catches, names
 
 
 def map_data(days: int = DEFAULT_WINDOW, tlp: str = DEFAULT_TLP, exclude_hashes: bool = False) -> dict:
@@ -117,8 +135,8 @@ def map_data(days: int = DEFAULT_WINDOW, tlp: str = DEFAULT_TLP, exclude_hashes:
     ips = {r["value"]: collection_cache.indicator_ip(r["type"], r["value"])
            for r in rows if r["type"] in collection_cache.IP_TYPES}
     places = collection_cache.ip_locations(ips.values())
-    catches = _catches([by_key[k] for k in {(r["source_id"], r["event_uuid"]) for r in rows}])
-    labels = {s["id"]: s["label"] for s in collection_cache._build_sources(with_manual=False)}
+    catches, names = _catches([by_key[k] for k in {(r["source_id"], r["event_uuid"]) for r in rows}])
+    labels = collection_cache.source_labels()
 
     indicators = []
     for r in rows:
@@ -127,7 +145,7 @@ def map_data(days: int = DEFAULT_WINDOW, tlp: str = DEFAULT_TLP, exclude_hashes:
         item = {
             "ts": r["timestamp"],
             "means": means_of(event),
-            "source": _source_label(r["source_id"], labels),
+            "source": collection_cache.source_label(r["source_id"], labels),
             "type": r["type"],
             "value": defang(r["type"], r["value"]),
             "tlp": event_tlp,
@@ -137,18 +155,26 @@ def map_data(days: int = DEFAULT_WINDOW, tlp: str = DEFAULT_TLP, exclude_hashes:
             "caught": catches.get(event["uuid"], []),
         }
         ip = ips.get(r["value"])
-        place = places.get(ip) if ip else None
+        if ip:
+            place, anchor = places.get(ip), ip
+        elif r["type"] in HOST_TYPES:
+            place, anchor = tld_countries.country_of(_tld(r["type"], r["value"])), r["value"]
+        else:
+            place = anchor = None
         if place and place["country"]:
-            dlat, dlon = _jitter(ip)
+            dlat, dlon = _jitter(anchor)
             item.update(country=place["country"], country_name=place["name"],
                         lat=place["lat"] + dlat, lon=place["lon"] + dlon)
         elif ip:
             item["why_not"] = ("not sent to CIRCL at TLP:AMBER" if event_tlp not in ("clear", "green")
                                else "not located yet" if place is None else "no country known")
+        elif r["type"] in HOST_TYPES:
+            item["why_not"] = "no country in its top-level domain"
         indicators.append(item)
 
     located = [i for i in indicators if "country" in i]
     countries = Counter((i["country"], i["country_name"]) for i in located)
+    used = {i for item in indicators for i in item["caught"]}
     return {
         "days": days,
         "tlp": tlp,
@@ -156,6 +182,7 @@ def map_data(days: int = DEFAULT_WINDOW, tlp: str = DEFAULT_TLP, exclude_hashes:
         "generated_at": time.time(),
         "means": [{"id": k, "label": label, "count": sum(1 for i in indicators if i["means"] == k)}
                   for k, label in MEANS.items()],
+        "requirements": {i: names[i] for i in used},
         "indicators": indicators[-_MAX_INDICATORS:],
         "totals": {
             "indicators": len(indicators),

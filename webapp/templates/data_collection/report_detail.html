@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block misp_object_url %}{{ report.misp_url }}{% endblock %}
+{% block title %}{{ report.title }} | zsazsa CTI{% endblock %}
+{% block page_title %}Imported threat report{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('report_import.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-book-open me-1"></i> Imported threat reports
+</a>
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary ms-2">
+  <i class="fas fa-arrow-left me-1"></i> Back to collection
+</a>
+{% endblock %}
+
+{% block content %}
+{% set structure_names = {'outline': 'its outline', 'headings': 'its headings', 'size': 'its length', 'document': 'one story, as a short document'} %}
+{% set total = stories | sum(attribute='chars') or 1 %}
+{% set largest = stories | map(attribute='chars') | max if stories else 1 %}
+{% set unkind = stories | rejectattr('kind') | list | length %}
+
+{% if earlier %}
+<div class="alert alert-info d-flex align-items-center gap-2 rise" role="status">
+  <i class="fas fa-circle-info"></i>
+  <span>This PDF was imported before, so this is that import. It was not read or analysed again.</span>
+</div>
+{% endif %}
+{% if similar %}
+<div class="alert alert-warning d-flex align-items-start gap-2 rise" role="status">
+  <i class="fas fa-triangle-exclamation mt-1"></i>
+  <span>A threat report like this one, from {{ report.provider }} with the same title or file name, was imported
+    before as another file:
+    {% for r in similar %}<a href="{{ url_for('report_import.detail', uuid=r.uuid) }}">{{ r.title }}</a>{{ ' (' ~ r.published ~ ')' if r.published }}{{ ', ' if not loop.last }}{% endfor %}.
+    If it is the same threat report rather than a new version of it, delete one of them before its stories are made twice.</span>
+</div>
+{% endif %}
+
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-book-open"></i></span>
+        <div style="min-width:0;">
+          <div class="eyebrow"><i class="fas fa-building me-1"></i>{{ report.provider }}</div>
+          <h1>{{ report.title }}</h1>
+          <div class="report-facts">
+            <span>{{ 'Published ' ~ report.published if report.published else 'No publication date' }}</span>
+            <span>{{ report.filename }}</span>
+            <span>Under {{ report.collection_source }}{% if report.source_reliability %}, rated {{ report.source_reliability }}{% endif %}</span>
+          </div>
+        </div>
+      </div>
+      <div class="record-kpis">
+        <a class="record-kpi" href="#stories"><b>{{ stories | length }}</b><span>stor{{ 'ies' if stories | length != 1 else 'y' }}</span></a>
+        <div class="record-kpi"><b>{{ made }}</b><span>made into events</span></div>
+        <div class="record-kpi"><b>{{ report.pages }}</b><span>page{{ 's' if report.pages != 1 }}</span></div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('report_import.review', uuid=report.uuid) }}" class="btn btn-sm btn-hero"><i class="fas fa-list-check me-1"></i> Review the stories</a>
+      {% if calls_left and not busy %}
+      <form method="post" action="{{ url_for('report_import.continue_ai', uuid=report.uuid) }}" class="d-inline">
+        <button class="btn btn-sm btn-hero-ghost" title="Names, classifies and reads the stories the AI has not done yet"><i class="fas fa-wand-magic-sparkles me-1"></i> Continue with AI · {{ calls_left }} call{{ 's' if calls_left != 1 }}</button>
+      </form>
+      {% endif %}
+      {% if made %}
+      <a href="{{ url_for('data_collection.index', tag=report_tag) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-database me-1"></i> Its stories on Data collection</a>
+      {% endif %}
+      {% if report.pdf %}
+      <a href="{{ url_for('report_import.pdf', uuid=report.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      {% endif %}
+      {% if report.source_url %}
+      <a href="{{ report.source_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-hero-ghost"><i class="fas fa-up-right-from-square me-1"></i> Where it came from</a>
+      {% endif %}
+      {% if busy %}
+      <span class="d-inline-block" title="Something is still being done to this threat report. Delete it when it is done." style="cursor:not-allowed;">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-trash me-1"></i> Delete</button>
+      </span>
+      {% else %}
+      <form method="post" action="{{ url_for('report_import.delete', uuid=report.uuid) }}" class="d-inline"
+            data-submit-confirm="Delete the threat report {{ report.title }}, with its PDF and its review?{% if made %} The {{ made }} stor{{ 'y' if made == 1 else 'ies' }} made from it stay on Data collection and in the threat landscape queue.{% endif %}">
+        <button class="btn btn-sm btn-hero-ghost"><i class="fas fa-trash me-1"></i> Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="report-tlp">
+    <span>Shared as</span>
+    {% if report.tlp %}<span class="tlp-badge tlp-{{ report.tlp | slug }}">TLP:{{ report.tlp | upper }}</span>{% else %}<span>No TLP</span>{% endif %}
+  </div>
+</section>
+
+{% if not busy and last_job and last_job.status == 'failed' %}
+<div class="alert alert-warning d-flex align-items-center gap-2 rise" role="status">
+  <i class="fas fa-triangle-exclamation"></i><span>{{ last_job.error or last_job.message }}</span>
+</div>
+{% elif not busy and last_job and last_job.action == 'report-create' and last_job.status == 'completed' %}
+<div class="alert alert-success d-flex align-items-center gap-2 rise" role="status">
+  <i class="fas fa-circle-check"></i><span>{{ last_job.message }}.</span>
+  <a class="ms-auto small" href="{{ url_for('threat_landscape.review') }}#queue">Open the threat landscape queue</a>
+</div>
+{% endif %}
+{% if busy %}
+<div class="alert alert-primary d-flex align-items-center gap-2 rise" role="status" id="report-busy"
+     data-status-url="{{ url_for('dashboard.pipeline_job_status', job_id=busy.id) }}">
+  <i class="fas fa-spinner fa-spin"></i>
+  <span id="report-busy-message">{{ busy.message }}</span>
+  <span class="ms-auto small text-muted">The page reloads when it is done.</span>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card content-card rise rise-1" id="stories">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-scissors me-2"></i>Stories</span>
+        <span class="text-muted small">drafted from {{ structure_names.get(report.structure, report.structure) }}{% if unkind %} · {{ unkind }} without a kind yet{% endif %}</span>
+      </div>
+      {% if stories %}
+      <div class="card-body pb-2">
+        <nav class="doc-map" aria-label="The threat report, a segment per story">
+          {% for s in stories %}
+          <a href="#story-{{ loop.index }}" class="{{ 'k-' ~ s.kind if s.kind }}" style="--w: {{ s.chars }}; --i: {{ loop.index0 }};"
+             title="{{ loop.index }}. {{ s.title }}, pages {{ s.pages[0] }} to {{ s.pages[1] }}{{ ', ' ~ ('left out' if s.kind == 'excluded' else s.kind) if s.kind }}"
+             aria-label="Story {{ loop.index }}: {{ s.title }}"></a>
+          {% endfor %}
+        </nav>
+        <div class="doc-ruler" aria-hidden="true"><span>p. 1</span><span>{{ '{:,}'.format(total) }} characters</span><span>p. {{ report.pages }}</span></div>
+      </div>
+      <ol class="drafts">
+        {% for s in stories %}
+        <li id="story-{{ loop.index }}" class="{{ 'is-excluded' if s.kind == 'excluded' }}">
+          <span class="n">{{ '%02d' % loop.index }}</span>
+          <span class="t">
+            {% if s.event %}<a href="{{ url_for('data_collection.manual_detail', uuid=s.event) }}" title="Its collection event"><i class="fas fa-circle-check text-success me-1"></i></a>{% endif %}{{ s.title }}
+            {% if s.kind %}<span class="story-kind k-{{ s.kind }}">{{ 'left out' if s.kind == 'excluded' else s.kind }}</span>{% endif %}
+            {% if s.context and s.context.summary %}<span class="summary">{{ s.context.summary }}</span>
+            {% elif s.path %}<span class="path">{{ s.path | join(' › ') }}</span>{% endif %}
+          </span>
+          <span class="size">
+            <span>{{ 'p. %d' % s.pages[0] if s.pages[0] == s.pages[1] else 'p. %d to %d' % (s.pages[0], s.pages[1]) }}
+              · {{ '%.1fk' % (s.chars / 1000) if s.chars >= 1000 else s.chars }}</span>
+            <i style="--w: {{ [4, (100 * s.chars / largest) | round | int] | max }}%;"></i>
+          </span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="card-body text-muted small">No stories were drafted.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="d-flex flex-column gap-4">
+      <form method="post" action="{{ url_for('report_import.save_details', uuid=report.uuid) }}" class="card content-card rise rise-2">
+        <div class="card-header"><i class="fas fa-pen me-2"></i>Details</div>
+        <div class="card-body d-flex flex-column gap-3">
+          <input type="hidden" name="version" value="{{ report.version }}">
+          <div>
+            <label class="form-label required-label" for="detail-title">Title</label>
+            <input type="text" name="title" id="detail-title" class="form-control" maxlength="200" required value="{{ report.title }}">
+          </div>
+          <div>
+            <label class="form-label required-label" for="detail-provider">Provider</label>
+            <input type="text" name="provider" id="detail-provider" class="form-control" maxlength="120" required
+                   list="detail-providers" value="{{ report.provider }}">
+            <datalist id="detail-providers">{% for p in providers %}<option value="{{ p }}">{% endfor %}</datalist>
+          </div>
+          <div>
+            <label class="form-label" for="detail-published">Published</label>
+            <input type="date" name="published" id="detail-published" class="form-control" value="{{ report.published }}">
+            {% if read.created and read.created != report.published %}
+            <div class="form-text">The PDF was made on {{ read.created }}.</div>
+            {% endif %}
+          </div>
+          <div>
+            <span class="form-label d-block">TLP</span>
+            <div class="choice-group" role="radiogroup" aria-label="TLP">
+              {% for t in tlp_levels %}
+              <input class="btn-check" type="radio" name="tlp" value="{{ t }}" id="detail-tlp-{{ loop.index }}" {{ 'checked' if t == report.tlp }}>
+              <label class="choice" for="detail-tlp-{{ loop.index }}"><span class="tlp-badge tlp-{{ t | slug }}">TLP:{{ t | upper }}</span></label>
+              {% endfor %}
+            </div>
+            {% if read.tlp %}<div class="form-text">The PDF is marked TLP:{{ read.tlp | upper }}.</div>{% endif %}
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-floppy-disk me-1"></i> Save details</button>
+        </div>
+      </form>
+
+      <div class="card content-card rise rise-3">
+        <div class="card-header"><i class="fas fa-magnifying-glass me-2"></i>What was read</div>
+        <div class="card-body">
+          <dl class="form-facts">
+            <dt>Text</dt><dd>{{ '{:,}'.format(read.blocks or 0) }} paragraphs and headings</dd>
+            <dt>Outline</dt><dd>{% if read.outline %}{{ read.outline }} entr{{ 'ies' if read.outline != 1 else 'y' }}{% if read.outline_skipped %}, {{ read.outline_skipped }} without a title left out{% endif %}{% else %}<span class="text-muted">None</span>{% endif %}</dd>
+            <dt>Left out</dt>
+            <dd>{% if read.running %}<span class="running-lines">{% for line in read.running %}<code>{{ line }}</code>{% endfor %}</span>
+              <div class="form-text mt-1">Repeated at the top or bottom of the pages; # is any number.</div>
+              {% else %}<span class="text-muted">No running headers or footers</span>{% endif %}</dd>
+            <dt>File</dt><dd class="font-monospace small text-truncate" title="SHA-256 {{ report.sha256 }}">{{ report.sha256[:16] }}…</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* While a job works on the report, follow it and show the page anew once it is done. */
+(function() {
+  var busy = document.getElementById('report-busy');
+  if (!busy) return;
+  var message = document.getElementById('report-busy-message');
+  var timer = setInterval(function() {
+    fetch(busy.dataset.statusUrl, {headers: {'Accept': 'application/json'}})
+      .then(zsazsaReadJson)
+      .then(function(data) {
+        if (!data.ok) return;
+        message.textContent = data.job.message || '';
+        if (data.job.status === 'completed' || data.job.status === 'failed') {
+          clearInterval(timer);
+          window.location.reload();
+        }
+      })
+      .catch(function(err) { message.textContent = 'Could not follow the job: ' + zsazsaErrorText(err); });
+  }, 2000);
+})();
+</script>
+{% endblock %}

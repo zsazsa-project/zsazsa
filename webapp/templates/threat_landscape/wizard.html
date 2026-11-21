@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import galaxy_multiselect, review_state_badge %}
+{% import "threat_landscape/_ranking.html" as rank %}
 
 {% block title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report | zsazsa CTI{% endblock %}
 {% block page_title %}{{ 'Edit' if is_edit else 'New' }} threat landscape report{% endblock %}
@@ -18,6 +19,10 @@
       <label class="form-label small">Threat type</label>
       <select name="section_threat_type" class="form-select form-select-sm tlr-section-type">
         <option value="">-</option>
+        {# A threat type removed in Settings stays on the section that has it. #}
+        {% if section.threat_type and section.threat_type not in threat_types %}
+        <option value="{{ section.threat_type }}" selected>{{ section.threat_type }}</option>
+        {% endif %}
         {% for t in threat_types %}
         <option value="{{ t }}" {{ 'selected' if section.threat_type == t }}>{{ t }}</option>
         {% endfor %}
@@ -64,12 +69,46 @@
 </div>
 {% endmacro %}
 
+{# One key judgement of the executive summary; also the template a new one is cloned from. #}
+{% macro judgement_row(kj) %}
+<div class="tlr-judgement border rounded p-2 mb-2">
+  <div class="row g-2">
+    <div class="col-md-9">
+      <label class="form-label small">Judgement</label>
+      <textarea name="kj_judgement" class="form-control form-control-sm" rows="2"
+                placeholder="In estimative language, such as: ransomware very likely remains the main threat to the sector">{{ kj.judgement }}</textarea>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small">Confidence</label>
+      <select name="kj_confidence" class="form-select form-select-sm">
+        <option value="">-</option>
+        {% for value, label, desc in estimative_confidence %}
+        <option value="{{ value }}" {{ 'selected' if kj.confidence == value }} title="{{ desc }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label small">What it means for us</label>
+      <textarea name="kj_implication" class="form-control form-control-sm" rows="2"
+                placeholder="The decision or exposure it bears on, for this organisation">{{ kj.implication }}</textarea>
+    </div>
+  </div>
+  <div class="text-end mt-1">
+    <button type="button" class="btn btn-xs btn-outline-danger tlr-judgement-remove"><i class="fas fa-minus me-1"></i>Remove</button>
+  </div>
+</div>
+{% endmacro %}
+
 {% block content %}
-{% set steps = [('details', 'Details'), ('direction', 'Direction'), ('top', 'Top threats'), ('assessments', 'Assessments'),
+{% set steps = [('details', 'Details'), ('summary', 'Executive summary'), ('ranking', 'Threat ranking'), ('direction', 'Direction'), ('top', 'Top threats'), ('assessments', 'Assessments'),
                 ('actors', 'Threat actors'), ('incidents', 'Key incidents'), ('recommendations', 'Recommendations'),
                 ('outlook', 'Outlook'), ('methodology', 'Methodology')] %}
 <form method="post" data-unsaved-warning>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {# The sections the AI drafted, for the methodology to say so. "Draft with AI" adds to them. #}
+  <div id="tlr-ai-drafted">
+    {% for section in (tlr.ai_drafted if tlr else []) %}<input type="hidden" name="ai_drafted" value="{{ section }}">{% endfor %}
+  </div>
 
   <section class="record-hero record-hero-compact rise mb-3">
     <span class="hero-icon" aria-hidden="true"><i class="fas fa-map"></i></span>
@@ -91,8 +130,8 @@
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">Title</label>
-              <input type="text" name="title" class="form-control"
+              <label class="form-label required-label" for="tlr-title">Title</label>
+              <input type="text" name="title" id="tlr-title" class="form-control"
                      value="{{ tlr.title if tlr else '' }}" required
                      placeholder="e.g. Q1 2026 Threat Landscape">
             </div>
@@ -111,8 +150,65 @@
         </div>
       </div>
 
+      <div class="card content-card form-step mb-4" id="step-summary" data-step='textarea[name="executive_summary"], textarea[name="kj_judgement"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Executive summary</div>
+        <div class="card-body">
+          <p class="form-text mt-0">What management reads first: the bottom line in a few plain sentences, then the
+            three to five judgements to take away, each with how confident you are and what it means for the organisation.</p>
+          <label class="form-label">Bottom line</label>
+          <textarea name="executive_summary" class="form-control mb-3" rows="3"
+                    placeholder="What happened in the period and how it changed, without jargon">{{ tlr.executive_summary if tlr else '' }}</textarea>
+          <label class="form-label">Key judgements</label>
+          <div id="tlr-judgements">
+            {% for kj in (tlr.key_judgements if tlr else []) %}{{ judgement_row(kj) }}{% endfor %}
+          </div>
+          <template id="tlr-judgement-template">{{ judgement_row({}) }}</template>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="tlr-judgement-add">
+            <i class="fas fa-plus me-1"></i>Add a key judgement
+          </button>
+        </div>
+      </div>
+
+      <div class="card content-card form-step mb-4" id="step-ranking" data-step='input[name="rank_rationale"]'>
+        <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Threat ranking</div>
+        <div class="card-body">
+          <p class="form-text mt-0">The threat types of the dataset and its most frequent threat actors, as the triage
+            ranks them: the most events of high relevance first, then those that hit the organisation, those growing
+            and the most events. Say why a threat matters to the organisation where it helps the reader; the report
+            shows it beside the threat.</p>
+          {% if ranking %}
+          <div class="table-responsive">
+            <table class="table table-sm small align-middle mb-0 tlr-ranking-form">
+              <thead>
+                <tr><th>Threat</th><th class="text-end" title="Duplicates count once">Events</th><th class="text-end" title="Events of high relevance">High</th>
+                    <th>Why</th></tr>
+              </thead>
+              <tbody>
+                {% for r in ranking %}
+                <tr>
+                  <td>
+                    <input type="hidden" name="rank_kind" value="{{ r.kind }}">
+                    <input type="hidden" name="rank_name" value="{{ r.name }}">
+                    <span class="fw-semibold">{{ r.name }}</span>
+                    <div class="text-muted" style="font-size:.7rem;">{{ r.kind }}</div>
+                  </td>
+                  <td class="text-end text-nowrap">{{ rank.incidents_cell(r) }}</td>
+                  <td class="text-end">{{ r.high or '-' }}</td>
+                  <td><input type="text" name="rank_rationale" class="form-control form-control-sm" value="{{ r.rationale }}"
+                             style="min-width:14rem;" aria-label="Why {{ r.name }} matters"></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text-muted small mb-0">The ranking is made from the report's dataset{{ ', which a new report has once it is created from the queue' if not is_edit }}.</p>
+          {% endif %}
+        </div>
+      </div>
+
       <div class="card content-card form-step mb-4" id="step-direction" data-step='textarea[name="purpose"], [name="scope_sectors"], [name="scope_geography"], [name="linked_pir_uuids"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">2</span>Direction</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Direction</div>
         <div class="card-body">
           <div class="row g-3">
             {% if last_feedback %}
@@ -189,7 +285,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-top" data-step='textarea[name="top_threats"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">3</span>Top threats</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Top threats</div>
         <div class="card-body">
           <textarea name="top_threats" class="form-control font-monospace" rows="5"
                     placeholder="Summarise the top threats observed during this period…">{{ tlr.top_threats if tlr else '' }}</textarea>
@@ -197,7 +293,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-assessments" data-step='textarea[name="section_findings"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">4</span>Threat assessments</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Threat assessments</div>
         <div class="card-body">
           <p class="form-text mt-0">
             One per threat type or theme: the findings, what drives them, how confident you are, the other
@@ -216,7 +312,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-actors" data-step='textarea[name="trending_actors"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Trending threat actors</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">7</span>Trending threat actors</div>
         <div class="card-body">
           <textarea name="trending_actors" class="form-control font-monospace" rows="4"
                     placeholder="Threat actors that increased in activity or relevance…">{{ tlr.trending_actors if tlr else '' }}</textarea>
@@ -234,7 +330,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-incidents" data-step='textarea[name="key_incidents"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">6</span>Key incidents</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">8</span>Key incidents</div>
         <div class="card-body">
           <textarea name="key_incidents" class="form-control font-monospace" rows="5"
                     placeholder="Notable incidents, campaigns, or vulnerabilities during the period…">{{ tlr.key_incidents if tlr else '' }}</textarea>
@@ -242,7 +338,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-recommendations" data-step='textarea[name="recommendations"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">7</span>Recommendations</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">9</span>Recommendations</div>
         <div class="card-body">
           <textarea name="recommendations" class="form-control font-monospace" rows="4"
                     placeholder="Recommended actions for the audience…">{{ tlr.recommendations if tlr else '' }}</textarea>
@@ -250,7 +346,7 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-outlook" data-step='textarea[name="outlook"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">8</span>Outlook</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">10</span>Outlook</div>
         <div class="card-body">
           <textarea name="outlook" class="form-control font-monospace" rows="4"
                     placeholder="Near-term threat outlook and anticipated developments…">{{ tlr.outlook if tlr else '' }}</textarea>
@@ -258,10 +354,43 @@
       </div>
 
       <div class="card content-card form-step mb-4" id="step-methodology" data-step='textarea[name="methodology"]'>
-        <div class="card-header d-flex align-items-center"><span class="step-num">9</span>Methodology and limitations</div>
+        <div class="card-header d-flex align-items-center"><span class="step-num">11</span>Methodology and limitations</div>
         <div class="card-body">
-          <textarea name="methodology" class="form-control" rows="4"
+          <textarea name="methodology" class="form-control" rows="8"
                     placeholder="Sources and period covered, how events were selected and rated, where AI was used, and what the report cannot say…">{{ tlr.methodology if tlr else '' }}</textarea>
+          {% if is_edit and tlr.entries %}
+          <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="tlr-methodology-draft"
+                    data-url="{{ url_for('threat_landscape.draft_methodology', id=tlr.uuid) }}">
+              <i class="fas fa-table-list me-1"></i>Draft from the dataset
+            </button>
+            <button type="button" class="btn btn-link btn-sm p-0 text-muted" data-bs-toggle="collapse"
+                    data-bs-target="#tlr-methodology-info" aria-expanded="false" aria-controls="tlr-methodology-info"
+                    title="What the draft says"><i class="fas fa-circle-info"></i></button>
+            <span class="form-text m-0" id="tlr-methodology-status">The sources, the period, the ratings, what changed in
+              collection since the previous report and where AI was used, from the saved dataset.</span>
+          </div>
+          <div class="collapse" id="tlr-methodology-info">
+            <div class="form-text border rounded p-2 mt-2">
+              The draft is written from the saved dataset, without AI, and replaces what the field holds once you confirm.
+              Edit it afterwards. In order, it says:
+              <ol class="mb-0 mt-1 ps-3">
+                <li>The period, how many events the report is built from, from which sources with a count each, the
+                  events' dates, and how many were queued but left out at triage.</li>
+                <li>The imported threat reports the events come from, by title and publisher, each counting as one source.</li>
+                <li>How the events were triaged: relevance, Admiralty rating, threat type and galaxy classification, and how
+                  many still have no rating or no threat type.</li>
+                <li>How many events hit the organisation itself, and from which of its own sources.</li>
+                <li>How the counts compare with the previous published report, and a warning when sources were added or
+                  dropped since, as part of the change may come from collection rather than from the threats.</li>
+                <li>Where AI was used: the sections drafted with "Draft with AI", saved or not, and the AI reading of
+                  imported reports.</li>
+                <li>Its limitations: whether duplicates were counted once, and that the dataset only holds what the sources
+                  reported.</li>
+              </ol>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </div>
 
@@ -288,6 +417,16 @@
             <dt>State</dt><dd>{{ review_state_badge(tlr.review_state if is_edit else 'draft') }}</dd>
             <dt>Dataset</dt><dd>{% if is_edit %}{{ tlr.entries | rejectattr('excluded') | list | length }} events{% else %}Built from the queue ({{ queued | length }}){% endif %}</dd>
           </dl>
+          <div id="figures">
+            <span class="form-label d-block small mb-1">Figures in the PDF and the mail</span>
+            {% for key, label in figures %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="figure" value="{{ key }}" id="figure-{{ key }}"
+                     {{ 'checked' if not tlr or key not in tlr.hidden_figures }}>
+              <label class="form-check-label small" for="figure-{{ key }}">{{ label }}</label>
+            </div>
+            {% endfor %}
+          </div>
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary flex-grow-1">
               <i class="fas fa-floppy-disk me-1"></i> {{ 'Update report' if is_edit else 'Create report' }}
@@ -430,6 +569,30 @@
   });
 })();
 
+// Key judgements: add one from the template, remove one.
+(function() {
+  var list = document.getElementById('tlr-judgements');
+  var template = document.getElementById('tlr-judgement-template');
+  document.getElementById('tlr-judgement-add').addEventListener('click', function() {
+    list.appendChild(template.content.firstElementChild.cloneNode(true));
+  });
+  list.addEventListener('click', function(e) {
+    var button = e.target.closest('.tlr-judgement-remove');
+    if (button) button.closest('.tlr-judgement').remove();
+  });
+})();
+
+// The sections the AI drafted are recorded with the report, for its methodology.
+function zsazsaMarkAiDrafted(name) {
+  var box = document.getElementById('tlr-ai-drafted');
+  if (box.querySelector('input[value="' + name + '"]')) return;
+  var input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'ai_drafted';
+  input.value = name;
+  box.appendChild(input);
+}
+
 // "Draft sections": drafts the report from its entries, or from the queue for a
 // new report, and fills the sections the analyst has not written yet.
 (function() {
@@ -437,6 +600,7 @@
   var status = document.getElementById('tlr-draft-status');
   if (!btn) return;
   var sections = {
+    executive_summary: 'Executive summary',
     top_threats: 'Top threats',
     trending_actors: 'Trending actors',
     key_incidents: 'Key incidents',
@@ -478,14 +642,60 @@
           el.value += '\n\nIsolated signals worth watching:\n' + data.sections.isolated_signals;
         }
         markDrafted(el);
+        zsazsaMarkAiDrafted(name);
         drafted.push(sections[name]);
       });
+      // Key judgements only when the analyst has none yet; what each means for
+      // the organisation is theirs to write.
+      var judgements = document.getElementById('tlr-judgements');
+      var written = Array.prototype.some.call(judgements.querySelectorAll('[name="kj_judgement"]'),
+                                              function(el) { return el.value.trim(); });
+      if (!written && (data.sections.key_judgements || []).length) {
+        judgements.replaceChildren();
+        data.sections.key_judgements.forEach(function(kj) {
+          var row = document.getElementById('tlr-judgement-template').content.firstElementChild.cloneNode(true);
+          row.querySelector('[name="kj_judgement"]').value = kj.judgement;
+          row.querySelector('[name="kj_confidence"]').value = kj.confidence || '';
+          judgements.appendChild(row);
+          markDrafted(row.querySelector('[name="kj_judgement"]'));
+        });
+        zsazsaMarkAiDrafted('key_judgements');
+        drafted.push('Key judgements');
+      }
       status.textContent = drafted.length
-        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' events. Review before saving.'
+        ? 'Drafted and highlighted: ' + drafted.join(', ') + ', from ' + data.event_count + ' events'
+          + (data.document_count ? ' and ' + data.document_count + ' imported threat report' + (data.document_count === 1 ? '' : 's') : '')
+          + '. Review before saving.'
         : 'Nothing to draft: every section already has content.';
     })
     .catch(function(err) { status.textContent = 'Drafting did not complete: ' + zsazsaErrorText(err); })
     .finally(function() { btn.disabled = false; });
+  });
+})();
+
+// "Draft from the dataset": the methodology as the data has it, with the
+// sections drafted with AI so far, saved or not.
+(function() {
+  var btn = document.getElementById('tlr-methodology-draft');
+  if (!btn) return;
+  var status = document.getElementById('tlr-methodology-status');
+  var field = document.querySelector('[name="methodology"]');
+  btn.addEventListener('click', function() {
+    if (field.value.trim() && !window.confirm('Replace the methodology you have with one drafted from the dataset?')) return;
+    btn.disabled = true;
+    var body = new FormData();
+    document.querySelectorAll('#tlr-ai-drafted input').forEach(function(input) { body.append('ai_drafted', input.value); });
+    fetch(btn.dataset.url, {method: 'POST', body: body,
+                            headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content}})
+      .then(zsazsaReadJson)
+      .then(function(data) {
+        if (!data.ok) throw new Error(data.error);
+        field.value = data.text;
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        status.textContent = 'Drafted from the dataset. Read it over and add what the data cannot know.';
+      })
+      .catch(function(err) { status.textContent = 'Could not draft it: ' + zsazsaErrorText(err); })
+      .finally(function() { btn.disabled = false; });
   });
 })();
 </script>

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Collection plan | zsazsa CTI{% endblock %}
+{% block page_title %}Collection plan{% endblock %}
+
+{% block content %}
+<style>
+  .plan-table td { vertical-align: top; }
+  .plan-sources { display: flex; flex-wrap: wrap; gap: .25rem; }
+  .plan-source { display: inline-flex; align-items: center; gap: .3rem; padding: .02rem .5rem; border-radius: 999px; font-size: .7rem;
+    white-space: nowrap; border: 1px solid var(--border-light); }
+  .plan-source b { font-weight: 700; }
+  .plan-source.delivered { background: color-mix(in srgb, var(--accent-green) 12%, transparent); border-color: transparent; }
+  .plan-source.silent { background: color-mix(in srgb, var(--accent-red) 12%, transparent); color: var(--accent-red); border-color: transparent; }
+  .plan-source.untraced { color: var(--text-muted); }
+  .plan-months { display: flex; align-items: flex-end; gap: 3px; height: 2.4rem; }
+  .plan-months span { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; width: 1.6rem; height: 100%; }
+  .plan-months i { display: block; width: 100%; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent-blue); }
+  .plan-months i.none { background: color-mix(in srgb, var(--accent-red) 40%, transparent); }
+  .plan-months small { font-size: .58rem; color: var(--text-muted); line-height: 1.2; }
+  .plan-rfi { font-size: .72rem; }
+</style>
+
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ data.rows | length }}</b><span>active PIRs and GIRs</span></div>
+      <div class="record-kpi{{ ' warn' if data.quiet }}"><b>{{ data.quiet }}</b><span>with no event in 30 days</span></div>
+      <div class="record-kpi{{ ' warn' if data.silent_sources }}"><b>{{ data.silent_sources }}</b><span>planned sources that delivered nothing</span></div>
+      <div class="record-kpi{{ ' warn' if data.unlinked_rfis }}"><b>{{ data.unlinked_rfis | length }}</b><span>open RFIs no active PIR or GIR covers</span></div>
+    </div>
+    <p class="lead-text">What each requirement's collection plan delivered over the last {{ data.months | length }} months: the
+      sources it names, the events each brought that match its scope, and the sources that brought some without being named.</p>
+  </div>
+</section>
+
+<div class="card content-card rise rise-1 mb-4">
+  <div class="card-body p-0">
+    {% if data.rows %}
+    <div class="table-responsive">
+      <table class="table zsazsa-table plan-table mb-0">
+        <thead>
+          <tr><th>Requirement</th><th>Planned sources</th><th>Also from</th>
+              <th title="Events matching its scope, per month">Per month</th><th class="text-end">Last event</th></tr>
+        </thead>
+        <tbody>
+          {% for r in data.rows %}
+          {% set most = [r.months | map(attribute=1) | max, 1] | max %}
+          <tr>
+            <td style="min-width:16rem;">
+              <a href="{{ url_for('requirements.pir_detail' if r.kind == 'PIR' else 'requirements.gir_detail', id=r.uuid) }}"
+                 class="fw-semibold text-decoration-none">{{ r.id }}</a>
+              <span class="text-muted small">{{ r.label | truncate(90) }}</span>
+              {% for rfi in r.rfis %}
+              <div class="plan-rfi"><a href="{{ url_for('rfi.rfi_detail', id=rfi.uuid) }}" class="text-decoration-none">{{ rfi.rfi_id }}</a>
+                <span class="text-muted">{{ rfi.question | truncate(70) }} · {{ rfi.status }}</span></div>
+              {% endfor %}
+            </td>
+            <td>
+              <div class="plan-sources">
+                {% for p in r.planned %}
+                {% if not p.traced %}
+                <span class="plan-source untraced" title="A mailbox: its articles count under the source they are handed to">{{ p.name }}</span>
+                {% elif p.events %}
+                <span class="plan-source delivered">{{ p.name }} <b>{{ p.events }}</b></span>
+                {% else %}
+                <span class="plan-source silent" title="Named in the plan, but brought no matching event">{{ p.name }} <b>0</b></span>
+                {% endif %}
+                {% else %}
+                <span class="text-muted small">None named</span>
+                {% endfor %}
+              </div>
+            </td>
+            <td>
+              <div class="plan-sources">
+                {% for name, n in r.unplanned %}<span class="plan-source">{{ name }} <b>{{ n }}</b></span>{% else %}<span class="text-muted small">-</span>{% endfor %}
+              </div>
+            </td>
+            <td>
+              <div class="plan-months" role="img" aria-label="{% for month, n in r.months %}{{ month }}: {{ n }}{{ '; ' if not loop.last }}{% endfor %}">
+                {% for month, n in r.months %}
+                <span title="{{ month }}: {{ n }}"><i class="{{ 'none' if not n }}" style="height:{{ (n / most * 100) | round(1) if n else 4 }}%;"></i><small>{{ month[5:] }}</small></span>
+                {% endfor %}
+              </div>
+            </td>
+            <td class="text-end text-nowrap">
+              {% if r.quiet %}<span class="badge text-bg-warning">{{ r.last or 'never' }}</span>{% else %}{{ r.last }}{% endif %}
+              <div class="text-muted small">{{ r.events }} event{{ 's' if r.events != 1 }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted">There are no active PIRs or GIRs to plan collection for.</div>
+    {% endif %}
+  </div>
+  <div class="card-footer small text-muted">
+    Counted over what the collection cache holds, so a month older than a source's collection window has nothing of it.
+    {% if data.windows %}Earliest event shown: {% for name, first in data.windows %}{{ name }} {{ first }}{{ ', ' if not loop.last }}{% endfor %}.{% endif %}
+  </div>
+</div>
+
+{% if data.unlinked_rfis %}
+<div class="card content-card rise rise-2">
+  <div class="card-header"><i class="fas fa-circle-question me-2"></i>Open RFIs no active PIR or GIR covers</div>
+  <div class="card-body small">
+    <p class="text-muted">Nothing is collected for these: link each to an active PIR or GIR whose scope answers it.</p>
+    {% for rfi in data.unlinked_rfis %}
+    <div><a href="{{ url_for('rfi.rfi_detail', id=rfi.uuid) }}" class="text-decoration-none">{{ rfi.rfi_id }}</a>
+      <span class="text-muted">{{ rfi.question | truncate(110) }} · {{ rfi.status }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

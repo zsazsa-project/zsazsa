@@ -286,6 +286,10 @@ _AI_FEATURE_BY_ACTION = {
     # anything, so that is the endpoint one of their runs waits on.
     "flash-intel": "judge_relevance",
     "vea": "draft_vea_sections",
+    # An imported report's AI spends most of its time on one call per story.
+    "report-import": "analyse_report_story",
+    "report-ai": "analyse_report_story",
+    "report-story-context": "analyse_report_story",
 }
 
 

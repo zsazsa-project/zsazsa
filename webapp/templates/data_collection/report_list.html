@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Imported threat reports | zsazsa CTI{% endblock %}
+{% block page_title %}Imported threat reports{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-arrow-left me-1"></i> Back to collection
+</a>
+{% endblock %}
+
+{% block content %}
+{% set made = reports | selectattr('import_state', 'equalto', 'created') | list | length %}
+<section class="record-hero record-hero-compact rise mb-3">
+  <div class="hero-main">
+    <span class="hero-icon" aria-hidden="true"><i class="fas fa-book-open"></i></span>
+    <div class="record-kpis">
+      <div class="record-kpi"><b>{{ reports | length }}</b><span>threat report{{ 's' if reports | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ providers | length }}</b><span>provider{{ 's' if providers | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ reports | sum(attribute='stories') }}</b><span>stories</span></div>
+      <div class="record-kpi"><b>{{ made }}</b><span>made into events</span></div>
+    </div>
+    <p class="lead-text">Long reports, such as a vendor's yearly threat report, split into the stories they tell for
+      the threat landscape. Not to be confused with the threat landscape reports zsazsa writes.</p>
+    <div class="hero-actions">
+      <a href="{{ url_for('report_import.new') }}" class="btn btn-sm btn-hero"><i class="fas fa-file-import me-1"></i> Import a threat report</a>
+      <a href="{{ url_for('threat_landscape.review') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-map me-1"></i> Threat landscape reports</a>
+    </div>
+  </div>
+</section>
+
+<div class="card content-card rise rise-1">
+  {% if reports %}
+  <div class="table-responsive">
+    <table class="table table-hover zsazsa-table mb-0">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Provider</th>
+          <th>Published</th>
+          <th class="text-end">Pages</th>
+          <th class="text-end">Stories</th>
+          <th>State</th>
+          <th>TLP</th>
+          <th class="text-end"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>
+            <a href="{{ url_for('report_import.detail', uuid=r.uuid) }}" class="fw-semibold text-decoration-none">{{ r.title }}</a>
+            <div class="text-muted" style="font-size:.72rem;">{{ r.filename }}</div>
+          </td>
+          <td class="small">{{ r.provider }}</td>
+          <td class="small text-muted" style="white-space:nowrap;">{{ r.published or '-' }}</td>
+          <td class="small text-end">{{ r.pages }}</td>
+          <td class="small text-end" style="white-space:nowrap;">
+            {% if r.import_state == 'created' %}<i class="fas fa-circle-check text-success me-1 story-all-made"
+               title="Every story is made into an event" aria-label="Every story is made into an event" role="img"></i>{% endif %}{{ r.stories }}
+          </td>
+          <td class="small">{{ states.get(r.import_state, r.import_state or '-') }}</td>
+          <td>{% if r.tlp %}<span class="tlp-badge tlp-{{ r.tlp | slug }}">TLP:{{ r.tlp | upper }}</span>{% endif %}</td>
+          <td class="text-end">
+            <div class="d-inline-flex flex-nowrap align-items-center justify-content-end gap-2">
+              <span class="d-inline-flex flex-nowrap gap-1">
+                <a href="{{ url_for('report_import.review', uuid=r.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Review the stories">
+                  <i class="fas fa-list-check"></i>
+                </a>
+                {% if r.pdf %}
+                <a href="{{ url_for('report_import.pdf', uuid=r.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">
+                  <i class="fas fa-file-pdf"></i>
+                </a>
+                {% else %}
+                <span class="btn btn-xs btn-outline-secondary btn-ghost" aria-hidden="true"><i class="fas fa-file-pdf"></i></span>
+                {% endif %}
+              </span>
+              <span class="vr"></span>
+              {% if r.uuid in busy %}
+              <span class="d-inline-block" title="Something is still being done to this threat report. Delete it when it is done." style="cursor:not-allowed;">
+                <button type="button" class="btn btn-xs btn-outline-danger" disabled style="pointer-events:none;"><i class="fas fa-trash"></i></button>
+              </span>
+              {% else %}
+              <form method="post" action="{{ url_for('report_import.delete', uuid=r.uuid) }}" data-busy="Deleting…" class="d-inline"
+                    data-submit-confirm="Delete the threat report {{ r.title }}, with its PDF and its review? Any stories made from it stay on Data collection and in the threat landscape queue.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete threat report">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state py-5 text-center">
+    <i class="fas fa-book-open text-muted d-block mb-2"></i>
+    <p class="text-muted mb-3">No threat report has been imported yet.</p>
+    <a href="{{ url_for('report_import.new') }}" class="btn btn-sm btn-primary"><i class="fas fa-file-import me-1"></i> Import a threat report</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

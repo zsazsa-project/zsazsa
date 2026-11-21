@@ -46,6 +46,20 @@
   .pew-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .pew-stage::after { content: ""; position: absolute; inset: 0; pointer-events: none;
                       background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px); }
+  .pew-wall { position: absolute; top: 4%; left: 1.5%; width: min(26%, 18rem); padding: .45rem .65rem .55rem; pointer-events: none;
+              background: rgba(5,20,26,.78); border: 1px solid var(--map-edge); border-radius: 8px;
+              font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: clamp(.55rem, .95vw, .72rem); }
+  .pew-wall h3 { margin: 0 0 .35rem; font-size: 1em; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--map-dim); }
+  .pew-wall ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+  .pew-wall li { display: grid; grid-template-columns: 1fr auto; column-gap: .5rem; --c: var(--m-scraper); }
+  .pew-wall li.kind-gir { --c: var(--m-misp); }
+  .pew-wall li.kind-rfi { --c: var(--m-newsletter); }
+  .pew-wall .k { font-weight: 700; color: var(--c); }
+  .pew-wall .n { font-variant-numeric: tabular-nums; color: var(--map-text); }
+  .pew-wall .t { grid-column: 1 / 3; color: var(--map-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pew-wall .bar { grid-column: 1 / 3; height: 3px; border-radius: 2px; background: var(--map-edge); overflow: hidden; }
+  .pew-wall .bar i { display: block; height: 100%; background: var(--c); }
+  .pew-wall .empty { display: block; color: var(--map-dim); }
   .pew-combo { position: absolute; top: 6%; right: 2.5%; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800;
                font-size: clamp(1rem, 3vw, 2.2rem); color: var(--m-newsletter); letter-spacing: .04em; opacity: 0; pointer-events: none;
                text-shadow: 0 0 18px rgba(255,181,71,.55), 3px 3px 0 #05141a; }
@@ -112,8 +126,8 @@
     <span class="hero-icon" aria-hidden="true"><i class="fas fa-cat"></i></span>
     <p class="lead-text">
       The indicators zsazsa collected in the last {{ data.days }} day{{ 's' if data.days != 1 }}, replayed. Each one flies from the
-      collection means that brought it in to the country its address is in. Zsa Zsa pounces on the ones an active PIR or GIR
-      is about, naming any open RFI linked to it, and only sniffs at the rest. Domains, URLs, hashes, CVEs and addresses without a known country go in the litter box.
+      collection means that brought it in to the country its address or top-level domain is in. Zsa Zsa pounces on the ones an active PIR or GIR
+      is about, naming any open RFI linked to it, and only sniffs at the rest. Hashes, CVEs, and addresses and domains without a known country go in the litter box.
     </p>
     <div class="record-kpis">
       <div class="record-kpi"><b>{{ totals.indicators }}</b><span>indicators</span></div>
@@ -129,7 +143,13 @@
   </div>
   <div class="record-panel">
     <div>
-      <div class="chart-label mb-0">By collection means</div>
+      <div class="chart-label mb-0">By collection means
+        <i class="fas fa-circle-info ms-1" id="pew-info" role="button" tabindex="0" aria-label="Where the indicators come from"
+           style="font-size:.75rem;cursor:help;"
+           data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-placement="left" data-bs-html="true"
+           data-bs-title="Where the indicators come from"
+           data-bs-content="These are not all the indicators in MISP. The map reads the <strong>collection cache</strong>: the events of the MISP scraper, of the additional MISP servers that are enabled, and of the manual collection sources in zsazsa's own MISP. Newsletters are manual entries tagged as such, and are counted as a means of their own. The means is where an event came from, the indicator is an attribute of that event.<br><br>An event is in the window when its event date is, and its TLP is no stricter than the level chosen. Only addresses, domains, hostnames, URLs, MD5, SHA-1 and SHA-256 hashes and CVEs are taken, but hashes are left out unless Include hashes is ticked. An event adds at most 200 indicators. A PIR or GIR only decides whether Zsa Zsa pounces; it does not bring in indicators.<br><br>An address flies to its country once the collection cache has looked it up at ip.circl.lu, which it does only for TLP:CLEAR and TLP:GREEN events. A domain, hostname or URL flies to the country of its top-level domain, which is where it is registered, not hosted, so .com has none. The other indicators go in the litter box. The counts cover every indicator in the window, the replay the newest 800."></i>
+      </div>
       <div class="text-muted" style="font-size:.7rem;">Click one to take it off the map.</div>
     </div>
     <div class="pew-means">
@@ -162,16 +182,17 @@
         {% for level in tlp_levels %}<option value="{{ level }}"{{ ' selected' if level == data.tlp }}>TLP:{{ level | upper }}</option>{% endfor %}
       </select>
       <label class="pew-toggle" for="pew-hashes">
-        <input type="checkbox" id="pew-hashes" name="exclude_hashes" value="1"{{ ' checked' if data.exclude_hashes }}>
-        Exclude hashes
+        <input type="checkbox" id="pew-hashes" name="include_hashes" value="1"{{ ' checked' if not data.exclude_hashes }}>
+        Include hashes
       </label>
       <noscript><button type="submit" class="pew-apply">Show</button></noscript>
       <button type="button" class="pew-apply" id="pew-max" aria-pressed="false"><i class="fas fa-expand me-1"></i> <span>Maximise</span></button>
     </form>
   </div>
   <div class="pew-stage" id="pew-stage">
-    <canvas id="pew-canvas" role="img" data-json-url="{{ url_for('stats.pewpew_json', days=data.days, tlp=data.tlp, exclude_hashes='1' if data.exclude_hashes else None) }}"
+    <canvas id="pew-canvas" role="img" data-json-url="{{ url_for('stats.pewpew_json', days=data.days, tlp=data.tlp, include_hashes=None if data.exclude_hashes else '1') }}"
             aria-label="World map on which the indicators collected fly from their collection means to the country of their address, while a cat chases the ones in scope. The table below lists them."></canvas>
+    <div class="pew-wall" id="pew-wall"><h3>Wall of PIRs, GIRs and RFIs</h3><ol id="pew-wall-list" aria-live="off"></ol></div>
     <div class="pew-combo" id="pew-combo" aria-hidden="true"></div>
     {% if not totals.indicators %}
     <div class="pew-empty"><span>No indicators in this window up to TLP:{{ data.tlp | upper }}. Zsa Zsa is napping.</span></div>
@@ -238,4 +259,10 @@
 
 <script type="application/json" id="pew-data">{{ data | tojson }}</script>
 <script src="{{ url_for('static', filename='js/pewpew.js') }}?v={{ app_version }}"></script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  new bootstrap.Popover(document.getElementById('pew-info'));
+</script>
 {% endblock %}

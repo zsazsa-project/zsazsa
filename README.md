@@ -111,6 +111,12 @@ When something relevant did not come in through a source, an analyst adds the ar
 
 Articles can also come from a security newsletter, pasted in or read from a mailbox (see [Importing newsletters](#importing-newsletters-and-mailboxes)).
 
+A **threat report**, a long report such as a vendor's yearly one, is imported under "Threat report": upload the PDF or give its address, pick the manual source its stories go under, and name the provider who published it. Not to be confused with the threat landscape reports zsazsa writes, which its stories feed. zsazsa reads the PDF without its running headers and footers, and drafts the stories it tells from its outline, or from its headings when it has none. The PDF is kept with the import, and the same file imported again opens that import; the form says so as soon as the file is picked, and a threat report from the same provider with the same title or file name is flagged as one that may be imported twice. A scanned threat report, without text, cannot be read. **Imported threat reports**, also linked from the threat landscape page, lists them all; deleting one there removes its PDF and its review, and leaves the stories already made from it, whose "From threat report" link then opens a page saying it was deleted.
+
+When asked, the AI then names and classifies the stories, by the kinds set under Settings > Products (assessment, incident, finding, outlook and context to start with) or as left out, and reads the context of each: a summary, the period, the threat type, sectors, geography, actors and techniques from the MISP galaxies, and what it says of the affected assets, impact, motivation and mitigation. Every value points at the paragraph it was read from, and a value from no paragraph of the story, or from none of the galaxies, is dropped. "Continue with AI" on the threat report's page goes on where the AI stopped, and says how many calls are left. The import, the AI and the making of the stories are listed with the other runs on the Pipeline page.
+
+In **Review the stories**, the threat report is shown paragraph by paragraph with a bar where each story starts: move a bar a paragraph up or down, merge a story into the one before, split one at any paragraph, leave a story out, and correct its context. A paragraph that does not belong in its story, such as a sales pitch or a list of references, is left out of it too: it is then in neither the story's event nor what the AI reads. The text itself stays the threat report's own words. **Make and queue** makes each story a manual entry linked to its threat report, with the local tag `zsazsa:report="<uuid>"`, and puts it in the threat landscape queue. The analyser leaves these stories alone, as their news is months old; an analyst can still use one in a briefing or an alert from Data collection. In the queue a threat report's stories are listed together and count as one source in the drafted trends, and the stories of a kind Settings leaves unticked, outlook and context to start with, are left out of "select all".
+
 ![docs/6-importnewsletter-auto-review.png](docs/6-importnewsletter-auto-review.png)
 
 ### Intelligence products
@@ -155,6 +161,22 @@ The infrastructure you observed goes in an indicator feed, and a profile can emb
 
 ![docs/x-threatactorprofile3.png](docs/x-threatactorprofile3.png)
 
+#### Threat landscape report
+
+A **threat landscape report** says what changed over a quarter or a year, after ENISA's threat landscape method. It is built from the events in the threat landscape queue, which analysts triage on its **dataset** page: relevance, Admiralty rating, threat type and classification per event, with the counts beside those of the previous published report and the coverage of the PIRs it answers. An event is triaged once it has all four, or is left out. A classification is a sector, place, actor or technique, or the affected assets, impact, motivation or mitigation, and when none of them applies, **None relevant** in the classification picker says so; each row says what it still lacks, the banner counts what is left, and **Only what needs triage** hides the rest. Clicking a story opens it in a side panel, as on Data collection, with Previous and Next to read through the dataset. The statistics below the table follow the triage as it changes, before it is saved.
+
+The report opens with an **executive summary** for management: the bottom line in a few sentences, then the key judgements, each with its confidence and what it means for the organisation. **Draft with AI** proposes the summary and the judgements with the other sections, and leaves what they mean to the analyst; the report records which sections the AI drafted. **Draft from the dataset** writes its methodology and limitations from the data: the sources and the period, what was left out, how the events were rated, what changed in collection since the previous report, the imported threat reports it draws on, and where AI was used.
+
+Several sources often report the same attack or disclosure. On the dataset page, **Same story as…** under an event, or **Mark as duplicates** on the ticked events, marks them as reporting the same thing. They sit together in the table and are triaged together, and every count of the report counts them once: the statistics, the PIR coverage, the ATT&CK layer, the ranking and the AI draft. Above the table the page suggests events dated within a week of each other that share a CVE, a threat actor or most of their title; the analyst marks them as duplicates or not, and nothing changes until then. The stories of an imported threat report are parts of it rather than news, and are not suggested.
+
+The **threat ranking** lists the threat types of the dataset and its most frequent threat actors as the triage ranks them: the most events of high relevance first, then those that hit the organisation, those growing and the most events. Each threat shows its events, duplicates once, beside those of the previous published report and whether it rose or fell, and the analyst can say why it matters to the organisation. The report page and the PDF show the ranking and charts of the events per threat type and per month and the sectors and techniques most named. **Management brief** is the report on one page: its bottom line, its key judgements, its ranking and the events per threat type. Under "As it will appear" in the report's form, a figure can be left out of the PDF, the brief and the mail, which lists the figures as text; the report page says which are in.
+
+The **vulnerabilities** of the period are listed with the report: the CVEs its events name and those of the vulnerability advisories made in its period, each with its CVSS, how far it is exploited and whether it is in a product the organisation runs, as the analyser found it or as the asset inventory has the affected product, with the products most hit and the weaknesses. An advisory shared more strictly than the report stays out of it. "Vulnerability exploitation" is a threat type besides ENISA's prime threats.
+
+The events from a manual source marked **Our own** are what hit the organisation itself. The report lists them under **What hit us**, the dataset marks their events, and the ranking counts them per threat and puts a threat that hit the organisation higher.
+
+The **detection coverage**, an annex for the detection engineers, sets the most frequent ATT&CK techniques of the report's events against the detection engineering requests for them: covered by an active detection or one found through Rulezet, in progress, or a gap. On the report page a gap has **Request a detection**, which opens a new request for that technique, prefilled from the events that use it.
+
 #### Detection engineering request
 
 When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineers to write one: the hypothesis, the technique, the CVEs when it is for a vulnerability, the log sources, what a hit looks like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
@@ -193,9 +215,11 @@ The statistics pages combine operational metrics with CTI maturity.
 
 The scope and focus points statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
 
-The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. Domains, URLs, hashes, CVEs and addresses without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It can leave out file hashes and fill the browser window.
+The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, or for a domain, hostname or URL to the country of its top-level domain, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. The wall in the top left corner lists the five PIRs, GIRs and RFIs that have caught the most indicators so far in the replay. A top-level domain says where a domain is registered, not hosted, so a generic one such as .com has no country. Hashes, CVEs, and addresses and domains without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It leaves out file hashes unless **Include hashes** is ticked, and can fill the browser window.
 
 After each refresh, the collection cache looks up the country of up to 200 new addresses at [ip.circl.lu](https://ip.circl.lu). It only sends addresses from TLP:CLEAR and TLP:GREEN events, and never a private one. The service knows the country, not the city, so an address lands near the middle of its country.
+
+The **collection plan** shows, per active PIR and GIR, what its collection plan delivered over the last six months: each source it names with the events it brought that match its scope, a source it names that brought none marked as silent, the sources that brought events without being named, the events per month and the last one, and the open RFIs it answers. A requirement with no event in 30 days comes first, and the open RFIs linked to no active requirement are listed apart, as nothing is collected for them. It counts what the collection cache holds, so a source's older months are empty beyond its collection window.
 
 ### AI support
 
@@ -466,6 +490,8 @@ The six `FOCUS_POINTS_*` lists are what the relevance verdict judges each articl
 | `FOCUS_POINTS_THREAT_TYPES` | Threat type focus points |
 | `FOCUS_POINTS_THREAT_ACTORS` | Threat actor focus points |
 | `THREAT_ACTOR_TYPES` | Threat actor types and descriptions (ENISA taxonomy) |
+| `REPORT_STORY_KINDS` | The kinds a story of an imported threat report can be, with what each means, as the AI and the review are told, and whether "select all" ticks it in the threat landscape queue. "Left out" is always there besides them |
+| `THREAT_LANDSCAPE_THREAT_TYPES` | The threat types a threat landscape report's entries and sections, and the stories of an imported threat report, are classified by. The prime threats of the ENISA Threat Landscape and vulnerability exploitation by default |
 
 Renaming a product type does not rename it in stakeholder subscriptions already stored in MISP. The System tab has a migration for the one rename that shipped with zsazsa.
 
@@ -515,7 +541,7 @@ The Analyser tab has the settings in the order the analyser works (see [The anal
 
 ### System
 
-**MISP event distribution** sets the distribution of every event zsazsa creates. **Logging** sets the log level and how long the audit log under Reporting > Logs is kept; a product's delivery badge comes from the audit log and goes with it. **Web server** covers the built-in server. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there replaces `PORT`; the Docker setup sets both. Restart after changing the port or TLS settings. **Single sign-on** has its own section below.
+**MISP event distribution** sets the distribution of every event zsazsa creates. **Logging** sets the log level and how long the audit log under Reporting > Logs is kept; a product's delivery badge comes from the audit log and goes with it. **Web server** covers the built-in server, and the largest PDF a threat report can be. zsazsa listens on `0.0.0.0` unless `ZSAZSA_BIND` in its environment names another address, and `ZSAZSA_PORT` there replaces `PORT`; the Docker setup sets both. Restart after changing the port or TLS settings. **Single sign-on** has its own section below.
 
 | Setting | Description |
 |---|---|
@@ -524,6 +550,7 @@ The Analyser tab has the settings in the order the analyser works (see [The anal
 | `LOG_LEVEL` | Logging verbosity |
 | `HOSTNAME` | Hostname used to build links. It does not change the listener |
 | `PORT` | Port the application listens on |
+| `REPORT_IMPORT_MAX_MB` | The largest PDF Data collection imports as a threat report, in MB (30, at most 200). MISP is sent it base64-encoded, so its request limits must allow a third more, and under MISP's address the upload passes through MISP's web server too |
 | `SSL_ENABLED` | Whether the built-in server uses TLS |
 | `SSL_CERT` | Path to the TLS certificate file |
 | `SSL_KEY` | Path to the TLS private key file |
@@ -586,6 +613,8 @@ This tab lists the prompt files in `zsazsaprompts/`. Most features parse the ans
 | `daily_briefing_overlap` | Must keep returning the `summary` and `overlaps` JSON structure, with 1-based story indexes |
 | `daily_briefing_summary` | Must keep returning one plain paragraph |
 | `vea_draft`, `threat_actor_profile_draft`, `threat_landscape_trends`, `product_qa_review` | Must keep returning the JSON keys they list, as each fills a form field or panel |
+| `split_report_stories` | Must keep returning the `stories` JSON list, each with the `start` block, `title` and `kind` |
+| `analyse_report_story` | Must keep returning the context fields it lists, each value with the `block` it was read from |
 
 A prompt whose structure changes makes its feature fail silently.
 
@@ -766,7 +795,7 @@ The "Other MISP servers" card has the servers in `MISP_SERVERS`, such as communi
 
 #### Manual collection sources
 
-The "Manual sources" card has the sources an analyst follows by hand, such as a partner portal. Each is a `zsazsa-collection-source` event in the webapp MISP. Disabling or deleting one that a PIR or GIR uses asks for confirmation.
+The "Manual sources" card has the sources an analyst follows by hand, such as a partner portal. Each is a `zsazsa-collection-source` event in the webapp MISP. Disabling or deleting one that a PIR or GIR uses asks for confirmation. A manual source marked **Our own** holds the organisation's own incidents and the detections of its SOC/CSIRT, entered as manual entries; a threat landscape report sets them apart as what hit the organisation.
 
 | Field | Description |
 |---|---|
@@ -822,6 +851,8 @@ Each record is one MISP event, with its data in a custom MISP object. The object
 | Threat actor profile | zsazsa-threat-actor-profile |
 | Detection engineering request | zsazsa-detection-eng-request |
 | Collection source | zsazsa-collection-source |
+| Imported threat report | zsazsa-report-document, with the PDF, what was read from it and the manifest of its stories as attachments |
+| A story of an imported threat report | a manual entry with zsazsa-report-story |
 
 Every record also has a type tag, local like every tag in the `zsazsa:` namespace. The defaults are:
 

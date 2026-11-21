@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% set title = deletion.entity_label if deletion and deletion.entity_label else 'A deleted threat report' %}
+{% block title %}{{ title }} | zsazsa CTI{% endblock %}
+{% block page_title %}Imported threat report{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('report_import.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-book-open me-1"></i> Imported threat reports
+</a>
+<a href="{{ url_for('data_collection.index') }}" class="btn btn-sm btn-outline-secondary ms-2">
+  <i class="fas fa-arrow-left me-1"></i> Back to collection
+</a>
+{% endblock %}
+
+{% block content %}
+<section class="record-hero record-hero-compact record-hero-detail rise mb-3">
+  <div class="hero-body">
+    <div class="hero-main">
+      <div class="d-flex align-items-center gap-3">
+        <span class="monogram hero-tile" aria-hidden="true"><i class="fas fa-file-circle-xmark"></i></span>
+        <div style="min-width:0;">
+          {% if provider %}<div class="eyebrow"><i class="fas fa-building me-1"></i>{{ provider }}</div>{% endif %}
+          <h1>{{ title }}</h1>
+          <div class="report-facts">
+            {% if deletion %}
+            <span>Deleted by {{ deletion.user }} on {{ deletion.timestamp[:16] | replace('T', ' ') }} UTC</span>
+            {% else %}
+            <span>Deleted outside zsazsa, in MISP</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if stories %}
+      <div class="record-kpis">
+        <a class="record-kpi" href="#stories"><b>{{ stories | length }}</b><span>stor{{ 'ies' if stories | length != 1 else 'y' }} left</span></a>
+      </div>
+      {% endif %}
+      <p class="lead-text mb-0">This threat report was deleted, with its PDF and what was read from it.
+        {% if stories %}The stories made from it are collection events of their own and stay on Data collection. Those
+        queued for the threat landscape stay queued, no longer grouped under it.{% else %}No story made from it is
+        left on Data collection.{% endif %}</p>
+    </div>
+    {% if stories %}
+    <div class="hero-actions">
+      <a href="{{ url_for('data_collection.index', tag=report_tag) }}" class="btn btn-sm btn-hero"><i class="fas fa-database me-1"></i> Its stories on Data collection</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if stories %}
+<div class="card content-card rise rise-1" id="stories">
+  <div class="card-header"><i class="fas fa-layer-group me-2"></i>The stories made from it</div>
+  <ol class="drafts">
+    {% for s in stories %}
+    <li>
+      <span class="n">{{ '%02d' % loop.index }}</span>
+      <span class="t">
+        <a href="{{ url_for('data_collection.manual_detail', uuid=s.uuid) }}" class="text-decoration-none">{{ s.info }}</a>
+        {% if s.kind %}<span class="story-kind k-{{ s.kind }}">{{ s.kind }}</span>{% endif %}
+      </span>
+      <span class="size"><span>{{ s.date }}</span></span>
+    </li>
+    {% endfor %}
+  </ol>
+</div>
+{% endif %}
+{% endblock %}

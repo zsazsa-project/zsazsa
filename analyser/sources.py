@@ -3,7 +3,8 @@
 It reads three kinds of source:
 
 - the scraper, whose events have SCRAPER_MARKER_TAG;
-- the manual entries, kept on the webapp MISP with TAG_MANUAL_ENTRY;
+- the manual entries, kept on the webapp MISP with TAG_MANUAL_ENTRY, but for
+  the stories of an imported report;
 - each additional MISP server in MISP_SERVERS whose "analyse" setting is on,
   with the filters it already has for the collection page.
 
@@ -216,6 +217,15 @@ def _has_report(event, source: Source) -> bool:
     return source.kind == "scraper" or bool(misp_store.live_reports(event))
 
 
+def _from_report(event) -> bool:
+    """A story of an imported report is for the threat landscape. Its news is
+    months old by the time the report is published, so no alert, briefing or
+    advisory is made of it: an analyst can still send one there by hand."""
+    from webapp import misp_store
+
+    return bool(misp_store.report_of(t.name for t in event.tags))
+
+
 class Reading:
     """One run's read of its sources, and the watermarks it moves once the run
     has completed.
@@ -285,7 +295,7 @@ class Reading:
         # another server most are, and each would be fetched whole every run.
         self._read[source.id] = {"source": source, "mark": mark, "started": started, "asked": asked,
                                  "seen": {e.uuid: _timestamp(e) for e in events}}
-        return [e for e in events if _still_open(e, source) and _has_report(e, source)]
+        return [e for e in events if _still_open(e, source) and _has_report(e, source) and not _from_report(e)]
 
     def _since(self, mark: dict | None, started: int) -> int:
         if self.rescan_hours:

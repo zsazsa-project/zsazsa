@@ -182,6 +182,28 @@
            title="Paste a security newsletter and pick which articles to collect">
           <span class="action-chip-icon"><i class="fas fa-envelope-open-text"></i></span>Newsletter
         </a>
+        {# The reports imported earlier stay listed without a manual source, so the arrow is never disabled. #}
+        <div class="dropdown chip-split" style="--tile-accent: var(--accent-cyan);">
+          {% if has_manual_sources %}
+          <a href="{{ url_for('report_import.new') }}" class="action-chip"
+             title="Import a threat report as a PDF and draft the stories it tells, for the threat landscape">
+            <span class="action-chip-icon"><i class="fas fa-book-open"></i></span>Threat report
+          </a>
+          {% else %}
+          <span class="action-chip disabled"
+                title="A threat report's stories go under a manual source. Add one under Configuration › Collection sources › Manual sources">
+            <span class="action-chip-icon"><i class="fas fa-book-open"></i></span>Threat report
+          </span>
+          {% endif %}
+          <button type="button" class="action-chip dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                  title="More about threat reports">
+            <span class="visually-hidden">More about threat reports</span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('report_import.index') }}">
+              <i class="fas fa-list me-2"></i>Show all threat reports</a></li>
+          </ul>
+        </div>
         <a href="{{ url_for('data_collection.newsletter_pending') }}" class="action-chip" style="--tile-accent: #7c5cd6;"
            title="Review email sources collected from mailboxes">
           <span class="action-chip-icon"><i class="fas fa-inbox"></i></span>Email sources

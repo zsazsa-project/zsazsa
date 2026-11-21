@@ -436,7 +436,7 @@ class SeedFromSources(unittest.TestCase):
                             {"type": "vulnerability", "value": "GHSA-jfh8-c2jp-5v3q"}],
              "objects": []}
 
-    def seed(self, method="get", source=f"{SOURCE_UUID}|scraper", events=(EVENT,), cached=()):
+    def seed(self, method="get", source=f"{SOURCE_UUID}|scraper", events=(EVENT,), cached=(), technique=None):
         with mock.patch.object(detection_eng.misp_store, "fetch_source_events", return_value=list(events)), \
              mock.patch.object(collection_cache, "get_events_by_uuids", return_value=list(cached)), \
              mock.patch.object(detection_eng.misp_store, "list_selectable_pirs", return_value=[]), \
@@ -445,7 +445,8 @@ class SeedFromSources(unittest.TestCase):
             if method == "get":
                 _client().get("/products/detection-eng/new", query_string={"source": source} if source else {})
             else:
-                _client().post("/products/detection-eng/new", data={"prefill_only": "1", "source": source})
+                data = {"prefill_only": "1", "source": source, **({"technique": technique} if technique else {})}
+                _client().post("/products/detection-eng/new", data=data)
         return render.call_args.kwargs["der"]
 
     def test_the_event_is_linked_with_its_techniques_and_cves(self):
@@ -461,6 +462,16 @@ class SeedFromSources(unittest.TestCase):
         der = self.seed(events=(), cached=({"uuid": SOURCE_UUID, "vulnerability_ids": ["CVE-2021-44228"]},))
         self.assertEqual(der.source_event_uuids, [SOURCE_UUID])
         self.assertEqual(der.cve_ids, ["CVE-2021-44228"])
+
+    def test_a_gap_of_a_threat_landscape_report_asks_for_its_own_technique_only(self):
+        event = dict(self.EVENT, tags=self.EVENT["tags"] + ['misp-galaxy:mitre-attack-pattern="Phishing - T1566"'])
+        der = self.seed("post", events=(event,), technique="Phishing - T1566")
+        self.assertEqual(der.technique, ["Phishing - T1566"])
+        self.assertEqual(der.cve_ids, ["CVE-2023-4966", "CVE-2024-3400"], "the rest of the seed stays")
+        der = self.seed("post", technique="T1486")
+        self.assertEqual(der.technique, ["T1486"], "named by the report when the events lack the tag")
+        der = self.seed("post", technique="not a technique")
+        self.assertEqual(der.technique, ["Exploit Public-Facing Application - T1190"])
 
     def test_a_request_without_sources_starts_empty(self):
         self.assertIsNone(self.seed(source=""))

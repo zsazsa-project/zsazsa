@@ -255,21 +255,24 @@ def record_title(info: str) -> str:
 
 
 # The CTI products that have their own pages, by display name: the config tag
-# holding the tag value, the built-in value, and the detail endpoint.
+# holding the tag value, the built-in value, the detail endpoint and the list endpoint.
 _PRODUCT_TYPES = {
-    "Flash intel alert": ("TAG_FLASH_INTEL", "flash-intel", "flash_intel.detail"),
-    "Vulnerability advisory": ("TAG_VEA", "vea", "vea.detail"),
-    "Daily threat briefing": ("TAG_BRIEFING", "daily-briefing", "daily_briefing.detail"),
-    "Threat landscape report": ("TAG_TLR", "threat-landscape-report", "threat_landscape.detail"),
-    "Indicator feed": ("TAG_INDICATOR_FEED", "indicator-feed", "indicator_feed.detail"),
-    "Threat actor profile": ("TAG_THREAT_ACTOR_PROFILE", "threat-actor-profile", "threat_actor_profile.detail"),
-    "Detection engineering request": ("TAG_DETECTION_ENG", "detection-eng-request", "detection_eng.detail"),
+    "Flash intel alert": ("TAG_FLASH_INTEL", "flash-intel", "flash_intel.detail", "flash_intel.review"),
+    "Vulnerability advisory": ("TAG_VEA", "vea", "vea.detail", "vea.review"),
+    "Daily threat briefing": ("TAG_BRIEFING", "daily-briefing", "daily_briefing.detail", "daily_briefing.list_briefings"),
+    "Threat landscape report": ("TAG_TLR", "threat-landscape-report", "threat_landscape.detail",
+                                "threat_landscape.review"),
+    "Indicator feed": ("TAG_INDICATOR_FEED", "indicator-feed", "indicator_feed.detail", "indicator_feed.index"),
+    "Threat actor profile": ("TAG_THREAT_ACTOR_PROFILE", "threat-actor-profile", "threat_actor_profile.detail",
+                             "threat_actor_profile.review"),
+    "Detection engineering request": ("TAG_DETECTION_ENG", "detection-eng-request", "detection_eng.detail",
+                                      "detection_eng.review"),
 }
 
 # Names used before the product was renamed, still stored on older events.
 _PRODUCT_TYPE_ALIASES = {"vulnerability exploitation advisory": "vulnerability advisory"}
 
-_ProductType = namedtuple("_ProductType", "label tag_value endpoint")
+_ProductType = namedtuple("_ProductType", "label tag_value endpoint list_endpoint")
 
 
 def fill_product_tag_defaults():
@@ -279,7 +282,7 @@ def fill_product_tag_defaults():
     and saving the Settings page is what adds it. Until then every page that
     reads the setting would fail, so the product gets the tag zsazsa ships with.
     """
-    for config_attr, builtin, _endpoint in _PRODUCT_TYPES.values():
+    for config_attr, builtin, _endpoint, _list_endpoint in _PRODUCT_TYPES.values():
         if not getattr(config, config_attr, ""):
             setattr(config, config_attr, f'{PRODUCT_TAG_PREFIX}"{builtin}"')
 
@@ -304,10 +307,10 @@ def _find_product_type(product_type: str):
     """
     wanted = (product_type or "").strip().lower()
     wanted = _PRODUCT_TYPE_ALIASES.get(wanted, wanted)
-    for label, (config_attr, builtin, endpoint) in _PRODUCT_TYPES.items():
+    for label, (config_attr, builtin, endpoint, list_endpoint) in _PRODUCT_TYPES.items():
         tag_value = _configured_tag_value(config_attr, builtin)
         if wanted in (label.lower(), tag_value.lower()):
-            return _ProductType(label, tag_value, endpoint)
+            return _ProductType(label, tag_value, endpoint, list_endpoint)
     return None
 
 
@@ -324,20 +327,11 @@ def product_type_label(product_type: str) -> str:
 
 
 def product_list_url(product_type: str) -> str:
-    """Return the URL of a product type's own list, or "" when it has none.
-
-    The list is the root of the blueprint the detail page belongs to.
-    """
-    from flask import current_app, url_for
+    """Return the URL of a product type's own list, or "" when it has none."""
+    from flask import url_for
 
     found = _find_product_type(product_type)
-    if not found:
-        return ""
-    blueprint = found.endpoint.split(".")[0]
-    root = f"{current_app.blueprints[blueprint].url_prefix}/"
-    endpoint = next((rule.endpoint for rule in current_app.url_map.iter_rules()
-                     if rule.endpoint.startswith(f"{blueprint}.") and rule.rule == root), None)
-    return url_for(endpoint) if endpoint else ""
+    return url_for(found.list_endpoint) if found else ""
 
 
 def product_detail_url(product_type: str, entity_id: str, fallback_url: str = "") -> str:
