@@ -51,7 +51,6 @@ DEFAULT_KINDS = [
      "description": "Background without threat content of its own: a foreword, the methodology, a policy overview, "
                     "a conclusion that only repeats."},
 ]
-_KIND_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 
 
 def normalise_kinds(raw) -> list:
@@ -62,7 +61,7 @@ def normalise_kinds(raw) -> list:
         if not isinstance(item, dict):
             continue
         name = re.sub(r"[^a-z0-9]+", "-", str(item.get("name") or "").strip().lower()).strip("-")[:40]
-        if _KIND_NAME.fullmatch(name) and name not in seen:
+        if name and name not in seen:
             kinds.append({"name": name, "description": " ".join(str(item.get("description") or "").split())[:400],
                           "ticked": bool(item.get("ticked"))})
             seen.add(name)
@@ -180,7 +179,7 @@ def calls_left(manifest: dict) -> int:
 
 
 def needs_context(story: dict) -> bool:
-    return story["kind"] != "excluded" and story["context"] is None and not story.get("context_failed")
+    return story["kind"] != LEFT_OUT and story["context"] is None and not story.get("context_failed")
 
 
 # ── Asking the model ─────────────────────────────────────────────────────────
@@ -266,7 +265,7 @@ def galaxies() -> dict:
 def _threat_type(value) -> str:
     """The threat type of the landscape list that value names, in any case, or ""."""
     wanted = str(value or "").strip().lower()
-    return next((t for t in misp_store.TLR_THREAT_TYPES if t.lower() == wanted), "")
+    return next((t for t in misp_store.tlr_threat_types() if t.lower() == wanted), "")
 
 
 def _known(key: str, value, known: dict) -> str:
@@ -389,7 +388,7 @@ def run_context(job_id: str, report_uuid: str) -> None:
         job_store.update_job(job_id, message=message)
         with job_store.heartbeat(job_id, message):
             answer = llm.analyse_report_story(meta, story, story_blocks(story, blocks, skipped), kinds(),
-                                              sorted(set(known["sectors"].values())), misp_store.TLR_THREAT_TYPES)
+                                              sorted(set(known["sectors"].values())), misp_store.tlr_threat_types())
         if answer is None:
             story["context_failed"] = True
             job_store.append_log(job_id, f"{story['title']}: the model's answer could not be used.")
@@ -416,7 +415,7 @@ def analyse_one(report_uuid: str, story: dict, skipped=frozenset()) -> dict:
     _report, _manifest, blocks, meta = _load(report_uuid)
     known = galaxies()
     answer = llm.analyse_report_story(meta, story, story_blocks(story, blocks, skipped), kinds(),
-                                      sorted(set(known["sectors"].values())), misp_store.TLR_THREAT_TYPES)
+                                      sorted(set(known["sectors"].values())), misp_store.tlr_threat_types())
     if answer is None:
         raise ValueError("The model's answer could not be used. Try again, or fill in the context yourself.")
     return {"context": clean_context(answer, story, known), "context_for": [story["start"], story["end"]],
@@ -454,8 +453,9 @@ def _clean_review_context(context, known: dict):
         text = " ".join(str(item.get("text") or "").split())[:600] if isinstance(item, dict) else ""
         clean[key] = {"text": text, "block": item.get("block") if type(item.get("block")) is int else None} \
             if text else None
+    left_out = context.get("left_out")
     clean["left_out"] = [{k: " ".join(str(item.get(k) or "").split())[:200] for k in ("field", "value", "why")}
-                         for item in (context.get("left_out") or [])[:40] if isinstance(item, dict)]
+                         for item in (left_out[:40] if isinstance(left_out, list) else []) if isinstance(item, dict)]
     return clean
 
 
@@ -536,7 +536,7 @@ def story_markdown(report, story: dict, blocks: list, skipped=frozenset()) -> st
 
 
 def to_create(manifest: dict) -> list:
-    return [s for s in manifest["stories"] if s["kind"] != "excluded" and not s.get("event")]
+    return [s for s in manifest["stories"] if s["kind"] != LEFT_OUT and not s.get("event")]
 
 
 def run_create(job_id: str, report_uuid: str) -> dict:

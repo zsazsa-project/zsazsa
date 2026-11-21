@@ -267,6 +267,7 @@ def _read() -> dict:
         "FOCUS_POINTS_THREAT_ACTORS": focus_points_threat_actors,
         "THREAT_ACTOR_TYPES": threat_actor_types,
         "REPORT_STORY_KINDS": report_stories.kinds(),
+        "THREAT_LANDSCAPE_THREAT_TYPES": misp_store.tlr_threat_types(),
         "ASSET_INVENTORY_ENABLED": getattr(_config, "ASSET_INVENTORY_ENABLED", False),
         "ASSET_INVENTORY_FILE": getattr(_config, "ASSET_INVENTORY_FILE", "data/assets.csv"),
         "ASSET_INVENTORY_REFRESH_MINUTES": getattr(_config, "ASSET_INVENTORY_REFRESH_MINUTES", 60),
@@ -496,6 +497,8 @@ def _write(values):
     kinds_repr = "[\n" + "".join(
         f"    {{'name': {k['name']!r}, 'description': {k['description']!r}, 'ticked': {bool(k['ticked'])!r}}},\n"
         for k in values.get("REPORT_STORY_KINDS", [])) + "]"
+    threat_types = values.get("THREAT_LANDSCAPE_THREAT_TYPES") or misp_store.DEFAULT_THREAT_TYPES
+    threat_types_repr = "[\n" + "".join(f"    {t!r},\n" for t in threat_types) + "]"
     servers = values.get("MISP_SERVERS", [])
     if servers:
         lines = []
@@ -662,6 +665,11 @@ THREAT_ACTOR_TYPES = {tat_repr}
 # and whether select all ticks it in the threat landscape queue. "excluded",
 # what Leave out sets, is always there besides them.
 REPORT_STORY_KINDS = {kinds_repr}
+
+# The threat types of a threat landscape report: its entries, its sections and
+# the stories of an imported threat report. ENISA's prime threats and
+# vulnerability exploitation by default.
+THREAT_LANDSCAPE_THREAT_TYPES = {threat_types_repr}
 
 # Daily briefing analyser: skip source events/reports whose titles contain
 # any of these substrings (case-insensitive).
@@ -869,6 +877,8 @@ def index():
                            else report_stories.kinds())
         except ValueError:
             story_kinds = report_stories.kinds()
+        # Without one, nothing could be picked; the defaults come back.
+        threat_types = list(dict.fromkeys(lines("THREAT_LANDSCAPE_THREAT_TYPES"))) or misp_store.DEFAULT_THREAT_TYPES
         tag_strip_prefixes = lines("COLLECTION_TAG_STRIP_PREFIXES")
         tag_hide_prefixes = lines("COLLECTION_TAG_HIDE_PREFIXES")
         # When single sign-on is enabled, derive the MISP session cookie name from
@@ -941,6 +951,7 @@ def index():
             "THREAT_ACTOR_TYPES": threat_actor_types,
             # Without one, a story could be no kind but left out.
             "REPORT_STORY_KINDS": story_kinds or report_stories.DEFAULT_KINDS,
+            "THREAT_LANDSCAPE_THREAT_TYPES": threat_types,
             "ASSET_INVENTORY_ENABLED": _form_bool("ASSET_INVENTORY_ENABLED"),
             "ASSET_INVENTORY_FILE": _form_str("ASSET_INVENTORY_FILE") or "data/assets.csv",
             "ASSET_INVENTORY_REFRESH_MINUTES": max(1, _form_int("ASSET_INVENTORY_REFRESH_MINUTES", 60)),

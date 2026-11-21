@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-tlp="{{ tlr.tlp | slug }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ tlr.tlr_id }} - {{ tlr.title }}: management brief</title>
+  <link rel="stylesheet" href="{{ css_url }}">
+  <style>
+    :root {
+      --c1: {{ brand.color1 }};
+      --c2: {{ brand.color2 }};
+      --c3: {{ brand.color3 }};
+    }
+    /* One page: the brief leaves out what the full report holds. */
+    .section-box { margin-bottom: 6pt; }
+    .tlr-chart { max-height: 150pt; }
+    .brief-note { margin: 0 18mm; }
+  </style>
+</head>
+<body>
+{% import "_pdf_header.html" as header %}
+{% import "threat_landscape/_ranking.html" as rank %}
+{{ header.doc_header(brand, doc_label='Threat Landscape Report · Management brief',
+                     title=tlr.title or '(untitled)',
+                     tlp=tlr.tlp, doc_id=tlr.tlr_id, subtitle=tlr.reporting_period) }}
+<div class="meta-block">
+  <div class="meta-grid">
+    {{ header.meta_item('ID', tlr.tlr_id) }}
+    {% if tlr.period_start or tlr.period_end %}
+    {{ header.meta_item('Period', (tlr.period_start or '…') ~ ' to ' ~ (tlr.period_end or '…')) }}
+    {% endif %}
+    {{ header.meta_item('Author', tlr.author or '-') }}
+    {{ header.tlp_meta_item(tlr.tlp) }}
+    {% if tlr.review_state != 'published' %}{{ header.meta_item('State', tlr.review_state | replace('-', ' ')) }}{% endif %}
+  </div>
+</div>
+
+{% if tlr.executive_summary or tlr.key_judgements %}
+<div class="section-heading">Bottom line</div>
+<div class="section-box">
+  {% if tlr.executive_summary %}{{ tlr.executive_summary | md }}{% endif %}
+  {% if tlr.key_judgements %}
+  <table class="grid-table">
+    <tr><th style="width:45%;">Key judgement</th><th style="width:15%;">Confidence</th><th>What it means for us</th></tr>
+    {% for kj in tlr.key_judgements %}
+    <tr><td>{{ kj.judgement }}</td><td>{{ confidence_labels.get(kj.confidence, kj.confidence) or '-' }}</td><td>{{ kj.implication or '-' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if ranking %}
+<div class="section-heading">Threat ranking</div>
+<div class="section-box">
+  <table class="grid-table">
+    <tr><th style="width:30%;">Threat</th><th style="width:20%;">Events</th><th style="width:13%;">High relevance</th><th>Why</th></tr>
+    {% for r in ranking[:8] %}
+    <tr>
+      <td><b>{{ r.name }}</b></td>
+      <td>{{ rank.incidents_cell(r) }}</td>
+      <td>{{ r.high or '-' }}</td>
+      <td>{{ r.rationale or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if 'threat_types' in shown %}
+<div class="section-heading">Events per threat type{% if previous %}, beside {{ previous.tlr_id }} in grey{% endif %}</div>
+<div class="section-box">{{ rank.bars(charts.threat_types[:8], brand.color2) }}</div>
+{% endif %}
+
+<p class="source-meta brief-note">The full report, {{ tlr.tlr_id }}, has the threat assessments, the key incidents, the
+  recommendations, the outlook and how it was made.</p>
+</body>
+</html>

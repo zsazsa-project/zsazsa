@@ -161,6 +161,22 @@ The infrastructure you observed goes in an indicator feed, and a profile can emb
 
 ![docs/x-threatactorprofile3.png](docs/x-threatactorprofile3.png)
 
+#### Threat landscape report
+
+A **threat landscape report** says what changed over a quarter or a year, after ENISA's threat landscape method. It is built from the events in the threat landscape queue, which analysts triage on its **dataset** page: relevance, Admiralty rating, threat type and classification per event, with the counts beside those of the previous published report and the coverage of the PIRs it answers. An event is triaged once it has all four, or is left out. A classification is a sector, place, actor or technique, or the affected assets, impact, motivation or mitigation, and when none of them applies, **None relevant** in the classification picker says so; each row says what it still lacks, the banner counts what is left, and **Only what needs triage** hides the rest. Clicking a story opens it in a side panel, as on Data collection, with Previous and Next to read through the dataset. The statistics below the table follow the triage as it changes, before it is saved.
+
+The report opens with an **executive summary** for management: the bottom line in a few sentences, then the key judgements, each with its confidence and what it means for the organisation. **Draft with AI** proposes the summary and the judgements with the other sections, and leaves what they mean to the analyst; the report records which sections the AI drafted. **Draft from the dataset** writes its methodology and limitations from the data: the sources and the period, what was left out, how the events were rated, what changed in collection since the previous report, the imported threat reports it draws on, and where AI was used.
+
+Several sources often report the same attack or disclosure. On the dataset page, **Same story as…** under an event, or **Mark as duplicates** on the ticked events, marks them as reporting the same thing. They sit together in the table and are triaged together, and every count of the report counts them once: the statistics, the PIR coverage, the ATT&CK layer, the ranking and the AI draft. Above the table the page suggests events dated within a week of each other that share a CVE, a threat actor or most of their title; the analyst marks them as duplicates or not, and nothing changes until then. The stories of an imported threat report are parts of it rather than news, and are not suggested.
+
+The **threat ranking** lists the threat types of the dataset and its most frequent threat actors as the triage ranks them: the most events of high relevance first, then those that hit the organisation, those growing and the most events. Each threat shows its events, duplicates once, beside those of the previous published report and whether it rose or fell, and the analyst can say why it matters to the organisation. The report page and the PDF show the ranking and charts of the events per threat type and per month and the sectors and techniques most named. **Management brief** is the report on one page: its bottom line, its key judgements, its ranking and the events per threat type. Under "As it will appear" in the report's form, a figure can be left out of the PDF, the brief and the mail, which lists the figures as text; the report page says which are in.
+
+The **vulnerabilities** of the period are listed with the report: the CVEs its events name and those of the vulnerability advisories made in its period, each with its CVSS, how far it is exploited and whether it is in a product the organisation runs, as the analyser found it or as the asset inventory has the affected product, with the products most hit and the weaknesses. An advisory shared more strictly than the report stays out of it. "Vulnerability exploitation" is a threat type besides ENISA's prime threats.
+
+The events from a manual source marked **Our own** are what hit the organisation itself. The report lists them under **What hit us**, the dataset marks their events, and the ranking counts them per threat and puts a threat that hit the organisation higher.
+
+The **detection coverage**, an annex for the detection engineers, sets the most frequent ATT&CK techniques of the report's events against the detection engineering requests for them: covered by an active detection or one found through Rulezet, in progress, or a gap. On the report page a gap has **Request a detection**, which opens a new request for that technique, prefilled from the events that use it.
+
 #### Detection engineering request
 
 When collection turns up a threat you have no detection for, a **detection engineering request** asks the detection engineers to write one: the hypothesis, the technique, the CVEs when it is for a vulnerability, the log sources, what a hit looks like and how to test it. Detections you already have, found through Rulezet, go in as existing coverage.
@@ -199,9 +215,11 @@ The statistics pages combine operational metrics with CTI maturity.
 
 The scope and focus points statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
 
-The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. Domains, URLs, hashes, CVEs and addresses without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It can leave out file hashes and fill the browser window.
+The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, or for a domain, hostname or URL to the country of its top-level domain, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. The wall in the top left corner lists the five PIRs, GIRs and RFIs that have caught the most indicators so far in the replay. A top-level domain says where a domain is registered, not hosted, so a generic one such as .com has no country. Hashes, CVEs, and addresses and domains without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It leaves out file hashes unless **Include hashes** is ticked, and can fill the browser window.
 
 After each refresh, the collection cache looks up the country of up to 200 new addresses at [ip.circl.lu](https://ip.circl.lu). It only sends addresses from TLP:CLEAR and TLP:GREEN events, and never a private one. The service knows the country, not the city, so an address lands near the middle of its country.
+
+The **collection plan** shows, per active PIR and GIR, what its collection plan delivered over the last six months: each source it names with the events it brought that match its scope, a source it names that brought none marked as silent, the sources that brought events without being named, the events per month and the last one, and the open RFIs it answers. A requirement with no event in 30 days comes first, and the open RFIs linked to no active requirement are listed apart, as nothing is collected for them. It counts what the collection cache holds, so a source's older months are empty beyond its collection window.
 
 ### AI support
 
@@ -473,6 +491,7 @@ The six `FOCUS_POINTS_*` lists are what the relevance verdict judges each articl
 | `FOCUS_POINTS_THREAT_ACTORS` | Threat actor focus points |
 | `THREAT_ACTOR_TYPES` | Threat actor types and descriptions (ENISA taxonomy) |
 | `REPORT_STORY_KINDS` | The kinds a story of an imported threat report can be, with what each means, as the AI and the review are told, and whether "select all" ticks it in the threat landscape queue. "Left out" is always there besides them |
+| `THREAT_LANDSCAPE_THREAT_TYPES` | The threat types a threat landscape report's entries and sections, and the stories of an imported threat report, are classified by. The prime threats of the ENISA Threat Landscape and vulnerability exploitation by default |
 
 Renaming a product type does not rename it in stakeholder subscriptions already stored in MISP. The System tab has a migration for the one rename that shipped with zsazsa.
 
@@ -776,7 +795,7 @@ The "Other MISP servers" card has the servers in `MISP_SERVERS`, such as communi
 
 #### Manual collection sources
 
-The "Manual sources" card has the sources an analyst follows by hand, such as a partner portal. Each is a `zsazsa-collection-source` event in the webapp MISP. Disabling or deleting one that a PIR or GIR uses asks for confirmation.
+The "Manual sources" card has the sources an analyst follows by hand, such as a partner portal. Each is a `zsazsa-collection-source` event in the webapp MISP. Disabling or deleting one that a PIR or GIR uses asks for confirmation. A manual source marked **Our own** holds the organisation's own incidents and the detections of its SOC/CSIRT, entered as manual entries; a threat landscape report sets them apart as what hit the organisation.
 
 | Field | Description |
 |---|---|

@@ -6,7 +6,8 @@ has to, opens the earlier import of the same file instead of making a second,
 reads the PDF, and stores the report with its drafts, taking the title, date
 and TLP from the PDF where the analyst left them. A failure says why. The
 import's page shows the drafts; its details are saved only over the version
-the analyst was looking at. Once deleted, it opens a page of the stories made
+the analyst was looking at. The list offers each import's review, PDF and
+delete, with no delete while a job writes the import. Once deleted, it opens a page of the stories made
 from it, which stay. The record (webapp/misp_store.py) is a zsazsa
 record with its PDF and reading attached, deleted again when it could not be
 written whole.
@@ -439,6 +440,41 @@ class ListAndDelete(App):
         self.assertEqual([a.text for a in page.select("tbody td:first-child a")], ["2026 State of Security"] * 2)
         self.assertIn("threat landscape reports zsazsa writes", page.select_one(".record-hero").text)
 
+    def row_actions(self, page, uuid):
+        row = page.find("a", href=f"/collection/reports/{uuid}").find_parent("tr")
+        return row.select("td")[-1]
+
+    def test_each_threat_report_has_review_pdf_and_delete(self):
+        actions = self.row_actions(self.page("/collection/reports/"), self.UUID)
+        self.assertEqual(actions.find("a", title="Review the stories")["href"], f"/collection/reports/{self.UUID}/review")
+        self.assertEqual(actions.find("a", title="Download PDF")["href"], f"/collection/reports/{self.UUID}/pdf")
+        form = actions.select_one("form")
+        self.assertEqual((form["method"], form["action"]), ("post", f"/collection/reports/{self.UUID}/delete"))
+        self.assertIn("2026 State of Security", form["data-submit-confirm"])
+        self.assertIsNone(actions.find("button", disabled=True))
+
+    def test_a_threat_report_with_every_story_made_is_marked(self):
+        reports = [_report(import_state="created"), _report(uuid="u2", import_state="reviewed")]
+        with mock.patch.object(misp_store, "list_report_documents", return_value=reports):
+            page = self.page("/collection/reports/")
+        made, reviewed = (page.find("a", href=f"/collection/reports/{u}").find_parent("tr") for u in (self.UUID, "u2"))
+        self.assertEqual(made.select_one(".story-all-made")["title"], "Every story is made into an event")
+        self.assertIsNone(reviewed.select_one(".story-all-made"))
+
+    def test_a_threat_report_without_its_pdf_offers_no_download(self):
+        with mock.patch.object(misp_store, "list_report_documents", return_value=[_report(pdf=None)]):
+            actions = self.row_actions(self.page("/collection/reports/"), self.UUID)
+        self.assertIsNone(actions.find("a", title="Download PDF"))
+
+    def test_a_threat_report_a_job_works_on_cannot_be_deleted_from_the_list(self):
+        job = job_store.create_job("report-create")
+        job_store.update_job(job["id"], entity=self.UUID, status="running")
+        page = self.page("/collection/reports/")
+        busy, other = self.row_actions(page, self.UUID), self.row_actions(page, "u2")
+        self.assertIsNone(busy.select_one("form"))
+        self.assertTrue(busy.find("button", class_="btn-outline-danger").has_attr("disabled"))
+        self.assertEqual(other.select_one("form")["action"], "/collection/reports/u2/delete")
+
     def test_a_threat_report_is_deleted_and_its_stories_stay(self):
         manifest = json.loads(json.dumps(MANIFEST))
         manifest["stories"][1]["event"] = "e-1"
@@ -660,6 +696,15 @@ class Review(App):
         self.assertEqual(set(data["kind_notes"]), set(data["kinds"]))
         self.assertNotIn("is-locked", page.select_one("#splitter")["class"])
 
+    def test_the_threat_types_are_those_of_settings(self):
+        with mock.patch.object(config, "THREAT_LANDSCAPE_THREAT_TYPES", ["Insider threat"], create=True):
+            page = self.page(f"/collection/reports/{self.UUID}/review")
+            self.assertEqual(json.loads(page.select_one("#review-data").string)["threat_types"], ["Insider threat"])
+            self.assertEqual(report_stories._threat_type("insider THREAT"), "Insider threat")
+            self.assertEqual(report_stories._threat_type("Ransomware"), "")
+        with mock.patch.object(config, "THREAT_LANDSCAPE_THREAT_TYPES", [], create=True):
+            self.assertEqual(misp_store.tlr_threat_types(), misp_store.DEFAULT_THREAT_TYPES)
+
     def test_the_page_is_read_only_while_a_job_writes_the_report(self):
         job = job_store.create_job("report-ai")
         job_store.update_job(job["id"], entity=self.UUID, status="running", message="Reading the context of story 3 of 9")
@@ -727,6 +772,15 @@ class Review(App):
         self.assertEqual(thread.call_args.kwargs["args"][3], set())
         reply = self.post({"id": "bbbb2222", "start": 4, "end": 99, "title": "China"}, path="analyse")
         self.assertEqual(reply.status_code, 400)
+
+    def test_a_report_deleted_meanwhile_is_not_found_as_the_save_says(self):
+        story = {"id": "bbbb2222", "start": 4, "end": 9, "title": "China"}
+        with mock.patch.object(misp_store, "get_report_document", return_value=None):
+            for path, body in (("analyse", story), ("review", {"version": 3, "stories": self.sent()})):
+                with self.subTest(path):
+                    reply = self.post(body, path=path)
+                    self.assertEqual(reply.status_code, 404)
+                    self.assertIn("no longer exists", reply.get_json()["error"])
 
     def test_asking_the_ai_for_one_story_is_rate_limited(self):
         from webapp import rate_limit

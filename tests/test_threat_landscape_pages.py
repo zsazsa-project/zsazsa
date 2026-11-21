@@ -28,7 +28,8 @@ def _report(review_state):
         review_state=review_state, author="", creator="", approved_by="", created_at=None,
         audience="", misp_url="", top_threats=[], trending_actors=[], key_incidents=[],
         recommendations="", outlook="", purpose="", audience_level="", period_start="", period_end="", methodology="",
-        scope_sectors=[], scope_geography=[], linked_pir_uuids=[], threat_sections=[], review_log=[], corrections=[], entries=[])
+        scope_sectors=[], scope_geography=[], linked_pir_uuids=[], threat_sections=[], review_log=[], corrections=[], entries=[],
+        executive_summary="", key_judgements=[], ai_drafted=[], threat_ranking=[], hidden_figures=[])
 
 
 class Pages(unittest.TestCase):
@@ -40,6 +41,7 @@ class Pages(unittest.TestCase):
             mock.patch.object(config, "LOG_FILE", str(Path(tmp.name) / "test.log"), create=True),
             mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch.object(collection_cache, "start_worker"),
+            mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
             mock.patch.object(misp_store, "list_product_feedback", return_value=[]),
             mock.patch.object(threat_landscape, "_queued_events", return_value=[]),
             mock.patch.object(misp_store, "list_pirs", return_value=[]),
@@ -79,6 +81,35 @@ class Pages(unittest.TestCase):
                     page = BeautifulSoup(self.client.get(path).data, "html.parser")
                     resend = page.select_one(f'form[action="/products/threat-landscape/{UUID}/resend"]')
                     self.assertEqual(resend is not None, can_publish)
+
+    def detail(self, report):
+        with mock.patch.object(misp_store, "get_tlr", return_value=report), \
+             mock.patch.object(misp_store, "list_tlrs", return_value=[report]):
+            return BeautifulSoup(self.client.get(f"/products/threat-landscape/{UUID}").data, "html.parser")
+
+    def test_a_report_without_events_offers_triage_greyed_out_and_says_why(self):
+        page = self.detail(_report("draft"))
+        self.assertIsNone(page.select_one(f'a[href="/products/threat-landscape/{UUID}/entries"]'))
+        blocked = page.select_one(".btn-blocked")
+        self.assertIn("Triage and statistics", blocked.button.get_text())
+        self.assertTrue(blocked.button.has_attr("disabled"))
+        self.assertIsNotNone(blocked.select_one(".fa-xmark"))
+        self.assertIn("nothing to triage yet", page.select_one(".hero-note").get_text())
+
+    def test_a_report_with_events_links_to_its_triage(self):
+        report = _report("draft")
+        report.entries = [SimpleNamespace(excluded=False)]
+        with mock.patch.object(threat_landscape, "_threat_ranking", return_value=[]), \
+             mock.patch.object(threat_landscape, "_charts", return_value={"threat_types": []}), \
+             mock.patch.object(threat_landscape, "_own_incidents", return_value=[]), \
+             mock.patch.object(threat_landscape, "_detection_coverage", return_value=None), \
+             mock.patch.object(threat_landscape, "_vulnerabilities", return_value=[]), \
+             mock.patch.object(threat_landscape, "_shown_figures", return_value={}), \
+             mock.patch.object(misp_store, "tlr_annex", return_value=[]):
+            page = self.detail(report)
+        self.assertIsNotNone(page.select_one(f'a[href="/products/threat-landscape/{UUID}/entries"]'))
+        self.assertIsNone(page.select_one(".btn-blocked"))
+        self.assertIsNone(page.select_one(".hero-note"))
 
 
 if __name__ == "__main__":

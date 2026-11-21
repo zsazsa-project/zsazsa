@@ -461,6 +461,7 @@
             <a href="#products-exclusions"><i class="fas fa-filter"></i>Title exclusions</a>
             <a href="#products-actor-types"><i class="fas fa-user-secret"></i>Threat actor types</a>
             <a href="#products-story-kinds"><i class="fas fa-book-open"></i>Threat report story kinds</a>
+            <a href="#products-threat-types"><i class="fas fa-biohazard"></i>Threat landscape threat types</a>
           </nav>
         </div>
         <div class="col-lg-9">
@@ -496,50 +497,6 @@
               </div>
               {# What is saved, as before: one product type per line. #}
               <textarea name="PRODUCT_TYPES" id="product_types" class="d-none" aria-hidden="true" tabindex="-1">{{ cfg.PRODUCT_TYPES | join('\n') }}</textarea>
-              <script>
-                // The list above is what the analyst edits; the field it fills is what is saved.
-                (function() {
-                  var list = document.getElementById('product-type-list');
-                  var saved = document.getElementById('product_types');
-                  var added = document.getElementById('product-type-new');
-                  function sync() {
-                    var names = [];
-                    list.querySelectorAll('.product-type-name').forEach(function(input) {
-                      var name = input.value.trim();
-                      if (name && names.indexOf(name) === -1) names.push(name);
-                    });
-                    saved.value = names.join('\n');
-                    // A type added or removed is a change too: the Save button
-                    // and the warning on leaving go by these events.
-                    saved.dispatchEvent(new Event('change', {bubbles: true}));
-                  }
-                  function add() {
-                    var name = added.value.trim();
-                    if (!name) return;
-                    var row = document.getElementById('product-type-row').content.firstElementChild.cloneNode(true);
-                    row.querySelector('.product-type-name').value = name;
-                    row.querySelector('.product-type-remove').setAttribute('aria-label', 'Remove ' + name);
-                    list.appendChild(row);
-                    added.value = '';
-                    sync();
-                  }
-                  list.addEventListener('input', sync);
-                  list.addEventListener('click', function(e) {
-                    var remove = e.target.closest('.product-type-remove');
-                    if (!remove) return;
-                    var row = remove.closest('.product-type-row');
-                    var name = row.querySelector('.product-type-name').value.trim();
-                    if (name && !window.confirm('Remove the product type "' + name + '"? It goes once you save.')) return;
-                    row.remove();
-                    sync();
-                  });
-                  document.getElementById('product-type-add').addEventListener('click', add);
-                  added.addEventListener('keydown', function(e) {
-                    // Enter adds the type rather than saving the whole page.
-                    if (e.key === 'Enter') { e.preventDefault(); add(); }
-                  });
-                })();
-              </script>
             </div>
           </div>
 
@@ -645,6 +602,41 @@
                 <button type="button" class="btn btn-outline-primary" id="kind-add"><i class="fas fa-plus me-1"></i>Add</button>
               </div>
               <input type="hidden" name="REPORT_STORY_KINDS" id="kind-json">
+            </div>
+          </div>
+
+          <div class="card content-card mb-4" id="products-threat-types">
+            <div class="card-header"><i class="fas fa-biohazard me-2"></i>Threat landscape threat types</div>
+            <div class="card-body">
+              <p class="small mb-3">What a threat landscape report's entries and sections, and the stories of an imported
+                threat report, are classified by. The AI picks from these too. They start from the prime threats of the
+                ENISA Threat Landscape and vulnerability exploitation; with none left here, those come back. An entry or section keeps a type
+                removed here, but it can no longer be picked.</p>
+              <div class="row g-2" id="threat-type-list">
+                {% for t in cfg.THREAT_LANDSCAPE_THREAT_TYPES %}
+                <div class="col-md-6 threat-type-row">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="fas fa-biohazard fa-fw text-muted"></i></span>
+                    <input type="text" class="form-control threat-type-name" value="{{ t }}" aria-label="Threat type">
+                    <button type="button" class="btn btn-outline-secondary threat-type-remove" aria-label="Remove {{ t }}" title="Remove"><i class="fas fa-xmark"></i></button>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              <template id="threat-type-row">
+                <div class="col-md-6 threat-type-row">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="fas fa-biohazard fa-fw text-muted"></i></span>
+                    <input type="text" class="form-control threat-type-name" aria-label="Threat type">
+                    <button type="button" class="btn btn-outline-secondary threat-type-remove" aria-label="Remove" title="Remove"><i class="fas fa-xmark"></i></button>
+                  </div>
+                </div>
+              </template>
+              <div class="input-group input-group-sm mt-3" style="max-width: 28rem;">
+                <input type="text" class="form-control" id="threat-type-new" placeholder="A new threat type" aria-label="A new threat type">
+                <button type="button" class="btn btn-outline-primary" id="threat-type-add"><i class="fas fa-plus me-1"></i>Add</button>
+              </div>
+              <textarea name="THREAT_LANDSCAPE_THREAT_TYPES" id="threat_landscape_threat_types" class="d-none" aria-hidden="true" tabindex="-1">{{ cfg.THREAT_LANDSCAPE_THREAT_TYPES | join('\n') }}</textarea>
             </div>
           </div>
 
@@ -3499,6 +3491,54 @@
     });
   }
 })();
+
+/* ── Product types and threat types ────────────────────────────────── */
+// The list of names is what the analyst edits; the hidden field it fills,
+// one name per line, is what is saved.
+function plainList(prefix, savedId, what) {
+  var list = document.getElementById(prefix + '-list');
+  var saved = document.getElementById(savedId);
+  var added = document.getElementById(prefix + '-new');
+  if (!list || !saved) return;
+  function sync() {
+    var names = [];
+    list.querySelectorAll('.' + prefix + '-name').forEach(function(input) {
+      var name = input.value.trim();
+      if (name && names.indexOf(name) === -1) names.push(name);
+    });
+    saved.value = names.join('\n');
+    // A name added or removed is a change too: the Save button and the
+    // warning on leaving go by these events.
+    saved.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  function add() {
+    var name = added.value.trim();
+    if (!name) return;
+    var row = document.getElementById(prefix + '-row').content.firstElementChild.cloneNode(true);
+    row.querySelector('.' + prefix + '-name').value = name;
+    row.querySelector('.' + prefix + '-remove').setAttribute('aria-label', 'Remove ' + name);
+    list.appendChild(row);
+    added.value = '';
+    sync();
+  }
+  list.addEventListener('input', sync);
+  list.addEventListener('click', function(e) {
+    var remove = e.target.closest('.' + prefix + '-remove');
+    if (!remove) return;
+    var row = remove.closest('.' + prefix + '-row');
+    var name = row.querySelector('.' + prefix + '-name').value.trim();
+    if (name && !window.confirm('Remove the ' + what + ' "' + name + '"? It goes once you save.')) return;
+    row.remove();
+    sync();
+  });
+  document.getElementById(prefix + '-add').addEventListener('click', add);
+  added.addEventListener('keydown', function(e) {
+    // Enter adds the name rather than saving the whole page.
+    if (e.key === 'Enter') { e.preventDefault(); add(); }
+  });
+}
+plainList('product-type', 'product_types', 'product type');
+plainList('threat-type', 'threat_landscape_threat_types', 'threat type');
 
 /* ── Threat actor types and story kinds ────────────────────────────── */
 // Each list is edited as the product types are; the hidden field it fills

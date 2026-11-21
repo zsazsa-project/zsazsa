@@ -346,6 +346,8 @@ h1.doc-title {
   border-bottom: 1pt solid var(--c2, #0078f1);
   padding: 0 0 3pt;
   margin: 10pt 18mm 6pt;
+  /* A heading stays with what it heads, rather than alone at the foot of a page. */
+  break-after: avoid;
 }
 
 .section-box {
@@ -426,6 +428,13 @@ h1.doc-title {
 }
 .detail-table td { padding: 2pt 0; vertical-align: top; }
 
+/* ── Grid tables: rows of several columns, such as key judgements ── */
+
+.grid-table { width: 100%; border-collapse: collapse; margin: 4pt 0 2pt; font-size: 8.5pt; }
+.grid-table th,
+.grid-table td { border: 0.5pt solid #e2e8f0; padding: 3pt 6pt; text-align: left; vertical-align: top; }
+.grid-table th { background: #f8fafc; font-weight: 600; font-size: 8pt; color: var(--c3, #64748b); }
+
 .source-meta {
   font-size: 7.5pt;
   color: var(--c3, #64748b);
@@ -484,3 +493,18 @@ h1.doc-title {
 }
 
 .scope-summary-group:last-child { margin-bottom: 0; }
+
+/* ── Threat landscape report: threat ranking and charts ───────── */
+
+.tlr-exposure { padding: 0.5pt 5pt; border-radius: 6pt; font-size: 7.5pt; font-weight: 700; white-space: nowrap; }
+.tlr-exposure-critical { background: #fdecea; color: #b42318; }
+.tlr-exposure-high { background: #fef0e3; color: #b54708; }
+.tlr-exposure-medium { background: #e8f1fb; color: #1d5fa8; }
+.tlr-exposure-low { background: #f1f5f9; color: #475569; }
+.tlr-before { color: var(--c3, #64748b); font-size: 7.5pt; }
+.tlr-move { font-weight: 700; }
+.tlr-move-up, .tlr-move-new { color: #b42318; }
+.tlr-move-down { color: #15803d; }
+.tlr-chart { margin: 2pt 0 8pt; }
+.tlr-ours { padding: 0 4pt; border-radius: 6pt; font-size: 7pt; font-weight: 700; background: #fdecea; color: #b42318; }
+.tlr-exposure-covered { background: #e7f6ec; color: #15803d; }

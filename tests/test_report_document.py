@@ -257,6 +257,10 @@ class Drafts(unittest.TestCase):
         self.assertEqual(stories[0]["title"], "Telemetry, pages 1 to 3")
         self.assertContiguous(stories, blocks)
 
+    def test_a_piece_of_one_page_is_named_by_that_page(self):
+        stories = rd.draft_stories(_blocks([20_000, 20_000]), [], "Telemetry")
+        self.assertEqual([s["title"] for s in stories], ["Telemetry, page 1", "Telemetry, page 2"])
+
     def test_a_long_story_is_cut_at_its_own_headings(self):
         blocks = _blocks([300] + [9000] * 4)
         for i, name in ((1, "Rapid exploitation"), (3, "Edge devices")):

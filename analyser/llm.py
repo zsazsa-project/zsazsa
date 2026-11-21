@@ -615,10 +615,26 @@ def draft_vea_sections(cve_id: str, product_info: str = "", article_content: str
     return _json_object(text, "draft_vea_sections") or {}
 
 
+def _section_line(item) -> str:
+    """One item of a section sent as a list. A model asked for Markdown
+    sometimes sends objects instead, such as {"actor_name", "source_count",
+    "activity_change"}: the first text is the bullet's title, the numbers go
+    in brackets after it and the rest of the text follows."""
+    if not isinstance(item, dict):
+        return str(item)
+    texts = [v.strip() for v in item.values() if isinstance(v, str) and v.strip()]
+    if not texts:
+        return ""
+    counts = [f"{k.replace('_', ' ')} {v}" for k, v in item.items()
+              if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    line = f"- **{texts[0]}**" + (f" ({', '.join(counts)})" if counts else "")
+    return line + (f": {' '.join(texts[1:])}" if texts[1:] else "")
+
+
 def _flatten_sections(sections: dict) -> dict:
     """Join list values into newline-separated text, as the product forms expect."""
     return {
-        k: "\n".join(str(item) for item in v) if isinstance(v, list) else v
+        k: "\n".join(line for line in map(_section_line, v) if line) if isinstance(v, list) else v
         for k, v in sections.items()
     }
 
@@ -679,7 +695,25 @@ def draft_landscape_trends(reporting_period: str, events: list, documents: list 
         used = {s["kind"] for doc in documents for s in doc["stories"]}
         payload["kinds"] = {name: note for name, note in (kinds or {}).items() if name in used}
     text = _call(system, _trends_input(payload), 4000, feature="draft_landscape_trends", cfg=fc)
-    return _flatten_sections(_json_object(text, "draft_landscape_trends") or {})
+    answer = _json_object(text, "draft_landscape_trends") or {}
+    judgements = answer.pop("key_judgements", None)
+    sections = _flatten_sections(answer)
+    if judgements:
+        sections["key_judgements"] = _key_judgements(judgements)
+    return sections
+
+
+def _key_judgements(items) -> list:
+    """The key judgements of a trend draft that hold: a sentence each, with a
+    confidence of the estimative scale or none."""
+    rows = []
+    for item in items if isinstance(items, list) else []:
+        judgement = " ".join(str(item.get("judgement") or "").split()) if isinstance(item, dict) else ""
+        if judgement:
+            confidence = str(item.get("confidence") or "").strip().lower()
+            rows.append({"judgement": judgement[:400],
+                         "confidence": confidence if confidence in ("low", "moderate", "high") else ""})
+    return rows[:5]
 
 
 def _report_heading(report: dict) -> str:

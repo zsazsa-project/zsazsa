@@ -5,9 +5,11 @@ objects too, and replaces them with their events. Only addresses from
 TLP:CLEAR and TLP:GREEN events are sent to ip.circl.lu, never one that is not
 public, and a lookup that fails stops the round rather than storing nothing as
 an answer. The page shows TLP:CLEAR unless another level is chosen, never
-AMBER+STRICT or RED, leaves hashes out when asked, catches an indicator whose
-event a PIR or GIR matches or an open RFI is linked to one of, defangs every
-value, and says why an address has no place on the map.
+AMBER+STRICT or RED, leaves hashes out unless asked for them, catches an
+indicator whose event a PIR or GIR matches or an open RFI is linked to one of,
+names those requirements for the wall, defangs every value, places a domain,
+hostname or URL by its top-level domain, and says why an indicator has no
+place on the map.
 
 No MISP and no network: requests and the store are patched, the databases are
 temporary.
@@ -295,6 +297,28 @@ class MapData(_Cache):
         self.assertEqual(by_value["3[.]3[.]3[.]3"]["why_not"], "not sent to CIRCL at TLP:AMBER")
         self.assertEqual(data["totals"], {"indicators": 4, "caught": 0, "located": 1, "countries": 1, "litter": 3})
 
+    def test_a_domain_hostname_or_url_is_placed_by_its_top_level_domain(self):
+        self.add("e", ["tlp:amber"], [("domain", "bad.nl"), ("hostname", "mail.example.RU."), ("url", "https://www.evil.co.uk:8080/a"),
+                                      ("url", "evil.de/x"), ("domain", "bad.example.com"), ("url", "http://1.2.3.4/x")])
+        data = pewpew.map_data(tlp="amber")
+        by_value = {i["value"]: i for i in data["indicators"]}
+        self.assertEqual({v: i.get("country") for v, i in by_value.items()},
+                         {"bad[.]nl": "NL", "mail[.]example[.]RU[.]": "RU", "hxxps://www[.]evil[.]co[.]uk:8080/a": "GB",
+                          "evil[.]de/x": "DE", "bad[.]example[.]com": None, "hxxp://1[.]2[.]3[.]4/x": None})
+        self.assertLess(abs(by_value["bad[.]nl"]["lat"] - 52.13), 2)
+        self.assertEqual(by_value["bad[.]example[.]com"]["why_not"], "no country in its top-level domain")
+        self.assertEqual(data["totals"]["located"], 4)
+
+    def test_the_wall_names_the_requirements_that_caught_something(self):
+        self.rfis = [SimpleNamespace(rfi_id="RFI-00002", status="In Progress", question="Who is Sandworm?",
+                                     linked_pir_uuid="pir-uuid", linked_gir_uuid="")]
+        self.add("hit", ["tlp:clear"], [("md5", "hit")], info="Sandworm infrastructure")
+        self.add("miss", ["tlp:clear"], [("md5", "miss")], info="Something else")
+        self.assertEqual(pewpew.map_data()["requirements"],
+                         {"PIR-00001": {"kind": "PIR", "label": "q"}, "RFI-00002": {"kind": "RFI", "label": "Who is Sandworm?"}})
+        self.rfis = []
+        self.assertEqual(pewpew.map_data(exclude_hashes=True)["requirements"], {})
+
 
 class Page(_Cache):
     def setUp(self):
@@ -325,7 +349,7 @@ class Page(_Cache):
         self.assertIn("/stats/pewpew.json?days=30&tlp=amber", soup.find("canvas")["data-json-url"])
         self.assertEqual(soup.find("select", id="pew-tlp").find("option", selected=True)["value"], "amber")
         self.assertTrue(soup.find("a", href="/stats/pewpew"))
-        reply = self.client.get("/stats/pewpew.json?days=30")
+        reply = self.client.get("/stats/pewpew.json?days=30&include_hashes=1")
         self.assertEqual([i["value"] for i in reply.get_json()["indicators"]], ["abc"])
 
     def test_a_window_or_level_the_page_does_not_offer_falls_back_to_the_default(self):
@@ -334,15 +358,36 @@ class Page(_Cache):
         data = self.client.get("/stats/pewpew.json?days=abc").get_json()
         self.assertEqual(data["days"], pewpew.DEFAULT_WINDOW)
 
+    def test_the_wall_is_on_the_map(self):
+        soup = BeautifulSoup(self.client.get("/stats/pewpew").data, "html.parser")
+        self.assertEqual(soup.find("div", id="pew-wall").h3.get_text(), "Wall of PIRs, GIRs and RFIs")
+        self.assertTrue(soup.find("ol", id="pew-wall-list"))
+
     def test_an_empty_window_says_so(self):
         text = BeautifulSoup(self.client.get("/stats/pewpew").data, "html.parser").get_text(" ", strip=True)
         self.assertIn("No indicators in this window up to TLP:CLEAR", text)
 
-    def test_excluding_hashes_is_kept_when_the_page_reads_its_data_again(self):
-        soup = BeautifulSoup(self.client.get("/stats/pewpew?exclude_hashes=1").data, "html.parser")
+    def test_hashes_are_left_out_unless_asked_for_and_that_is_kept_when_the_page_reads_its_data_again(self):
+        self.add("e", ["tlp:clear"], [("md5", "abc"), ("domain", "bad.example")])
+        soup = BeautifulSoup(self.client.get("/stats/pewpew").data, "html.parser")
+        self.assertFalse(soup.find("input", id="pew-hashes").has_attr("checked"))
+        self.assertNotIn("include_hashes", soup.find("canvas")["data-json-url"])
+        reply = self.client.get("/stats/pewpew.json")
+        self.assertEqual([i["value"] for i in reply.get_json()["indicators"]], ["bad[.]example"])
+        soup = BeautifulSoup(self.client.get("/stats/pewpew?include_hashes=1").data, "html.parser")
         self.assertTrue(soup.find("input", id="pew-hashes").has_attr("checked"))
-        self.assertIn("exclude_hashes=1", soup.find("canvas")["data-json-url"])
+        self.assertIn("include_hashes=1", soup.find("canvas")["data-json-url"])
+        reply = self.client.get("/stats/pewpew.json?include_hashes=1")
+        self.assertEqual([i["value"] for i in reply.get_json()["indicators"]], ["abc", "bad[.]example"])
         self.assertTrue(soup.find("button", id="pew-max"))
+
+    def test_an_info_icon_says_where_the_indicators_come_from(self):
+        page = self.client.get("/stats/pewpew")
+        soup = BeautifulSoup(page.data, "html.parser")
+        info = soup.find("i", id="pew-info")
+        self.assertEqual(info["data-bs-toggle"], "popover")
+        self.assertIn("collection cache", info["data-bs-content"])
+        self.assertIn(b"new bootstrap.Popover(document.getElementById('pew-info'))", page.data)
 
 
 if __name__ == "__main__":

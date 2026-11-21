@@ -144,6 +144,20 @@ REPORT_STORY_KINDS = [
     {'name': 'context', 'description': 'Background without threat content of its own: a foreword, the methodology, a policy overview, a conclusion that only repeats.', 'ticked': False},
 ]
 
+# The threat types of a threat landscape report: its entries, its sections and
+# the stories of an imported threat report. ENISA's prime threats and
+# vulnerability exploitation by default.
+THREAT_LANDSCAPE_THREAT_TYPES = [
+    'Ransomware',
+    'Malware',
+    'Social engineering',
+    'Threats against data',
+    'Threats against availability',
+    'Information manipulation and interference',
+    'Supply chain attacks',
+    'Vulnerability exploitation',
+]
+
 # Daily briefing analyser: skip source events/reports whose titles contain
 # any of these substrings (case-insensitive).
 DAILY_BRIEFING_TITLE_EXCLUSIONS = []

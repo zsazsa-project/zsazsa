@@ -12,7 +12,8 @@ that the Filters and actions card has the look of the stakeholder banner
 without cutting off its menus, that a filter button stays white and readable
 while its panel is open or a filter is set and shows a green check for the
 latter, and that a finished summary reloads the table keeping what the
-analyst had. What the page's script does with a click is checked in a
+analyst had, and that Threat report has an arrow with a menu to all imported
+threat reports, also when no manual source allows a new one. What the page's script does with a click is checked in a
 browser, not here.
 
     python -m unittest tests.test_collection_toolbar
@@ -130,6 +131,25 @@ class TheToolbar(unittest.TestCase):
         link = rows["a" * 36].select_one(".org-filter-link")
         self.assertEqual((link["data-org"], link.get_text(strip=True)), ("CIRCL", "CIRCL"))
         self.assertIsNone(rows["b" * 36].select_one(".org-filter-link"))
+
+    def threat_report_menu(self, page):
+        split = page.select_one(".chip-split")
+        chip = split.select_one(".action-chip")
+        self.assertIn("Threat report", chip.get_text())
+        return chip, split.select_one("button.dropdown-toggle"), split.select_one(".dropdown-menu a")
+
+    def test_threat_report_has_a_menu_with_all_threat_reports(self):
+        _chip, toggle, link = self.threat_report_menu(self.page)
+        self.assertEqual(toggle["data-bs-toggle"], "dropdown")
+        self.assertEqual((link["href"], link.get_text(strip=True)), ("/collection/reports/", "Show all threat reports"))
+
+    def test_without_a_manual_source_the_threat_reports_are_still_listed(self):
+        with mock.patch.object(data_collection, "_sources", return_value=SOURCES[:1]):
+            html = create_app().test_client().get("/collection/").get_data(as_text=True)
+        chip, toggle, link = self.threat_report_menu(BeautifulSoup(html, "html.parser"))
+        self.assertIn("disabled", chip["class"])
+        self.assertNotIn("disabled", toggle["class"])
+        self.assertEqual(link["href"], "/collection/reports/")
 
     def styles(self):
         return "".join(s.get_text() for s in self.page.select("style"))

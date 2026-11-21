@@ -131,6 +131,7 @@
   const RELOAD_EVERY = 60;
   let queue = [], qi = 0, nextAt = 1, idleFor = 0, reloading = false, lastReload = 0;
   function plan(list) {
+    resetWall();
     queue = list.slice(); qi = 0; nextAt = .8; idleFor = 0;
     const n = queue.length;
     if (!n) return;
@@ -170,6 +171,7 @@
 
   function landed(L) {
     const it = L.it;
+    countWall(it);
     if (!L.located) {
       addLitter(it);
       floaters.push({ u: L.b.u, v: L.b.v - .05, text: "plop", life: 1.2, color: L.color });
@@ -489,6 +491,39 @@
   }
   const clock = document.getElementById("pew-clock");
   function setClock(it) { if (clock && it.ts) clock.textContent = "Replaying " + when(it.ts); }
+
+  // The wall: the requirements that have caught the most indicators so far in this replay.
+  const wallList = document.getElementById("pew-wall-list");
+  const WALL_SIZE = 5;
+  let tally = {};
+  function renderWall() {
+    if (!wallList) return;
+    const names = data.requirements || {};
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, WALL_SIZE);
+    wallList.replaceChildren();
+    if (!top.length) {
+      const li = document.createElement("li"); li.className = "empty"; li.textContent = "Nothing caught yet";
+      wallList.appendChild(li);
+      return;
+    }
+    top.forEach(([id, n]) => {
+      const info = names[id] || {};
+      const li = document.createElement("li"); li.className = "kind-" + (info.kind || "").toLowerCase();
+      const k = document.createElement("span"); k.className = "k"; k.textContent = id;
+      const c = document.createElement("span"); c.className = "n"; c.textContent = n;
+      const t = document.createElement("span"); t.className = "t"; t.textContent = info.label || "";
+      const bar = document.createElement("span"); bar.className = "bar";
+      const fill = document.createElement("i"); fill.style.width = (n * 100 / top[0][1]) + "%"; bar.appendChild(fill);
+      li.append(k, c, t, bar);
+      wallList.appendChild(li);
+    });
+  }
+  function countWall(it) {
+    if (!it.caught.length) return;
+    it.caught.forEach(id => { tally[id] = (tally[id] || 0) + 1; });
+    renderWall();
+  }
+  function resetWall() { tally = {}; renderWall(); }
 
   const catline = document.getElementById("pew-catline");
   let lastCat = "";

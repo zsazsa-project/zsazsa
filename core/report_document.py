@@ -418,8 +418,12 @@ def _by_pages(blocks, title, start, end, path):
             begin, size = i + 1, 0
     if len(pieces) == 1:
         return [_story(blocks, title, start, end, path)]
-    return [_story(blocks, f"{title}, pages {blocks[a]['page']} to {blocks[b - 1]['page']}", a, b, path)
-            for a, b in pieces]
+    stories = []
+    for a, b in pieces:
+        first, last = blocks[a]["page"], blocks[b - 1]["page"]
+        stories.append(_story(blocks, f"{title}, page {first}" if first == last else f"{title}, pages {first} to {last}",
+                              a, b, path))
+    return stories
 
 
 def _cut(blocks, title, start, end, path):

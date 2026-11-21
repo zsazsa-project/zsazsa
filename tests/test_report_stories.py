@@ -241,6 +241,14 @@ class Review(unittest.TestCase):
         # What the AI named but could not keep stays for the analyst to see.
         self.assertEqual(context["left_out"], [{"field": "threat_actors", "value": "Gentlemen", "why": "not in the galaxy"}])
 
+    def test_what_the_ai_left_out_sent_as_anything_but_a_list_is_dropped(self):
+        for left_out in ({"field": "sectors", "value": "x", "why": "y"}, "sectors", 3):
+            with self.subTest(left_out=left_out):
+                sent = self.sent()
+                sent[1]["context"] = {"summary": "x", "left_out": left_out}
+                stories = rs.review(self.manifest, sent, BLOCKS, KNOWN)
+                self.assertEqual(stories[1]["context"]["left_out"], [])
+
     def test_a_story_sent_without_a_kind_has_none(self):
         sent = self.sent()
         sent.insert(2, {"id": "new0000001", "start": 4, "title": "Telecom targeting", "context": None})

@@ -11,6 +11,7 @@ neither edited nor deleted. MISP is patched out.
 
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -28,8 +29,9 @@ UUID = "5f0c7a3e-1b2c-4d5e-8f90-a1b2c3d4e5f6"
 
 
 def _entry(**fields):
-    data = {"event_info": "", "threat_type": "", "excluded": False, "sectors": [],
-            "geographic_scope": [], "threat_actors": [], "techniques": []}
+    data = {key: "" for key in misp_store.TLR_ENTRY_FIELDS}
+    data.update({key: [] for key in misp_store.TLR_ENTRY_LISTS})
+    data.update(excluded=False, event_uuid=str(uuid.uuid4()))
     data.update(fields)
     return SimpleNamespace(**data)
 
@@ -141,7 +143,7 @@ def _report(**fields):
     data.update(uuid=UUID, tlr_id="TLR-00009", title="Q3", reporting_period="2026 Q3", tlp="amber", author="",
                 audience="", top_threats="", trending_actors="", key_incidents="", recommendations="",
                 outlook="", threat_sections=[], review_log=[], corrections=[], entries=[], review_state="draft", creator="", approved_by="",
-                created_at=None, misp_url="")
+                created_at=None, misp_url="", executive_summary="", key_judgements=[], ai_drafted=[], threat_ranking=[], hidden_figures=[])
     data.update(fields)
     return SimpleNamespace(**data)
 
@@ -185,7 +187,8 @@ class RenderedPage(unittest.TestCase):
         app = create_app()
         with app.test_request_context():
             page = render_template("threat_landscape/detail.html", tlr=report, feedback=[], linked_pirs=[],
-                                   annex=[], next_states=[], locked=False, can_publish=False,
+                                   annex=[], next_states=[], locked=False, can_publish=False, ranking=[],
+                                   charts={"threat_types": []},
                                    **threat_landscape._report_context())
         soup = BeautifulSoup(page, "html.parser")
         rendered = [el["data-md"] for el in soup.select(".report-md-body")]

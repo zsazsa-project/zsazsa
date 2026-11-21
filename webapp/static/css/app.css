@@ -3384,6 +3384,15 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
   justify-content: space-between; gap: .45rem; min-width: 0; }
 .record-hero-detail .hero-main { flex: none; }
 .record-hero-detail .hero-actions { margin: 0; }
+/* A button that has nothing to work on yet: greyed, with a red cross on its
+   corner, and a note under the buttons saying why. */
+.btn-blocked { position: relative; display: inline-block; cursor: not-allowed; }
+.btn-blocked .btn { pointer-events: none; }
+.btn-blocked > .fa-xmark { position: absolute; top: -.35rem; right: -.35rem; display: grid; place-items: center;
+  width: .95rem; height: .95rem; border-radius: 50%; background: var(--accent-red); color: #fff; font-size: .55rem;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+.record-hero .hero-note { margin: 0; font-size: .74rem; opacity: .9; }
+.record-hero .hero-note a { color: inherit; text-decoration: underline; }
 /* A daily briefing's date as a calendar leaf, the band in the colour of its
    review state: blue once published, grey as a draft, red when rejected. */
 .date-leaf { display: inline-block; flex-shrink: 0; width: 2.6rem; overflow: hidden; border: 1px solid var(--border-light);
@@ -3478,3 +3487,20 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .ai-actions .btn-ai i { margin-top: .2rem; color: var(--accent-blue); }
 .ai-actions .btn-ai small { display: block; margin-top: .1rem; color: var(--text-muted); font-size: .74rem; font-weight: 400; }
 .ai-actions hr { margin: .25rem 1rem; }
+
+/* The badges of the vulnerability and detection coverage tables, and how a count moved since the previous report. */
+/* Exposure after CERT-EU's levels, and how a count moved since the previous report. */
+.tlr-exposure { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.tlr-exposure-critical { background: color-mix(in srgb, var(--accent-red) 16%, transparent); color: var(--accent-red); }
+.tlr-exposure-high { background: color-mix(in srgb, var(--accent-orange) 16%, transparent); color: var(--accent-orange); }
+.tlr-exposure-medium { background: color-mix(in srgb, var(--accent-blue) 14%, transparent); color: var(--accent-blue); }
+.tlr-exposure-low { background: var(--surface-muted); color: var(--text-muted); }
+.tlr-before { color: var(--text-muted); font-size: .9em; }
+.tlr-move { font-weight: 700; font-size: .85em; }
+.tlr-move-up, .tlr-move-new { color: var(--accent-red); }
+.tlr-move-down { color: var(--accent-green); }
+.tlr-move-stable { color: var(--text-muted); }
+.tlr-chart { display: block; max-width: 40rem; }
+.tlr-ours { display: inline-block; padding: 0 .4rem; border-radius: 999px; font-size: .68rem; font-weight: 700;
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent); color: var(--accent-red); }
+.tlr-exposure-covered { background: color-mix(in srgb, var(--accent-green) 16%, transparent); color: var(--accent-green); }

@@ -117,7 +117,8 @@
                         data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
                   <i class="fas fa-comment-dots"></i>
                 </button>
-                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Dataset">
+                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary"
+                   title="Data: triage and statistics" aria-label="Data: triage and statistics of {{ t.tlr_id }}">
                   <i class="fas fa-table-list"></i>
                 </a>
                 <a href="{{ url_for('threat_landscape.pdf', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">

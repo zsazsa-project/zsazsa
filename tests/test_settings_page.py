@@ -6,7 +6,8 @@ keeps the audit log's retention. Every other tab but Prompts is laid out the
 same way, with a menu of its sections, and the asset database is on
 Connections. The focus point lists offer the names of their MISP galaxy to pick
 from, and mark a name the galaxy does not have, unless the galaxy could not be
-read.
+read. The threat landscape threat types are a list as the product types are,
+ENISA's prime threats while none is set.
 
 The database and the log are temporary, and the galaxies are stubbed.
 
@@ -22,7 +23,7 @@ from bs4 import BeautifulSoup
 
 import config
 from analyser import settings
-from webapp import collection_cache, create_app
+from webapp import collection_cache, create_app, misp_store
 from webapp.routes import config_page
 
 
@@ -129,6 +130,25 @@ class NamedLists(unittest.TestCase):
         # What is saved is filled in by the page's script, under the names the form posts.
         self.assertEqual(page.select_one("#tat-json")["name"], "THREAT_ACTOR_TYPES")
         self.assertEqual(page.select_one("#kind-json")["name"], "REPORT_STORY_KINDS")
+
+    def test_the_threat_types_are_a_list_as_the_product_types(self):
+        with mock.patch.object(config, "THREAT_LANDSCAPE_THREAT_TYPES", ["Ransomware", 'Say "no" <b>'], create=True):
+            page = BeautifulSoup(render_page(), "html.parser")
+        card = page.select_one("#tab-products #products-threat-types")
+        self.assertIn("ENISA Threat Landscape", card.text)
+        rows = card.select("#threat-type-list .threat-type-row")
+        self.assertEqual([r.select_one(".threat-type-name")["value"] for r in rows], ["Ransomware", 'Say "no" <b>'])
+        self.assertEqual(rows[0].select_one(".threat-type-remove")["aria-label"], "Remove Ransomware")
+        saved = card.select_one("textarea#threat_landscape_threat_types")
+        self.assertEqual((saved["name"], saved.text), ("THREAT_LANDSCAPE_THREAT_TYPES", 'Ransomware\nSay "no" <b>'))
+        self.assertIsNotNone(card.select_one("#threat-type-new"))
+        self.assertIsNotNone(card.select_one("#threat-type-add"))
+
+    def test_without_threat_types_set_the_enisa_ones_are_shown(self):
+        with mock.patch.object(config, "THREAT_LANDSCAPE_THREAT_TYPES", [], create=True):
+            page = BeautifulSoup(render_page(), "html.parser")
+        names = [i["value"] for i in page.select("#threat-type-list .threat-type-name")]
+        self.assertEqual(names, misp_store.DEFAULT_THREAT_TYPES)
 
 
 def render_page() -> str:

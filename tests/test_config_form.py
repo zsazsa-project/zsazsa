@@ -163,6 +163,23 @@ class ConfigSave(unittest.TestCase):
         self.client.post("/config", data=form)
         self.assertEqual(self.saved()["REPORT_STORY_KINDS"], report_stories.DEFAULT_KINDS)
 
+    def test_the_threat_types_are_saved_once_each(self):
+        form = self.full_form()
+        form["THREAT_LANDSCAPE_THREAT_TYPES"] = " Ransomware \nInsider threat\n\nRansomware\n"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], ["Ransomware", "Insider threat"])
+
+    def test_without_threat_types_the_enisa_ones_are_saved(self):
+        form = self.full_form()
+        form["THREAT_LANDSCAPE_THREAT_TYPES"] = "\n"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], config_page.misp_store.DEFAULT_THREAT_TYPES)
+
+    def test_the_threat_types_survive_a_post_that_omits_them(self):
+        with mock.patch.object(_config, "THREAT_LANDSCAPE_THREAT_TYPES", ["Insider threat"], create=True):
+            self.client.post("/config", data=self.full_form())
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], ["Insider threat"])
+
     def test_an_unticked_switch_turns_its_setting_off(self):
         """A browser leaves an unticked box out of the form and sends only the
         hidden "false" behind it; ticked, it sends "true" first."""

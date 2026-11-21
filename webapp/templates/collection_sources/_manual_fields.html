@@ -28,6 +28,14 @@
     </select>
   </div>
   <div class="col-12">
+    <div class="form-check">
+      {% set internal_id = 'internal-' ~ (_src.uuid if _src else 'new') %}
+      <input class="form-check-input" type="checkbox" name="internal" id="{{ internal_id }}" {{ 'checked' if _src and _src.internal }}>
+      <label class="form-check-label small" for="{{ internal_id }}">Our own: the organisation's incidents and the
+        detections of its SOC/CSIRT. A threat landscape report sets them apart as what hit the organisation.</label>
+    </div>
+  </div>
+  <div class="col-12">
     <label class="form-label small mb-1">Description</label>
     <textarea name="description" class="form-control form-control-sm" rows="2"
               placeholder="What this source covers and why it is relevant">{{ (_src and _src.description) or '' }}</textarea>

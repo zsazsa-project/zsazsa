@@ -62,9 +62,12 @@ def _reports() -> list:
         return []
 
 
+def _in_flight(job) -> bool:
+    return job.get("status") in job_store.IN_FLIGHT and not job_store.stalled(job)
+
+
 def _running_import():
-    return next((j for j in job_store.list_jobs() if j.get("action") == JOB_ACTION
-                 and j.get("status") in job_store.IN_FLIGHT and not job_store.stalled(j)), None)
+    return next((j for j in job_store.list_jobs() if j.get("action") == JOB_ACTION and _in_flight(j)), None)
 
 
 def _last_job(uuid: str):
@@ -75,7 +78,7 @@ def _last_job(uuid: str):
 def _busy(uuid: str):
     """The job writing this report's manifest now, if there is one."""
     job = _last_job(uuid)
-    return job if job and job.get("status") in job_store.IN_FLIGHT and not job_store.stalled(job) else None
+    return job if job and _in_flight(job) else None
 
 
 def _norm(text: str) -> str:
@@ -111,8 +114,10 @@ _STATES = {"drafted": "Drafted", "reviewed": "Reviewed", "created": "Made into e
 def index():
     """Every imported threat report."""
     reports = _reports()
+    # The reports a job writes to now, which the delete route refuses.
+    busy = {j.get("entity") for j in job_store.list_jobs() if j.get("action") in _WRITING and _in_flight(j)}
     return render_template("data_collection/report_list.html", reports=reports, states=_STATES,
-                           providers=misp_store.report_providers(reports))
+                           providers=misp_store.report_providers(reports), busy=busy)
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -471,7 +476,7 @@ def review(uuid):
                            data={"version": report.version, "blocks": blocks, "stories": manifest["stories"],
                                  "skipped": manifest.get("skipped", []),
                                  "kinds": report_stories.kind_names(), "kind_notes": report_stories.kind_notes(),
-                                 "threat_types": misp_store.TLR_THREAT_TYPES,
+                                 "threat_types": misp_store.tlr_threat_types(),
                                  "lists": _galaxy_lists()})
 
 
@@ -531,8 +536,10 @@ def analyse(uuid):
     """Ask the model for the context of one story, as the analyst has cut it.
     The page follows the job and applies what it gives."""
     report = misp_store.get_report_document(uuid)
+    if report is None:
+        return jsonify({"ok": False, "error": "This threat report no longer exists."}), 404
     body = request.get_json(silent=True)
-    if report is None or not isinstance(body, dict):
+    if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "The story could not be read."}), 400
     story = {k: body.get(k) for k in ("id", "start", "end", "title", "kind", "path")}
     if not (type(story["start"]) is int and type(story["end"]) is int and 0 <= story["start"] < story["end"]

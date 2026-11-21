@@ -103,6 +103,7 @@ class Pages(unittest.TestCase):
             mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch("webapp._setup_file_logging"),
             mock.patch.object(collection_cache, "start_worker"),
+            mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
             mock.patch.object(job_store, "_command", return_value=None),
             mock.patch.object(job_store, "by_entity", return_value={}),
             mock.patch.object(audit, "record"),
@@ -680,8 +681,8 @@ class ThreatLandscapePages(Pages):
         with mock.patch.object(misp_store, "get_tlr", return_value=_tlr("draft")), \
              mock.patch.object(misp_store, "list_tlrs", return_value=[]):
             page = self.page(f"/products/threat-landscape/{UUID}/edit")
-        self.assertEqual(len(page.select("section.record-hero .form-steps a")), 9)
-        self.assertEqual(len(page.select(".form-step")), 9)
+        self.assertEqual(len(page.select("section.record-hero .form-steps a")), 11)
+        self.assertEqual(len(page.select(".form-step")), 11)
         card = page.select_one(".col-lg-4 > .form-save")
         self.assertEqual(card.select_one(".card-header").get_text(strip=True), "As it will appear")
         self.assertEqual(card.select_one("button[type=submit]").get_text(strip=True), "Update report")
