@@ -600,8 +600,9 @@ def detail(id):
     )
 
 
-# weasyprint has no JS engine to run marked.js like the HTML views do, so
-# story content is rendered to HTML server-side before going into the PDF.
+# weasyprint has no JS engine to run marked.js like the HTML views do, so the
+# summary and the stories are rendered to HTML server-side before going into the
+# PDF, with their labels in bold as the pages and the mail show them.
 
 
 @bp.route("/<string:id>/pdf")
@@ -614,6 +615,7 @@ def pdf(id):
     document_html = render_template(
         "daily_briefing/pdf.html",
         briefing=briefing,
+        summary_html=mark_lead_labels(md_to_html(briefing.summary)),
         css_url=branding.pdf_css_url(),
         brand=branding.brand(),
         scope_summary=misp_store.briefing_combined_scope_summary(briefing),

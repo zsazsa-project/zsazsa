@@ -90,7 +90,7 @@ class Alert(unittest.TestCase):
         self.assertEqual(self.make(), "FIA-00042")
         self.assertEqual(self.created["summary"], "Ransomware stopped a grid operator.")
         self.assertEqual(self.created["actions_immediate"], ["Patch the VPN"])
-        self.assertEqual(self.created["what_happened"], ["The operator's VPN was breached."])
+        self.assertEqual(self.created["what_happened"], ["- The operator's VPN was breached."])
         self.assertEqual(self.created["review_state"], misp_store.FIA_REVIEW_DRAFT)
         self.assertEqual(self.created["author"], "analyser")
 

@@ -47,8 +47,9 @@
       <div class="record-kpis">
         <div class="record-kpi"><b>{{ techniques | length }}</b><span>technique{{ 's' if techniques | length != 1 }}</span></div>
         <div class="record-kpi"><b>{{ cves | length }}</b><span>CVE{{ 's' if cves | length != 1 }}</span></div>
-        <div class="record-kpi"><b>{{ (der.log_sources or []) | length }}</b><span>log source{{ 's' if (der.log_sources or []) | length != 1 }}</span></div>
-        <div class="record-kpi"><b>{{ (der.test_cases or []) | length }}</b><span>test case{{ 's' if (der.test_cases or []) | length != 1 }}</span></div>
+        {% set log_sources, test_cases = der.log_sources | list_item_count, der.test_cases | list_item_count %}
+        <div class="record-kpi"><b>{{ log_sources }}</b><span>log source{{ 's' if log_sources != 1 }}</span></div>
+        <div class="record-kpi"><b>{{ test_cases }}</b><span>test case{{ 's' if test_cases != 1 }}</span></div>
       </div>
     </div>
     <div class="hero-actions">
@@ -114,7 +115,7 @@
         <span>{{ audience_badges(der.audience) }}</span>
       </div>
       <div class="card-body">
-        {% if der.hypothesis %}<p class="mb-0">{{ der.hypothesis | md_inline }}</p>
+        {% if der.hypothesis %}<div class="md-body">{{ der.hypothesis | md }}</div>
         {% else %}<p class="text-muted mb-0"><em>No hypothesis.</em></p>{% endif %}
         {% if techniques or cves %}
         <div class="d-flex flex-wrap gap-2 mt-3">
@@ -180,14 +181,14 @@
     {% if der.log_sources %}
     <div class="card content-card mb-4 rise rise-2">
       <div class="card-header"><i class="fas fa-database me-2"></i>Log sources</div>
-      <div class="card-body">{{ bullets(der.log_sources) }}</div>
+      <div class="card-body md-body">{{ der.log_sources | markdown_list | md }}</div>
     </div>
     {% endif %}
 
     {% if der.expected_output %}
     <div class="card content-card mb-4 rise rise-2">
       <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Expected rule output</div>
-      <div class="card-body"><p class="mb-0">{{ der.expected_output | md_inline }}</p></div>
+      <div class="card-body md-body">{{ der.expected_output | md }}</div>
     </div>
     {% endif %}
 
@@ -206,7 +207,7 @@
     {% if der.test_cases %}
     <div class="card content-card mb-4 rise rise-3">
       <div class="card-header"><i class="fas fa-vial me-2"></i>Test cases</div>
-      <div class="card-body">{{ bullets(der.test_cases) }}</div>
+      <div class="card-body md-body">{{ der.test_cases | markdown_list | md }}</div>
     </div>
     {% endif %}
 

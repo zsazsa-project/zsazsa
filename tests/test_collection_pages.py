@@ -84,8 +84,7 @@ class ManualEntry(Pages):
 
     def test_the_scripts_it_needs_are_there(self):
         page = self.form()
-        for hook in ("btn-fetch-url", "btn-llm-summary", "md-tab-edit", "md-tab-preview", "md-tab-split",
-                     "description", "summary", "ref-add", "admiralty-preview"):
+        for hook in ("btn-fetch-url", "btn-llm-summary", "description", "summary", "ref-add", "admiralty-preview"):
             self.assertIsNotNone(page.find(id=hook), hook)
 
     def test_build_with_ai_outlines_the_summary_and_the_scope(self):

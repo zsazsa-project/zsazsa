@@ -25,5 +25,25 @@
     el.innerHTML = DOMPurify.sanitize(marked.parse(raw));
     return true;
   };
+
+  /* As zsazsaRenderMarkdown, for the side by side of the Markdown field:
+     returns where in raw each of el's children starts, or null when they
+     cannot be paired (nothing rendered, a library missing, or the sanitiser
+     dropped a block). */
+  window.zsazsaRenderMarkdownBlocks = function(el, raw, empty) {
+    if (!ready || !raw || !raw.trim()) {
+      zsazsaRenderMarkdown(el, raw, empty);
+      return null;
+    }
+    var tokens = marked.lexer(raw);
+    var starts = [];
+    var at = 0;
+    tokens.forEach(function(token) {
+      if (token.type !== 'space' && token.type !== 'def') starts.push(at);
+      at += token.raw.length;
+    });
+    el.innerHTML = DOMPurify.sanitize(marked.parser(tokens));
+    return el.children.length === starts.length ? starts : null;
+  };
 })();
 </script>

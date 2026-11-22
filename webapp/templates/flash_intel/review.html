@@ -217,7 +217,7 @@
                   {% if f.summary %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Summary</div>
-                    <div class="report-md-body mb-1" data-md="{{ f.summary | e }}" style="font-size:.88rem;"></div>
+                    <div class="report-md-body md-body mb-1" data-md="{{ f.summary | e }}" style="font-size:.88rem;"></div>
                     {% if f.action_required %}
                     <p class="mb-0" style="font-size:.85rem;"><span class="pretext">Action required:</span> {{ f.action_required | md_inline }}</p>
                     {% endif %}
@@ -228,7 +228,7 @@
                   {% if f.what_happened %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">What happened</div>
-                    {{ bullets(f.what_happened) }}
+                    <div class="report-md-body md-body" data-md="{{ f.what_happened | join('\n') | e }}" style="font-size:.85rem;"></div>
                     <p class="mt-2 mb-0" style="font-size:.78rem;">
                       <span class="pretext">Source:</span> {{ (f.source_description or 'unspecified') | md_inline }}
                       {% if f.source_reliability %} &middot; <span class="pretext">Reliability:</span> {{ f.source_reliability }}{% endif %}
@@ -239,7 +239,7 @@
 
                   {# Why it matters #}
                   {% set assessments = f | assessment_rows %}
-                  {% if assessments or f.write_up %}
+                  {% if assessments or f.actor_context or f.write_up %}
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Why it matters</div>
                     {% if assessments %}
@@ -249,8 +249,12 @@
                       {% endfor %}
                     </ul>
                     {% endif %}
+                    {% if f.actor_context %}
+                    <div class="mt-2" style="font-size:.82rem;"><span class="pretext">Threat actor context:</span></div>
+                    <div class="report-md-body md-body" data-md="{{ f.actor_context | e }}" style="font-size:.85rem;"></div>
+                    {% endif %}
                     {% if f.write_up %}
-                    <div class="report-md-body mt-2" data-md="{{ f.write_up | e }}" style="font-size:.85rem;"></div>
+                    <div class="report-md-body md-body mt-2" data-md="{{ f.write_up | e }}" style="font-size:.85rem;"></div>
                     {% endif %}
                   </div>
                   {% endif %}
@@ -345,7 +349,7 @@
                   {% if f.intelligence_gaps %}
                   <div class="border rounded p-2 mt-2" style="font-size:.8rem;background:var(--card-bg);">
                     <div class="fw-semibold small mb-1">Intelligence gaps</div>
-                    <div class="report-md-body" data-md="{{ f.intelligence_gaps | e }}" style="font-size:.78rem;"></div>
+                    <div class="report-md-body md-body" data-md="{{ f.intelligence_gaps | e }}" style="font-size:.78rem;"></div>
                   </div>
                   {% endif %}
                   {% if f.attachments %}

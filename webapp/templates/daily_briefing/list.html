@@ -199,7 +199,7 @@
                       <span class="badge text-bg-warning" title="The stories changed after this summary was written">Out of date</span>
                       {% endif %}
                     </div>
-                    <div class="report-md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ b.summary | e }}"></div>
+                    <div class="report-md-body md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ b.summary | e }}"></div>
                   </div>
                   {% endif %}
                   {% for story in b.stories %}
@@ -207,7 +207,7 @@
                     <div class="fw-semibold small mb-1">
                       <i class="fas fa-newspaper me-1 text-muted"></i>Story {{ loop.index }}: {{ story.title or '(untitled)' }}
                     </div>
-                    <div class="report-md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ story.content | e }}"></div>
+                    <div class="report-md-body md-body" style="font-size:.82rem;color:var(--neutral-700);" data-md="{{ story.content | e }}"></div>
                     {% if story.source_url and story.source_url.startswith(('https://', 'http://')) %}
                     <div class="scope-row" style="font-size:.75rem;">
                       <a href="{{ story.source_url }}" target="_blank" rel="noopener">{{ story.source_url | truncate(80) }}</a>
@@ -221,7 +221,7 @@
                   {% if b.escalations %}
                   <div class="mt-2">
                     <div class="fw-semibold small mb-1 text-muted">Escalations</div>
-                    <div style="white-space:pre-wrap;font-size:.82rem;">{{ b.escalations }}</div>
+                    <div class="md-body" style="font-size:.82rem;">{{ b.escalations | md }}</div>
                   </div>
                   {% endif %}
                 </div>

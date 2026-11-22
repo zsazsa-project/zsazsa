@@ -858,7 +858,9 @@ def build_fia():
                                                "Check the LLM settings and the analyser log."}), 502
 
     fields = parse_fia_draft(raw)
-    # One entry per line in the wizard's text areas.
+    # One entry per line in the wizard's text areas, and the facts as the
+    # Markdown list their field holds.
+    fields["what_happened"] = [f"- {fact}" for fact in fields["what_happened"]]
     for name in ("what_happened", "actions_immediate", "actions_near_term", "mitre_techniques", "hunting_hypotheses"):
         fields[name] = "\n".join(fields[name])
     if worst_reliability: fields['source_reliability'] = worst_reliability

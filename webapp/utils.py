@@ -1,6 +1,7 @@
 """Shared request-parsing and config-normalization utilities."""
 
 import ast
+import html
 import re
 from collections import Counter, namedtuple
 from datetime import date, datetime
@@ -50,6 +51,89 @@ def mark_lead_labels(html: str, open_tag: str = '<span class="pretext">') -> str
     """
     return _LEAD_LABEL_RE.sub(
         lambda m: f"{m.group(1)}{m.group(2)}{open_tag}{m.group(3)}</span>", html or "")
+
+
+# The same label at the start of a source line, before it is rendered.
+_LEAD_LABEL_LINE_RE = re.compile(r"^( {0,3})([A-Za-z][A-Za-z ]{1,33}:)(?=[ \t])")
+_FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
+
+
+def bold_lead_labels(text: str) -> str:
+    """Write the labels mark_lead_labels() would set in bold as **Label:** in
+    the Markdown itself, so the editor shows the text as it will look.
+
+    For story drafts and for what a briefing stored before the labels were
+    written this way. Lines in a fenced code block are left as they are.
+    """
+    lines = (text or "").split("\n")
+    fence = None
+    for i, line in enumerate(lines):
+        opening = _FENCE_RE.match(line)
+        if fence:
+            if opening and opening.group(1) == fence:
+                fence = None
+        elif opening:
+            fence = opening.group(1)
+        else:
+            lines[i] = _LEAD_LABEL_LINE_RE.sub(r"\1**\2**", line)
+    return "\n".join(lines)
+
+
+# A line that is already Markdown of its own: a list item, heading, quote,
+# table row or code fence.
+_MARKDOWN_BLOCK_RE = re.compile(r"^\s*([-*+]\s|\d+[.)]\s|#|>|\||```|~~~)")
+
+
+def markdown_list(lines) -> str:
+    """The text of a field that used to keep one item per line, for its editor.
+
+    Saved before the field was Markdown, the lines are bare items, which the
+    products showed as bullets; they open as a "- " list so they still read as
+    one. Text with a blank line or a line that is Markdown already is left as
+    it was written.
+    """
+    lines = list(lines or [])
+    if any(not line.strip() or _MARKDOWN_BLOCK_RE.match(line) for line in lines):
+        return "\n".join(lines)
+    return "\n".join(f"- {line}" for line in lines)
+
+
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s", re.M)
+
+
+def list_item_count(lines) -> int:
+    """How many items such a field has: the items of its top-level list, or
+    one for text that is not a list."""
+    text = markdown_list(lines)
+    return len(_LIST_ITEM_RE.findall(text)) or int(bool(text.strip()))
+
+
+_HEADING_RE = re.compile(r"^( {0,3})(#{1,6})(?=[ \t]|$)")
+
+
+def nest_headings(text: str, levels: int = 2) -> str:
+    """Move the headings an analyst wrote ``levels`` down, under the "## "
+    sections of the product the text goes into, so a heading in a field does
+    not start a section of the mail of its own. Fenced code is left alone."""
+    lines = (text or "").split("\n")
+    fence = None
+    for i, line in enumerate(lines):
+        opening = _FENCE_RE.match(line)
+        if fence:
+            if opening and opening.group(1) == fence:
+                fence = None
+        elif opening:
+            fence = opening.group(1)
+        else:
+            lines[i] = _HEADING_RE.sub(lambda m: m.group(1) + "#" * min(6, len(m.group(2)) + levels), line)
+    return "\n".join(lines)
+
+
+def md_to_text(text: str) -> str:
+    """Markdown as plain text, for a place that shows no formatting, such as
+    the Diamond Model."""
+    plain = html.unescape(re.sub(r"<[^>]+>", "", md_to_html(text)))
+    return re.sub(r"\n{2,}", "\n", plain).strip()
 
 
 def human_size(size) -> str:

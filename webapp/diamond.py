@@ -6,6 +6,8 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
+from webapp.utils import md_to_text
+
 _W, _H = 760, 560
 _WHITE = (255, 255, 255)
 _TEXT = (29, 43, 48)
@@ -94,13 +96,14 @@ def render_diamond_png(tap) -> bytes:
               fill=(232, 244, 247), outline=_ACCENT)
 
     capability = " | ".join(p for p in (
-        tap.capabilities,
+        md_to_text(tap.capabilities),
         ", ".join(tap.mitre_attack_techniques) if tap.mitre_attack_techniques else "",
     ) if p)
     victim = ", ".join(list(tap.geographic_scope) + list(tap.sectors))
 
     _node(d, (280, 40, 480, 135), tap.title, "Adversary", not tap.title, fval, flabel)
-    _node(d, (40, 247, 260, 342), tap.infrastructure, "Infrastructure", not tap.infrastructure, fval, flabel)
+    infrastructure = md_to_text(tap.infrastructure)
+    _node(d, (40, 247, 260, 342), infrastructure, "Infrastructure", not infrastructure, fval, flabel)
     _node(d, (500, 247, 720, 342), capability, "Capability", not capability, fval, flabel)
     _node(d, (280, 445, 480, 540), victim, "Victim", not victim, fval, flabel)
 

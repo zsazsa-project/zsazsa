@@ -121,7 +121,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label required-label">Bottom line up front</label>
-          <textarea name="summary" class="form-control" rows="3" required
+          <textarea name="summary" class="form-control" rows="3" required data-markdown
             placeholder="What is happening, why it matters, what to do - 2-4 sentences.">{{ fia.summary if fia else '' }}</textarea>
         </div>
         <div>
@@ -138,8 +138,8 @@
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Observed facts</label>
-          <textarea name="what_happened" class="form-control" rows="4"
-            placeholder="One fact per line.">{{ lines(fia.what_happened) if fia else '' }}</textarea>
+          <textarea name="what_happened" class="form-control" rows="4" data-markdown
+            placeholder="- One fact per line.">{{ fia.what_happened | markdown_list if fia else '' }}</textarea>
         </div>
         <div>
           <label class="form-label">Source description</label>
@@ -184,11 +184,11 @@
           {% endif %}
           <div class="col-12">
             <label class="form-label">Threat actor context</label>
-            <textarea name="actor_context" class="form-control" rows="2">{{ fia.actor_context if fia else '' }}</textarea>
+            <textarea name="actor_context" class="form-control" rows="2" data-markdown>{{ fia.actor_context if fia else '' }}</textarea>
           </div>
           <div class="col-12">
             <label class="form-label">Write-up</label>
-            <textarea name="write_up" class="form-control" rows="4"
+            <textarea name="write_up" class="form-control" rows="4" data-markdown
               placeholder="Room to explain the assessment above in full.">{{ fia.write_up if fia else '' }}</textarea>
             <div class="form-text">Rendered as Markdown wherever the alert is shown. Left out when empty.</div>
           </div>
@@ -342,7 +342,7 @@
 
         <div class="mb-3">
           <label class="form-label">Intelligence gaps</label>
-          <textarea name="intelligence_gaps" class="form-control" rows="4"
+          <textarea name="intelligence_gaps" class="form-control" rows="4" data-markdown
             placeholder="What is still unknown, and what would close the gap.">{{ fia.intelligence_gaps if fia else '' }}</textarea>
           <div class="form-text">Rendered as Markdown, next to the references. Left out when empty.</div>
         </div>
@@ -550,7 +550,7 @@
 
 {% block scripts %}
 {% include "_qa_review_js.html" %}
-{% include "_markdown_js.html" %}
+{% include "_markdown_field_js.html" %}
 {% include "_tlr_queue_js.html" %}
 {% include "_ai_targets_js.html" %}
 {% include "_form_steps_js.html" %}
@@ -753,6 +753,7 @@
       ta.value = trimmed ? trimmed + '\n\n' + header + '\n' + sep + '\n' + newRow
                          : header + '\n' + sep + '\n' + newRow;
     }
+    zsazsaRefreshMarkdown(ta);
   }
 
   document.querySelectorAll('.add-fact-btn').forEach(function(btn) {

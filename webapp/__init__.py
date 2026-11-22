@@ -15,7 +15,8 @@ import config
 from core import pymisp_compat, rulezet_lookup
 from webapp import audit, misp_session, org_store, sso_users, collection_cache, indicator_meta_store
 from webapp.models import subscribed_products
-from webapp.utils import fill_product_tag_defaults, human_size, md_to_html, md_to_html_inline
+from webapp.utils import (bold_lead_labels, fill_product_tag_defaults, human_size, list_item_count, markdown_list,
+                          md_to_html, md_to_html_inline, md_to_text, nest_headings)
 from webapp.version import APP_VERSION
 
 
@@ -124,6 +125,26 @@ def create_app():
         """Render a multi-paragraph text field as block Markdown (used in PDFs and
         other server-rendered output where client-side Markdown is unavailable)."""
         return Markup(md_to_html(s)) if s else ""
+
+    @app.template_filter("bold_lead_labels")
+    def _bold_lead_labels(s):
+        return bold_lead_labels(s)
+
+    @app.template_filter("markdown_list")
+    def _markdown_list(lines):
+        return markdown_list(lines)
+
+    @app.template_filter("list_item_count")
+    def _list_item_count(lines):
+        return list_item_count(lines)
+
+    @app.template_filter("nest_headings")
+    def _nest_headings(s):
+        return nest_headings(s)
+
+    @app.template_filter("md_text")
+    def _md_text(s):
+        return md_to_text(s)
 
     @app.template_filter("slug")
     def _slug(s):

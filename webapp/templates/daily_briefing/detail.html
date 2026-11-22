@@ -21,7 +21,7 @@
   .briefing-story:first-child { border-top: 0; }
   .story-num { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 8px; background: var(--surface-tint);
                color: var(--misp-navy); font-size: .85rem; font-weight: 700; }
-  .briefing-story h2 { margin: .2rem 0 .5rem; font-size: 1rem; font-weight: 700; }
+  .briefing-story > div > h2 { margin: .2rem 0 .5rem; font-size: 1rem; font-weight: 700; }
   .story-meta { margin-top: .75rem; padding-top: .6rem; border-top: 1px solid var(--border-faint); font-size: .82rem; }
   .briefing-toc { margin: 0; padding: .35rem 0; list-style: none; }
   .briefing-toc a { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); gap: .55rem; padding: .4rem 1rem;
@@ -147,7 +147,7 @@
         {% endif %}
       </div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ briefing.summary | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ briefing.summary | e }}"></div>
         {% if briefing.summary_stale %}
         <p class="text-muted small mb-0 mt-2">
           The stories changed since this summary was written. Redraft it on the edit page before publishing.
@@ -168,7 +168,7 @@
           <span class="story-num">{{ loop.index }}</span>
           <div style="min-width:0;">
             <h2>{{ story.title or '(untitled)' }}</h2>
-            <div class="report-md-body" data-md="{{ story.content | e }}"></div>
+            <div class="report-md-body md-body" data-md="{{ story.content | e }}"></div>
             {# Scope is labelled per category, matching the e-mail and the PDF. #}
             <div class="story-meta">
               {% if story.source_url and story.source_url.startswith(('https://', 'http://')) %}
@@ -219,7 +219,7 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-arrow-up-right-dots me-2"></i>Escalations</div>
       <div class="card-body">
-        <p style="white-space: pre-wrap;">{{ briefing.escalations }}</p>
+        <div class="md-body">{{ briefing.escalations | md }}</div>
       </div>
     </div>
     {% endif %}
@@ -228,7 +228,7 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-note-sticky me-2"></i>Notes</div>
       <div class="card-body">
-        <p style="white-space: pre-wrap;">{{ briefing.notes }}</p>
+        <div class="md-body">{{ briefing.notes | md }}</div>
       </div>
     </div>
     {% endif %}
@@ -259,7 +259,7 @@
     <div class="card content-card mb-3">
       <div class="card-header"><i class="fas fa-crosshairs me-2"></i>Detection rules</div>
       <div class="card-body">
-        <p style="white-space: pre-wrap;" data-rulezet-rules>{{ briefing.detection_rules }}</p>
+        <div class="md-body" data-rulezet-rules>{{ briefing.detection_rules | md }}</div>
       </div>
     </div>
     {% endif %}

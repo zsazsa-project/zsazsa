@@ -36,12 +36,12 @@
 </div>
 
 <div class="section-heading">Summary</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tap.summary %}{{ tap.summary | md }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
 <div class="section-heading">Threat actor details</div>
-<div class="section-box">
+<div class="section-box prose">
   <table class="detail-table">
     {% if tap.actor_types %}<tr><th>Type</th><td>{{ tap.actor_types | join(', ') }}</td></tr>{% endif %}
     <tr><th>Synonyms</th><td>{{ tap.synonyms or '-' }}</td></tr>
@@ -49,9 +49,9 @@
     <tr><th>Motivation</th><td>{{ tap.motivation or '-' }}</td></tr>
     <tr><th>Sponsorship</th><td>{{ tap.sponsorship or '-' }}</td></tr>
   </table>
-  {% if tap.capabilities %}<h3>Capabilities</h3>{{ tap.capabilities | md }}{% endif %}
-  {% if tap.mode_of_operation %}<h3>Mode of operation</h3>{{ tap.mode_of_operation | md }}{% endif %}
-  {% if tap.infrastructure %}<h3>Infrastructure</h3>{{ tap.infrastructure | md }}{% endif %}
+  {% if tap.capabilities %}<h3>Capabilities</h3>{{ tap.capabilities | nest_headings | md }}{% endif %}
+  {% if tap.mode_of_operation %}<h3>Mode of operation</h3>{{ tap.mode_of_operation | nest_headings | md }}{% endif %}
+  {% if tap.infrastructure %}<h3>Infrastructure</h3>{{ tap.infrastructure | nest_headings | md }}{% endif %}
 </div>
 
 <div class="section-heading">Diamond Model</div>
@@ -60,7 +60,7 @@
 </div>
 
 <div class="section-heading">Attribution</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tap.attribution_rationale %}{{ tap.attribution_rationale | md }}{% else %}<p class="no-content">No attribution rationale.</p>{% endif %}
 </div>
 
@@ -82,7 +82,7 @@
 
 {% if tap.rec_prevention or tap.rec_detection or tap.rec_response %}
 <div class="section-heading">Recommendations</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tap.rec_prevention %}<h3>Prevention</h3>{{ tap.rec_prevention | md }}{% endif %}
   {% if tap.rec_detection %}<h3>Detection</h3>{{ tap.rec_detection | md }}{% endif %}
   {% if tap.rec_response %}<h3>Response</h3>{{ tap.rec_response | md }}{% endif %}

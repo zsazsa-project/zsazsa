@@ -40,7 +40,7 @@ from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
 from webapp.models import STAKEHOLDER_ROLES
-from webapp.utils import PRODUCT_TAG_PREFIX, human_size, ordered_counts, scraper_enabled
+from webapp.utils import PRODUCT_TAG_PREFIX, human_size, markdown_list, nest_headings, ordered_counts, scraper_enabled
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -5511,17 +5511,17 @@ FIA_ASSESSMENT_FIELDS = [
     ("likely_impact", "Likely impact"),
     ("affected_assets", "Affected assets"),
     ("actor_types", "Threat actor types"),
-    ("actor_context", "Threat actor context"),
 ]
 
 
 def fia_assessment_rows(fia):
     """Return the (label, value) pairs of "Why it matters" that were filled in.
 
-    An assessment left blank says nothing, so it is dropped rather than carried
+    An assessment left blank says nothing, so it is dropped rather than shown
     as "unspecified". The alert page, the review queue, the PDF and the markdown
-    every notification is built from all show the same four, so they decide what
-    to leave out here rather than each repeating the rule.
+    every notification is built from all show the same three, so they decide
+    what to leave out here rather than each repeating the rule. The threat actor
+    context is Markdown, so each of them shows it as a block of its own.
     """
     rows = []
     for field, label in FIA_ASSESSMENT_FIELDS:
@@ -5554,14 +5554,18 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_ur
     source_refs = source_event_urls(source_uuids, source_hints)
     source_links = source_event_link_urls(source_uuids, source_hints) if include_source_links else []
 
-    # The write-up is markdown the analyst wrote, and follows the bullets it
-    # expands on. With neither, the section has nothing to say and is dropped.
+    # The threat actor context and the write-up are markdown the analyst wrote,
+    # and follow the bullets they expand on. With none of them, the section has
+    # nothing to say and is dropped. Their headings go under its own.
     why_it_matters = [f"- **{label}:** {value}" for label, value in fia_assessment_rows(fia)]
+    actor_context = (fia.actor_context or "").strip()
+    if actor_context:
+        why_it_matters += ["", "**Threat actor context:**", "", nest_headings(actor_context)]
     write_up = (fia.write_up or "").strip()
     if write_up:
         if why_it_matters:
             why_it_matters.append("")
-        why_it_matters.append(write_up)
+        why_it_matters.append(nest_headings(write_up))
     why_it_matters_section = (
         ["## Why it matters", "", *why_it_matters, "", "---", ""] if why_it_matters else []
     )
@@ -5579,7 +5583,7 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_ur
         "",
         "## Summary",
         "",
-        fia.summary or "_No summary provided._",
+        nest_headings(fia.summary) or "_No summary provided._",
         "",
         f"**Action required:** {fia.action_required or '_To be defined._'}",
         "",
@@ -5587,7 +5591,7 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_ur
         "",
         "## What happened",
         "",
-        bullets(fia.what_happened),
+        nest_headings("\n".join(fia.what_happened or [])) or "_None recorded._",
         "",
         f"**Source:** {fia.source_description or 'unspecified'}",
         f"**Source reliability:** {fia.source_reliability or 'F'}",
@@ -5657,7 +5661,7 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_ur
         ])
     intelligence_gaps = (getattr(fia, "intelligence_gaps", "") or "").strip()
     if intelligence_gaps:
-        parts.extend(["", "---", "", "## Intelligence gaps", "", intelligence_gaps])
+        parts.extend(["", "---", "", "## Intelligence gaps", "", nest_headings(intelligence_gaps)])
     if fia.feedback_deadline:
         parts.extend([
             "",
@@ -6566,7 +6570,7 @@ def render_vea_markdown(vea, vea_id=None, preview_url: str = ""):
         "",
         "## Summary",
         "",
-        vea.summary or f"{vea.cve_id or 'This vulnerability'} affects {vea.affected_product or 'affected product'}.",
+        nest_headings(vea.summary) or f"{vea.cve_id or 'This vulnerability'} affects {vea.affected_product or 'affected product'}.",
         "",
         "---",
         "",
@@ -6609,7 +6613,7 @@ def render_vea_markdown(vea, vea_id=None, preview_url: str = ""):
         "",
         "### Immediate",
         "",
-        bullets(vea.immediate_actions),
+        nest_headings("\n".join(vea.immediate_actions or []), levels=3) or "- (none recorded)",
         "",
         "### Patch timeline",
         "",
@@ -6977,6 +6981,10 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
     def bullets(items):
         return "\n".join(f"- {ln}" for ln in items) if items else "- (none recorded)"
 
+    # Markdown, or one item per line for a request saved before it was.
+    def markdown_items(lines):
+        return nest_headings(markdown_list(lines)) or "- (none recorded)"
+
     lines = [
         f"# Detection engineering request: {der.title or did}",
         "",
@@ -6993,7 +7001,7 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
         "",
         "## Trigger / hypothesis",
         "",
-        der.hypothesis or "_To be defined._",
+        nest_headings(der.hypothesis) or "_To be defined._",
         "",
         "---",
         "",
@@ -7011,13 +7019,13 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
     lines += [
         "## Log sources",
         "",
-        bullets(der.log_sources),
+        markdown_items(der.log_sources),
         "",
         "---",
         "",
         "## Expected rule output",
         "",
-        der.expected_output or "_To be defined._",
+        nest_headings(der.expected_output) or "_To be defined._",
         "",
         "---",
         "",
@@ -7029,7 +7037,7 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
         "",
         "## Test cases",
         "",
-        bullets(der.test_cases),
+        markdown_items(der.test_cases),
     ]
     if der.draft_rule:
         lines += [
@@ -8260,7 +8268,7 @@ def render_tlr_markdown(tlr, linked_pirs=(), preview_url="", ranking=(), vulnera
     if tlr.executive_summary or tlr.key_judgements:
         lines += ["## Executive summary", ""]
         if tlr.executive_summary:
-            lines += [tlr.executive_summary, ""]
+            lines += [nest_headings(tlr.executive_summary), ""]
         for kj in tlr.key_judgements:
             confidence = f" ({labels.get(kj.get('confidence'), kj.get('confidence'))} confidence)" \
                 if kj.get("confidence") else ""
@@ -8309,9 +8317,9 @@ def render_tlr_markdown(tlr, linked_pirs=(), preview_url="", ranking=(), vulnera
             lines.append(f"- **{r['cve']}**{': ' + ', '.join(facts) if facts else ''}")
         lines.append("")
     if tlr.purpose:
-        lines += ["## Purpose", "", tlr.purpose, ""]
+        lines += ["## Purpose", "", nest_headings(tlr.purpose), ""]
     if tlr.top_threats:
-        lines += ["## Top threats", "", tlr.top_threats, ""]
+        lines += ["## Top threats", "", nest_headings(tlr.top_threats), ""]
 
     for section in tlr.threat_sections:
         lines += [f"## {section.get('title') or section.get('threat_type') or 'Threat assessment'}", ""]
@@ -8322,17 +8330,17 @@ def render_tlr_markdown(tlr, linked_pirs=(), preview_url="", ranking=(), vulnera
             lines += [" | ".join(facts), ""]
         for key, heading in TLR_SECTION_TEXTS:
             if section.get(key):
-                lines += [f"### {heading}", "", section[key], ""]
+                lines += [f"### {heading}", "", nest_headings(section[key], levels=3), ""]
 
-    categories = [f"### {label}\n\n{getattr(tlr, key, '')}" for key, label, _icon in TLR_ACTOR_CATEGORIES
-                  if getattr(tlr, key, "")]
-    actors = "\n\n".join(([tlr.trending_actors] if tlr.trending_actors else []) + categories)
+    categories = [f"### {label}\n\n{nest_headings(getattr(tlr, key, ''), levels=3)}"
+                  for key, label, _icon in TLR_ACTOR_CATEGORIES if getattr(tlr, key, "")]
+    actors = "\n\n".join(([nest_headings(tlr.trending_actors)] if tlr.trending_actors else []) + categories)
     sections = [
         ("Trending threat actors", actors),
-        ("Key incidents", tlr.key_incidents),
-        ("Recommendations", tlr.recommendations),
-        ("Outlook", tlr.outlook),
-        ("Methodology and limitations", tlr.methodology),
+        ("Key incidents", nest_headings(tlr.key_incidents)),
+        ("Recommendations", nest_headings(tlr.recommendations)),
+        ("Outlook", nest_headings(tlr.outlook)),
+        ("Methodology and limitations", nest_headings(tlr.methodology)),
         ("Dataset", "\n".join(f"- **{label}:** {value}" for label, value in tlr_annex(tlr))),
         ("Corrections", "\n".join(f"- {c['date']}: {c['text']}" for c in tlr.corrections)),
     ]

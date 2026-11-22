@@ -21,12 +21,13 @@
     return (rule.title || 'Rule') + ' — ' + rule.url;
   }
 
+  // The line goes under what the analyst wrote, which is left as it is: blank
+  // lines and indents are Markdown paragraphs and nested lists.
   window.zsazsaAddRuleReference = function (rule, targetTextareaEl) {
-    if (!targetTextareaEl) return;
-    var line = ruleReferenceLine(rule);
-    var existing = targetTextareaEl.value.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-    if (!existing.includes(line)) existing.push(line);
-    targetTextareaEl.value = existing.join('\n');
+    if (!targetTextareaEl || window.zsazsaHasRuleReference(rule, targetTextareaEl)) return;
+    var text = targetTextareaEl.value.replace(/\s+$/, '');
+    targetTextareaEl.value = (text ? text + '\n' : '') + ruleReferenceLine(rule);
+    if (window.zsazsaRefreshMarkdown) window.zsazsaRefreshMarkdown(targetTextareaEl);
   };
 
   // The textarea itself is the source of truth for "already added": a rule

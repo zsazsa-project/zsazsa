@@ -1,6 +1,7 @@
 """Vulnerability Exploitation Advisory (VEA) routes."""
 
 import logging
+import re
 from types import SimpleNamespace
 
 import config as _cfg
@@ -39,7 +40,8 @@ def _form_data(form, vea_id=""):
 
     return {
         "vea_id": vea_id,
-        "cve_id": ", ".join(l.strip() for l in form.get("cve_id", "").splitlines() if l.strip()),
+        # One line, the IDs apart by commas, spaces or semicolons.
+        "cve_id": ", ".join(cve for cve in re.split(r"[\s,;]+", form.get("cve_id", "")) if cve),
         "summary": form.get("summary", "").strip(),
         "cvss": form.get("cvss", "").strip(),
         "cwe": form.get("cwe", "").strip(),
@@ -61,7 +63,8 @@ def _form_data(form, vea_id=""):
         "information_credibility": form.get("information_credibility", ""),
         "worst_case": form.get("worst_case", ""),
         "most_likely": form.get("most_likely", ""),
-        "immediate_actions": misp_store._split_lines(form.get("immediate_actions")),
+        # Markdown, kept line for line as written.
+        "immediate_actions": (form.get("immediate_actions") or "").strip().splitlines(),
         "patch_sla_internet": form.get("patch_sla_internet", ""),
         "patch_sla_internal": form.get("patch_sla_internal", ""),
         "target_patch_version": form.get("target_patch_version", ""),
@@ -395,7 +398,7 @@ def _build_seed_from_sources(source_uuids, source_pairs, source_events):
 
     return SimpleNamespace(
         vea_id="",
-        cve_id="\n".join(cve_ids),
+        cve_id=", ".join(cve_ids),
         title=first_title,
         summary="", cvss="", cwe="",
         tlp="amber", author="", audience="",

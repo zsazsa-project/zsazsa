@@ -91,22 +91,9 @@
             </div>
           </div>
 
-          <div class="d-flex align-items-center justify-content-between mb-1">
-            <label class="form-label mb-0" for="description">Content</label>
-            <span class="md-tabs" role="group" aria-label="How to show the content">
-              <button type="button" id="md-tab-edit">Write</button>
-              <button type="button" id="md-tab-preview">Preview</button>
-              <button type="button" id="md-tab-split">Side by side</button>
-            </span>
-          </div>
-          <div id="md-panes" class="d-flex gap-2">
-            <div id="md-editor-pane" style="flex:1;">
-              <textarea name="description" id="description" class="form-control font-monospace" rows="14"
-                        placeholder="Article content in Markdown. Fetching the source reference fills this."></textarea>
-            </div>
-            <div id="md-preview-pane" class="border rounded p-3 report-md-body"
-                 style="flex:1;display:none;min-height:10rem;overflow-y:auto;"></div>
-          </div>
+          <label class="form-label" for="description">Content</label>
+          <textarea name="description" id="description" class="form-control font-monospace" rows="14" data-markdown
+                    placeholder="Article content in Markdown. Fetching the source reference fills this."></textarea>
           <div class="form-text mb-3">Markdown. Kept as the event report, so it reads the same in MISP.</div>
 
           <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
@@ -123,7 +110,7 @@
               </button>
             </div>
           </div>
-          <textarea name="summary" id="summary" class="form-control" rows="3"
+          <textarea name="summary" id="summary" class="form-control" rows="3" data-markdown
                     placeholder="Two or three lines a reader of the briefing sees first. Leave it empty and ask for an AI summary."></textarea>
           <div id="llm-summary-status" class="form-text" style="display:none"></div>
         </div>
@@ -247,7 +234,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% include "_markdown_js.html" %}
+{% include "_markdown_field_js.html" %}
 {% include "_ai_targets_js.html" %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
@@ -328,59 +315,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <script>
 (function() {
-  // Markdown editor tabs
-  var editTab     = document.getElementById('md-tab-edit');
-  var previewTab  = document.getElementById('md-tab-preview');
-  var splitTab    = document.getElementById('md-tab-split');
-  var editorPane  = document.getElementById('md-editor-pane');
-  var previewPane = document.getElementById('md-preview-pane');
-  var descTA      = document.getElementById('description');
-  var currentMode = 'edit';
-
-  function renderPreview() {
-    var raw = descTA.value;
-    zsazsaRenderMarkdown(previewPane, raw, '<em class="text-muted">Nothing to preview.</em>');
-  }
-
-  function setTab(mode) {
-    currentMode = mode;
-    var active = mode === 'edit' ? editTab : mode === 'preview' ? previewTab : splitTab;
-    [editTab, previewTab, splitTab].forEach(function(b) {
-      b.classList.toggle('on', b === active);
-      b.setAttribute('aria-pressed', b === active ? 'true' : 'false');
-    });
-
-    if (mode === 'edit') {
-      editorPane.style.display  = '';
-      previewPane.style.display = 'none';
-    } else if (mode === 'preview') {
-      editorPane.style.display  = 'none';
-      previewPane.style.display = '';
-      renderPreview();
-    } else {
-      editorPane.style.display  = '';
-      previewPane.style.display = '';
-      renderPreview();
-    }
-    previewPane.style.height = mode === 'split' ? descTA.offsetHeight + 'px' : '';
-  }
-
-  // Side by side, the preview keeps the editor's height, also when the editor
-  // is resized, and scrolls; on its own it is as long as its content.
-  new ResizeObserver(function() {
-    if (currentMode === 'split') previewPane.style.height = descTA.offsetHeight + 'px';
-  }).observe(descTA);
-
-  editTab.addEventListener('click', function() { setTab('edit'); });
-  previewTab.addEventListener('click', function() { setTab('preview'); });
-  splitTab.addEventListener('click', function() { setTab('split'); });
-  setTab('edit');
-
-  // Live preview update when in preview/split mode
-  descTA.addEventListener('input', function() {
-    if (currentMode === 'preview' || currentMode === 'split') renderPreview();
-  });
-
   // External references
   var refList = document.getElementById('ref-list');
   document.getElementById('ref-add').addEventListener('click', function() {
@@ -567,6 +501,7 @@ document.addEventListener('DOMContentLoaded', function() {
       zsazsaFollowJob(data.job_id, function(job) {
         var result = job.result || {};
         summary.value = result.summary || '';
+        zsazsaRefreshMarkdown(summary);
         var ticked = tickScope(result.scope || {});
         status.textContent = ticked
           ? 'Summary generated. ' + ticked + ' scope item' + (ticked === 1 ? '' : 's') + ' from its MISP context ticked under Scope.'

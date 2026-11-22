@@ -142,7 +142,7 @@
         </div>
         {% endif %}
         {% if vea.summary %}
-        <div class="report-md-body" data-md="{{ vea.summary | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ vea.summary | e }}"></div>
         {% else %}
         <p class="text-muted mb-0"><em>No summary.</em></p>
         {% endif %}
@@ -198,7 +198,11 @@
       <div class="card-header"><i class="fas fa-list-check me-2"></i>Recommended actions</div>
       <div class="card-body">
         <div class="fw-semibold small mb-1">Immediate</div>
-        {{ bullets(vea.immediate_actions) }}
+        {% if vea.immediate_actions %}
+        <div class="md-body">{{ vea.immediate_actions | join('\n') | md }}</div>
+        {% else %}
+        <p class="text-muted mb-0"><em>None recorded.</em></p>
+        {% endif %}
         <div class="row g-3 small mt-1">
           <div class="col-md-4"><span class="text-muted">Internet-facing SLA</span><div>{{ (vea.patch_sla_internet or '-') | md_inline }}</div></div>
           <div class="col-md-4"><span class="text-muted">Internal SLA</span><div>{{ (vea.patch_sla_internal or '-') | md_inline }}</div></div>

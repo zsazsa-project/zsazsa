@@ -19,6 +19,7 @@
 - A threat landscape report opens with an executive summary, has a threat ranking, lists the vulnerabilities (CVEs) of its period and ends with an annex of detection coverage. Its methodology can be drafted, and its PDF has charts.
 - The threat types of a threat landscape report can be changed under Settings, Products, and "Vulnerability exploitation" is one besides ENISA's prime threats.
 - A manual collection source can be marked as the organisation's own, for its incidents and SOC/CSIRT detections. A threat landscape report lists the events from it under "What hit us", and its threat ranking counts them per threat.
+- Improve Markdown editor in products
 
 ### Changed
 

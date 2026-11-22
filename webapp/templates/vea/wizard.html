@@ -207,7 +207,7 @@
     </div>
     {% endif %}
 
-    <div class="card content-card form-step mb-4" id="step-ident" data-step='input[name="title"], textarea[name="cve_id"]'>
+    <div class="card content-card form-step mb-4" id="step-ident" data-step='input[name="title"], input[name="cve_id"]'>
       <div class="card-header d-flex align-items-center"><span class="step-num">1</span>Identification</div>
       <div class="card-body">
         <div class="mb-3">
@@ -219,29 +219,27 @@
         <div class="row g-3">
 
           {# ── CVE input + lookup ── #}
-          <div class="col-md-5">
+          <div class="col-12">
             <label class="form-label" for="cve_id">CVE ID(s)</label>
-            <textarea name="cve_id" id="cve_id" class="form-control font-monospace"
-                      placeholder="CVE-YYYY-NNNNN" rows="3"
-                      style="font-size:.88rem;">{{ vea.cve_id if vea else '' }}</textarea>
-            <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
-              <div class="form-text mt-0">One per line.</div>
-              <button type="button" class="btn btn-sm btn-outline-primary" id="btn-vl-lookup"
+            <div class="d-flex align-items-center gap-2">
+              <input name="cve_id" id="cve_id" class="form-control font-monospace" placeholder="CVE-YYYY-NNNNN, CVE-YYYY-NNNNN"
+                     style="font-size:.88rem;" value="{{ vea.cve_id if vea else '' }}">
+              <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="btn-vl-lookup"
                       title="Query vulnerability.circl.lu for CVE details">
                 <img src="https://vulnerability.circl.lu/static/img/VL-hori-coul.png"
                      alt="" style="height:14px;vertical-align:middle;margin-right:4px;">
                 Lookup
               </button>
             </div>
+            <div class="form-text">Separate several with commas.</div>
             <div id="vl-status" class="form-text" style="display:none;"></div>
           </div>
 
           {# ── Summary ── #}
-          <div class="col-md-7">
-            <label class="form-label">Summary</label>
-            <textarea name="summary" id="summary" class="form-control" rows="3"
-                      placeholder="Brief description of the vulnerability (populated from Vulnerability Lookup)."
-                      style="font-size:.88rem;">{{ vea.summary if vea else '' }}</textarea>
+          <div class="col-12">
+            <label class="form-label" for="summary">Summary</label>
+            <textarea name="summary" id="summary" class="form-control" rows="8" data-markdown
+                      placeholder="Brief description of the vulnerability (populated from Vulnerability Lookup).">{{ vea.summary if vea else '' }}</textarea>
           </div>
 
           {# ── CVSS + CWE ── #}
@@ -387,8 +385,8 @@
             {% endfor %}
           </div>
           {% endif %}
-          <textarea name="immediate_actions" id="immediate_actions" class="form-control" rows="4"
-            placeholder="One action per line.">{{ lines(vea.immediate_actions) if vea else '' }}</textarea>
+          <textarea name="immediate_actions" id="immediate_actions" class="form-control" rows="4" data-markdown
+            placeholder="- One action per line.">{{ vea.immediate_actions | markdown_list if vea else '' }}</textarea>
         </div>
         <div class="row g-3">
           <div class="col-md-4">
@@ -669,7 +667,7 @@
 {% include "_qa_review_js.html" %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
-{% include "_markdown_js.html" %}
+{% include "_markdown_field_js.html" %}
 {% include "_ai_targets_js.html" %}
 {% include "_tlr_queue_js.html" %}
 <script>
@@ -726,8 +724,9 @@ function zsazsaSelectOption(el, value) {
     btn.addEventListener('click', function() {
       var ta = document.getElementById(btn.dataset.target);
       if (!ta) return;
+      // As an item of the Markdown list the field holds.
       var cur = ta.value.trimEnd();
-      ta.value = cur ? cur + '\n' + btn.dataset.text : btn.dataset.text;
+      zsazsaSetField(ta, (cur ? cur + '\n' : '') + '- ' + btn.dataset.text);
     });
   });
 
@@ -949,7 +948,7 @@ function runVulnLookup() {
   var csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
   var raw = (document.getElementById('cve_id').value || '').trim();
-  var cveIds = raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
+  var cveIds = raw.split(/[\s,;]+/).map(s => s.trim().toUpperCase()).filter(s => s.startsWith('CVE-'));
   if (!cveIds.length) {
     status.textContent = 'Enter at least one CVE ID first.';
     status.style.display = '';
@@ -1053,13 +1052,13 @@ zsazsaBindRulezetCveLookup({
 // advisory without source events, which then drafts from the CVE alone.
 function draftVea(btn, sourceUuids) {
   var cveIdEl = document.getElementById('cve_id');
-  var cveId = cveIdEl ? cveIdEl.value.split('\n')[0].trim() : '';
+  var cveId = cveIdEl ? cveIdEl.value.trim().split(/[\s,;]+/)[0] : '';
   var product = document.querySelector('[name=affected_product]').value.trim();
   var status = document.getElementById('ai-draft-status');
   var origHTML = btn.innerHTML;
 
   if (!cveId && !sourceUuids.length) {
-    alert('Enter a CVE ID on the first line first.');
+    alert('Enter a CVE ID first.');
     return Promise.resolve();
   }
 
@@ -1101,7 +1100,7 @@ function draftVea(btn, sourceUuids) {
     fill('most_likely', s.most_likely);
     var ta = document.getElementById('immediate_actions');
     if (ta && !ta.value.trim() && s.immediate_actions && s.immediate_actions.length) {
-      zsazsaSetField(ta, s.immediate_actions.join('\n'));
+      zsazsaSetField(ta, s.immediate_actions.map(function(a) { return '- ' + a; }).join('\n'));
     }
     var ind = document.getElementById('exploitation_indicators');
     if (ind && !ind.value.trim() && s.exploitation_indicators && s.exploitation_indicators.length) {

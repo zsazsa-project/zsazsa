@@ -47,7 +47,7 @@ class ReferenceLinks(unittest.TestCase):
     def test_the_cve_id_field_still_holds_all_of_them(self):
         """Filtering the links must not filter what the advisory is about."""
         seed = _seed(_event("CVE-2024-1234", "GHSA-abcd-1234-efgh"))
-        self.assertEqual(seed.cve_id.split("\n"), ["CVE-2024-1234", "GHSA-abcd-1234-efgh"])
+        self.assertEqual(seed.cve_id, "CVE-2024-1234, GHSA-abcd-1234-efgh")
         self.assertEqual(self.links(seed), [CIRCL + "CVE-2024-1234"])
 
     def test_an_id_read_out_of_the_title_is_linked_too(self):

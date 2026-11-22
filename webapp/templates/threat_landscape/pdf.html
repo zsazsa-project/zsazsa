@@ -44,13 +44,13 @@
 {% macro section(heading, text) %}
 {% if text %}
 <div class="section-heading">{{ heading }}</div>
-<div class="section-box">{{ text | md }}</div>
+<div class="section-box prose">{{ text | md }}</div>
 {% endif %}
 {% endmacro %}
 
 {% if tlr.executive_summary or tlr.key_judgements %}
 <div class="section-heading">Executive summary</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tlr.executive_summary %}{{ tlr.executive_summary | md }}{% endif %}
   {% if tlr.key_judgements %}
   <table class="grid-table">
@@ -123,7 +123,7 @@
 
 {% for assessment in tlr.threat_sections %}
 <div class="section-heading">{{ assessment.title or assessment.threat_type or 'Threat assessment' }}</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if assessment.threat_type or assessment.confidence %}
   <table class="detail-table">
     {% if assessment.threat_type %}<tr><th>Threat type</th><td>{{ assessment.threat_type }}</td></tr>{% endif %}
@@ -132,7 +132,7 @@
     {% endif %}
   </table>
   {% endif %}
-  {% for key, heading in section_texts if assessment[key] %}<h3>{{ heading }}</h3>{{ assessment[key] | md }}{% endfor %}
+  {% for key, heading in section_texts if assessment[key] %}<h3>{{ heading }}</h3>{{ assessment[key] | nest_headings | md }}{% endfor %}
 </div>
 {% endfor %}
 
@@ -140,10 +140,10 @@
 {% for key, _label, _icon in actor_categories %}{% if tlr[key] %}{% set ns.any = true %}{% endif %}{% endfor %}
 {% if ns.any %}
 <div class="section-heading">Trending threat actors</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tlr.trending_actors %}{{ tlr.trending_actors | md }}{% endif %}
   {% for key, label, _icon in actor_categories %}
-  {% if tlr[key] %}<h3>{{ label }}</h3>{{ tlr[key] | md }}{% endif %}
+  {% if tlr[key] %}<h3>{{ label }}</h3>{{ tlr[key] | nest_headings | md }}{% endif %}
   {% endfor %}
 </div>
 {% endif %}

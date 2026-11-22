@@ -82,11 +82,12 @@ def _form_data(form, der_id=""):
         "title": form.get("title", "").strip(),
         "technique": form.getlist("technique"),
         "cve_ids": _cve_ids(form.get("cve_ids", "")),
-        "log_sources": misp_store._split_lines(form.get("log_sources")),
+        # Markdown, kept line for line as typed.
+        "log_sources": form.get("log_sources", "").strip().splitlines(),
         "hypothesis": form.get("hypothesis", "").strip(),
         "expected_output": form.get("expected_output", "").strip(),
         "existing_coverage": misp_store._split_lines(form.get("existing_coverage")),
-        "test_cases": misp_store._split_lines(form.get("test_cases")),
+        "test_cases": form.get("test_cases", "").strip().splitlines(),
         # On edit these two are replaced with the stored values (see
         # wizard_edit): the rule has its own form on the detail page, which
         # knows when it may change.
