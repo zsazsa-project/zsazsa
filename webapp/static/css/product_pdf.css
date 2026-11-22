@@ -405,13 +405,10 @@ h1.doc-title {
 
 /* ── Pretext labels ────────────────────────────────────────────── */
 
-/* Field labels ("What happened", "Who is affected", "Source", …) sit one step
-   back from the content they introduce: smaller, lighter, not bold. */
+/* Field labels ("What happened", "Who is affected", "Source", …) are bold at
+   the size of the content they introduce, as the product markdown writes them. */
 .pretext {
-  font-size: 7.5pt;
-  font-weight: 400;
-  color: var(--c3, #64748b);
-  letter-spacing: 0.02em;
+  font-weight: 700;
 }
 
 /* ── Detail tables (flash intel / vulnerability advisory) ──────── */

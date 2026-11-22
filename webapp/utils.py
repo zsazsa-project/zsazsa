@@ -40,13 +40,13 @@ def md_to_html_inline(text: str) -> str:
     return _md.renderInline(text or "")
 
 
-def mute_lead_labels(html: str, open_tag: str = '<span class="pretext">') -> str:
-    """Set the "Label:" opening a line back from the content it introduces.
+def mark_lead_labels(html: str, open_tag: str = '<span class="pretext">') -> str:
+    """Wrap the "Label:" opening a line in ``open_tag``, so it is shown like the
+    bold labels of product markdown.
 
-    Briefing stories write those labels as plain prose, so unlike the bold
-    labels in product markdown there is no tag to match; the substitution runs
-    on the rendered HTML instead. E-mail passes an inline-styled span, having no
-    stylesheet to carry the class.
+    Briefing stories write those labels as plain prose, so there is no tag to
+    match; the substitution runs on the rendered HTML instead. E-mail passes an
+    inline-styled span, having no stylesheet for the class.
     """
     return _LEAD_LABEL_RE.sub(
         lambda m: f"{m.group(1)}{m.group(2)}{open_tag}{m.group(3)}</span>", html or "")

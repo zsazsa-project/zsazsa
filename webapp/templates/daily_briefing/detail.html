@@ -401,14 +401,14 @@
 {% include "_tlr_queue_js.html" %}
 {% include "_source_events_card_js.html" %}
 <script>
-/* Mute the "What happened:" style label that opens a story line, matching
-   mute_lead_labels() in webapp/utils.py which does this for the PDF. */
+/* Mark the "What happened:" style label that opens a story line, matching
+   mark_lead_labels() in webapp/utils.py which does this for the PDF. */
 const LEAD_LABEL = /(<p>|<br\s*\/?>)(\s*)([A-Za-z][A-Za-z ]{1,33}:)(?=\s)/g;
-const muteLeadLabels = html => html.replace(LEAD_LABEL, '$1$2<span class="pretext">$3</span>');
+const markLeadLabels = html => html.replace(LEAD_LABEL, '$1$2<span class="pretext">$3</span>');
 
 document.querySelectorAll('.report-md-body').forEach(el => {
   if (zsazsaRenderMarkdown(el, el.getAttribute('data-md'), '<em class="text-muted">(no content)</em>')) {
-    el.innerHTML = muteLeadLabels(el.innerHTML);
+    el.innerHTML = markLeadLabels(el.innerHTML);
   }
 });
 </script>

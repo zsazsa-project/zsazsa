@@ -2274,13 +2274,11 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .legend-mark { display: inline-block; width: .85rem; height: .85rem; margin-right: .3rem; border-radius: 50%; vertical-align: -1px; }
 
 /* ─── Product field labels ───────────────────────────────────────────────── */
-/* "What happened", "Who is affected", "Source", … introduce content rather than
-   being content, so they stay a step back: smaller, lighter, not bold. Mirrors
-   the .pretext class in the product PDF stylesheet and the HTML e-mail. */
+/* "What happened", "Who is affected", "Source", … are bold at the size of the
+   text they introduce, as the product markdown writes them. Mirrors the
+   .pretext class in the product PDF stylesheet and the HTML e-mail. */
 .pretext {
-  font-size: 0.78rem;
-  font-weight: 400;
-  color: var(--text-muted);
+  font-weight: 700;
 }
 
 /* Scope values shown next to a pretext label. */
