@@ -16,7 +16,7 @@ from markupsafe import escape
 from analyser import relevance, settings as analyser_settings
 from core import ai_connector, asset_inventory, flowintel_client
 from core.atomic_write import write_atomically
-from webapp import audit, misp_session, misp_store, newsletter_parsers
+from webapp import audit, misp_session, misp_store, newsletter_parsers, report_stories
 from webapp.collection_cache import _split_tags, filter_events_by_org, partner_tag_filter
 from webapp.models import FOCUS_POINT_SETTINGS
 from webapp.rate_limit import rate_limited
@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 _ROOT = Path(__file__).parent.parent.parent
 _UPLOADS_DIR = _ROOT / "data" / "uploads"
 _LOGO_MAX_BYTES = 2 * 1024 * 1024
+# What Settings lets the PDF of an imported threat report be, in MB: the web
+# app holds it in memory, and MISP is sent it base64-encoded in one request.
+_REPORT_IMPORT_MAX_MB = 200
 _CONFIG_FILE = _ROOT / "config" / "__init__.py"
 _BACKUP_FILE = _ROOT / "config" / "__init__.py.backup"
 _PROMPTS_DIR = _ROOT / "zsazsaprompts"
@@ -263,6 +266,8 @@ def _read() -> dict:
         "FOCUS_POINTS_THREAT_TYPES": focus_points_threat_types,
         "FOCUS_POINTS_THREAT_ACTORS": focus_points_threat_actors,
         "THREAT_ACTOR_TYPES": threat_actor_types,
+        "REPORT_STORY_KINDS": report_stories.kinds(),
+        "THREAT_LANDSCAPE_THREAT_TYPES": misp_store.tlr_threat_types(),
         "ASSET_INVENTORY_ENABLED": getattr(_config, "ASSET_INVENTORY_ENABLED", False),
         "ASSET_INVENTORY_FILE": getattr(_config, "ASSET_INVENTORY_FILE", "data/assets.csv"),
         "ASSET_INVENTORY_REFRESH_MINUTES": getattr(_config, "ASSET_INVENTORY_REFRESH_MINUTES", 60),
@@ -308,6 +313,7 @@ def _read() -> dict:
         "EVENT_LOG_RETENTION_DAYS": getattr(_config, "EVENT_LOG_RETENTION_DAYS", 90),
         "PIPELINE_RUN_LOG_RETENTION_DAYS": getattr(_config, "PIPELINE_RUN_LOG_RETENTION_DAYS", 90),
         "AUDIT_LOG_RETENTION_DAYS": getattr(_config, "AUDIT_LOG_RETENTION_DAYS", 365),
+        "REPORT_IMPORT_MAX_MB": getattr(_config, "REPORT_IMPORT_MAX_MB", 30),
         "LOG_LEVEL": _config.LOG_LEVEL,
         "HOSTNAME": getattr(_config, "HOSTNAME", "0.0.0.0"),
         "PORT": getattr(_config, "PORT", 5000),
@@ -488,6 +494,11 @@ def _write(values):
         tat_repr = "".join(tat_lines)
     else:
         tat_repr = "[]"
+    kinds_repr = "[\n" + "".join(
+        f"    {{'name': {k['name']!r}, 'description': {k['description']!r}, 'ticked': {bool(k['ticked'])!r}}},\n"
+        for k in values.get("REPORT_STORY_KINDS", [])) + "]"
+    threat_types = values.get("THREAT_LANDSCAPE_THREAT_TYPES") or misp_store.DEFAULT_THREAT_TYPES
+    threat_types_repr = "[\n" + "".join(f"    {t!r},\n" for t in threat_types) + "]"
     servers = values.get("MISP_SERVERS", [])
     if servers:
         lines = []
@@ -650,6 +661,16 @@ PRODUCT_TYPES = {products_repr}
 # Threat actor types (ENISA taxonomy) - reference list available to all CTI products
 THREAT_ACTOR_TYPES = {tat_repr}
 
+# The kinds a story of an imported threat report can be, with what each means,
+# and whether select all ticks it in the threat landscape queue. "excluded",
+# what Leave out sets, is always there besides them.
+REPORT_STORY_KINDS = {kinds_repr}
+
+# The threat types of a threat landscape report: its entries, its sections and
+# the stories of an imported threat report. ENISA's prime threats and
+# vulnerability exploitation by default.
+THREAT_LANDSCAPE_THREAT_TYPES = {threat_types_repr}
+
 # Daily briefing analyser: skip source events/reports whose titles contain
 # any of these substrings (case-insensitive).
 DAILY_BRIEFING_TITLE_EXCLUSIONS = {briefing_title_exclusions_repr}
@@ -708,6 +729,10 @@ EVENT_LOG_RETENTION_DAYS = {int(values.get('EVENT_LOG_RETENTION_DAYS') or 90)}
 PIPELINE_RUN_LOG_RETENTION_DAYS = {int(values.get('PIPELINE_RUN_LOG_RETENTION_DAYS') or 90)}
 # 0 keeps the audit log for good.
 AUDIT_LOG_RETENTION_DAYS = {int(values.get('AUDIT_LOG_RETENTION_DAYS', 365))}
+
+# The largest PDF of a threat report Data collection imports, in MB. MISP
+# stores it base64-encoded, so its own request limits must allow a third more.
+REPORT_IMPORT_MAX_MB = {int(values.get('REPORT_IMPORT_MAX_MB') or 30)}
 
 # The analyser's workflow (analyser.settings has what each one does).
 {workflow_lines}
@@ -846,6 +871,14 @@ def index():
                 ]
             except (json.JSONDecodeError, ValueError):
                 threat_actor_types = []
+        kinds_posted = request.form.get("REPORT_STORY_KINDS")
+        try:
+            story_kinds = (report_stories.normalise_kinds(json.loads(kinds_posted)) if kinds_posted is not None
+                           else report_stories.kinds())
+        except ValueError:
+            story_kinds = report_stories.kinds()
+        # Without one, nothing could be picked; the defaults come back.
+        threat_types = list(dict.fromkeys(lines("THREAT_LANDSCAPE_THREAT_TYPES"))) or misp_store.DEFAULT_THREAT_TYPES
         tag_strip_prefixes = lines("COLLECTION_TAG_STRIP_PREFIXES")
         tag_hide_prefixes = lines("COLLECTION_TAG_HIDE_PREFIXES")
         # When single sign-on is enabled, derive the MISP session cookie name from
@@ -916,6 +949,9 @@ def index():
             "FOCUS_POINTS_THREAT_TYPES": fp_threat_types,
             "FOCUS_POINTS_THREAT_ACTORS": fp_threat_actors,
             "THREAT_ACTOR_TYPES": threat_actor_types,
+            # Without one, a story could be no kind but left out.
+            "REPORT_STORY_KINDS": story_kinds or report_stories.DEFAULT_KINDS,
+            "THREAT_LANDSCAPE_THREAT_TYPES": threat_types,
             "ASSET_INVENTORY_ENABLED": _form_bool("ASSET_INVENTORY_ENABLED"),
             "ASSET_INVENTORY_FILE": _form_str("ASSET_INVENTORY_FILE") or "data/assets.csv",
             "ASSET_INVENTORY_REFRESH_MINUTES": max(1, _form_int("ASSET_INVENTORY_REFRESH_MINUTES", 60)),
@@ -946,6 +982,7 @@ def index():
             "EVENT_LOG_RETENTION_DAYS": max(1, _form_int("EVENT_LOG_RETENTION_DAYS", 90)),
             "PIPELINE_RUN_LOG_RETENTION_DAYS": max(1, _form_int("PIPELINE_RUN_LOG_RETENTION_DAYS", 90)),
             "AUDIT_LOG_RETENTION_DAYS": max(0, _form_int("AUDIT_LOG_RETENTION_DAYS", 365)),
+            "REPORT_IMPORT_MAX_MB": min(_REPORT_IMPORT_MAX_MB, max(1, _form_int("REPORT_IMPORT_MAX_MB", 30))),
             "LOG_LEVEL": _form_str("LOG_LEVEL") or "INFO",
             "HOSTNAME": _form_str("HOSTNAME") or "0.0.0.0",
             "PORT": _form_int("PORT", 5000),

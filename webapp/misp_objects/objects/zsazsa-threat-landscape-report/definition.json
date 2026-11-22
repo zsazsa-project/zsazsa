@@ -3,7 +3,7 @@
     "meta-category": "intelligence",
     "description": "Threat landscape report (TLR) managed by the zsazsa CTI program",
     "uuid": "a1b2c3d4-e5f6-4890-abcd-ef1234567890",
-    "version": 2,
+    "version": 3,
     "attributes": {
         "tlr-id": {
             "misp-attribute": "text",
@@ -177,6 +177,36 @@
             "misp-attribute": "text",
             "ui-priority": 28,
             "description": "Dated corrections made after publication (JSON list)",
+            "disable_correlation": true
+        },
+        "executive-summary": {
+            "misp-attribute": "text",
+            "ui-priority": 29,
+            "description": "The bottom line of the report for management, in a few sentences",
+            "disable_correlation": true
+        },
+        "key-judgements": {
+            "misp-attribute": "text",
+            "ui-priority": 30,
+            "description": "Key judgements: each judgement with its confidence and what it means for the organisation (JSON list)",
+            "disable_correlation": true
+        },
+        "ai-drafted": {
+            "misp-attribute": "text",
+            "ui-priority": 31,
+            "description": "The sections of the report drafted with AI before the analyst reviewed them (JSON list)",
+            "disable_correlation": true
+        },
+        "threat-ranking": {
+            "misp-attribute": "text",
+            "ui-priority": 32,
+            "description": "Why each threat type and threat actor of the ranking matters to the organisation, as the analyst wrote it (JSON list)",
+            "disable_correlation": true
+        },
+        "hidden-figures": {
+            "misp-attribute": "text",
+            "ui-priority": 33,
+            "description": "The figures the PDF and the mail leave out (JSON list)",
             "disable_correlation": true
         }
     }

@@ -146,14 +146,6 @@ def _start_vea_delivery(vea_id, uuid, reason):
 EXPLOITATION = ["Active", "KEV listed"] + misp_store.VEA_EXPLOIT_AVAILABILITY
 
 
-def _exploitation(vea):
-    if "yes" in (vea.observed_exploitation or "").lower():
-        return "Active"
-    if vea.cisa_kev == "Yes":
-        return "KEV listed"
-    return vea.exploit_availability or "Unknown"
-
-
 @bp.route("/")
 def review():
     state_filter = (request.args.get("state") or "").strip()
@@ -171,20 +163,20 @@ def review():
     if audience_filter:
         tests["audience"] = lambda v: misp_store.has_audience(v, audience_filter)
     if exploitation_filter:
-        tests["exploitation"] = lambda v: _exploitation(v) == exploitation_filter
+        tests["exploitation"] = lambda v: misp_store.vea_exploitation(v) == exploitation_filter
     veas = sort_products(matching(all_veas, tests), sort, direction)
     return render_template(
         "vea/review.html",
         veas=veas,
         rejected_count=sum(v.review_state == misp_store.VEA_REVIEW_REJECTED for v in all_veas),
-        exploitation={v.uuid: _exploitation(v) for v in veas},
+        exploitation={v.uuid: misp_store.vea_exploitation(v) for v in veas},
         state_filter=state_filter,
         exploitation_filter=exploitation_filter,
         review_states=misp_store.VEA_REVIEW_STATES,
         exploitation_choices=EXPLOITATION,
         state_counts=ordered_counts((v.review_state for v in matching(all_veas, tests, skip="state")),
                                     misp_store.VEA_REVIEW_STATES),
-        exploitation_counts=ordered_counts((_exploitation(v) for v in matching(all_veas, tests, skip="exploitation")),
+        exploitation_counts=ordered_counts((misp_store.vea_exploitation(v) for v in matching(all_veas, tests, skip="exploitation")),
                                            EXPLOITATION),
         tlp_filter=tlp_filter,
         audience_filter=audience_filter,

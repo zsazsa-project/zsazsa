@@ -215,6 +215,12 @@ def wizard_new():
         if request.form.get("prefill_only") == "1":
             source_uuids, source_hints, _source_pairs = parse_source_tokens(request.form.getlist("source"))
             seed, source_events = _seed_from_sources(source_uuids, source_hints)
+            # A gap in a threat landscape report's detection coverage asks for
+            # one technique, not every technique its events have.
+            only = request.form.get("technique", "")
+            if seed is not None and misp_store.technique_id(only):
+                tid = misp_store.technique_id(only)
+                seed.technique = [t for t in seed.technique if misp_store.technique_id(t) == tid] or [only]
             return render_template("detection_eng/wizard.html", is_edit=False,
                                    source_events=source_events, **_wizard_context(seed, source_events))
 

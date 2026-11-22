@@ -15,7 +15,7 @@
   <div class="hero-main">
     <span class="hero-icon" aria-hidden="true"><i class="fas fa-map"></i></span>
     <div class="record-kpis">
-      <div class="record-kpi"><b>{{ tlrs | length }}</b><span>report{{ 's' if tlrs | length != 1 }}</span></div>
+      <div class="record-kpi"><b>{{ tlrs | length }}</b><span>threat landscape report{{ 's' if tlrs | length != 1 }}</span></div>
       <div class="record-kpi"><b>{{ count.draft }}</b><span>draft{{ 's' if count.draft != 1 }}</span></div>
       <div class="record-kpi"><b>{{ count.review }}</b><span>in review</span></div>
       <div class="record-kpi"><b>{{ count.published }}</b><span>published</span></div>
@@ -27,6 +27,7 @@
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('threat_landscape.wizard_new') }}" class="btn btn-sm btn-hero"><i class="fas fa-plus me-1"></i> New threat landscape</a>
+      <a href="{{ url_for('report_import.index') }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-book-open me-1"></i> Imported threat reports</a>
     </div>
   </div>
 </section>
@@ -74,7 +75,7 @@
           <th colspan="8">
             <span class="lane-mark" style="background:{{ color }};"></span>
             <span class="lane-name">{{ lane }}</span>
-            <span class="lane-count">{{ rows | length }} report{{ 's' if rows | length != 1 }}</span>
+            <span class="lane-count">{{ rows | length }} threat landscape report{{ 's' if rows | length != 1 }}</span>
             <span class="lane-hint">{{ hint }}</span>
           </th>
         </tr>
@@ -116,7 +117,8 @@
                         data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
                   <i class="fas fa-comment-dots"></i>
                 </button>
-                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Dataset">
+                <a href="{{ url_for('threat_landscape.entries', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary"
+                   title="Data: triage and statistics" aria-label="Data: triage and statistics of {{ t.tlr_id }}">
                   <i class="fas fa-table-list"></i>
                 </a>
                 <a href="{{ url_for('threat_landscape.pdf', id=t.uuid) }}" class="btn btn-xs btn-outline-secondary" title="Download PDF">
@@ -200,7 +202,7 @@
 <div class="card content-card mb-4 rise rise-2" id="queue">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="fas fa-map me-2"></i>Queue <span class="badge text-bg-secondary ms-1">{{ queued | length }}{{ '+' if more_waiting }}</span></span>
-    <span class="text-muted small">An event leaves the queue once a report holds it, or you remove it.</span>
+    <span class="text-muted small">An event leaves the queue once a threat landscape report holds it, or you remove it.</span>
   </div>
   {% if more_waiting %}
   <div class="alert alert-warning small rounded-0 border-start-0 border-end-0 mb-0">
@@ -251,19 +253,49 @@
           </tr>
         </thead>
         <tbody>
-          {% for ev in shown %}
-          <tr>
-            <td><input type="checkbox" class="form-check-input tlr-pick" name="event" value="{{ ev.uuid }}"></td>
+          {% macro queue_row(ev, report=none, last=false) %}
+          {% set unticked = ev.story_kind in unticked_kinds %}
+          <tr{% if report %} class="queue-story{{ ' queue-story-last' if last }}"{% endif %}>
+            <td><input type="checkbox" class="form-check-input tlr-pick" name="event" value="{{ ev.uuid }}"
+                       {% if report %}data-report="{{ report.uuid }}"{% endif %}{% if unticked %} data-unticked{% endif %}></td>
             <td class="text-muted small" style="white-space:nowrap;">{{ ev.date or '-' }}</td>
             <td>
               <a href="{{ url_for('data_collection.detail', uuid=ev.uuid, source=ev.source_id or None) }}" class="text-decoration-none">
                 {{ ev.info or '(untitled)' }}
               </a>
+              {% if ev.story_kind %}<span class="story-kind k-{{ ev.story_kind }}"{% if unticked %} title="Not ticked by select all, as Settings has it for this kind of story"{% endif %}>{{ ev.story_kind }}</span>{% endif %}
             </td>
             <td class="small">{{ ev.context.sectors | join(', ') or '-' }}</td>
             <td class="small">{{ ev.context.threat_actors | join(', ') or '-' }}</td>
             <td class="text-muted small">{{ ev.source_id or '-' }}</td>
           </tr>
+          {% endmacro %}
+          {% for row in rows %}
+            {% if row[0] == 'report' %}
+            {% set report, stories = row[1], row[2] %}
+            {% set kinds = stories | map(attribute='story_kind') | list %}
+            <tr class="queue-report">
+              <td><input type="checkbox" class="form-check-input tlr-report" data-report="{{ report.uuid }}"
+                         title="Tick the stories of this threat report that select all ticks" aria-label="Tick the stories of {{ report.title }}"></td>
+              <td colspan="5">
+                <a href="{{ url_for('report_import.detail', uuid=report.uuid) }}" class="fw-semibold text-decoration-none">{{ report.title }}</a>
+                <span class="text-muted small ms-1">{{ report.provider }}{% if report.published %} · published {{ report.published }}{% endif %}</span>
+                <span class="queue-report-kinds">
+                  <span class="badge text-bg-light border">{{ stories | length }} stor{{ 'y' if stories | length == 1 else 'ies' }} · one source</span>
+                  {% for kind in kinds | select | unique %}
+                  <span class="story-kind k-{{ kind }}">{{ kinds | select('equalto', kind) | list | length }} {{ kind }}</span>
+                  {% endfor %}
+                </span>
+              </td>
+            </tr>
+            {% for ev in stories %}{{ queue_row(ev, report, loop.last) }}{% endfor %}
+            {% else %}
+            {# The events after a threat report's stories, set apart from them. #}
+            {% if loop.previtem and loop.previtem[0] == 'report' %}
+            <tr class="queue-others"><td colspan="6">Other queued events</td></tr>
+            {% endif %}
+            {{ queue_row(row[1]) }}
+            {% endif %}
           {% else %}
           <tr><td colspan="6" class="text-muted small p-3">No queued event matches these filters.</td></tr>
           {% endfor %}
@@ -274,7 +306,7 @@
       <div style="width:10rem;max-width:100%;">
         <label class="form-label small mb-1">Add to</label>
         <select name="target" class="form-select form-select-sm" id="tlr-build-target">
-          <option value="">A new report</option>
+          <option value="">A new threat landscape report</option>
           {% for t in drafts %}
           <option value="{{ t.uuid }}">{{ t.tlr_id }}: {{ t.title or '(no title)' }}</option>
           {% endfor %}
@@ -379,17 +411,33 @@ document.getElementById('feedback-modal').addEventListener('show.bs.modal', func
   var removeButton = document.getElementById('tlr-remove-btn');
   var target = document.getElementById('tlr-build-target');
 
+  // A story of a kind Settings leaves unticked, such as an outlook or the
+  // background, is ticked by hand only: it is not what happened.
+  function tickable(box) { return !box.hasAttribute('data-unticked'); }
   function update() {
     var count = form.querySelectorAll('.tlr-pick:checked').length;
     document.getElementById('tlr-pick-count').textContent = count;
     document.getElementById('tlr-remove-count').textContent = count;
     button.disabled = count === 0;
     removeButton.disabled = count === 0;
-    all.checked = count > 0 && count === picks.length;
+    var usual = Array.prototype.filter.call(picks, tickable);
+    all.checked = usual.length > 0 && usual.every(function(box) { return box.checked; });
+    form.querySelectorAll('.tlr-report').forEach(function(group) {
+      var own = Array.prototype.filter.call(picks, function(box) { return box.dataset.report === group.dataset.report && tickable(box); });
+      group.checked = own.length > 0 && own.every(function(box) { return box.checked; });
+    });
   }
   all.addEventListener('change', function() {
-    picks.forEach(function(box) { box.checked = all.checked; });
+    picks.forEach(function(box) { box.checked = all.checked && tickable(box); });
     update();
+  });
+  form.querySelectorAll('.tlr-report').forEach(function(group) {
+    group.addEventListener('change', function() {
+      picks.forEach(function(box) {
+        if (box.dataset.report === group.dataset.report) box.checked = group.checked && tickable(box);
+      });
+      update();
+    });
   });
   picks.forEach(function(box) { box.addEventListener('change', update); });
   update();

@@ -14,6 +14,7 @@
 </head>
 <body>
 {% import "_pdf_header.html" as header %}
+{% import "threat_landscape/_ranking.html" as rank %}
 
 {{ header.doc_header(brand, doc_label='Threat Landscape Report',
                      title=tlr.title or '(untitled)',
@@ -46,6 +47,76 @@
 <div class="section-box">{{ text | md }}</div>
 {% endif %}
 {% endmacro %}
+
+{% if tlr.executive_summary or tlr.key_judgements %}
+<div class="section-heading">Executive summary</div>
+<div class="section-box">
+  {% if tlr.executive_summary %}{{ tlr.executive_summary | md }}{% endif %}
+  {% if tlr.key_judgements %}
+  <table class="grid-table">
+    <tr><th style="width:45%;">Key judgement</th><th style="width:15%;">Confidence</th><th>What it means for us</th></tr>
+    {% for kj in tlr.key_judgements %}
+    <tr><td>{{ kj.judgement }}</td><td>{{ confidence_labels.get(kj.confidence, kj.confidence) or '-' }}</td><td>{{ kj.implication or '-' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if ranking %}
+<div class="section-heading">Threat ranking</div>
+<div class="section-box">
+  <table class="grid-table">
+    <tr><th style="width:28%;">Threat</th><th style="width:18%;">Events</th><th style="width:12%;">High relevance</th><th>Why</th></tr>
+    {% for r in ranking %}
+    <tr>
+      <td><b>{{ r.name }}</b><br><span class="tlr-before">{{ r.kind }}</span></td>
+      <td>{{ rank.incidents_cell(r) }}</td>
+      <td>{{ r.high or '-' }}</td>
+      <td>{{ r.rationale or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{# A box per chart, so a chart that does not fit moves to the next page on its own. #}
+{% if shown %}
+<div class="section-heading">In figures</div>
+{% if 'threat_types' in shown %}
+<div class="section-box">
+  <h3>Events per threat type{% if previous %}, beside {{ previous.tlr_id }} in grey{% endif %}</h3>
+  {{ rank.bars(charts.threat_types, brand.color2) }}
+</div>
+{% endif %}
+{% if 'months' in shown %}
+<div class="section-box"><h3>Events per month</h3>{{ rank.columns(charts.months, brand.color2) }}</div>
+{% endif %}
+{% if 'sectors' in shown %}
+<div class="section-box"><h3>Sectors most named</h3>{{ rank.bars(charts.sectors, brand.color1) }}</div>
+{% endif %}
+{% if 'techniques' in shown %}
+<div class="section-box"><h3>ATT&amp;CK techniques most seen</h3>{{ rank.bars(charts.techniques, brand.color1) }}</div>
+{% endif %}
+{% endif %}
+
+{% if own %}
+<div class="section-heading">What hit us</div>
+<div class="section-box">
+  <p>{{ own | length }} of the events hit the organisation itself, from its own records: {{ internal.values() | sort | join(', ') }}.</p>
+  {{ rank.own_rows(own, 'grid-table') }}
+</div>
+{% endif %}
+
+{% if vulnerabilities %}
+<div class="section-heading">Vulnerabilities</div>
+<div class="section-box">
+  <p>{{ rank.vulnerability_summary(vulnerabilities) }}</p>
+  {{ rank.vulnerability_rows(vulnerabilities, links=false) }}
+  {% if vulnerabilities.products %}<h3>Products most hit</h3>{{ rank.bars(vulnerabilities.products, brand.color1) }}{% endif %}
+  {% if vulnerabilities.weaknesses %}<h3>Weaknesses</h3>{{ rank.bars(vulnerabilities.weaknesses, brand.color1) }}{% endif %}
+</div>
+{% endif %}
 
 {{ section('Purpose', tlr.purpose) }}
 {{ section('Top threats', tlr.top_threats) }}
@@ -81,6 +152,15 @@
 {{ section('Recommendations', tlr.recommendations) }}
 {{ section('Outlook', tlr.outlook) }}
 {{ section('Methodology and limitations', tlr.methodology) }}
+
+{% if detection %}
+<div class="section-heading">Annex: detection coverage</div>
+<div class="section-box">
+  <p>The ATT&amp;CK techniques of the events, the most frequent first, against the detection engineering requests for
+    them: {{ detection | selectattr('state', 'equalto', 'gap') | list | length }} of the {{ detection | length }} have no detection yet.</p>
+  {{ rank.detection_rows(detection, page=false) }}
+</div>
+{% endif %}
 
 {% if annex %}
 <div class="section-heading">Dataset</div>

@@ -74,6 +74,16 @@ FEATURES = {
         "description": "Drafts the Threat landscape report sections from the collection events queued for the reporting period.",
         "default_prompt": "threat_landscape_trends.md",
     },
+    "split_report_stories": {
+        "label": "Split an imported threat report into stories",
+        "description": "Names and classifies the stories of a threat report imported on Data collection, and merges or splits the drafts its outline gave. One call per part of the report.",
+        "default_prompt": "split_report_stories.md",
+    },
+    "analyse_report_story": {
+        "label": "Read the context of a threat report's story",
+        "description": "Summarises one story of an imported threat report and proposes its threat landscape context, each value with the block of the threat report that states it. One call per story.",
+        "default_prompt": "analyse_report_story.md",
+    },
     "review_product_draft": {
         "label": "QA review a product draft",
         "description": "Audits a product draft against its source material before publication and reports unsupported claims, invented identifiers and overstated confidence.",

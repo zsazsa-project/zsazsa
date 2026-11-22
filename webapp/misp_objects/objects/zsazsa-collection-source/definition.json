@@ -1,45 +1,51 @@
 {
-  "name": "zsazsa-collection-source",
-  "meta-category": "intelligence",
-  "description": "Manual collection source registered in the zsazsa CTI program",
-  "uuid": "6a9b2c3d-4e5f-4061-9c0d-1e2f3a4b5c6d",
-  "version": 1,
-  "attributes": {
-    "name": {
-      "misp-attribute": "text",
-      "ui-priority": 0,
-      "description": "Display name of the source",
-      "disable_correlation": true
-    },
-    "owner": {
-      "misp-attribute": "text",
-      "ui-priority": 1,
-      "description": "Person or team responsible for monitoring this source",
-      "disable_correlation": true
-    },
-    "location": {
-      "misp-attribute": "text",
-      "ui-priority": 2,
-      "description": "URL, file path, or physical location of the source",
-      "disable_correlation": true
-    },
-    "description": {
-      "misp-attribute": "text",
-      "ui-priority": 3,
-      "description": "What this source covers and why it is relevant",
-      "disable_correlation": true
-    },
-    "source-reliability": {
-      "misp-attribute": "text",
-      "ui-priority": 4,
-      "description": "Admiralty scale source reliability rating (A–F)",
-      "disable_correlation": true
-    },
-    "enabled": {
-      "misp-attribute": "text",
-      "ui-priority": 5,
-      "description": "Whether this source is active (true/false)",
-      "disable_correlation": true
+    "name": "zsazsa-collection-source",
+    "meta-category": "intelligence",
+    "description": "Manual collection source registered in the zsazsa CTI program",
+    "uuid": "6a9b2c3d-4e5f-4061-9c0d-1e2f3a4b5c6d",
+    "version": 2,
+    "attributes": {
+        "name": {
+            "misp-attribute": "text",
+            "ui-priority": 0,
+            "description": "Display name of the source",
+            "disable_correlation": true
+        },
+        "owner": {
+            "misp-attribute": "text",
+            "ui-priority": 1,
+            "description": "Person or team responsible for monitoring this source",
+            "disable_correlation": true
+        },
+        "location": {
+            "misp-attribute": "text",
+            "ui-priority": 2,
+            "description": "URL, file path, or physical location of the source",
+            "disable_correlation": true
+        },
+        "description": {
+            "misp-attribute": "text",
+            "ui-priority": 3,
+            "description": "What this source covers and why it is relevant",
+            "disable_correlation": true
+        },
+        "source-reliability": {
+            "misp-attribute": "text",
+            "ui-priority": 4,
+            "description": "Admiralty scale source reliability rating (A\u2013F)",
+            "disable_correlation": true
+        },
+        "enabled": {
+            "misp-attribute": "text",
+            "ui-priority": 5,
+            "description": "Whether this source is active (true/false)",
+            "disable_correlation": true
+        },
+        "internal": {
+            "misp-attribute": "text",
+            "ui-priority": 7,
+            "description": "'true' when the source is the organisation's own: its incidents and detections",
+            "disable_correlation": true
+        }
     }
-  }
 }

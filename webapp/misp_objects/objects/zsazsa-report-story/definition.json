@@ -1,0 +1,87 @@
+{
+  "name": "zsazsa-report-story",
+  "meta-category": "intelligence",
+  "description": "One story of a long CTI report imported into the zsazsa CTI program, with its context for a threat landscape",
+  "uuid": "88ff7660-c2fd-49f0-8e10-11068904734b",
+  "version": 1,
+  "attributes": {
+    "report-uuid": {
+      "misp-attribute": "text",
+      "ui-priority": 0,
+      "description": "UUID of the imported report the story was taken from",
+      "disable_correlation": true
+    },
+    "story-id": {
+      "misp-attribute": "text",
+      "ui-priority": 1,
+      "description": "The story's id in the report's manifest",
+      "disable_correlation": true
+    },
+    "kind": {
+      "misp-attribute": "text",
+      "ui-priority": 2,
+      "description": "assessment, incident, finding, outlook or context",
+      "disable_correlation": true
+    },
+    "period": {
+      "misp-attribute": "text",
+      "ui-priority": 3,
+      "description": "The period the story's facts cover, as the report says it",
+      "disable_correlation": true
+    },
+    "section": {
+      "misp-attribute": "text",
+      "ui-priority": 4,
+      "description": "The sections of the report the story is under",
+      "disable_correlation": true
+    },
+    "pages": {
+      "misp-attribute": "text",
+      "ui-priority": 5,
+      "description": "Pages of the report the story is on",
+      "disable_correlation": true
+    },
+    "blocks": {
+      "misp-attribute": "text",
+      "ui-priority": 6,
+      "description": "First and last block of the report's text the story is made of",
+      "disable_correlation": true
+    },
+    "threat-type": {
+      "misp-attribute": "text",
+      "ui-priority": 7,
+      "description": "Threat type, one of the prime threats a threat landscape entry is classified by",
+      "disable_correlation": true
+    },
+    "affected-assets": {
+      "misp-attribute": "text",
+      "ui-priority": 8,
+      "description": "What the story says was affected",
+      "disable_correlation": true
+    },
+    "impact": {
+      "misp-attribute": "text",
+      "ui-priority": 9,
+      "description": "What the story says the impact was",
+      "disable_correlation": true
+    },
+    "motivation": {
+      "misp-attribute": "text",
+      "ui-priority": 10,
+      "description": "What the story says drove the actor",
+      "disable_correlation": true
+    },
+    "mitigation": {
+      "misp-attribute": "text",
+      "ui-priority": 11,
+      "description": "What the story says mitigates it",
+      "disable_correlation": true
+    },
+    "evidence": {
+      "misp-attribute": "text",
+      "ui-priority": 12,
+      "description": "JSON: each value of the story's context with the block of the report that states it",
+      "disable_correlation": true
+    }
+  }
+}

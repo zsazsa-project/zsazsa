@@ -18,7 +18,7 @@ from webapp import misp_store, utils
 
 class MissingProductTags(unittest.TestCase):
     def setUp(self):
-        saved = {attr: getattr(config, attr) for attr, _b, _e in utils._PRODUCT_TYPES.values()
+        saved = {attr: getattr(config, attr) for attr, _b, _e, _l in utils._PRODUCT_TYPES.values()
                  if hasattr(config, attr)}
         self.addCleanup(lambda: [setattr(config, k, v) for k, v in saved.items()])
 

@@ -1,0 +1,94 @@
+{# The statistics and the PIR coverage of a dataset: on its page, and as the
+   page redraws them while the triage changes, before it is saved. #}
+{# Icon and colour of each heading of the statistics. #}
+{% set stat_looks = {'Threat type': ('fa-biohazard', 'var(--accent-red)'), 'Relevance': ('fa-signal', 'var(--accent-orange)'),
+                     'Sector': ('fa-industry', 'var(--accent-blue)'), 'Geography': ('fa-location-dot', 'var(--accent-green)'),
+                     'Threat actor': ('fa-user-secret', 'var(--accent-purple)'), 'Technique': ('fa-crosshairs', 'var(--misp-navy)'),
+                     'Admiralty rating': ('fa-scale-balanced', 'var(--neutral-600)'), 'Month': ('fa-calendar', 'var(--accent-cyan)')} %}
+
+{% if stats or coverage %}
+<div class="row g-4">
+  {% if stats %}
+  <div class="{{ 'col-xl-8' if coverage else 'col-12' }}">
+    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-2">
+      <span class="chart-label"><i class="fas fa-chart-column me-1"></i>Statistics</span>
+      <span class="small text-muted">
+        Counted over the {{ summary.used }} event{{ 's' if summary.used != 1 }} in the analysis{% if summary.incidents != summary.used %}, duplicates once: {{ summary.incidents }}{% endif %}. An event can count towards several sectors, actors or techniques.
+        {% if previous %}The small figure is the change since {{ previous.tlr_id }}, the last report published before this one.{% endif %}
+      </span>
+    </div>
+    <div class="row g-3">
+      {% for heading, counts in stats %}
+      {% set icon, color = stat_looks.get(heading, ('fa-chart-column', 'var(--accent-blue)')) %}
+      {% set most = counts | map(attribute=1) | max %}
+      <div class="col-md-6 {{ 'col-xxl-4' if coverage else 'col-xl-3' }}">
+        <div class="card content-card chart-card h-100" style="--icon-color:{{ color }};">
+          <div class="card-header"><i class="fas {{ icon }} me-2" style="color:{{ color }};"></i>{{ heading }}</div>
+          <div class="card-body dataset-stat p-2">
+            {% if heading == 'Month' %}
+            <div class="dataset-months">
+              {% for value, count, _before in counts %}
+              <div title="{{ value }}: {{ count }}"><b>{{ count }}</b><i style="height:{{ (count / most * 80) | round(1) }}%;"></i><span>{{ value }}</span></div>
+              {% endfor %}
+            </div>
+            {% else %}
+            {% for value, count, before in counts[:10] %}
+            <div class="chart-row">
+              <span class="d-block" style="min-width:0;">
+                <span class="name" title="{{ value }}">{{ value }}</span>
+                <span class="chart-bar" style="width:{{ (count / most * 100) | round(1) }}%;"><span style="flex:1;background:{{ color }};"></span></span>
+              </span>
+              {% if before is not none %}
+              {% set change = count - before %}
+              <span class="dataset-delta {{ 'up' if change > 0 else 'down' if change < 0 else 'same' }}"
+                    title="{{ before }} in {{ previous.tlr_id }}">{{ ('+' ~ change) if change > 0 else change if change < 0 else '=' }}</span>
+              {% endif %}
+              <span class="chart-pill">{{ count }}</span>
+            </div>
+            {% endfor %}
+            {% if counts | length > 10 %}<div class="text-muted small px-1">and {{ counts | length - 10 }} more</div>{% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if coverage %}
+  <div class="{{ 'col-xl-4' if stats else 'col-12' }}">
+    <div class="card content-card h-100" id="pir-coverage">
+      <div class="card-header"><i class="fas fa-bullseye me-2"></i>Coverage of the linked PIRs</div>
+      <div class="card-body small">
+        <p class="text-muted">How many events in the analysis speak to each item of the PIR's scope. None is a gap.</p>
+        {% for pir, items in coverage %}
+        <div class="dataset-pir">
+          <div class="fw-semibold">
+            <a href="{{ url_for('requirements.pir_detail', id=pir.uuid) }}" class="text-decoration-none">{{ pir.pir_id }}</a>
+            <span class="fw-normal text-muted">{{ pir.question | truncate(90) }}</span>
+          </div>
+          {% if items %}
+          {% set covered = items | selectattr(2) | list | length %}
+          <div class="dataset-cover">
+            {% for label, term, count in items %}
+            <span class="text-muted">{{ label }}</span>
+            <span class="term" title="{{ term }}">{{ term }}</span>
+            {% if count %}<span class="chart-pill">{{ count }}</span>{% else %}<span class="dataset-gap">gap</span>{% endif %}
+            {% endfor %}
+          </div>
+          <div class="dataset-cover-meter">
+            <span class="track"><span style="width:{{ (covered / items | length * 100) | round(1) }}%;background:{{ 'var(--accent-green)' if covered == items | length else 'var(--accent-orange)' }};"></span></span>
+            <span>{{ covered }} of {{ items | length }} covered</span>
+          </div>
+          {% else %}
+          <p class="text-muted mb-0 mt-1">This PIR names no sectors, places, actors, threat types or techniques to check.</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}

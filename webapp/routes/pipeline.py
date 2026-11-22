@@ -115,6 +115,9 @@ _RUN_ACTIONS = {
     "analyser": "CLI analyser",
     "imap-collector": "Mailbox poll",
     "bulk-summarise": "AI summaries",
+    "report-import": "Threat report import",
+    "report-ai": "AI on an imported threat report",
+    "report-create": "Stories made from a threat report",
 }
 # A failed run is worth a look until a later run of the same action, or a week.
 _RUN_ATTENTION_DAYS = 7

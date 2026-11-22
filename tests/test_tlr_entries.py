@@ -4,8 +4,10 @@ Each source event in a report is a zsazsa-tlr-entry object on the report's own
 event, holding the report's assessment of it. Building a report from the queue
 fills the entries in from the event's tags, and an event a report holds leaves
 the queue. The triage page saves only the entries that changed, refuses a
-published report, and counts over the entries left in the analysis. MISP is
-patched out.
+published report, and counts over the entries left in the analysis. The page
+opens with a banner summing the dataset up (outside the scope, without a threat
+type, PIR gaps), always posts a relevance for each row, and gives each count
+its change since the previous published report. MISP is patched out.
 
     python -m unittest tests.test_tlr_entries
 """
@@ -36,7 +38,7 @@ def _cached(uuid, tags=(), source_id="scraper", date="2026-09-01"):
 def _entry(event_uuid, **fields):
     data = {key: "" for key in misp_store.TLR_ENTRY_FIELDS}
     data.update({key: [] for key in misp_store.TLR_ENTRY_LISTS})
-    data.update(event_uuid=event_uuid, excluded=False, uuid=f"obj-{event_uuid}")
+    data.update(event_uuid=event_uuid, excluded=False, no_classification=False, uuid=f"obj-{event_uuid}")
     data.update(fields)
     return SimpleNamespace(**data)
 
@@ -227,6 +229,12 @@ class Triage(unittest.TestCase):
         self.assertEqual(saved["techniques"], ["Phishing - T1566"])
         self.assertEqual(saved["threat_actors"], [], "an actor removed in the picker is removed")
 
+    def test_none_relevant_is_saved_and_can_be_undone(self):
+        update = self.post(_report([_entry("e1"), _entry("e2", no_classification=True)]),
+                           **{"relevance-obj-e1": "", "no_classification-obj-e1": "1", "relevance-obj-e2": ""})
+        changes = update.call_args.args[1]
+        self.assertEqual((changes["obj-e1"]["no_classification"], changes["obj-e2"]["no_classification"]), (True, False))
+
     def test_an_entry_added_after_the_page_loaded_is_left_alone(self):
         update = self.post(_report([_entry("e1"), _entry("e2", relevance="high")]),
                            **{"relevance-obj-e1": "low"})
@@ -275,12 +283,14 @@ class Pages(unittest.TestCase):
             mock.patch.object(config, "LOG_FILE", str(Path(tmp.name) / "test.log"), create=True),
             mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch.object(collection_cache, "start_worker"),
+            mock.patch.object(misp_store, "list_collection_sources", return_value=[]),
             mock.patch.object(misp_store, "list_product_feedback", return_value=[]),
             mock.patch.object(misp_store, "list_pirs", return_value=[]),
             mock.patch.object(misp_store, "galaxy_sectors", return_value=["Energy", "Health"]),
             mock.patch.object(misp_store, "galaxy_geography", return_value=["Belgium"]),
             mock.patch.object(misp_store, "galaxy_threat_actors", return_value=["APT29"]),
             mock.patch.object(misp_store, "galaxy_mitre_attack_patterns", return_value=["Phishing - T1566"]),
+            mock.patch.object(misp_store, "list_veas", return_value=[]),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -293,6 +303,7 @@ class Pages(unittest.TestCase):
             audience="", misp_url="", top_threats="", trending_actors="", key_incidents="",
             recommendations="", outlook="", purpose="", audience_level="", period_start="", period_end="",
             methodology="", scope_sectors=[], scope_geography=[], linked_pir_uuids=[], threat_sections=[], review_log=[], corrections=[],
+            executive_summary="", key_judgements=[], ai_drafted=[], threat_ranking=[], hidden_figures=[],
             **{key: "" for key, _label, _icon in misp_store.TLR_ACTOR_CATEGORIES})
 
     def page(self, path, tlrs=None, queued=()):
@@ -333,10 +344,192 @@ class Pages(unittest.TestCase):
 
     def test_the_dataset_page_shows_triage_and_counts(self):
         page = self.page(f"/products/threat-landscape/{UUID}/entries")
-        self.assertTrue(page.select_one("select[name='relevance-obj-e1']"))
+        # One relevance is always ticked, "-" when none is set: the route saves only the rows that post it.
+        ticked = page.select("input[name='relevance-obj-e1'][checked]")
+        self.assertEqual([r["value"] for r in ticked], [""])
+        self.assertEqual([r["value"] for r in page.select("input[name='relevance-obj-e1']")], ["", "high", "medium", "low"])
         self.assertTrue(page.select_one("input[name='excluded-obj-e2'][checked]"))
-        self.assertIn("Ransomware", page.find(string="Threat type").find_next("table").get_text())
-        self.assertIn("Save triage", [b.get_text(strip=True) for b in page.select("button")])
+        card = self.stat_card(page, "Threat type")
+        self.assertIn("Ransomware", card.get_text())
+        saves = [b for b in page.select("button") if b.get_text(strip=True) == "Save triage"]
+        self.assertEqual([b.get("form") for b in saves], ["triage-form", None])
+        self.assertEqual(page.select_one("form#triage-form")["method"], "post")
+
+    def test_each_row_says_where_it_stands_and_marks_what_is_missing(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        row = page.select_one('tr[data-entry-row="obj-e1"]')
+        self.assertIn("is-todo", row["class"])
+        self.assertEqual(row.select_one("[data-state]").get_text(" ", strip=True),
+                         "To do: relevance, source reliability, information credibility")
+        self.assertIn("not-set", row.select_one(".dataset-relevance")["class"])
+        self.assertIn("not-set", row.select_one("[data-field=credibility]")["class"])
+        self.assertNotIn("not-set", row.select_one("[data-field=threat_type]")["class"])
+        self.assertNotIn("not-set", row.select_one(".dataset-chips")["class"], "it has a sector")
+        out = page.select_one('tr[data-entry-row="obj-e2"]')
+        self.assertIn("is-left-out", out["class"])
+        self.assertEqual(out.select_one(".dataset-chips .dataset-none").get_text(), "None yet")
+        self.assertNotIn("not-set", out.select_one(".dataset-chips")["class"], "a left-out event lacks nothing")
+        self.assertIn("1 of 2 events triaged", " ".join(page.select_one(".dataset-progress").get_text(" ").split()))
+
+    def test_a_triaged_event_opens_folded_with_an_arrow_to_open_it(self):
+        self.report.entries[0].__dict__.update(relevance="high", source_reliability="B", information_credibility="2")
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        row = page.select_one('tr[data-entry-row="obj-e1"]')
+        self.assertIn("is-done", row["class"])
+        self.assertIn("is-collapsed", row["class"])
+        arrow = row.select_one(".dataset-head [data-fold]")
+        self.assertEqual((arrow.name, arrow["role"], arrow["aria-expanded"]), ("span", "button", "false"),
+                         "not a button, which the fieldset of a locked report would disable")
+        self.assertEqual(arrow.find_next_sibling("a")["class"], ["entry-title"])
+        self.assertNotIn("is-collapsed", page.select_one('tr[data-entry-row="obj-e2"]')["class"], "left out, not triaged")
+
+    def test_an_event_still_to_triage_is_open(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertNotIn("is-collapsed", page.select_one('tr[data-entry-row="obj-e1"]')["class"])
+
+    def test_the_columns_and_what_sits_under_the_title(self):
+        self.report.entries[0].note = "From the ISAC call"
+        self.report.entries[0].source_reliability, self.report.entries[0].information_credibility = "B", "2"
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertEqual([th.get_text(strip=True) for th in page.select(".dataset-table thead th")],
+                         ["", "Left out", "Story", "Relevance and Admiralty", "Threat type", "Classification"])
+        row = page.select_one('tr[data-entry-row="obj-e1"]')
+        story = row.select_one(".c-story")
+        self.assertEqual(story.select_one("[data-note-text]").get_text(), "From the ISAC call")
+        self.assertEqual(story.select_one("input[name=note-obj-e1]")["value"], "From the ISAC call")
+        self.assertTrue(story.select_one("[data-note-add]").has_attr("hidden"))
+        self.assertEqual(row.select_one("[data-grade]").get_text(" ", strip=True), "B2 : usually reliable, probably true")
+        self.assertIn("excluded-obj-e1", [i["name"] for i in row.select(".c-out input")])
+        title = story.select_one(".entry-title")
+        self.assertEqual(title["data-preview"], "/collection/e1/preview")
+        self.assertTrue(page.select_one("#entry-preview"), "the story opens beside the table")
+
+    def test_an_answered_question_is_a_classification(self):
+        self.report.entries[0].sectors = []
+        self.report.entries[0].affected_assets = "The billing portal"
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        row = page.select_one('tr[data-entry-row="obj-e1"]')
+        chips = row.select_one(".dataset-chips")
+        self.assertEqual([c.get_text(strip=True) for c in chips.select(".dataset-chip")], ["Affected assets"])
+        self.assertIsNone(chips.select_one(".dataset-none"), "not None yet beside what is there")
+        self.assertNotIn("not-set", chips["class"])
+        self.assertNotIn("classification", row.select_one("[data-state]").get_text())
+
+    def test_none_relevant_shows_and_ends_the_classification(self):
+        self.report.entries[0].sectors = []
+        self.report.entries[0].no_classification = True
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        row = page.select_one('tr[data-entry-row="obj-e1"]')
+        chips = row.select_one(".dataset-chips")
+        self.assertEqual([c.get_text(strip=True) for c in chips.select(".dataset-chip")], ["None relevant"])
+        self.assertIsNone(chips.select_one(".dataset-none"))
+        self.assertEqual(row.select_one("input[name=no_classification-obj-e1]")["value"], "1")
+        self.assertNotIn("classification", row.select_one("[data-state]").get_text())
+        self.assertIsNone(page.select_one("input[name=no_classification-obj-e2]"), "only where it was chosen")
+        self.assertIn("None relevant", page.select_one("#classification-modal .modal-footer").get_text())
+
+    def test_half_an_admiralty_rating_says_which_half(self):
+        self.report.entries[0].source_reliability = "C"
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertEqual(page.select_one('tr[data-entry-row="obj-e1"] [data-grade]').get_text(" ", strip=True),
+                         "C? : fairly reliable, information not rated")
+
+    def test_the_top_bar_leads_to_the_queue_and_back_to_the_report(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        [queue] = page.select('a[href="/products/threat-landscape/#queue"]')
+        self.assertEqual(queue.get_text(" ", strip=True), "Threat landscape queue")
+        self.assertIsNone(queue.find_parent(class_="record-hero"), "in the top bar, and only there")
+        back = queue.find_next_sibling("a")
+        self.assertEqual((back["href"], back.get_text(" ", strip=True)), (f"/products/threat-landscape/{UUID}", "Back to report"))
+
+    def test_every_threat_type_list_is_in_alphabetical_order(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        for select in (page.select_one("select[name=threat_type-obj-e1]"), page.select_one('select[data-bulk="threat_type"]')):
+            names = [o["value"] for o in select.select("option") if o["value"]]
+            self.assertEqual(names, sorted(misp_store.tlr_threat_types(), key=str.casefold))
+
+    def statistics(self, report=True, **form):
+        with self.client.session_transaction() as session:
+            session["_csrf_token"] = "tok"
+        form["csrf_token"] = "tok"
+        with mock.patch.object(misp_store, "get_tlr", return_value=self.report if report else None), \
+             mock.patch.object(misp_store, "list_tlrs", return_value=[self.report]), \
+             mock.patch.object(misp_store, "update_tlr_entries") as update:
+            reply = self.client.post(f"/products/threat-landscape/{UUID}/entries/statistics", data=form)
+        update.assert_not_called()
+        return reply
+
+    def test_the_statistics_follow_the_triage_before_it_is_saved(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertEqual(page.select_one("#dataset-stats")["data-src"], f"/products/threat-landscape/{UUID}/entries/statistics")
+        reply = self.statistics(**{"relevance-obj-e1": "high", "threat_type-obj-e1": "Malware", "sectors-obj-e1": ["Water", "Energy"],
+                                   "relevance-obj-e2": "", "threat_type-obj-e2": "Phishing", "excluded-obj-e2": "on"})
+        self.assertEqual(reply.status_code, 200)
+        stats = BeautifulSoup(reply.data, "html.parser")
+        self.assertIn("Malware", self.stat_card(stats, "Threat type").get_text())
+        self.assertNotIn("Ransomware", self.stat_card(stats, "Threat type").get_text(), "as posted, not as saved")
+        self.assertNotIn("Phishing", stats.get_text(), "a left-out event is not counted")
+        self.assertIn("Water", self.stat_card(stats, "Sector").get_text())
+        self.assertIsNone(stats.select_one(".record-hero"), "only the statistics")
+        self.assertEqual((self.report.entries[0].threat_type, self.report.entries[0].sectors), ("Ransomware", ["Energy"]),
+                         "the report itself is untouched")
+
+    def test_a_row_the_form_does_not_post_counts_as_saved(self):
+        stats = BeautifulSoup(self.statistics().data, "html.parser")
+        self.assertIn("Ransomware", self.stat_card(stats, "Threat type").get_text())
+
+    def test_the_statistics_of_no_report_are_not_found(self):
+        self.assertEqual(self.statistics(report=False).status_code, 404)
+
+    @staticmethod
+    def stat_card(page, heading):
+        return next(c for c in page.select(".chart-card") if c.select_one(".card-header").get_text(strip=True) == heading)
+
+    def test_the_banner_sums_up_the_dataset(self):
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        figures = {k.select_one("span").get_text(strip=True): k.b.get_text() for k in page.select(".record-hero .record-kpi")}
+        self.assertEqual(figures, {"event in the analysis": "1", "left out": "1", "outside the scope": "0",
+                                   "without a threat type": "0"})
+        panel = page.select_one(".dataset-panel").get_text(" ", strip=True)
+        self.assertIn("To do 1", panel)
+        self.assertIn("Left out 1", panel)
+        self.assertIn("Ransomware 1", panel)
+        self.assertIn("Q3", page.select_one(".record-hero h1").get_text())
+
+    def test_a_relevance_not_in_the_list_is_kept(self):
+        self.report.entries[0].relevance = "critical"
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertEqual([r["value"] for r in page.select("input[name='relevance-obj-e1'][checked]")], ["critical"])
+
+    def test_the_events_outside_the_scope_can_be_shown_and_left_out(self):
+        self.report.scope_sectors = ["Health"]
+        page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        self.assertEqual(len(page.select("tr[data-outside-scope]")), 1)
+        self.assertIn("Leave out the 1 outside the scope", page.select_one("#exclude-outside-scope").get_text(" ", strip=True))
+        self.assertTrue(page.select_one("#filter-outside"))
+        outside = page.select_one('.record-kpi[data-show="outside"]')
+        self.assertEqual((outside.b.get_text(), "warn" in outside["class"]), ("1", True))
+
+    def test_each_count_has_its_change_since_the_previous_report(self):
+        previous = _report([_entry("p1", threat_type="Ransomware"), _entry("p2", threat_type="Ransomware")],
+                           review_state="published")
+        previous.uuid, previous.tlr_id = "prev-uuid", "TLR-00006"
+        page = self.page(f"/products/threat-landscape/{UUID}/entries", tlrs=[self.report, previous])
+        card = self.stat_card(page, "Threat type")
+        delta = card.select_one(".dataset-delta")
+        self.assertEqual((delta.get_text(), delta["title"], delta["class"]), ("-1", "2 in TLR-00006", ["dataset-delta", "down"]))
+        self.assertIn("TLR-00006", page.select_one(".record-facts").get_text())
+
+    def test_a_pir_gap_is_counted_and_shown(self):
+        pir = SimpleNamespace(uuid="pir-uuid", pir_id="PIR-003", question="Who targets energy?")
+        with mock.patch.object(threat_landscape, "_pir_coverage",
+                               return_value=[(pir, [("Sector", "Energy", 1), ("Sector", "Health", 0)])]):
+            page = self.page(f"/products/threat-landscape/{UUID}/entries")
+        gaps = page.select_one('.record-kpi[href="#pir-coverage"]')
+        self.assertEqual((gaps.b.get_text(), gaps.span.get_text()), ("1", "PIR gap"))
+        coverage = page.select_one("#pir-coverage")
+        self.assertEqual([g.find_previous_sibling(class_="term").get_text() for g in coverage.select(".dataset-gap")], ["Health"])
+        self.assertIn("1 of 2 covered", coverage.get_text())
 
     def test_each_row_carries_its_classification_for_the_picker(self):
         page = self.page(f"/products/threat-landscape/{UUID}/entries")
@@ -366,6 +559,9 @@ class Pages(unittest.TestCase):
     def test_the_list_offers_the_usual_row_actions(self):
         page = self.page("/products/threat-landscape/")
         row = page.select_one(".req-id-badge").find_parent("tr")
+        data = row.select_one(f'a[href="/products/threat-landscape/{UUID}/entries"]')
+        self.assertEqual((data.get_text(strip=True), data["title"]), ("", "Data: triage and statistics"),
+                         "an icon, as the other row actions, named on hover")
         self.assertTrue(row.select_one(".preview-toggle-btn"))
         self.assertEqual(row.select_one(".feedback-btn")["data-action"], f"/products/threat-landscape/{UUID}/feedback")
         self.assertTrue(row.select_one('a[title="Edit"]'))
@@ -379,6 +575,25 @@ class Pages(unittest.TestCase):
         self.assertIn("Events in the dataset: 1", page.select_one("#tlr-sections .tlr-section-count").get_text())
         self.assertTrue(page.select_one("#tlr-section-template"))
         self.assertTrue(page.select_one("textarea[name=purpose]"))
+
+    def test_the_threat_types_are_those_of_settings_and_one_removed_stays(self):
+        self.report.threat_sections = [{"threat_type": "Ransomware", "title": "Grid", "findings": "Up"}]
+        with mock.patch.object(config, "THREAT_LANDSCAPE_THREAT_TYPES", ["Insider threat", "Malware"], create=True):
+            entries = self.page(f"/products/threat-landscape/{UUID}/entries")
+            wizard = self.page(f"/products/threat-landscape/{UUID}/edit")
+        kept = [("", False), ("Ransomware", True), ("Insider threat", False), ("Malware", False)]
+        offered = [("", False), ("Insider threat", False), ("Malware", False)]
+        self.assertEqual(self.options(entries, "select[name='threat_type-obj-e1']"), kept)
+        self.assertEqual(self.options(entries, "select[data-bulk=threat_type]"), offered)
+        self.assertEqual(self.options(wizard, "#tlr-sections select[name=section_threat_type]"), kept)
+        # What a template holds is not part of the page, as for the browser: it is
+        # read as the fragment a new section is cloned from.
+        section = BeautifulSoup(wizard.select_one("#tlr-section-template").decode_contents(), "html.parser")
+        self.assertEqual(self.options(section, "select"), offered)
+
+    @staticmethod
+    def options(page, select):
+        return [(o["value"], o.has_attr("selected")) for o in page.select_one(select).select("option")]
 
     def test_a_new_report_starts_from_the_feedback_on_the_last_one(self):
         self.report.review_state = "published"
@@ -419,6 +634,27 @@ class DraftTrends(unittest.TestCase):
         rows.assert_called_once_with(["e1"])
         queue.assert_not_called()
         self.assertEqual([ev["title"] for ev in llm.call_args.args[1]], ["Event e1"])
+
+    def test_a_story_of_a_deleted_threat_report_is_drafted_as_an_event(self):
+        gone = _cached("s1", tags=[misp_store.report_tag("9" * 8 + "-0000-4000-8000-000000000009")])
+        with mock.patch.object(threat_landscape, "_queued_events", return_value=[gone, _cached("e1")]), \
+             mock.patch.object(threat_landscape.misp_store, "list_tlrs", return_value=[]), \
+             mock.patch.object(threat_landscape.misp_store, "list_report_documents", return_value=[]), \
+             mock.patch("analyser.llm.draft_landscape_trends", return_value={"outlook": "x"}) as llm:
+            _client().post("/products/threat-landscape/draft-trends", data={})
+        self.assertEqual([ev["title"] for ev in llm.call_args.args[1]], ["Event s1", "Event e1"])
+        self.assertEqual(llm.call_args.args[2], [])
+
+    def test_the_stories_of_a_threat_report_that_cannot_be_read_are_drafted_as_events(self):
+        report = SimpleNamespace(uuid="9" * 8 + "-0000-4000-8000-000000000009", title="R", provider="P", published="")
+        story = _cached("s1", tags=[misp_store.report_tag(report.uuid)])
+        with mock.patch.object(threat_landscape, "_queued_events", return_value=[story]), \
+             mock.patch.object(threat_landscape.misp_store, "list_tlrs", return_value=[]), \
+             mock.patch.object(threat_landscape.misp_store, "list_report_documents", return_value=[report]), \
+             mock.patch.object(threat_landscape.misp_store, "report_manifest", side_effect=RuntimeError("gone")), \
+             mock.patch("analyser.llm.draft_landscape_trends", return_value={"outlook": "x"}) as llm:
+            _client().post("/products/threat-landscape/draft-trends", data={})
+        self.assertEqual(([ev["title"] for ev in llm.call_args.args[1]], llm.call_args.args[2]), (["Event s1"], []))
 
 
 if __name__ == "__main__":

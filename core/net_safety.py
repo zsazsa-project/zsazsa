@@ -62,6 +62,20 @@ def resolve_public_url(url: str):
     return host, port, ips
 
 
+def pinned_curl_options(host: str, port: int, ips: list[str]) -> dict:
+    """curl_cffi options that pin a fetch to the addresses resolve_public_url
+    checked, so the client's own DNS lookup cannot rebind the host to an
+    internal address between the check and the fetch (CWE-367). An IP-literal
+    host has no name to rebind, so it is fetched as it is."""
+    from curl_cffi import CurlOpt
+
+    try:
+        ipaddress.ip_address(host)
+        return {}
+    except ValueError:
+        return {CurlOpt.RESOLVE: [f"{host}:{port}:{','.join(ips)}"]}
+
+
 def is_safe_public_url(url: str) -> bool:
     """Return True only for http(s) URLs whose host resolves to public IPs.
 

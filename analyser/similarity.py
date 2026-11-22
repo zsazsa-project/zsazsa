@@ -81,7 +81,9 @@ def _names_an_actor_of(one: dict, other: dict) -> bool:
     return any(req_matching.term_in_text(actor, text) for actor in other["actors"])
 
 
-def _resembles(candidate: dict, earlier: dict) -> bool:
+def resembles(candidate: dict, earlier: dict) -> bool:
+    """Whether two stories may be the same: a CVE or a threat actor in common,
+    or enough of the words of their titles."""
     if (candidate["cves"] & earlier["cves"] or candidate["actors"] & earlier["actors"]
             or _names_an_actor_of(candidate, earlier) or _names_an_actor_of(earlier, candidate)):
         return True
@@ -93,7 +95,7 @@ def same_story(candidate: dict, earlier: list[dict]) -> dict | None:
     """The earlier story the candidate tells again, as {"story", "new_facts",
     "reason"}, or None when it is a new one. Raises when the model could not
     compare them: the caller drafts the candidate all the same, and says so."""
-    shortlist = [s for s in earlier if _resembles(candidate, s)]
+    shortlist = [s for s in earlier if resembles(candidate, s)]
     if not shortlist:
         return None
     compared = llm.compare_stories(candidate, shortlist)

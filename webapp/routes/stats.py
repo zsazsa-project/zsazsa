@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from flask import Blueprint, Response, jsonify, render_template, request
 
 from analyser.relevance import focus_names
-from webapp import audit, misp_store, pewpew
+from webapp import audit, collection_plan, misp_store, pewpew
 from webapp.utils import PRODUCT_TAG_PREFIX, product_type_label
 
 logger = logging.getLogger(__name__)
@@ -489,7 +489,7 @@ def scope_csv():
 
 def _pewpew_args():
     return (request.args.get("days", pewpew.DEFAULT_WINDOW, type=int), request.args.get("tlp", pewpew.DEFAULT_TLP),
-            request.args.get("exclude_hashes") == "1")
+            request.args.get("include_hashes") != "1")
 
 
 @bp.route("/stats/pewpew")
@@ -502,3 +502,9 @@ def pewpew_map():
 def pewpew_json():
     """The same data, which the page reads again each time its replay ends."""
     return jsonify(pewpew.map_data(*_pewpew_args()))
+
+
+@bp.route("/stats/collection-plan")
+def collection_plan_page():
+    """Per active PIR and GIR, what its planned sources delivered, month by month."""
+    return render_template("collection_plan.html", data=collection_plan.plan())

@@ -362,8 +362,9 @@ def _extract_row(e, source_id: str) -> dict:
     }
 
 
-# The attribute types the pew-pew map shows. An address flies to its country;
-# the rest have no place on a map and land in its litter box.
+# The attribute types the pew-pew map shows. An address flies to its country, a
+# domain, hostname or URL to that of its top-level domain; the rest have no
+# place on a map and land in its litter box.
 IP_TYPES = {"ip-src", "ip-dst", "ip-src|port", "ip-dst|port", "domain|ip"}
 INDICATOR_TYPES = IP_TYPES | {"domain", "hostname", "url", "md5", "sha1", "sha256", "vulnerability"}
 # An event of a few thousand addresses would fill the map on its own.
@@ -427,6 +428,19 @@ def source_slug(name: str) -> str:
 def manual_source_id(name: str) -> str:
     """Source id a manual collection source is cached under."""
     return f"manual-{source_slug(name)}"
+
+
+def source_labels() -> dict:
+    """{source id: label} of the sources in the configuration, for source_label()."""
+    return {s["id"]: s["label"] for s in _build_sources(with_manual=False)}
+
+
+def source_label(source_id: str, labels: dict) -> str:
+    """A source's name as the pages show it. ``labels`` is what source_labels()
+    returned; a manual source is named by its id, which is its own name."""
+    if source_id.startswith("manual-"):
+        return source_id[len("manual-"):].replace("-", " ")
+    return labels.get(source_id, source_id)
 
 
 def _build_sources(with_manual: bool = True) -> list:
@@ -810,10 +824,10 @@ def ips_to_locate(limit: int = _LOOKUPS_PER_SWEEP) -> list[str]:
     which TLP:AMBER and above do not allow."""
     with _db() as conn:
         rows = conn.execute(
-            f"SELECT i.type, i.value, e.tags FROM indicators i"
-            f" JOIN events e ON e.source_id = i.source_id AND e.uuid = i.event_uuid"
+            "SELECT i.type, i.value, e.tags FROM indicators i"
+            " JOIN events e ON e.source_id = i.source_id AND e.uuid = i.event_uuid"
             f" WHERE i.type IN ({','.join('?' * len(IP_TYPES))})"
-            f" ORDER BY i.timestamp DESC",
+            " ORDER BY i.timestamp DESC",
             sorted(IP_TYPES),
         ).fetchall()
         known = {r[0] for r in conn.execute("SELECT ip FROM ip_geo")}

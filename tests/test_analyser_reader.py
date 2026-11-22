@@ -4,8 +4,8 @@ Every source with MISP events is read: the scraper, the manual entries, and each
 additional MISP server whose "analyse" setting is on, with that server's own
 filters, unless Settings > Analyser switches that kind of source off for every
 product. From the manual entries and the other servers only events with a
-report are read; from the scraper every event, as the run rejects those it
-could not fetch an article for. On zsazsa's own MISP an event is read while its
+report are read, and never a story of an imported report; from the scraper
+every event, as the run rejects those it could not fetch an article for. On zsazsa's own MISP an event is read while its
 workflow state is open; another server's event until the analyser has closed it
 in zsazsa, since its workflow state is not zsazsa's to change. An event on two
 sources is read once, from zsazsa's own MISP when it is there.
@@ -185,6 +185,16 @@ class WhatIsRead(ReaderTest):
         misp = _misp([_event("with"), _event("without", reports=()), _event("deleted", reports=(deleted,))])
         self.assertEqual(self.read(self.manual(misp)), ["with"])
         self.assertEqual(misp.search.call_args.kwargs["tags"], [misp_store.TAG_MANUAL_ENTRY])
+
+    def test_a_story_of_an_imported_report_is_left_alone_for_every_action(self):
+        """Queued for the threat landscape it is "ongoing", which is open, and
+        it has a report; its news is still months old."""
+        story = _event("story", ONGOING)
+        story.tags.append(SimpleNamespace(name=misp_store.report_tag("5f0c1d2e-0000-4000-8000-000000000001")))
+        for action in ("daily-briefing", "flash-intel", "vea"):
+            with self.subTest(action):
+                misp = _misp([_event("entry"), story])
+                self.assertEqual(self.read(self.manual(misp), action=action), ["entry"])
 
     def test_a_scraper_event_without_a_report_is_read_to_be_rejected(self):
         misp = _misp([_event("unfetched", reports=())])

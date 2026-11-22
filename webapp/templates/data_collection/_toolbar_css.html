@@ -131,6 +131,17 @@
     color: var(--text-primary);
   }
   .action-chip.disabled { opacity: .5; pointer-events: none; }
+  /* A chip with a dropdown arrow joined to its right side. */
+  .chip-split { display: inline-flex; }
+  .chip-split > .action-chip:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .chip-split > .dropdown-toggle {
+    align-self: stretch;
+    padding: 0 .45rem;
+    margin-left: -1px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .chip-split > .dropdown-toggle::after { margin-left: 0; }
   .action-chip-icon {
     width: 24px; height: 24px;
     display: flex; align-items: center; justify-content: center;

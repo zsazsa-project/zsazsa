@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import review_state_badge %}
+{% import "threat_landscape/_ranking.html" as rank %}
 
 {% block title %}{{ tlr.tlr_id }} | zsazsa CTI{% endblock %}
 {% block page_title %}{{ tlr.tlr_id }}: {{ tlr.title or '(no title)' }}{% endblock %}
@@ -57,10 +58,17 @@
       <button type="button" class="btn btn-sm btn-hero-ghost" data-recipients-url="{{ url_for('threat_landscape.recipients_fragment', id=tlr.uuid) }}"
               title="Preview recipients"><i class="fas fa-users me-1"></i> Recipients</button>
       <a href="{{ url_for('threat_landscape.pdf', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-file-pdf me-1"></i> PDF</a>
+      <a href="{{ url_for('threat_landscape.brief', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"
+         title="The executive summary and the threat ranking on one page"><i class="fas fa-file-lines me-1"></i> Management brief</a>
       {% if tlr.entries %}
       <a href="{{ url_for('threat_landscape.entries', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"><i class="fas fa-table-list me-1"></i> Triage and statistics</a>
       <a href="{{ url_for('threat_landscape.navigator_layer', id=tlr.uuid) }}" class="btn btn-sm btn-hero-ghost"
          title="The techniques of the events, as a layer for the MITRE ATT&amp;CK Navigator"><i class="fas fa-download me-1"></i> ATT&amp;CK layer</a>
+      {% else %}
+      <span class="btn-blocked" title="Nothing to triage: this report has no events yet">
+        <button class="btn btn-sm btn-hero-ghost" disabled><i class="fas fa-table-list me-1"></i> Triage and statistics</button>
+        <i class="fas fa-xmark" aria-hidden="true"></i>
+      </span>
       {% endif %}
       {% if state == 'published' %}
       <span title="Published reports cannot be deleted" style="cursor:not-allowed;" class="d-inline-block">
@@ -74,6 +82,10 @@
       </form>
       {% endif %}
     </div>
+    {% if not tlr.entries %}
+    <p class="hero-note"><i class="fas fa-circle-info me-1"></i>There is nothing to triage yet: this report has no events.
+      Add them from the <a href="{{ url_for('threat_landscape.review') }}#queue">threat landscape queue</a>.</p>
+    {% endif %}
   </div>
 
   <div class="hero-tlp">
@@ -92,6 +104,98 @@
 <div class="row g-4">
 
   <div class="col-lg-8">
+
+    {% if tlr.executive_summary or tlr.key_judgements %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-flag me-2"></i>Executive summary</div>
+      <div class="card-body">
+        {% if tlr.executive_summary %}<div class="report-md-body{{ ' mb-3' if tlr.key_judgements }}" data-md="{{ tlr.executive_summary | e }}"></div>{% endif %}
+        {% if tlr.key_judgements %}
+        <table class="table table-sm small mb-0 tlr-judgements">
+          <thead><tr><th>Key judgement</th><th style="width:7rem;">Confidence</th><th>What it means for us</th></tr></thead>
+          <tbody>
+            {% for kj in tlr.key_judgements %}
+            <tr>
+              <td class="fw-semibold">{{ kj.judgement }}</td>
+              <td>{{ confidence_labels.get(kj.confidence, kj.confidence) or '-' }}</td>
+              <td>{{ kj.implication or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if ranking or charts.threat_types %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-ranking-star me-2"></i>Threat ranking</div>
+      <div class="card-body">
+        {% if ranking %}
+        <table class="table table-sm small mb-3 tlr-ranking">
+          <thead><tr><th>Threat</th><th class="text-end" title="Duplicates count once">Events</th>
+            <th class="text-end">High relevance</th><th class="ps-3">Why</th></tr></thead>
+          <tbody>
+            {% for r in ranking %}
+            <tr>
+              <td><span class="fw-semibold">{{ r.name }}</span> <span class="text-muted">{{ r.kind }}</span></td>
+              <td class="text-end text-nowrap">{{ rank.incidents_cell(r) }}</td>
+              <td class="text-end">{{ r.high or '-' }}</td>
+              <td class="ps-3">{{ r.rationale or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if charts.threat_types %}
+        <div class="chart-label mb-1">Events per threat type{% if previous %}, beside {{ previous.tlr_id }} in grey{% endif %}</div>
+        {{ rank.bars(charts.threat_types, 'var(--accent-blue)') }}
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if own %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-house-crack me-2"></i>What hit us</div>
+      <div class="card-body">
+        <p class="small mb-2">{{ own | length }} of the events hit the organisation itself, from its own records:
+          {{ internal.values() | sort | join(', ') }}.</p>
+        {{ rank.own_rows(own, 'table table-sm small mb-0') }}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if vulnerabilities %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-bug me-2"></i>Vulnerabilities</div>
+      <div class="card-body">
+        <p class="small mb-2">{{ rank.vulnerability_summary(vulnerabilities) }}</p>
+        {{ rank.vulnerability_rows(vulnerabilities) }}
+        <div class="row g-3 small">
+          {% for heading, counts in [('Products most hit', vulnerabilities.products), ('Weaknesses', vulnerabilities.weaknesses)] if counts %}
+          <div class="col-md-6">
+            <div class="chart-label mb-1">{{ heading }}</div>
+            {% for name, n, _before in counts %}<div class="d-flex justify-content-between"><span>{{ name }}</span><span class="text-muted">{{ n }}</span></div>{% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if detection %}
+    <div class="card content-card mb-4 rise rise-1">
+      <div class="card-header"><i class="fas fa-shield-halved me-2"></i>Detection coverage</div>
+      <div class="card-body">
+        <p class="small mb-2">The ATT&amp;CK techniques of the events, the most frequent first, against the detection
+          engineering requests for them: {{ detection | selectattr('state', 'equalto', 'gap') | list | length }} of the
+          {{ detection | length }} have no detection yet.</p>
+        {{ rank.detection_rows(detection) }}
+      </div>
+    </div>
+    {% endif %}
 
     {% if tlr.purpose or tlr.audience_level or tlr.period_start or tlr.period_end
           or tlr.scope_sectors or tlr.scope_geography or linked_pirs %}
@@ -323,6 +427,23 @@
         <p class="text-muted mb-0">No events yet. Pick them from the queue on the report list.</p>
         {% endif %}
       </div>
+    </div>
+
+    <div class="card content-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-chart-simple me-2"></i>Figures in the PDF and the mail</span>
+        {% if not locked %}<a href="{{ url_for('threat_landscape.wizard_edit', id=tlr.uuid) }}#figures" class="small text-decoration-none">Change</a>{% endif %}
+      </div>
+      <ul class="list-unstyled small mb-0 card-body tlr-figures">
+        {% for key, label in figures %}
+        <li data-figure="{{ key }}">
+          {% if key in shown %}<i class="fas fa-check text-success me-2" aria-hidden="true"></i>{{ label }}
+          {% elif key in tlr.hidden_figures %}<i class="fas fa-xmark text-muted me-2" aria-hidden="true"></i><span class="text-muted">{{ label }}: left out</span>
+          {% else %}<i class="fas fa-minus text-muted me-2" aria-hidden="true"></i><span class="text-muted">{{ label }}: no data to show</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
     </div>
 
     <div class="card content-card mb-4">

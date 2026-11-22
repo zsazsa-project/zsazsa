@@ -133,6 +133,31 @@ THREAT_ACTOR_TYPES = [
     {'name': 'Hacktivists', 'description': 'These actors are driven by political, social, or ideological goals rather than financial profit. They frequently conduct low-impact, high-visibility disruption campaigns, such as Distributed Denial of Service (DDoS) attacks and website defacements, often targeting public administration and financial sectors.'},
 ]
 
+# The kinds a story of an imported threat report can be, with what each means,
+# and whether select all ticks it in the threat landscape queue. "excluded",
+# what Leave out sets, is always there besides them.
+REPORT_STORY_KINDS = [
+    {'name': 'assessment', 'description': "The publisher's analysis of a threat, an actor, a region or a trend over the period.", 'ticked': True},
+    {'name': 'incident', 'description': 'One attack, breach, campaign or operation.', 'ticked': True},
+    {'name': 'finding', 'description': "A statistic or a result from the publisher's own data or survey.", 'ticked': True},
+    {'name': 'outlook', 'description': 'Forecasts, predictions, looking ahead: what the publisher expects next.', 'ticked': False},
+    {'name': 'context', 'description': 'Background without threat content of its own: a foreword, the methodology, a policy overview, a conclusion that only repeats.', 'ticked': False},
+]
+
+# The threat types of a threat landscape report: its entries, its sections and
+# the stories of an imported threat report. ENISA's prime threats and
+# vulnerability exploitation by default.
+THREAT_LANDSCAPE_THREAT_TYPES = [
+    'Ransomware',
+    'Malware',
+    'Social engineering',
+    'Threats against data',
+    'Threats against availability',
+    'Information manipulation and interference',
+    'Supply chain attacks',
+    'Vulnerability exploitation',
+]
+
 # Daily briefing analyser: skip source events/reports whose titles contain
 # any of these substrings (case-insensitive).
 DAILY_BRIEFING_TITLE_EXCLUSIONS = []
@@ -208,6 +233,10 @@ EVENT_LOG_RETENTION_DAYS = 90
 PIPELINE_RUN_LOG_RETENTION_DAYS = 90
 # 0 keeps the audit log for good.
 AUDIT_LOG_RETENTION_DAYS = 365
+
+# The largest PDF of a threat report Data collection imports, in MB. MISP
+# stores it base64-encoded, so its own request limits must allow a third more.
+REPORT_IMPORT_MAX_MB = 30
 
 # The analyser's workflow (analyser.settings has what each one does).
 ANALYSER_READ_SCRAPER = True

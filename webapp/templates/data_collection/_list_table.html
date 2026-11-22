@@ -185,10 +185,17 @@
                 adm_rel_tag='',    adm_rel_val='',
                 adm_cred_tag='',   adm_cred_val='',
                 retention_tag='',
-                workflow_tag='', workflow_val=''
+                workflow_tag='', workflow_val='',
+                report_uuid='', provider_tag='', provider_val=''
               ) %}
               {% for t in e.tags %}
-                {% if t.startswith('scraper:data-collection-source') %}
+                {% if t.startswith('zsazsa:report="') %}
+                  {% set ns.report_uuid = t[15:-1] %}
+                  {% set ns.has_tags = true %}
+                {% elif t.startswith('zsazsa:provider=') %}
+                  {% set ns.provider_tag = t %}
+                  {% set ns.provider_val = t[16:] | replace('"', '') | trim %}
+                {% elif t.startswith('scraper:data-collection-source') %}
                   {% set ns.src_source_tag = t %}
                   {% set ns.src_source_val = t | replace('scraper:data-collection-source=', '') | replace('scraper:data-collection-source:', '') | replace('"', '') | trim %}
                   {% set ns.has_tags = true %}
@@ -232,6 +239,7 @@
                     {% elif ns.workflow_val == 'published' %}<span class="badge tag-row-badge wf-badge wf-published" data-tag="{{ ns.workflow_tag }}" style="cursor:pointer;" title="Workflow: published · Click to filter"><i class="fas fa-paper-plane fa-xs me-1"></i>published</span>
                     {% else %}<span class="badge tag-row-badge wf-badge wf-other" data-tag="{{ ns.workflow_tag }}" style="cursor:pointer;" title="Workflow: {{ ns.workflow_val }} · Click to filter"><i class="fas fa-circle fa-xs me-1"></i>{{ ns.workflow_val }}</span>{% endif %}
                   {% endif %}
+                  {% if ns.report_uuid %}<a class="badge tag-row-badge chip-report" href="{{ url_for('report_import.detail', uuid=ns.report_uuid) }}" title="A story of an imported threat report · Open the threat report"><i class="fas fa-book-open fa-xs me-1"></i>From threat report</a>{% if ns.provider_val %}<span class="badge tag-row-badge chip-report-provider" data-tag="{{ ns.provider_tag }}" style="cursor:pointer;" title="Provider of the threat report · Click to filter">{{ ns.provider_val }}</span>{% endif %}{% endif %}
                   {% if ns.src_source_val %}{{ chip_badge(ns.src_source_tag, ns.src_source_val, VALUE_CHIP_CONFIG['scraper:data-collection-source']) }}{% endif %}
                   {% if ns.src_domain_val %}{{ chip_badge(ns.src_domain_tag, ns.src_domain_val, VALUE_CHIP_CONFIG['scraper:primary-data-collection-source']) }}{% endif %}
                   {% if ns.adm_rel_val %}{{ chip_badge(ns.adm_rel_tag, ns.adm_rel_val, VALUE_CHIP_CONFIG['admiralty-scale:source-reliability']) }}{% endif %}

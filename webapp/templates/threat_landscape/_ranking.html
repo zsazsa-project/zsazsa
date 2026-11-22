@@ -1,0 +1,139 @@
+{# The threat ranking and the charts of a threat landscape report, shared by its
+   page, its wizard, its PDF and its management brief. The charts are SVG drawn
+   here, so they print in the PDF as they show on the page; their colours are
+   given, as a PDF has no theme to take them from. #}
+
+{% set movement_marks = {'up': ('↑', 'More events than in the previous report'),
+                         'down': ('↓', 'Fewer events than in the previous report'),
+                         'new': ('new', 'Not in the previous report'),
+                         'stable': ('=', 'As many events as in the previous report')} %}
+
+{% macro movement(m) -%}
+{% if m %}<span class="tlr-move tlr-move-{{ m }}" title="{{ movement_marks[m][1] }}">{{ movement_marks[m][0] }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro incidents_cell(r) -%}
+{{ r.incidents }}{% if r.previous is not none %} <span class="tlr-before">({{ r.previous }} before)</span>{% endif %} {{ movement(r.movement) }}
+{%- if r.ours %} <span class="tlr-ours" title="Events that hit the organisation itself">{{ r.ours }} ours</span>{% endif %}
+{%- endmacro %}
+
+{# The events that hit the organisation itself, as its own sources recorded them. #}
+{% macro own_rows(own, table_class) %}
+<table class="{{ table_class }}">
+  <thead><tr><th>Date</th><th>Event</th><th>Threat type</th><th>Relevance</th><th>Impact</th></tr></thead>
+  <tbody>
+    {% for i in own %}
+    <tr>
+      <td class="text-nowrap">{{ i.event_date or '-' }}</td>
+      <td>{{ i.event_info or '(untitled)' }}</td>
+      <td>{{ i.threat_type or '-' }}</td>
+      <td>{{ i.relevance or '-' }}</td>
+      <td>{{ i.impact or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{# Horizontal bars, one per (label, value, earlier value or none): the value in
+   colour, the earlier one as a thin grey bar under it. #}
+{% macro bars(items, color, width=520) %}
+{% set values = items | map(attribute=1) | list + (items | map(attribute=2) | select('number') | list) %}
+{% set most = (values | max) if values else 1 %}
+{% set label_w, row_h = 170, 24 %}
+{% set bar_w = width - label_w - 40 %}
+<svg class="tlr-chart" viewBox="0 0 {{ width }} {{ items | length * row_h + 4 }}" width="100%" role="img"
+     xmlns="http://www.w3.org/2000/svg" aria-label="{% for label, value, _b in items %}{{ label }}: {{ value }}{{ '; ' if not loop.last }}{% endfor %}">
+  {% for label, value, before in items %}
+  {% set y = loop.index0 * row_h %}
+  <text x="{{ label_w - 8 }}" y="{{ y + 13 }}" text-anchor="end" font-size="11" style="fill:#475569">{{ label | truncate(28, true, '…') }}</text>
+  <rect x="{{ label_w }}" y="{{ y + 4 }}" width="{{ [value / most * bar_w, 1] | max | round(1) }}" height="10" rx="2" style="fill:{{ color }}"></rect>
+  {% if before is not none %}
+  <rect x="{{ label_w }}" y="{{ y + 16 }}" width="{{ [before / most * bar_w, 1] | max | round(1) }}" height="4" rx="1" style="fill:#cbd5e1"></rect>
+  {% endif %}
+  <text x="{{ label_w + [value / most * bar_w, 1] | max + 5 }}" y="{{ y + 13 }}" font-size="10" style="fill:#0f172a">{{ value }}</text>
+  {% endfor %}
+</svg>
+{% endmacro %}
+
+{# Columns, one per (label, value), in the order given, such as months. #}
+{% macro columns(items, color, width=520, height=110) %}
+{% set most = (items | map(attribute=1) | max) if items else 1 %}
+{% set slot = width / ([items | length, 1] | max) %}
+{% set col = [slot * 0.6, 36] | min %}
+<svg class="tlr-chart" viewBox="0 0 {{ width }} {{ height }}" width="100%" role="img" xmlns="http://www.w3.org/2000/svg"
+     aria-label="{% for label, value in items %}{{ label }}: {{ value }}{{ '; ' if not loop.last }}{% endfor %}">
+  {% for label, value in items %}
+  {% set h = value / most * (height - 40) %}
+  {% set mid = loop.index0 * slot + slot / 2 %}
+  <rect x="{{ (mid - col / 2) | round(1) }}" y="{{ (height - 20 - h) | round(1) }}" width="{{ col | round(1) }}" height="{{ [h, 1] | max | round(1) }}" rx="2" style="fill:{{ color }}"></rect>
+  <text x="{{ mid | round(1) }}" y="{{ (height - 24 - h) | round(1) }}" text-anchor="middle" font-size="10" style="fill:#0f172a">{{ value }}</text>
+  <text x="{{ mid | round(1) }}" y="{{ height - 6 }}" text-anchor="middle" font-size="10" style="fill:#475569">{{ label }}</text>
+  {% endfor %}
+</svg>
+{% endmacro %}
+
+{# The vulnerabilities of the period as a table: on the report page with links
+   to the advisories, in the PDF without. #}
+{% macro vulnerability_rows(v, links=true, limit=15) %}
+<table class="{{ 'table table-sm small mb-2 tlr-vulnerabilities' if links else 'grid-table' }}">
+  <thead><tr><th>CVE</th><th>Product</th><th>CVSS</th><th>Exploitation</th><th>Ours</th><th>Events</th></tr></thead>
+  <tbody>
+    {% for r in v.rows[:limit] %}
+    <tr>
+      <td class="text-nowrap">{% if links and r.vea %}<a href="{{ url_for('vea.detail', id=r.vea.uuid) }}" title="{{ r.vea.vea_id }}">{{ r.cve }}</a>{% else %}{{ r.cve }}{% endif %}</td>
+      <td>{{ r.product or '-' }}</td>
+      <td>{{ r.cvss or '-' }}</td>
+      <td>{% if r.exploitation in ('Active', 'KEV listed') %}<span class="tlr-exposure tlr-exposure-critical">{{ r.exploitation }}</span>{% else %}{{ r.exploitation or '-' }}{% endif %}</td>
+      <td>{% if r.ours %}<span class="tlr-exposure tlr-exposure-high">In our assets</span>{% else %}-{% endif %}</td>
+      <td>{{ r.incidents or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if v.rows | length > limit %}<div class="tlr-before">and {{ v.rows | length - limit }} more</div>{% endif %}
+{% endmacro %}
+
+{% macro vulnerability_summary(v) -%}
+{{ v.cves }} CVE{{ 's' if v.cves != 1 }} in the period, {{ v.exploited }} of them exploited, {{ v.ours }} in products the
+organisation runs; {{ v.advisories }} vulnerability advisor{{ 'y' if v.advisories == 1 else 'ies' }}.
+{%- endmacro %}
+
+{# The techniques of the events against the detections for them. On the
+   report page each request links to its page, and a gap can be asked for. #}
+{% set coverage_looks = {'covered': ('Covered', 'covered'), 'in progress': ('In progress', 'medium'), 'gap': ('Gap', 'critical')} %}
+{% macro detection_rows(rows, page=true) %}
+<table class="{{ 'table table-sm small mb-0 tlr-detection' if page else 'grid-table' }}">
+  <thead><tr><th>Technique</th><th>Events</th><th>Detection</th><th>Requests</th>{% if page %}<th></th>{% endif %}</tr></thead>
+  <tbody>
+    {% for r in rows %}
+    {% set label, look = coverage_looks[r.state] %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ r.incidents }}</td>
+      <td><span class="tlr-exposure tlr-exposure-{{ look }}">{{ label }}</span></td>
+      <td>
+        {% for d in r.requests %}
+        {% if page %}<a href="{{ url_for('detection_eng.detail', id=d.uuid) }}" class="text-decoration-none">{{ d.der_id }}</a>{% else %}{{ d.der_id }}{% endif %}
+        <span class="tlr-before">{{ d.status }}</span>{{ ', ' if not loop.last }}
+        {% else %}-{% endfor %}
+      </td>
+      {% if page %}
+      <td class="text-end">
+        {% if r.state == 'gap' %}
+        <form method="post" action="{{ url_for('detection_eng.wizard_new') }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="prefill_only" value="1">
+          <input type="hidden" name="technique" value="{{ r.name }}">
+          {% for token in r.events %}<input type="hidden" name="source" value="{{ token }}">{% endfor %}
+          <button class="btn btn-xs btn-outline-primary" title="A new detection engineering request, from the events that use {{ r.technique }}">
+            <i class="fas fa-plus me-1"></i>Request a detection</button>
+        </form>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}

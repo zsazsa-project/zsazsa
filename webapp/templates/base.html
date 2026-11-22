@@ -64,7 +64,7 @@
 {% set stakeholders_section_active = request.blueprint in ('stakeholders', 'community') and request.endpoint != 'stakeholders.matrix' %}
 {% set requirements_section_active = (request.endpoint and request.endpoint.startswith('requirements.')) or request.blueprint == 'rfi' %}
 {% set products_section_active = request.blueprint in ('data_collection', 'daily_briefing', 'threat_landscape', 'flash_intel', 'vea', 'products', 'indicator_feed', 'threat_actor_profile', 'detection_eng') %}
-{% set reporting_section_active = request.blueprint == 'pipeline' or request.endpoint in ('stats.index', 'stats.scope', 'stats.pewpew_map', 'logs.index', 'stakeholders.matrix') %}
+{% set reporting_section_active = request.blueprint == 'pipeline' or request.endpoint in ('stats.index', 'stats.scope', 'stats.pewpew_map', 'stats.collection_plan_page', 'logs.index', 'stakeholders.matrix') %}
 {% set settings_section_active = request.endpoint == 'config_page.index' or request.blueprint in ('collection_sources', 'setup_wizard') %}
 
 <!-- Top navigation (UiBeta theme) -->
@@ -144,6 +144,7 @@
           <li><a href="{{ url_for('stats.index') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.index' }}"><i class="fas fa-chart-bar fa-fw"></i> Statistics</a></li>
           <li><a href="{{ url_for('stats.scope') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.scope' }}"><i class="fas fa-crosshairs fa-fw"></i> Scope and Focus points stats</a></li>
           <li><a href="{{ url_for('stats.pewpew_map') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.pewpew_map' }}"><i class="fas fa-cat fa-fw"></i> Pew-pew map</a></li>
+          <li><a href="{{ url_for('stats.collection_plan_page') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stats.collection_plan_page' }}"><i class="fas fa-satellite-dish fa-fw"></i> Collection plan</a></li>
           <li><a href="{{ url_for('pipeline.index') }}" class="dropdown-item {{ 'active' if request.blueprint == 'pipeline' }}"><i class="fas fa-satellite-dish fa-fw"></i> Pipeline</a></li>
           <li><a href="{{ url_for('logs.index') }}" class="dropdown-item {{ 'active' if request.endpoint == 'logs.index' }}"><i class="fas fa-scroll fa-fw"></i> Logs</a></li>
           <li><a href="{{ url_for('stakeholders.matrix') }}" class="dropdown-item {{ 'active' if request.endpoint == 'stakeholders.matrix' }}"><i class="fas fa-table-cells fa-fw"></i> Stakeholder matrix</a></li>
@@ -318,6 +319,11 @@
       <li>
         <a href="{{ url_for('stats.pewpew_map') }}" class="{{ 'active' if request.endpoint == 'stats.pewpew_map' }}">
           <i class="fas fa-cat fa-fw"></i> Pew-pew map
+        </a>
+      </li>
+      <li>
+        <a href="{{ url_for('stats.collection_plan_page') }}" class="{{ 'active' if request.endpoint == 'stats.collection_plan_page' }}">
+          <i class="fas fa-satellite-dish fa-fw"></i> Collection plan
         </a>
       </li>
       <li>

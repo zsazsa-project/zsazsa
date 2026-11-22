@@ -30,6 +30,7 @@ import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from uuid import UUID, uuid5
 
 import config
 import requests
@@ -2275,6 +2276,10 @@ def next_rfi_id():
     return _next_id(config.TAG_RFI, "RFI")
 
 
+# The statuses of an RFI still waiting for its answer.
+RFI_OPEN_STATUSES = ("New", "Acknowledged", "In Progress")
+
+
 def list_rfis():
     misp = _misp()
     events = _search_all(misp, tags=[config.TAG_RFI], pythonify=True)
@@ -4346,6 +4351,8 @@ def _collection_source_ns(event):
         description=_obj_attr(obj, "description"),
         enabled=_obj_attr(obj, "enabled") != "false",
         source_reliability=source_reliability,
+        # The organisation's own: its incidents and the detections of its SOC/CSIRT.
+        internal=_obj_attr(obj, "internal") == "true",
     )
     return ns
 
@@ -4389,6 +4396,7 @@ def _collection_source_obj(data: dict, enabled: bool = True):
     _oa(obj, "description", data.get("description", ""))
     _oa(obj, "source-reliability", data.get("source_reliability", ""))
     _oa(obj, "enabled", "true" if enabled else "false")
+    _oa(obj, "internal", "true" if data.get("internal") else "")
     return obj
 
 
@@ -4456,6 +4464,7 @@ def toggle_collection_source(uuid, enabled: bool):
         "location": _obj_attr(old_obj, "location"),
         "description": _obj_attr(old_obj, "description"),
         "source_reliability": _obj_attr(old_obj, "source-reliability"),
+        "internal": _obj_attr(old_obj, "internal") == "true",
     }
     _sync_object_attributes(misp, ev, "zsazsa-collection-source",
                             _collection_source_obj(data, enabled=enabled), "collection source")
@@ -4933,6 +4942,360 @@ def get_manual_collection_event(uuid: str):
             for r in reports
         ],
     }
+
+
+# ── Imported reports ─────────────────────────────────────────────────────────
+#
+# A long report imported on Data collection is a zsazsa record: the PDF, what
+# was read from it (core.report_document) and the manifest of its stories are
+# attachments, and its object holds the details. The record is never a
+# collection event itself; each story made from it is one, a manual entry
+# under the source the report was imported under.
+#
+# The manifest is a file rather than an attribute: with the context of every
+# story it outgrows what MISP keeps in one. Its object names the attachment
+# that is current, and a save adds the new file before it drops the old one.
+
+TAG_REPORT_DOCUMENT = 'zsazsa:type="report-document"'
+REPORT_DOCUMENT_OBJECT = "zsazsa-report-document"
+REPORT_PDF_COMMENT = "zsazsa:report-pdf"
+REPORT_READING_COMMENT = "zsazsa:report-reading"
+REPORT_MANIFEST_COMMENT = "zsazsa:report-manifest"
+# The provider as a local tag, so Data collection can list one provider's
+# reports and stories with its tag filter.
+PROVIDER_TAG_PREFIX = "zsazsa:provider="
+_REPORT_FIELDS = ("title", "provider", "published", "collection_source", "source_reliability", "filename",
+                  "sha256", "source_url", "pages", "characters", "structure", "import_state", "stories",
+                  "manifest", "version")
+_REPORT_NUMBERS = ("pages", "characters", "stories", "version")
+_report_write_lock = threading.Lock()
+
+
+class ReportChanged(RuntimeError):
+    """The report was saved by someone else since the caller read it."""
+
+
+def provider_tag(name: str) -> str:
+    return f'{PROVIDER_TAG_PREFIX}"{name.strip().replace(chr(34), chr(39))}"'
+
+
+def _report_document_obj(data: dict):
+    obj = _build_obj(REPORT_DOCUMENT_OBJECT)
+    for field in _REPORT_FIELDS:
+        _oa(obj, field.replace("_", "-"), data.get(field))
+    return obj
+
+
+def _report_ns(event):
+    obj = _get_obj(event, REPORT_DOCUMENT_OBJECT)
+    if obj is None:
+        return None
+    files = {a.comment: a.uuid for a in getattr(event, "attributes", []) or []
+             if a.type == "attachment" and not getattr(a, "deleted", False)}
+    tlp = next((t.name[4:] for t in getattr(event, "tags", []) or [] if t.name.startswith("tlp:")), "")
+    misp_url = (getattr(config, "MISP_WEBAPP_URL", "") or "").rstrip("/")
+    return SimpleNamespace(
+        uuid=event.uuid, id=event.id, tlp=tlp,
+        misp_url=f"{misp_url}/events/view/{event.uuid}",
+        pdf=files.get(REPORT_PDF_COMMENT), reading=files.get(REPORT_READING_COMMENT),
+        **{field: _obj_attr(obj, field.replace("_", "-")) or "" for field in _REPORT_FIELDS
+           if field not in _REPORT_NUMBERS},
+        **{field: _obj_int(obj, field, 0) for field in _REPORT_NUMBERS},
+    )
+
+
+def _attach_file(misp, event_uuid, filename, file_bytes, comment, label):
+    import base64
+    attr = MISPAttribute()
+    attr.type = "attachment"
+    attr.category = "External analysis"
+    attr.value = filename
+    attr.data = base64.b64encode(file_bytes).decode("utf-8")
+    attr.comment = comment
+    attr.to_ids = False
+    return _check(misp.add_attribute(event_uuid, attr, pythonify=True), label).uuid
+
+
+def _attach_manifest(misp, event_uuid, manifest: dict, version: int) -> str:
+    """Attach a manifest under a name of its own version: MISP refuses an
+    attribute with the value of one the event has, and the new manifest is
+    attached before the one it replaces goes."""
+    return _attach_file(misp, event_uuid, f"manifest-{version}.json", json.dumps(manifest).encode("utf-8"),
+                        REPORT_MANIFEST_COMMENT, "attach the report's manifest")
+
+
+def create_report_document(data: dict, pdf: bytes, reading: dict, manifest: dict) -> str:
+    """Store an imported report with its PDF, what was read from it and the
+    manifest of its stories.
+
+    ``data`` holds the _REPORT_FIELDS but the manifest, and the TLP. Returns the
+    new event's UUID. When a step after creating the event fails, the event is
+    deleted again, so a retry does not find a half-stored copy under the same
+    sha256.
+    """
+    misp = _misp()
+    event = _make_event(f"[zsazsa:report] {data['title']}", extra_tags=[f"tlp:{data['tlp']}"])
+    if data.get("published"):
+        event.date = data["published"]
+    created = _check(misp.add_event(event, pythonify=True), "create report document")
+    try:
+        for tag in (TAG_REPORT_DOCUMENT, provider_tag(data["provider"])):
+            _tag_local(misp, created.uuid, tag)
+        _attach_file(misp, created.uuid, data["filename"], pdf, REPORT_PDF_COMMENT, "attach the report's PDF")
+        _attach_file(misp, created.uuid, "reading.json", json.dumps(reading).encode("utf-8"),
+                     REPORT_READING_COMMENT, "attach what was read from the report")
+        data = {**data, "manifest": _attach_manifest(misp, created.uuid, manifest, data["version"]),
+                "stories": len(manifest.get("stories", []))}
+        _check(misp.add_object(created.uuid, _report_document_obj(data), pythonify=True), "add report document object")
+    except Exception:
+        _delete_unfinished(misp, created.uuid, "report import")
+        raise
+    return created.uuid
+
+
+def get_report_document(uuid):
+    """An imported report, or None when ``uuid`` names any other event."""
+    event = _zsazsa_event(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT)
+    return _report_ns(event) if event is not None else None
+
+
+def find_report_document(sha256: str):
+    """The UUID of the report imported from this very file, or None.
+
+    Raises when MISP cannot say, rather than letting a second copy be made.
+    """
+    found = _check(_misp().search(controller="events", value=sha256, tags=[TAG_REPORT_DOCUMENT],
+                                  pythonify=True), "look for an earlier import")
+    for event in found or []:
+        ns = _report_ns(event)
+        if ns and ns.sha256 == sha256:
+            return ns.uuid
+    return None
+
+
+def list_report_documents() -> list:
+    """Every imported report, the most recent import first."""
+    reports = [ns for ns in map(_report_ns, _tagged_events(TAG_REPORT_DOCUMENT)) if ns]
+    return sorted(reports, key=lambda ns: int(ns.id or 0), reverse=True)
+
+
+def delete_report_document(uuid: str):
+    """Delete an imported threat report: its PDF, what was read from it and its
+    manifest, never the events of the stories made from it."""
+    return _delete_record(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT, "threat report")
+
+
+def report_providers(reports) -> list[str]:
+    """The providers of these reports, each once, in alphabetical order."""
+    names = {}
+    for ns in reports:
+        if ns.provider:
+            names.setdefault(ns.provider.casefold(), ns.provider)
+    return [names[k] for k in sorted(names)]
+
+
+def report_reading(ns) -> dict:
+    """What core.report_document read from the report's PDF."""
+    return json.loads(fetch_attachment(ns.reading).data.getvalue())
+
+
+def report_manifest(ns) -> dict:
+    """The stories of a report, as the import and the review left them."""
+    return json.loads(fetch_attachment(ns.manifest).data.getvalue())
+
+
+def report_pdf(ns) -> bytes:
+    return fetch_attachment(ns.pdf).data.getvalue()
+
+
+def _locked_report(uuid: str, version: int):
+    """The report's event and record, when it is still at ``version``."""
+    event = _zsazsa_event(uuid, REPORT_DOCUMENT_OBJECT, TAG_REPORT_DOCUMENT)
+    ns = _report_ns(event) if event is not None else None
+    if ns is None:
+        raise ValueError(f"report {uuid} not found")
+    if ns.version != version:
+        raise ReportChanged(f"report {uuid} is at version {ns.version}, not {version}")
+    return event, ns
+
+
+def save_report_manifest(uuid: str, manifest: dict, version: int, import_state: str = "") -> int:
+    """Store a new manifest of the report's stories over ``version``, and
+    return the version it is saved as.
+
+    Raises ReportChanged when the report was saved since, as
+    update_report_details does. The new file is attached before the record
+    names it and the old one goes, so a failure leaves the manifest that was.
+    """
+    misp = _misp()
+    with _report_write_lock:
+        event, ns = _locked_report(uuid, version)
+        new_file = _attach_manifest(misp, event.uuid, manifest, ns.version + 1)
+        data = {**{field: getattr(ns, field) for field in _REPORT_FIELDS}, "manifest": new_file,
+                "stories": len(manifest.get("stories", [])), "version": ns.version + 1}
+        if import_state:
+            data["import_state"] = import_state
+        try:
+            _sync_object_attributes(misp, event, REPORT_DOCUMENT_OBJECT, _report_document_obj(data), "report document")
+        except Exception:
+            _drop_manifest(misp, new_file, uuid)
+            raise
+        if ns.manifest:
+            _drop_manifest(misp, ns.manifest, uuid)
+    return data["version"]
+
+
+def _drop_manifest(misp, attr_uuid: str, report_uuid: str) -> None:
+    """Delete a manifest the record does not name, for good: a review and the
+    AI save one every few stories, and soft-deleted they would pile up in MISP.
+    The record names the current one, so a file left behind is only clutter."""
+    result = misp.delete_attribute(attr_uuid, hard=True)
+    if isinstance(result, dict) and "errors" in result and not _is_not_found(result):
+        logger.warning("threat report %s: could not delete the manifest %s: %s", report_uuid, attr_uuid,
+                       result["errors"])
+
+
+def update_report_details(uuid: str, details: dict, version: int):
+    """Change a report's title, provider, publication date or TLP.
+
+    ``version`` is the one the analyst's page was showing. When the report was
+    saved since, nothing is written and ReportChanged is raised, so the later
+    save cannot undo the earlier one without the analyst seeing it.
+    """
+    misp = _misp()
+    with _report_write_lock:
+        event, ns = _locked_report(uuid, version)
+        data = {field: getattr(ns, field) for field in _REPORT_FIELDS}
+        data.update({k: details[k] for k in ("title", "provider", "published")}, version=ns.version + 1)
+        _sync_object_attributes(misp, event, REPORT_DOCUMENT_OBJECT, _report_document_obj(data), "report document")
+        _check(misp.update_event({"Event": {"id": event.id, "info": f"[zsazsa:report] {data['title']}",
+                                            "date": data["published"] or str(event.date)}}), "rename report document")
+        _sync_tlp_tag(misp, event, details["tlp"])
+        wanted = provider_tag(data["provider"])
+        for tag in getattr(event, "tags", []) or []:
+            if tag.name.startswith(PROVIDER_TAG_PREFIX) and tag.name != wanted:
+                _check(misp.untag(event.uuid, tag.name), "remove the old provider tag")
+        if not _event_has_tag(event, wanted):
+            _tag_local(misp, event.uuid, wanted)
+    return get_report_document(uuid)
+
+
+# ── The stories of an imported report ────────────────────────────────────────
+#
+# Each story is a manual collection entry with the story object, linked to its
+# report by extends_uuid for MISP and by the local tag zsazsa:report="<uuid>"
+# for zsazsa: the analyser leaves every event with that tag alone
+# (analyser/sources.py), Data collection lists a report's stories by it, and
+# the threat landscape queue groups them by it. Its kind is a tag too, as the
+# queue reads it from the collection cache.
+
+REPORT_STORY_OBJECT = "zsazsa-report-story"
+REPORT_TAG_PREFIX = 'zsazsa:report="'
+REPORT_KIND_TAG_PREFIX = "zsazsa:report-kind="
+_STORY_FIELDS = ("report_uuid", "story_id", "kind", "period", "section", "pages", "blocks", "threat_type",
+                 "affected_assets", "impact", "motivation", "mitigation", "evidence")
+
+
+def report_tag(report_uuid: str) -> str:
+    return f'{REPORT_TAG_PREFIX}{report_uuid}"'
+
+
+def report_of(tag_names) -> str:
+    """The UUID of the report an event is a story of, or ""."""
+    return next((t[len(REPORT_TAG_PREFIX):-1] for t in tag_names if t.startswith(REPORT_TAG_PREFIX)), "")
+
+
+def story_kind(tag_names) -> str:
+    return next((t[len(REPORT_KIND_TAG_PREFIX):].strip('"') for t in tag_names
+                 if t.startswith(REPORT_KIND_TAG_PREFIX)), "")
+
+
+def story_event_uuid(report_uuid: str, story_id: str) -> str:
+    """The UUID a story's event is made with. The same for every try, so a
+    retry finds the event an earlier one made instead of making a second."""
+    return str(uuid5(UUID(report_uuid), story_id))
+
+
+def _context_values(context: dict, key: str) -> list:
+    return [v["value"] for v in context.get(key) or [] if v.get("value")]
+
+
+def _context_text(context: dict, key: str) -> str:
+    return (context.get(key) or {}).get("text") or ""
+
+
+def _story_values(report, story: dict) -> dict:
+    """The story object's fields, by their names in _STORY_FIELDS."""
+    context = story.get("context") or {}
+    first, last = story["pages"]
+    return {
+        "report_uuid": report.uuid, "story_id": story["id"], "kind": story["kind"],
+        "period": context.get("period"), "section": " › ".join(story.get("path") or []),
+        "pages": str(first) if first == last else f"{first}-{last}",
+        "blocks": f"{story['start']}-{story['end'] - 1}",
+        "threat_type": (context.get("threat_type") or {}).get("value"),
+        **{key: _context_text(context, key) for key in ("affected_assets", "impact", "motivation", "mitigation")},
+        "evidence": json.dumps(context) if context else "",
+    }
+
+
+def _report_story_obj(values: dict):
+    obj = _build_obj(REPORT_STORY_OBJECT)
+    for field in _STORY_FIELDS:
+        _oa(obj, field.replace("_", "-"), values.get(field))
+    return obj
+
+
+def create_report_story(report, story: dict, text: str) -> tuple[str, bool]:
+    """Make the collection event of one story of a report.
+
+    Returns its UUID, and whether it was made now: an event an earlier try
+    made is left as it is. One that cannot be made whole is deleted again.
+    """
+    misp = _misp()
+    uuid = story_event_uuid(report.uuid, story["id"])
+    existing = misp.get_event(uuid, pythonify=True)
+    if not isinstance(existing, dict):
+        return uuid, False
+    if not _is_not_found(existing):
+        _check(existing, "look for the story's event")
+    context = story.get("context") or {}
+    data = {
+        "source": report.collection_source, "title": story["title"], "tlp": report.tlp or "amber",
+        "source_reference": report.source_url, "source_provider": report.provider,
+        "source_reliability": report.source_reliability, "summary": context.get("summary") or "",
+        "description": text,
+        **{key: _context_values(context, key) for key in ("geographic_scope", "sectors", "threat_actors")},
+        "mitre_attack_techniques": _context_values(context, "techniques"),
+    }
+    event = _make_event(story["title"], extra_tags=[f"tlp:{data['tlp']}"])
+    event.uuid = uuid
+    event.extends_uuid = report.uuid
+    if report.published:
+        event.date = report.published
+    created = _check(misp.add_event(event, pythonify=True), "create a story's event")
+    try:
+        # The report's tag before the manual entry's, which is what the
+        # analyser looks for: it must never find a story without it.
+        for tag in (report_tag(report.uuid), f'{REPORT_KIND_TAG_PREFIX}"{story["kind"]}"', provider_tag(report.provider)):
+            _tag_local(misp, created.uuid, tag)
+        _fill_manual_collection_event(misp, created, data, story["title"])
+        _check(misp.add_object(created.uuid, _report_story_obj(_story_values(report, story)), pythonify=True),
+               "add story object")
+    except Exception:
+        _delete_unfinished(misp, created.uuid, "story")
+        raise
+    return uuid, True
+
+
+def report_story_details(event_uuid: str) -> dict:
+    """The fields of a story's object, by their names in _STORY_FIELDS, or {}
+    when the event is no story. For a threat landscape entry made from it."""
+    event = _manual_entry_event(event_uuid)
+    obj = _get_obj(event, REPORT_STORY_OBJECT) if event is not None else None
+    if obj is None:
+        return {}
+    return {field: _obj_attr(obj, field.replace("_", "-")) or "" for field in _STORY_FIELDS}
 
 
 def _join_lines(items):
@@ -6162,6 +6525,16 @@ def _vea_ns(event):
         published_at=_published_at(event),
         created_at=_parse_dt(event.date.isoformat() if event.date else None),
     )
+
+
+def vea_exploitation(vea) -> str:
+    """How far a CVE of an advisory is exploited: "Active" when exploitation was
+    observed, "KEV listed", or what is known of an exploit."""
+    if "yes" in (vea.observed_exploitation or "").lower():
+        return "Active"
+    if vea.cisa_kev == "Yes":
+        return "KEV listed"
+    return vea.exploit_availability or "Unknown"
 
 
 def _vea_id_from_event_id(event_id):
@@ -7615,9 +7988,8 @@ TLR_ACTOR_CATEGORIES = [
 ]
 
 
-# The prime threats of ENISA's threat landscape, which an entry's threat type
-# is picked from.
-TLR_THREAT_TYPES = [
+# The prime threats of ENISA's threat landscape.
+ENISA_THREAT_TYPES = [
     "Ransomware",
     "Malware",
     "Social engineering",
@@ -7626,13 +7998,28 @@ TLR_THREAT_TYPES = [
     "Information manipulation and interference",
     "Supply chain attacks",
 ]
+
+
+# ENISA's prime threats and the exploitation of vulnerabilities, which CERT-EU
+# counts as an initial access vector of its own: the threat types while
+# Settings has none of its own.
+DEFAULT_THREAT_TYPES = ENISA_THREAT_TYPES + ["Vulnerability exploitation"]
+
+
+def tlr_threat_types() -> list:
+    """The threat types a threat landscape entry, section or story is picked from."""
+    return list(getattr(config, "THREAT_LANDSCAPE_THREAT_TYPES", None) or DEFAULT_THREAT_TYPES)
+
+
 TLR_RELEVANCE = ["high", "medium", "low"]
 
 # An entry is one source event in a landscape's dataset, with the landscape's
 # own assessment of it. The MISP attribute is the field name with hyphens.
 TLR_ENTRY_FIELDS = ("event_uuid", "source_id", "event_info", "event_date", "relevance",
                     "source_reliability", "information_credibility", "threat_type", "note",
-                    "affected_assets", "impact", "motivation", "mitigation")
+                    "affected_assets", "impact", "motivation", "mitigation", "incident")
+# What an entry's incident holds when an analyst decided the event stands alone.
+TLR_INCIDENT_ALONE = "-"
 # The questions ENISA asks of every incident besides who, where and how.
 TLR_ENTRY_QUESTIONS = (("affected_assets", "Affected assets"), ("impact", "Impact"),
                        ("motivation", "Motivation"), ("mitigation", "Mitigation"))
@@ -7646,6 +8033,7 @@ def _tlr_entry_obj(entry):
     for key in TLR_ENTRY_LISTS:
         _oa_json(obj, key.replace("_", "-"), entry.get(key))
     _oa(obj, "excluded", "yes" if entry.get("excluded") else "")
+    _oa(obj, "no-classification", "yes" if entry.get("no_classification") else "")
     return obj
 
 
@@ -7653,6 +8041,7 @@ def _tlr_entry(obj):
     entry = {key: _obj_attr(obj, key.replace("_", "-")) or "" for key in TLR_ENTRY_FIELDS}
     entry.update({key: _json_list(_obj_attr(obj, key.replace("_", "-"))) for key in TLR_ENTRY_LISTS})
     entry["excluded"] = _obj_attr(obj, "excluded") == "yes"
+    entry["no_classification"] = _obj_attr(obj, "no-classification") == "yes"
     return entry
 
 
@@ -7674,6 +8063,23 @@ TLR_SECTION_FIELDS = ("threat_type", "title", "findings", "confidence", "key_dri
 TLR_SECTION_TEXTS = (("findings", "Findings"), ("key_drivers", "Key drivers"),
                      ("alternative_hypotheses", "Alternative hypotheses"),
                      ("recommendations", "Recommendations"))
+# A key judgement, the bottom line management reads first: what the analyst
+# judges, how confident they are, and what it means for the organisation.
+TLR_JUDGEMENT_FIELDS = ("judgement", "confidence", "implication")
+# What the threat ranking of a report lists: its threat types and its most
+# frequent threat actors.
+TLR_RANKING_KINDS = ("threat type", "threat actor")
+# The figures the PDF and the mail of a report show, unless the analyst left
+# one out. A report records the ones left out, so one saved before shows all.
+TLR_FIGURES = (("threat_types", "Events per threat type"), ("months", "Events per month"),
+               ("sectors", "Sectors most named"), ("techniques", "ATT&CK techniques most seen"))
+# The parts of a report "Draft with AI" fills, by their form field. The report
+# records which of them the AI drafted, for its methodology to say so.
+TLR_AI_SECTIONS = {
+    "executive_summary": "executive summary", "key_judgements": "key judgements", "top_threats": "top threats",
+    "trending_actors": "trending threat actors", "key_incidents": "key incidents",
+    "recommendations": "recommendations", "outlook": "outlook",
+}
 
 
 def _tlr_obj(data):
@@ -7691,6 +8097,11 @@ def _tlr_obj(data):
     _oa(obj, "key-incidents", data.get("key_incidents"))
     _oa(obj, "recommendations", data.get("recommendations"))
     _oa(obj, "outlook", data.get("outlook"))
+    _oa(obj, "executive-summary", data.get("executive_summary"))
+    _oa_json(obj, "key-judgements", data.get("key_judgements"))
+    _oa_json(obj, "ai-drafted", data.get("ai_drafted"))
+    _oa_json(obj, "threat-ranking", data.get("threat_ranking"))
+    _oa_json(obj, "hidden-figures", data.get("hidden_figures"))
     for key in TLR_DIRECTION_FIELDS:
         _oa(obj, key.replace("_", "-"), data.get(key))
     for key in TLR_DIRECTION_LISTS:
@@ -7727,6 +8138,11 @@ def _tlr_ns(event):
         key_incidents=g("key-incidents"),
         recommendations=g("recommendations"),
         outlook=g("outlook"),
+        executive_summary=g("executive-summary"),
+        key_judgements=_json_list(g("key-judgements")),
+        ai_drafted=_json_list(g("ai-drafted")),
+        threat_ranking=_json_list(g("threat-ranking")),
+        hidden_figures=_json_list(g("hidden-figures")),
         **{key: g(key.replace("_", "-")) for key in TLR_DIRECTION_FIELDS},
         **{key: _json_list(g(key.replace("_", "-"))) for key in TLR_DIRECTION_LISTS},
         threat_sections=_json_list(g("threat-sections")),
@@ -7740,6 +8156,48 @@ def _tlr_ns(event):
         entries=sorted((SimpleNamespace(uuid=o.uuid, **_tlr_entry(o)) for o in _tlr_entry_objs(event)),
                        key=lambda e: e.event_date, reverse=True),
     )
+
+
+_RELEVANCE_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def tlr_incidents(entries) -> list:
+    """The incidents among the entries left in the analysis, which the counts
+    of a report are of: the events an analyst grouped as one incident merged,
+    every other event on its own.
+
+    An incident has the date, title and source of its earliest event, the
+    highest relevance of its events, the first threat type, Admiralty rating,
+    impact and affected assets one of them has, and every sector, place, actor
+    and technique any of them names. ``events`` is how many events report it,
+    and ``source_ids`` the sources they come from.
+    """
+    groups = {}
+    for e in entries:
+        if not e.excluded:
+            key = e.incident if e.incident and e.incident != TLR_INCIDENT_ALONE else e.event_uuid
+            groups.setdefault(key, []).append(e)
+    incidents = []
+    for members in groups.values():
+        members.sort(key=lambda e: e.event_date or "9999")
+
+        def first(attr):
+            return next((getattr(m, attr) for m in members if getattr(m, attr)), "")
+
+        def every(attr):
+            return list(dict.fromkeys(v for m in members for v in getattr(m, attr)))
+
+        relevance = min((m.relevance for m in members if m.relevance in _RELEVANCE_ORDER),
+                        key=_RELEVANCE_ORDER.get, default="")
+        lead = members[0]
+        incidents.append(SimpleNamespace(
+            event_uuid=lead.event_uuid, event_info=lead.event_info, event_date=lead.event_date,
+            source_id=lead.source_id, relevance=relevance, threat_type=first("threat_type"),
+            source_reliability=first("source_reliability"), information_credibility=first("information_credibility"),
+            impact=first("impact"), affected_assets=first("affected_assets"),
+            **{key: every(key) for key in TLR_ENTRY_LISTS}, events=len(members),
+            event_uuids=[m.event_uuid for m in members], source_ids=list(dict.fromkeys(m.source_id for m in members))))
+    return incidents
 
 
 def tlr_annex(tlr):
@@ -7756,8 +8214,11 @@ def tlr_annex(tlr):
         return ", ".join(f"{value} ({count})" for value, count in Counter(values).most_common())
 
     dates = sorted(e.event_date for e in included if e.event_date)
+    incidents = len(tlr_incidents(included))
     rows = [
         ("Events", f"{len(included)} in the analysis, {len(tlr.entries) - len(included)} left out"),
+        ("Duplicates", f"counted once, so the events count as {incidents}"
+         if incidents < len(included) else ""),
         ("Event dates", f"{dates[0]} to {dates[-1]}" if dates else ""),
         ("Sources", mix(e.source_id or "unknown" for e in included)),
         ("Relevance", mix(e.relevance or "not assessed" for e in included)),
@@ -7767,8 +8228,13 @@ def tlr_annex(tlr):
     return [(label, value) for label, value in rows if value]
 
 
-def render_tlr_markdown(tlr, linked_pirs=(), preview_url=""):
-    """The report as Markdown, for the mail and Mattermost channels.
+def render_tlr_markdown(tlr, linked_pirs=(), preview_url="", ranking=(), vulnerabilities=None, own=(), charts=None,
+                        previous=None):
+    """The report as Markdown, for the mail and Mattermost channels. ``ranking``,
+    ``vulnerabilities`` and ``own``, the incidents that hit the organisation
+    itself, are as the report page shows them; ``charts`` are the figures, as
+    lists, but those the analyst left out, beside ``previous``, the report
+    they are compared with.
 
     The metadata rows run without a break under the title, so the e-mail
     renderer lifts them into its meta grid, and the order follows the PDF.
@@ -7790,12 +8256,63 @@ def render_tlr_markdown(tlr, linked_pirs=(), preview_url=""):
     lines = [f"# {tlr.title or tlr.tlr_id}", ""]
     lines += [f"**{label}:** {value}" for label, value in meta if value]
     lines += ["", "---", ""]
+    labels = {value: label for value, label, _help in ESTIMATIVE_CONFIDENCE}
+    if tlr.executive_summary or tlr.key_judgements:
+        lines += ["## Executive summary", ""]
+        if tlr.executive_summary:
+            lines += [tlr.executive_summary, ""]
+        for kj in tlr.key_judgements:
+            confidence = f" ({labels.get(kj.get('confidence'), kj.get('confidence'))} confidence)" \
+                if kj.get("confidence") else ""
+            implication = f" *What it means for us:* {kj['implication']}" if kj.get("implication") else ""
+            lines.append(f"- **{(kj.get('judgement') or '').rstrip('.')}**{confidence}.{implication}")
+        lines.append("")
+    if ranking:
+        lines += ["## Threat ranking", ""]
+        for r in ranking:
+            change = f", {r['previous']} before" if r["previous"] is not None else ""
+            high = f", {r['high']} of high relevance" if r["high"] else ""
+            rationale = f" {r['rationale']}" if r["rationale"] else ""
+            lines.append(f"- **{r['name']}** ({r['kind']}): "
+                         f"{r['incidents']} event{'s' if r['incidents'] != 1 else ''}{high}{change}.{rationale}")
+        lines.append("")
+    figures = [(label, charts[key]) for key, label in TLR_FIGURES
+               if charts and charts.get(key) and key not in tlr.hidden_figures]
+    if figures:
+        lines += ["## In figures", ""]
+        if previous is not None:
+            lines += [f"In brackets, the count in {previous.tlr_id}.", ""]
+
+        def figure(row):
+            before = row[2] if len(row) > 2 else None
+            return f"{row[0]} {row[1]}" + (f" ({before})" if before is not None else "")
+
+        for label, rows in figures:
+            lines += [f"**{label}:** {', '.join(figure(row) for row in rows)}", ""]
+    if own:
+        lines += ["## What hit us", "", f"{len(own)} of the events hit the organisation itself.", ""]
+        for i in own:
+            facts = ", ".join(fact for fact in (i.threat_type, f"{i.relevance} relevance" if i.relevance else "") if fact)
+            impact = f" {i.impact}" if i.impact else ""
+            lines.append(f"- {i.event_date}: **{i.event_info or '(untitled)'}**{f' ({facts})' if facts else ''}.{impact}")
+        lines.append("")
+    if vulnerabilities:
+        v = vulnerabilities
+        lines += ["## Vulnerabilities", "",
+                  f"{v['cves']} CVE{'s' if v['cves'] != 1 else ''} in the period, {v['exploited']} of them exploited, "
+                  f"{v['ours']} in products the organisation runs; {v['advisories']} vulnerability "
+                  f"advisor{'y' if v['advisories'] == 1 else 'ies'}.", ""]
+        for r in v["rows"][:10]:
+            facts = [fact for fact in (r["product"], f"CVSS {r['cvss']}" if r["cvss"] else "", r["exploitation"],
+                                       "in our assets" if r["ours"] else "",
+                                       r["vea"].vea_id if r["vea"] else "") if fact]
+            lines.append(f"- **{r['cve']}**{': ' + ', '.join(facts) if facts else ''}")
+        lines.append("")
     if tlr.purpose:
         lines += ["## Purpose", "", tlr.purpose, ""]
     if tlr.top_threats:
         lines += ["## Top threats", "", tlr.top_threats, ""]
 
-    labels = {value: label for value, label, _help in ESTIMATIVE_CONFIDENCE}
     for section in tlr.threat_sections:
         lines += [f"## {section.get('title') or section.get('threat_type') or 'Threat assessment'}", ""]
         facts = [f"**Threat type:** {section['threat_type']}"] if section.get("threat_type") else []

@@ -13,6 +13,7 @@ with the keys it has, so one saved before a release added a key stays as it was.
 """
 
 import re
+import json
 import shutil
 import tempfile
 import unittest
@@ -144,6 +145,41 @@ class ConfigSave(unittest.TestCase):
                      "RECOMMENDED_ACTIONS_IMMEDIATE"):
             self.assertEqual(after[kept], before[kept], kept)
 
+    def test_the_story_kinds_are_saved_as_a_story_can_have_them(self):
+        form = self.full_form()
+        form["REPORT_STORY_KINDS"] = json.dumps([
+            {"name": " Aggregate Finding ", "description": " Counts   of one survey. ", "ticked": False},
+            {"name": "excluded", "description": "Leave out is built in"},
+            {"name": "aggregate-finding", "description": "A second one of the same name"},
+            {"name": "  ", "description": "No name"}])
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["REPORT_STORY_KINDS"],
+                         [{"name": "aggregate-finding", "description": "Counts of one survey.", "ticked": False}])
+
+    def test_without_story_kinds_the_built_in_ones_are_saved(self):
+        from webapp import report_stories
+        form = self.full_form()
+        form["REPORT_STORY_KINDS"] = "[]"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["REPORT_STORY_KINDS"], report_stories.DEFAULT_KINDS)
+
+    def test_the_threat_types_are_saved_once_each(self):
+        form = self.full_form()
+        form["THREAT_LANDSCAPE_THREAT_TYPES"] = " Ransomware \nInsider threat\n\nRansomware\n"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], ["Ransomware", "Insider threat"])
+
+    def test_without_threat_types_the_enisa_ones_are_saved(self):
+        form = self.full_form()
+        form["THREAT_LANDSCAPE_THREAT_TYPES"] = "\n"
+        self.client.post("/config", data=form)
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], config_page.misp_store.DEFAULT_THREAT_TYPES)
+
+    def test_the_threat_types_survive_a_post_that_omits_them(self):
+        with mock.patch.object(_config, "THREAT_LANDSCAPE_THREAT_TYPES", ["Insider threat"], create=True):
+            self.client.post("/config", data=self.full_form())
+        self.assertEqual(self.saved()["THREAT_LANDSCAPE_THREAT_TYPES"], ["Insider threat"])
+
     def test_an_unticked_switch_turns_its_setting_off(self):
         """A browser leaves an unticked box out of the form and sends only the
         hidden "false" behind it; ticked, it sends "true" first."""
@@ -245,6 +281,14 @@ class ConfigSave(unittest.TestCase):
         self.assertTrue(self.save_server(org_filter).get_json()["ok"])
         self.assertEqual(self.saved()["MISP_SERVERS"][-1]["org_filter"], org_filter)
         self.assertTrue(self.save_server("").get_json()["ok"])
+
+    def test_the_largest_threat_report_pdf_is_kept_within_bounds(self):
+        for sent, stored in (("45", 45), ("0", 1), ("5000", 200), ("", 30)):
+            with self.subTest(sent=sent):
+                form = self.full_form()
+                form["REPORT_IMPORT_MAX_MB"] = sent
+                self.client.post("/config", data=form)
+                self.assertEqual(self.saved()["REPORT_IMPORT_MAX_MB"], stored)
 
     def test_an_audit_retention_of_0_is_kept(self):
         """0 keeps the audit log for good, which "or the default" would undo."""

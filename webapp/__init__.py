@@ -185,6 +185,7 @@ def create_app():
     from webapp.routes.logs import bp as logs_bp
     from webapp.routes.config_page import bp as config_page_bp
     from webapp.routes.data_collection import bp as data_collection_bp
+    from webapp.routes.report_import import bp as report_import_bp
     from webapp.routes.rfi import bp as rfi_bp
     from webapp.routes.products import bp as products_bp
     from webapp.routes.indicator_feed import bp as indicator_feed_bp
@@ -208,6 +209,7 @@ def create_app():
     app.register_blueprint(logs_bp)
     app.register_blueprint(config_page_bp)
     app.register_blueprint(data_collection_bp)
+    app.register_blueprint(report_import_bp)
     app.register_blueprint(rfi_bp)
     app.register_blueprint(products_bp)
     app.register_blueprint(indicator_feed_bp)
