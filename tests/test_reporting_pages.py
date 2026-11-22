@@ -8,7 +8,7 @@ quadrant names outside the field so none sits under a stakeholder in a corner,
 and lists each quadrant's stakeholders, the most influential and interested
 first, with how to engage them.
 
-MISP is patched; the database and log are temporary.
+MISP is patched; the database, the collection cache and the log are temporary.
 
     python -m unittest tests.test_reporting_pages
 """
@@ -36,6 +36,7 @@ class Pages(unittest.TestCase):
         for patch in (
             mock.patch.object(config, "DB_FILE", str(Path(tmp) / "test.db"), create=True),
             mock.patch.object(config, "LOG_FILE", str(Path(tmp) / "test.log"), create=True),
+            mock.patch.object(collection_cache, "_DB_FILE", str(Path(tmp) / "cache.db")),
             mock.patch.object(config, "MISP_SESSION_COOKIE_NAME", "MISP-test", create=True),
             mock.patch.object(config, "MISP_SESSION_REDIRECT_TO_LOGIN", False),
             mock.patch.object(config, "IMAP_SOURCES", [], create=True),

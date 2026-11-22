@@ -314,15 +314,15 @@
 {% include "_markdown_js.html" %}
 {% include "_selection_js.html" %}
 <script>
-/* Same story-label muting as the briefing detail page. */
+/* Same story-label marking as the briefing detail page. */
 var LEAD_LABEL = /(<p>|<br\s*\/?>)(\s*)([A-Za-z][A-Za-z ]{1,33}:)(?=\s)/g;
-function muteLeadLabels(html) {
+function markLeadLabels(html) {
   return html.replace(LEAD_LABEL, '$1$2<span class="pretext">$3</span>');
 }
 
 document.querySelectorAll('.report-md-body').forEach(function(el) {
   if (zsazsaRenderMarkdown(el, el.getAttribute('data-md'), '<em class="text-muted">(no content)</em>')) {
-    el.innerHTML = muteLeadLabels(el.innerHTML);
+    el.innerHTML = markLeadLabels(el.innerHTML);
   }
 });
 

@@ -22,7 +22,7 @@ from webapp.misp_store import (
     briefing_combined_scope_summary,
     briefing_story_scope_rows,
 )
-from webapp.utils import md_to_html, mute_lead_labels
+from webapp.utils import mark_lead_labels, md_to_html
 
 LOGO_CID = "brandlogo"
 
@@ -40,33 +40,22 @@ _TLP_COLOURS = {
 _TLP_KEYS = ("classification", "tlp")
 
 _META_RE = re.compile(r"^\*\*(?P<key>[^*]+?):\*\*\s*(?P<value>.*)$")
-# Field labels in the markdown are written as bold "Label:". They introduce the
-# content rather than being content, so they get the muted pretext treatment.
-_LABEL_RE = re.compile(r"<strong>([^<]{1,60}:)</strong>")
 
 
 def _esc(value) -> str:
     return html.escape(str(value or ""))
 
 
-def _pretext(text: str, brand: dict) -> str:
-    """A field label: one step back from the content it introduces."""
-    return f'<span style="font-size:12px;color:{brand["color3"]};">{_esc(text)}</span>'
+def _pretext(text: str) -> str:
+    """A field label, bold at the size of the text it introduces, as the
+    product markdown writes it."""
+    return f"<strong>{_esc(text)}</strong>"
 
 
-def _body_html(markdown: str, brand: dict) -> str:
-    """Render markdown for the mail body, muting "Label:" pretext.
-
-    The muting deliberately happens after rendering, against the <strong> that
-    CommonMark guarantees for **bold**. Substituting the span into the markdown
-    beforehand reads tidier but only works while md_to_html keeps html=True: the
-    day that is turned off, every product mail would show escaped tag text.
-    Briefing stories write their labels as plain prose instead of bold, which
-    mute_lead_labels picks up from the same rendered HTML.
-    """
-    muted = f'<span style="font-size:12px;color:{brand["color3"]};">'
-    rendered = _LABEL_RE.sub(lambda m: f"{muted}{m.group(1)}</span>", md_to_html(markdown or ""))
-    return mute_lead_labels(rendered, muted)
+def _body_html(markdown: str) -> str:
+    """Render markdown for the mail body. Briefing stories write their labels
+    as plain prose rather than bold, so those are made bold here."""
+    return mark_lead_labels(md_to_html(markdown or ""), '<span style="font-weight:700;">')
 
 
 def _tlp_badge(tlp: str, *, on_dark: bool) -> str:
@@ -314,7 +303,7 @@ def markdown_html(markdown: str, doc_label: str, fallback_tlp: str = "") -> str:
     title, meta, body = _split_markdown(markdown)
     tlp = _meta_tlp(meta) or fallback_tlp
     rows = [(key, value) for key, value in meta if key.lower() not in _TLP_KEYS]
-    sections = "".join(_section(h, _body_html(c, brand), brand)
+    sections = "".join(_section(h, _body_html(c), brand)
                        for h, c in _sections(body))
     return _document(brand, doc_label, title or doc_label, tlp, rows, sections)
 
@@ -341,7 +330,7 @@ def threat_actor_profile_html(markdown: str, tlp: str, with_diamond: bool = Fals
     tlp = _meta_tlp(meta) or tlp
     rows = [(key, value) for key, value in meta if key.lower() not in _TLP_KEYS]
     parts = _sections(body)
-    sections = [_section(h, _body_html(c, brand), brand) for h, c in parts]
+    sections = [_section(h, _body_html(c), brand) for h, c in parts]
     if with_diamond:
         diamond = _section(
             "Diamond Model",
@@ -367,20 +356,20 @@ def _story_footer(story, brand: dict) -> str:
     source_url = getattr(story, "source_url", "") or ""
     if source_url:
         rows.append(
-            f'{_pretext("Source:", brand)} <a href="{_esc(source_url)}" '
+            f'{_pretext("Source:")} <a href="{_esc(source_url)}" '
             f'style="color:{brand["color2"]};">{_esc(source_url)}</a>'
         )
     for label, values in briefing_story_scope_rows(story):
-        rows.append(f"{_pretext(label + ':', brand)} {_scope_tags(values)}")
+        rows.append(f"{_pretext(label + ':')} {_scope_tags(values)}")
 
     reliability = getattr(story, "source_reliability", "") or "-"
     credibility = getattr(story, "information_credibility", "") or "-"
     if reliability != "-" or credibility != "-":
-        rows.append(_pretext("Admiralty scale:", brand) + " "
+        rows.append(_pretext("Admiralty scale:") + " "
                     + _scope_tags([f"{reliability}/{credibility}"]))
     evaluation = getattr(story, "cti_evaluation", None) or {}
     if evaluation:
-        rows.append(_pretext("CTI evaluation:", brand) + " "
+        rows.append(_pretext("CTI evaluation:") + " "
                     + _scope_tags([f"{k}={v}" for k, v in evaluation.items()]))
     if not rows:
         return ""
@@ -410,7 +399,7 @@ def briefing_html(briefing, preview_url: str = "") -> str:
             brand,
             index,
             getattr(story, "title", "") or f"Story {index}",
-            _body_html(getattr(story, "content", "") or "", brand)
+            _body_html(getattr(story, "content", "") or "")
             or '<p style="color:#94a3b8;font-style:italic;">(no content)</p>',
             _story_footer(story, brand),
         )
@@ -418,7 +407,7 @@ def briefing_html(briefing, preview_url: str = "") -> str:
     )
     body = ""
     if briefing.summary:
-        body += _section("Briefing summary", _body_html(briefing.summary, brand), brand)
+        body += _section("Briefing summary", _body_html(briefing.summary), brand)
     body += _section(
         f"Today's stories ({len(briefing.stories)} items)",
         stories or '<p style="color:#94a3b8;font-style:italic;">No stories added.</p>',
@@ -428,7 +417,7 @@ def briefing_html(briefing, preview_url: str = "") -> str:
     scope_summary = briefing_combined_scope_summary(briefing)
     if scope_summary:
         groups = "".join(
-            f'<div style="margin-bottom:8px;">{_pretext(label + ":", brand)}<br>'
+            f'<div style="margin-bottom:8px;">{_pretext(label + ":")}<br>'
             # The tag text is escaped, so this is the character, not an entity.
             + _scope_tags([f"{value} ×{count}" if count > 1 else value
                            for value, count in ranked])
@@ -437,12 +426,12 @@ def briefing_html(briefing, preview_url: str = "") -> str:
         )
         body += _section("Scope summary", groups, brand)
 
-    body += _section("Escalations", _body_html(briefing.escalations or "None today.", brand), brand)
+    body += _section("Escalations", _body_html(briefing.escalations or "None today."), brand)
     if briefing.notes:
-        body += _section("Notes", _body_html(briefing.notes, brand), brand)
+        body += _section("Notes", _body_html(briefing.notes), brand)
     # getattr: a briefing saved before the field existed has no such attribute.
     if getattr(briefing, "detection_rules", ""):
-        body += _section("Detection rules", _body_html(briefing.detection_rules, brand), brand)
+        body += _section("Detection rules", _body_html(briefing.detection_rules), brand)
     if preview_url:
         body += (
             f'<div style="margin:0 24px 16px;font-size:14px;">'

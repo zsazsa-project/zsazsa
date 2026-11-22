@@ -15,7 +15,7 @@ from flask import Blueprint, Response, flash, jsonify, redirect, render_template
 from webapp import (audit, branding, collection_cache, job_store, misp_session,
                     misp_store, notify_jobs, product_log)
 from webapp.collection_cache import AI_SUMMARY_PREFIX
-from webapp.utils import (TLP_NAMES, dedup_lower, matching, md_to_html, mute_lead_labels, ordered_counts,
+from webapp.utils import (TLP_NAMES, dedup_lower, mark_lead_labels, matching, md_to_html, ordered_counts,
                           sort_products, tlp_counts, tlp_of)
 from webapp.routes import data_collection
 from webapp.routes.source_event_utils import parse_source_tokens, source_id_from_event_ref
@@ -610,7 +610,7 @@ def pdf(id):
     if briefing is None:
         return "Briefing not found", 404
     for story in briefing.stories:
-        story.html = mute_lead_labels(md_to_html(getattr(story, "content", "")))
+        story.html = mark_lead_labels(md_to_html(getattr(story, "content", "")))
     document_html = render_template(
         "daily_briefing/pdf.html",
         briefing=briefing,

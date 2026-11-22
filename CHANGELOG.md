@@ -27,6 +27,7 @@
 - The threat landscape queue keeps an event older than the collection window of its source.
 - The "As it will appear" card of a form stays in place when the page scrolls.
 - The dataset page of a threat landscape report opens with a banner that counts the events outside the scope, the events without a threat type and the PIR gaps, and shows how far the triage is. Its events can be filtered.
+- Update style field labels #80.
 
 ### Security
 
@@ -40,6 +41,7 @@
 - The new setting `REPORT_IMPORT_MAX_MB`, under Settings > System > Web server, is the largest PDF a threat report can be: 30 MB until it is changed. MISP receives the PDF base64-encoded, so when you raise it, raise MISP's `post_max_size` and `memory_limit` and its web server's request body size with it.
 - Two new prompts, `split_report_stories.md` and `analyse_report_story.md`, are copied into a Docker installation's `docker/volumes/prompts` when it starts. `threat_landscape_trends.md` now also reads the stories of imported threat reports, drafts the executive summary and key judgements, and counts duplicate events once. If you changed it on the Prompts tab, or keep your own copy as a Docker installation does, take its new version.
 - `product_qa_review.md` tells the model to leave a product's own ID and date alone. If you changed that prompt on the Prompts tab, or keep your own copy, as a Docker installation does in `docker/volumes/prompts`, add that paragraph to it.
+- Product field labels change only in how they are shown. Nothing needs doing: products are stored as before.
 
 ## 1.0.10
 

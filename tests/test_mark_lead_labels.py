@@ -1,23 +1,23 @@
-"""Briefing story labels read as pretext, not as content.
+"""Briefing story labels are shown like the bold labels of the other products.
 
 The five story lines open with "What happened:", "Who is affected:", … as plain
-text. mute_lead_labels wraps those in .pretext so the PDF and the on-screen
-preview set them smaller and lighter than the sentence they introduce.
+text. mark_lead_labels wraps those in .pretext, which the PDF and the
+on-screen preview set in bold.
 
-    python -m unittest tests.test_mute_lead_labels
+    python -m unittest tests.test_mark_lead_labels
 """
 
 import unittest
 
-from webapp.utils import md_to_html, md_to_html_inline, mute_lead_labels
+from webapp.utils import mark_lead_labels, md_to_html, md_to_html_inline
 
 
 def _render(text):
-    return mute_lead_labels(md_to_html(text))
+    return mark_lead_labels(md_to_html(text))
 
 
-class MuteLeadLabels(unittest.TestCase):
-    def test_every_story_label_is_muted(self):
+class MarkLeadLabels(unittest.TestCase):
+    def test_every_story_label_is_marked(self):
         story = "\n".join([
             "What happened: A new variant was disclosed.",
             "Who is affected: EU manufacturing.",
@@ -36,15 +36,15 @@ class MuteLeadLabels(unittest.TestCase):
         html = _render("What happened: A new variant was disclosed.")
         self.assertIn("A new variant was disclosed.", html)
 
-    def test_colon_inside_a_sentence_is_not_muted(self):
+    def test_colon_inside_a_sentence_is_not_marked(self):
         html = _render("Exploitation was observed in the wild: two victims so far.")
         self.assertNotIn("pretext", html)
 
-    def test_indicator_opening_a_line_is_not_muted(self):
+    def test_indicator_opening_a_line_is_not_marked(self):
         html = _render("`CVE-2024-1234`: exploited in the wild.")
         self.assertNotIn("pretext", html)
 
-    def test_heading_is_not_muted(self):
+    def test_heading_is_not_marked(self):
         html = _render("## What happened: something")
         self.assertNotIn("pretext", html)
 

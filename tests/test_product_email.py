@@ -78,10 +78,11 @@ class MarkdownHtml(unittest.TestCase):
         self.assertIn("Summary", html)
         self.assertIn("<strong>high</strong>", html)
 
-    def test_bold_field_labels_render_as_muted_pretext(self):
+    def test_bold_field_labels_stay_bold_at_the_size_of_the_text(self):
+        # Issue #80: a label smaller and greyer than its value was hard to read.
         html = product_email.markdown_html(FIA_MARKDOWN, "Flash Intel Alert")
-        self.assertNotIn("<strong>Likely impact:</strong>", html)
-        self.assertIn("Likely impact:</span>", html)
+        self.assertIn("<strong>Likely impact:</strong> unspecified", html)
+        self.assertNotIn("font-size:12px", html)
 
 
 def _briefing():
@@ -138,17 +139,23 @@ class BriefingHtml(unittest.TestCase):
     def test_no_summary_section_without_a_summary(self):
         self.assertNotIn(">Briefing summary<", self.html)
 
-    def test_story_lead_labels_are_muted(self):
-        # Story labels are plain prose, not bold, so the bold-label rule alone
-        # would leave them looking like content.
+    def test_story_lead_labels_are_bold(self):
+        # Story labels are plain prose, not bold, so without this they would
+        # look like content.
         briefing = _briefing()
         briefing.stories[0].content = (
             "What happened: ACME was hit.\nWho is affected: EU transport."
         )
         html = product_email.briefing_html(briefing)
         for label in ("What happened:", "Who is affected:"):
-            self.assertIn(f"{label}</span>", html)
+            self.assertIn(f'<span style="font-weight:700;">{label}</span>', html)
         self.assertIn("ACME was hit.", html)
+
+    def test_story_footer_and_scope_summary_labels_are_bold(self):
+        # "Sector:" is in the story footer, "Sectors:" in the scope summary.
+        for label in ("Source:", "Sector:", "Admiralty scale:", "Sectors:"):
+            self.assertIn(f"<strong>{label}</strong>", self.html)
+        self.assertNotIn("font-size:12px", self.html)
 
     def test_story_footer_lists_every_scope_row(self):
         """Guards the per-story rows, which the scope summary would otherwise mask."""
