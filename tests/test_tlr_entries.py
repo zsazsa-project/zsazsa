@@ -586,7 +586,10 @@ class Pages(unittest.TestCase):
         self.assertEqual(self.options(entries, "select[name='threat_type-obj-e1']"), kept)
         self.assertEqual(self.options(entries, "select[data-bulk=threat_type]"), offered)
         self.assertEqual(self.options(wizard, "#tlr-sections select[name=section_threat_type]"), kept)
-        self.assertEqual(self.options(wizard, "#tlr-section-template select"), offered)
+        # What a template holds is not part of the page, as for the browser: it is
+        # read as the fragment a new section is cloned from.
+        section = BeautifulSoup(wizard.select_one("#tlr-section-template").decode_contents(), "html.parser")
+        self.assertEqual(self.options(section, "select"), offered)
 
     @staticmethod
     def options(page, select):

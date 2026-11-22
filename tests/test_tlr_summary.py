@@ -222,7 +222,9 @@ class Pages(unittest.TestCase):
         rows = step.select("#tlr-judgements .tlr-judgement")
         self.assertEqual([r.select_one("[name=kj_judgement]").get_text() for r in rows], [j["judgement"] for j in JUDGEMENTS])
         self.assertTrue(rows[0].select_one("[name=kj_confidence] option[value=moderate][selected]"))
-        self.assertTrue(page.select_one("#tlr-judgement-template [name=kj_implication]"))
+        # A template's contents are not part of the page; they are the fragment a new row is cloned from.
+        template = BeautifulSoup(page.select_one("#tlr-judgement-template").decode_contents(), "html.parser")
+        self.assertTrue(template.select_one("[name=kj_implication]"))
         self.assertEqual([i["value"] for i in page.select("#tlr-ai-drafted input[name=ai_drafted]")], ["top_threats"])
         self.assertEqual(page.select_one("#tlr-methodology-draft")["data-url"],
                          f"/products/threat-landscape/{UUID}/draft-methodology")
