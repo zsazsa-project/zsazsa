@@ -134,23 +134,23 @@
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Trigger / hypothesis</label>
-          <textarea name="hypothesis" class="form-control" rows="3"
+          <textarea name="hypothesis" class="form-control" rows="3" data-markdown
                     placeholder="What behaviour, in what conditions, should fire this detection?">{{ der.hypothesis if der else '' }}</textarea>
         </div>
         <div class="mb-3">
           <label class="form-label">Log sources</label>
-          <textarea name="log_sources" class="form-control" rows="3"
-                    placeholder="One log source per line, e.g. Sysmon EID 1, EDR process telemetry">{{ lines(der.log_sources) if der else '' }}</textarea>
+          <textarea name="log_sources" class="form-control" rows="3" data-markdown
+                    placeholder="- One log source per line, e.g. Sysmon EID 1, EDR process telemetry">{{ der.log_sources | markdown_list if der else '' }}</textarea>
         </div>
         <div class="mb-3">
           <label class="form-label">Expected rule output</label>
-          <textarea name="expected_output" class="form-control" rows="3"
+          <textarea name="expected_output" class="form-control" rows="3" data-markdown
                     placeholder="What should the rule alert on, and with what fidelity?">{{ der.expected_output if der else '' }}</textarea>
         </div>
         <div>
           <label class="form-label">Test cases</label>
-          <textarea name="test_cases" class="form-control" rows="3"
-                    placeholder="One test case per line: how to validate the rule fires (and does not over-fire)">{{ lines(der.test_cases) if der else '' }}</textarea>
+          <textarea name="test_cases" class="form-control" rows="3" data-markdown
+                    placeholder="- One test case per line: how to validate the rule fires (and does not over-fire)">{{ der.test_cases | markdown_list if der else '' }}</textarea>
         </div>
       </div>
     </div>
@@ -255,6 +255,7 @@
 {% block scripts %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
+{% include "_markdown_field_js.html" %}
 <script>
 /* ── Detection lookup (Rulezet, by MITRE ATT&CK technique and by CVE) ── */
 zsazsaBindRulezetAttackLookup({

@@ -346,7 +346,7 @@ class BriefingStoryFormatting(unittest.TestCase):
                 "article", threat_actor_types=[{"name": "State-Nexus Actors"}])
         self.assertEqual(actor_type, "State-Nexus Actors")
         self.assertNotIn("Threat actor type", story)
-        self.assertTrue(story.startswith("What happened:"))
+        self.assertTrue(story.startswith("**What happened:**"))
 
     def test_an_actor_type_with_an_ampersand_comes_back_as_configured(self):
         """The briefing form ticks the type by its configured name, so the

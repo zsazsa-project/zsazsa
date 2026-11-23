@@ -155,7 +155,7 @@
       </div>
       <div class="card-body">
         {% if tap.summary %}
-        <div class="report-md-body" data-md="{{ tap.summary | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tap.summary | e }}"></div>
         {% else %}<p class="text-muted mb-0"><em>No summary.</em></p>{% endif %}
       </div>
     </div>
@@ -180,19 +180,19 @@
         </dl>
         {% if tap.capabilities %}
         <div class="chart-label mb-1">Capabilities</div>
-        <div class="report-md-body small mb-3" data-md="{{ tap.capabilities | e }}"></div>
+        <div class="report-md-body md-body small mb-3" data-md="{{ tap.capabilities | e }}"></div>
         {% endif %}
         {% if tap.mode_of_operation %}
         <div class="chart-label mb-1">Mode of operation</div>
-        <div class="report-md-body small mb-3" data-md="{{ tap.mode_of_operation | e }}"></div>
+        <div class="report-md-body md-body small mb-3" data-md="{{ tap.mode_of_operation | e }}"></div>
         {% endif %}
         {% if tap.infrastructure %}
         <div class="chart-label mb-1">Infrastructure</div>
-        <div class="report-md-body small mb-3" data-md="{{ tap.infrastructure | e }}"></div>
+        <div class="report-md-body md-body small mb-3" data-md="{{ tap.infrastructure | e }}"></div>
         {% endif %}
         <div class="chart-label mb-1">Attribution</div>
         {% if tap.attribution_rationale %}
-        <div class="report-md-body small mb-0" data-md="{{ tap.attribution_rationale | e }}"></div>
+        <div class="report-md-body md-body small mb-0" data-md="{{ tap.attribution_rationale | e }}"></div>
         {% else %}<p class="text-muted small mb-0"><em>No attribution rationale.</em></p>{% endif %}
       </div>
     </div>
@@ -227,7 +227,7 @@
           </div>
 
           <div class="dm-node dm-infra{{ ' dm-missing' if not tap.infrastructure }}">
-            <div class="dm-val" style="white-space: pre-line;">{{ tap.infrastructure or 'Not set' }}</div>
+            <div class="dm-val" style="white-space: pre-line;">{{ (tap.infrastructure | md_text) or 'Not set' }}</div>
             <div class="dm-label">Infrastructure</div>
           </div>
 
@@ -235,7 +235,7 @@
 
           <div class="dm-node dm-cap{{ ' dm-missing' if not has_capability }}">
             <div class="dm-val">
-              {% if tap.capabilities %}<span style="white-space: pre-line;">{{ tap.capabilities }}</span>{% endif %}
+              {% if tap.capabilities %}<span style="white-space: pre-line;">{{ tap.capabilities | md_text }}</span>{% endif %}
               {% if techniques %}<div class="mt-1">{{ chips(techniques) }}</div>{% endif %}
               {% if not has_capability %}Not set{% endif %}
             </div>

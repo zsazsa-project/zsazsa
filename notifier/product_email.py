@@ -52,10 +52,29 @@ def _pretext(text: str) -> str:
     return f"<strong>{_esc(text)}</strong>"
 
 
-def _body_html(markdown: str) -> str:
-    """Render markdown for the mail body. Briefing stories write their labels
-    as plain prose rather than bold, so those are made bold here."""
-    return mark_lead_labels(md_to_html(markdown or ""), '<span style="font-weight:700;">')
+# A mail has no stylesheet, so the Markdown elements that need more than the
+# client's defaults to read as what they are get their style inline.
+_MAIL_STYLES = {
+    "h1": "font-size:17px;margin:14px 0 6px;",
+    "h2": "font-size:16px;margin:14px 0 6px;",
+    "h3": "font-size:15px;margin:12px 0 6px;",
+    "h4": "font-size:14px;margin:12px 0 6px;",
+    "table": "border-collapse:collapse;margin:0 0 10px;font-size:13px;",
+    "th": "border:1px solid #e2e8f0;padding:4px 8px;background:#f8fafc;text-align:left;",
+    "td": "border:1px solid #e2e8f0;padding:4px 8px;",
+    "blockquote": "margin:0 0 10px;padding:0 0 0 10px;border-left:3px solid #cbd5e1;color:#475569;",
+}
+# A column aligned in the Markdown already has a style, which goes after ours.
+_MAIL_STYLED_RE = re.compile(r'<(h[1-4]|table|th|td|blockquote)(?: style="([^"]*)")?>')
+
+
+def _body_html(markdown: str, lead_labels: bool = True) -> str:
+    """Render markdown for the mail body. Older briefing stories write their
+    labels as plain prose rather than bold, so those are made bold here."""
+    body = md_to_html(markdown or "")
+    if lead_labels:
+        body = mark_lead_labels(body, '<span style="font-weight:700;">')
+    return _MAIL_STYLED_RE.sub(lambda m: f'<{m[1]} style="{_MAIL_STYLES[m[1]]}{m[2] or ""}">', body)
 
 
 def _tlp_badge(tlp: str, *, on_dark: bool) -> str:
@@ -426,12 +445,12 @@ def briefing_html(briefing, preview_url: str = "") -> str:
         )
         body += _section("Scope summary", groups, brand)
 
-    body += _section("Escalations", _body_html(briefing.escalations or "None today."), brand)
+    body += _section("Escalations", _body_html(briefing.escalations or "None today.", lead_labels=False), brand)
     if briefing.notes:
-        body += _section("Notes", _body_html(briefing.notes), brand)
+        body += _section("Notes", _body_html(briefing.notes, lead_labels=False), brand)
     # getattr: a briefing saved before the field existed has no such attribute.
     if getattr(briefing, "detection_rules", ""):
-        body += _section("Detection rules", _body_html(briefing.detection_rules), brand)
+        body += _section("Detection rules", _body_html(briefing.detection_rules, lead_labels=False), brand)
     if preview_url:
         body += (
             f'<div style="margin:0 24px 16px;font-size:14px;">'

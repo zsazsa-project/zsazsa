@@ -33,8 +33,8 @@
 {# ── Summary ──────────────────────────────────────────────────── #}
 {% if briefing.summary %}
 <div class="section-heading">Briefing summary</div>
-<div class="section-box">
-  {{ briefing.summary | md }}
+<div class="section-box prose">
+  {{ summary_html | safe }}
 </div>
 {% endif %}
 
@@ -79,24 +79,24 @@
 {# ── Escalations ──────────────────────────────────────────────── #}
 {% if briefing.escalations %}
 <div class="section-heading">Escalations</div>
-<div class="section-box">
-  <p style="white-space:pre-wrap;">{{ briefing.escalations }}</p>
+<div class="section-box prose">
+  {{ briefing.escalations | md }}
 </div>
 {% endif %}
 
 {# ── Notes ────────────────────────────────────────────────────── #}
 {% if briefing.notes %}
 <div class="section-heading">Notes</div>
-<div class="section-box">
-  <p style="white-space:pre-wrap;">{{ briefing.notes }}</p>
+<div class="section-box prose">
+  {{ briefing.notes | md }}
 </div>
 {% endif %}
 
 {# ── Detection rules ──────────────────────────────────────────── #}
 {% if briefing.detection_rules %}
 <div class="section-heading">Detection rules</div>
-<div class="section-box">
-  <p style="white-space:pre-wrap;">{{ briefing.detection_rules }}</p>
+<div class="section-box prose">
+  {{ briefing.detection_rules | md }}
 </div>
 {% endif %}
 

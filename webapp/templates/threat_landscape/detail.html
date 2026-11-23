@@ -109,7 +109,7 @@
     <div class="card content-card mb-4 rise rise-1">
       <div class="card-header"><i class="fas fa-flag me-2"></i>Executive summary</div>
       <div class="card-body">
-        {% if tlr.executive_summary %}<div class="report-md-body{{ ' mb-3' if tlr.key_judgements }}" data-md="{{ tlr.executive_summary | e }}"></div>{% endif %}
+        {% if tlr.executive_summary %}<div class="report-md-body md-body{{ ' mb-3' if tlr.key_judgements }}" data-md="{{ tlr.executive_summary | e }}"></div>{% endif %}
         {% if tlr.key_judgements %}
         <table class="table table-sm small mb-0 tlr-judgements">
           <thead><tr><th>Key judgement</th><th style="width:7rem;">Confidence</th><th>What it means for us</th></tr></thead>
@@ -202,7 +202,7 @@
     <div class="card content-card mb-4 rise rise-1">
       <div class="card-header"><i class="fas fa-compass me-2"></i>Direction</div>
       <div class="card-body">
-        {% if tlr.purpose %}<div class="report-md-body mb-3" data-md="{{ tlr.purpose | e }}"></div>{% endif %}
+        {% if tlr.purpose %}<div class="report-md-body md-body mb-3" data-md="{{ tlr.purpose | e }}"></div>{% endif %}
         <dl class="row small mb-0">
           {% if tlr.audience_level %}
           <dt class="col-sm-3">Audience level</dt><dd class="col-sm-9">{{ tlr.audience_level }}</dd>
@@ -238,7 +238,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-triangle-exclamation me-2"></i>Top threats</div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ tlr.top_threats | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tlr.top_threats | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -259,7 +259,7 @@
       <div class="card-body">
         {% for key, heading in section_texts if section[key] %}
         <div class="fw-semibold small text-uppercase text-muted {{ 'mt-3' if not loop.first }} mb-1">{{ heading }}</div>
-        <div class="report-md-body" data-md="{{ section[key] | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ section[key] | e }}"></div>
         {% endfor %}
       </div>
     </div>
@@ -273,12 +273,12 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-user-secret me-2"></i>Trending threat actors</div>
       <div class="card-body">
-        {% if tlr.trending_actors %}<div class="report-md-body" data-md="{{ tlr.trending_actors | e }}"></div>{% endif %}
+        {% if tlr.trending_actors %}<div class="report-md-body md-body" data-md="{{ tlr.trending_actors | e }}"></div>{% endif %}
         {% for key, label, icon in actor_categories %}
         {% set text = tlr | attr(key) %}
         {% if text %}
         <div class="fw-semibold mt-3"><i class="fas {{ icon }} fa-fw me-1"></i>{{ label }}</div>
-        <div class="report-md-body" data-md="{{ text | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ text | e }}"></div>
         {% endif %}
         {% endfor %}
       </div>
@@ -289,7 +289,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-fire me-2"></i>Key incidents</div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ tlr.key_incidents | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tlr.key_incidents | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -298,7 +298,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-shield me-2"></i>Recommendations</div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ tlr.recommendations | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tlr.recommendations | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -307,7 +307,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-binoculars me-2"></i>Outlook</div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ tlr.outlook | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tlr.outlook | e }}"></div>
       </div>
     </div>
     {% endif %}
@@ -316,7 +316,7 @@
     <div class="card content-card mb-4">
       <div class="card-header"><i class="fas fa-book me-2"></i>Methodology and limitations</div>
       <div class="card-body">
-        <div class="report-md-body" data-md="{{ tlr.methodology | e }}"></div>
+        <div class="report-md-body md-body" data-md="{{ tlr.methodology | e }}"></div>
       </div>
     </div>
     {% endif %}

@@ -43,7 +43,7 @@
 {% endmacro %}
 
 <div class="section-heading">Summary</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if summary_html %}{{ summary_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
@@ -88,8 +88,8 @@
 {% endif %}
 
 <div class="section-heading">Recommended actions</div>
-<div class="section-box">
-  {{ bullets(vea.immediate_actions) }}
+<div class="section-box prose">
+  {% if vea.immediate_actions %}{{ vea.immediate_actions | join('\n') | md }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
   {% if vea.patch_sla_internet or vea.patch_sla_internal or vea.target_patch_version %}
   <table class="detail-table" style="margin-top:6pt;">
     {% if vea.patch_sla_internet %}<tr><th>Internet-facing SLA</th><td>{{ vea.patch_sla_internet | md_inline }}</td></tr>{% endif %}

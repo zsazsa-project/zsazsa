@@ -296,15 +296,16 @@
                 <div class="col-lg-8">
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Hypothesis</div>
-                    <div style="font-size:.88rem;">{{ (d.hypothesis or 'Not specified.') | md_inline }}</div>
+                    <div class="md-body" style="font-size:.88rem;">{{ (d.hypothesis or 'Not specified.') | md }}</div>
                   </div>
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Log sources</div>
-                    {{ bullets(d.log_sources) }}
+                    {% if d.log_sources %}<div class="md-body" style="font-size:.82rem;">{{ d.log_sources | markdown_list | md }}</div>
+                    {% else %}<span class="text-muted" style="font-size:.82rem;">none recorded</span>{% endif %}
                   </div>
                   <div class="mb-3">
                     <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Expected rule output</div>
-                    <div style="font-size:.88rem;">{{ (d.expected_output or 'Not specified.') | md_inline }}</div>
+                    <div class="md-body" style="font-size:.88rem;">{{ (d.expected_output or 'Not specified.') | md }}</div>
                   </div>
                 </div>
                 <div class="col-lg-4">

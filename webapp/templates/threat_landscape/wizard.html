@@ -45,7 +45,7 @@
     </div>
     <div class="col-12">
       <label class="form-label small">Findings</label>
-      <textarea name="section_findings" class="form-control form-control-sm" rows="4"
+      <textarea name="section_findings" class="form-control form-control-sm" rows="4" data-markdown
                 placeholder="What the events show, and the judgement drawn from them">{{ section.findings }}</textarea>
     </div>
     <div class="col-12">
@@ -156,8 +156,10 @@
           <p class="form-text mt-0">What management reads first: the bottom line in a few plain sentences, then the
             three to five judgements to take away, each with how confident you are and what it means for the organisation.</p>
           <label class="form-label">Bottom line</label>
-          <textarea name="executive_summary" class="form-control mb-3" rows="3"
-                    placeholder="What happened in the period and how it changed, without jargon">{{ tlr.executive_summary if tlr else '' }}</textarea>
+          <div class="mb-3">
+            <textarea name="executive_summary" class="form-control" rows="3" data-markdown
+                      placeholder="What happened in the period and how it changed, without jargon">{{ tlr.executive_summary if tlr else '' }}</textarea>
+          </div>
           <label class="form-label">Key judgements</label>
           <div id="tlr-judgements">
             {% for kj in (tlr.key_judgements if tlr else []) %}{{ judgement_row(kj) }}{% endfor %}
@@ -225,7 +227,7 @@
             {% endif %}
             <div class="col-12">
               <label class="form-label">Purpose</label>
-              <textarea name="purpose" class="form-control" rows="2"
+              <textarea name="purpose" class="form-control" rows="2" data-markdown
                         placeholder="Why this report is written and which decisions it supports">{{ tlr.purpose if tlr else '' }}</textarea>
             </div>
             <div class="col-md-4">
@@ -287,7 +289,7 @@
       <div class="card content-card form-step mb-4" id="step-top" data-step='textarea[name="top_threats"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">5</span>Top threats</div>
         <div class="card-body">
-          <textarea name="top_threats" class="form-control font-monospace" rows="5"
+          <textarea name="top_threats" class="form-control" rows="5" data-markdown
                     placeholder="Summarise the top threats observed during this period…">{{ tlr.top_threats if tlr else '' }}</textarea>
         </div>
       </div>
@@ -314,7 +316,7 @@
       <div class="card content-card form-step mb-4" id="step-actors" data-step='textarea[name="trending_actors"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">7</span>Trending threat actors</div>
         <div class="card-body">
-          <textarea name="trending_actors" class="form-control font-monospace" rows="4"
+          <textarea name="trending_actors" class="form-control" rows="4" data-markdown
                     placeholder="Threat actors that increased in activity or relevance…">{{ tlr.trending_actors if tlr else '' }}</textarea>
           {% for key, label, icon in actor_categories %}
           <div class="row g-2 mt-2 align-items-start">
@@ -322,7 +324,7 @@
               <i class="fas {{ icon }} fa-fw me-1"></i>{{ label }}
             </label>
             <div class="col-md-9">
-              <textarea id="{{ key }}" name="{{ key }}" class="form-control font-monospace" rows="3">{{ (tlr | attr(key)) if tlr else '' }}</textarea>
+              <textarea id="{{ key }}" name="{{ key }}" class="form-control" rows="3" data-markdown>{{ (tlr | attr(key)) if tlr else '' }}</textarea>
             </div>
           </div>
           {% endfor %}
@@ -332,7 +334,7 @@
       <div class="card content-card form-step mb-4" id="step-incidents" data-step='textarea[name="key_incidents"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">8</span>Key incidents</div>
         <div class="card-body">
-          <textarea name="key_incidents" class="form-control font-monospace" rows="5"
+          <textarea name="key_incidents" class="form-control" rows="5" data-markdown
                     placeholder="Notable incidents, campaigns, or vulnerabilities during the period…">{{ tlr.key_incidents if tlr else '' }}</textarea>
         </div>
       </div>
@@ -340,7 +342,7 @@
       <div class="card content-card form-step mb-4" id="step-recommendations" data-step='textarea[name="recommendations"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">9</span>Recommendations</div>
         <div class="card-body">
-          <textarea name="recommendations" class="form-control font-monospace" rows="4"
+          <textarea name="recommendations" class="form-control" rows="4" data-markdown
                     placeholder="Recommended actions for the audience…">{{ tlr.recommendations if tlr else '' }}</textarea>
         </div>
       </div>
@@ -348,7 +350,7 @@
       <div class="card content-card form-step mb-4" id="step-outlook" data-step='textarea[name="outlook"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">10</span>Outlook</div>
         <div class="card-body">
-          <textarea name="outlook" class="form-control font-monospace" rows="4"
+          <textarea name="outlook" class="form-control" rows="4" data-markdown
                     placeholder="Near-term threat outlook and anticipated developments…">{{ tlr.outlook if tlr else '' }}</textarea>
         </div>
       </div>
@@ -356,7 +358,7 @@
       <div class="card content-card form-step mb-4" id="step-methodology" data-step='textarea[name="methodology"]'>
         <div class="card-header d-flex align-items-center"><span class="step-num">11</span>Methodology and limitations</div>
         <div class="card-body">
-          <textarea name="methodology" class="form-control" rows="8"
+          <textarea name="methodology" class="form-control" rows="8" data-markdown
                     placeholder="Sources and period covered, how events were selected and rated, where AI was used, and what the report cannot say…">{{ tlr.methodology if tlr else '' }}</textarea>
           {% if is_edit and tlr.entries %}
           <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
@@ -548,6 +550,7 @@
 {% block scripts %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
+{% include "_markdown_field_js.html" %}
 <script>
 // Threat assessments: add one from the template, remove one, and show how many
 // events of the dataset have the threat type picked.
@@ -555,7 +558,8 @@
   var list = document.getElementById('tlr-sections');
   var template = document.getElementById('tlr-section-template');
   document.getElementById('tlr-section-add').addEventListener('click', function() {
-    list.appendChild(template.content.firstElementChild.cloneNode(true));
+    var section = list.appendChild(template.content.firstElementChild.cloneNode(true));
+    section.querySelectorAll('textarea[data-markdown]').forEach(zsazsaMarkdownField);
   });
   list.addEventListener('click', function(e) {
     var button = e.target.closest('.tlr-section-remove');
@@ -609,11 +613,13 @@ function zsazsaMarkAiDrafted(name) {
   };
 
   // Mark a drafted section so the analyst can see what to review; the mark
-  // clears as soon as they edit it themselves.
+  // clears as soon as they edit it themselves. A Markdown field has its border
+  // on its frame.
   function markDrafted(el) {
-    el.classList.add('border-info', 'border-2');
+    var box = el.closest('.md-field') || el;
+    box.classList.add('border-info', 'border-2');
     el.addEventListener('input', function() {
-      el.classList.remove('border-info', 'border-2');
+      box.classList.remove('border-info', 'border-2');
     }, {once: true});
   }
 
@@ -641,6 +647,7 @@ function zsazsaMarkAiDrafted(name) {
         if (name === 'outlook' && data.sections.isolated_signals) {
           el.value += '\n\nIsolated signals worth watching:\n' + data.sections.isolated_signals;
         }
+        zsazsaRefreshMarkdown(el);
         markDrafted(el);
         zsazsaMarkAiDrafted(name);
         drafted.push(sections[name]);

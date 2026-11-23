@@ -182,8 +182,8 @@
           <i class="fas fa-triangle-exclamation me-1"></i>
           The stories changed since this summary was written, so it no longer covers the briefing. Redraft it or edit it by hand.
         </div>
-        <textarea name="summary" id="briefing-summary" class="form-control" rows="8"
-                  placeholder="A few sentences covering all of today's stories. Shown at the top of the preview, the mail and the PDF.">{{ briefing_summary or '' }}</textarea>
+        <textarea name="summary" id="briefing-summary" class="form-control" rows="8" data-markdown
+                  placeholder="A few sentences covering all of today's stories. Shown at the top of the preview, the mail and the PDF.">{{ briefing_summary | bold_lead_labels }}</textarea>
         <div id="summary-status" class="text-muted small mt-1" style="display:none"></div>
     </div>
   </div>
@@ -326,8 +326,8 @@
               Story text
               <small class="text-muted">(5 lines: what happened, who is affected, why it matters, indicators, what to do)</small>
             </label>
-            <textarea name="story_{{ idx }}_content" class="form-control story-content"
-                      rows="6" placeholder="Write the 5-line story here...">{{ story.content }}</textarea>
+            <textarea name="story_{{ idx }}_content" class="form-control story-content" data-markdown
+                      rows="6" placeholder="Write the 5-line story here...">{{ story.content | bold_lead_labels }}</textarea>
           </div>
           {% if threat_actor_types %}
           <div class="col-12">
@@ -515,14 +515,14 @@
           <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
             <label class="form-label mb-0">Escalations</label>
           </div>
-          <textarea name="escalations" class="form-control mt-1" rows="3"
+          <textarea name="escalations" class="form-control" rows="5" data-markdown
                     placeholder="Items escalated to flash alert, or 'None today.'">{{ briefing_escalations or '' }}</textarea>
         </div>
         <div class="col-md-4">
           <div class="d-flex justify-content-between align-items-center" style="min-height:2.1rem;">
             <label class="form-label mb-0">Notes</label>
           </div>
-          <textarea name="notes" class="form-control mt-1" rows="3"
+          <textarea name="notes" class="form-control" rows="5" data-markdown
                     placeholder="Feedback, follow-up items, stand-up observations.">{{ briefing_notes or '' }}</textarea>
         </div>
         <div class="col-md-4">
@@ -540,7 +540,7 @@
               </button>
             </span>
           </div>
-          <textarea name="detection_rules" id="briefing-detection-rules" class="form-control mt-1" rows="3"
+          <textarea name="detection_rules" id="briefing-detection-rules" class="form-control" rows="5" data-markdown
                     placeholder="Sigma/EDR rule reference">{{ briefing_detection_rules or '' }}</textarea>
           <div id="rulezet-briefing-status" class="small text-danger fw-semibold mt-1" style="display:none;"></div>
         </div>
@@ -650,7 +650,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% include "_markdown_js.html" %}
+{% include "_markdown_field_js.html" %}
 {% include "_tlr_queue_js.html" %}
 {% include "_form_steps_js.html" %}
 <script>
@@ -781,6 +781,7 @@ document.addEventListener('click', function(e) {
     var textarea = card.querySelector('.story-content');
     if (textarea) {
       textarea.value = summary;
+      zsazsaRefreshMarkdown(textarea);
       markStoryDrafted(card);
       updateOverlapButtonState();
       clearOverlapVisuals();
@@ -1419,7 +1420,7 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
               Story text
               <small class="text-muted">(5 lines: what happened, who is affected, why it matters, indicators, what to do)</small>
             </label>
-            <textarea name="story_${idx}_content" class="form-control story-content"
+            <textarea name="story_${idx}_content" class="form-control story-content" data-markdown
                       rows="6" placeholder="Write the 5-line story here...">${content}</textarea>
           </div>
           ${threatActorTypes.length ? (
@@ -1434,6 +1435,7 @@ function addStoryCard(idx, title, content, sourceUrl, sourceUuid) {
       </div>
     </div>`;
   document.getElementById('stories-container').insertAdjacentHTML('beforeend', html);
+  zsazsaMarkdownField(document.querySelector('#pane-story-' + idx + ' .story-content'));
   var pills = document.querySelector('#pane-story-' + idx + ' .actor-type-pills');
   if (pills) pills.append(..._actorTypePills(idx));
   refreshRail();
@@ -1502,6 +1504,7 @@ function draftStory(idx, eventUuid) {
     var textarea = document.querySelector('[name=story_' + idx + '_content]');
     if (textarea) {
       textarea.value = data.story;
+      zsazsaRefreshMarkdown(textarea);
       markStoryDrafted(textarea.closest('.story-card'));
     }
     updateOverlapButtonState();
@@ -1675,6 +1678,7 @@ function includeAttributes(idx, eventUuid) {
     var textarea = document.querySelector('[name=story_' + idx + '_content]');
     if (textarea && data.text) {
       textarea.value = textarea.value.trim() ? (textarea.value.replace(/\s+$/, '') + '\n\n' + data.text) : data.text;
+      zsazsaRefreshMarkdown(textarea);
       markStoryEdited(textarea.closest('.story-card'));
       updateOverlapButtonState();
       markSummaryStale();
@@ -1738,6 +1742,7 @@ document.getElementById('btn-use-all-summaries').addEventListener('click', funct
     var textarea = card.querySelector('.story-content');
     if (!textarea) return;
     textarea.value = summary;
+    zsazsaRefreshMarkdown(textarea);
     markStoryDrafted(card);
     var statusEl = card.querySelector('[class^=ai-status]');
     if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'AI summary pasted. Review before saving.'; }
@@ -1880,6 +1885,7 @@ function draftBriefingSummary() {
          empty fails the job, so anything that arrives here has text. */
       zsazsaFollowJob(data.job_id, function(job) {
         document.getElementById('briefing-summary').value = job.result.summary;
+        zsazsaRefreshMarkdown(document.getElementById('briefing-summary'));
         setSummaryStale(false);
         setSummaryStatus('AI summary applied. Review and edit before saving.');
         setSummaryBusy(false);

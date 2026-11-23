@@ -60,6 +60,8 @@ def draft_alert(event, source, verdict: dict, judge, article: str, summary: str,
     quoted = "; ".join(f'{g.get("focus_point") or g["id"]}: "{g["quote"]}"' for g in grounds)
     return {
         **fields,
+        # The field is Markdown, and the facts a list in it.
+        "what_happened": [f"- {fact}" for fact in fields["what_happened"]],
         "title": event.info or "Untitled",
         "tlp": tlp,
         "audience": audience or misp_store.subscriber_audience(_FLASH_INTEL_PRODUCT_NAME, tlp),

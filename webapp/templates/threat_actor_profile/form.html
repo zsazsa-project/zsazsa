@@ -51,10 +51,8 @@
           <input name="title" id="tap-title" class="form-control" required
             placeholder="Short, recognisable profile title." value="{{ src.title if src else '' }}">
         </div>
-        <label class="form-label">Narrative summary
-          <span class="text-muted small fw-normal">Markdown supported</span>
-        </label>
-        <textarea name="summary" class="form-control" rows="12"
+        <label class="form-label">Narrative summary</label>
+        <textarea name="summary" class="form-control" rows="12" data-markdown
           placeholder="Describe the threat actor: who they are, motivation, targeting, TTPs, recent activity and your assessment.">{{ src.summary if src else '' }}</textarea>
       </div>
     </div>
@@ -134,17 +132,17 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Capabilities{{ diamond("Capability") }}</label>
-          <textarea name="capabilities" class="form-control" rows="3"
+          <textarea name="capabilities" class="form-control" rows="3" data-markdown
             placeholder="Tooling, malware, techniques the actor is known to use.">{{ src.capabilities if src else '' }}</textarea>
         </div>
         <div class="mb-3">
           <label class="form-label">Mode of operation</label>
-          <textarea name="mode_of_operation" class="form-control" rows="3"
+          <textarea name="mode_of_operation" class="form-control" rows="3" data-markdown
             placeholder="How the actor typically operates.">{{ src.mode_of_operation if src else '' }}</textarea>
         </div>
         <div>
           <label class="form-label">Infrastructure{{ diamond("Infrastructure") }}</label>
-          <textarea name="infrastructure" class="form-control" rows="3"
+          <textarea name="infrastructure" class="form-control" rows="3" data-markdown
             placeholder="Hosting preferences, domain patterns, C2 characteristics.">{{ src.infrastructure if src else '' }}</textarea>
         </div>
       </div>
@@ -168,7 +166,7 @@
           {% include "_estimative_help.html" %}
         </div>
         <label class="form-label">Rationale</label>
-        <textarea name="attribution_rationale" class="form-control" rows="3"
+        <textarea name="attribution_rationale" class="form-control" rows="3" data-markdown
           placeholder="Basis for attribution: overlapping infrastructure, TTPs, tooling, victimology.">{{ src.attribution_rationale if src else '' }}</textarea>
       </div>
     </div>
@@ -451,8 +449,8 @@
 {% block scripts %}
 {% include "_form_steps_js.html" %}
 {% include "requirements/_form_preview_js.html" %}
+{% include "_markdown_field_js.html" %}
 {% if is_edit %}
-{% include "_markdown_js.html" %}
 <script>
   document.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
     zsazsaRenderMarkdown(el, el.getAttribute('data-md'));

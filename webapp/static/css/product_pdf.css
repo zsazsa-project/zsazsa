@@ -358,6 +358,11 @@ h1.doc-title {
   page-break-inside: avoid;
 }
 
+/* Text an analyst wrote can be longer than what is left of a page, or than a
+   whole one: it goes on over the page break rather than leave its heading
+   on a page of its own. */
+.section-box.prose { page-break-inside: auto; }
+
 .section-box p {
   margin: 0 0 6pt;
   font-size: 9.5pt;
@@ -396,6 +401,58 @@ h1.doc-title {
 }
 
 .section-box a { color: var(--c2, #0078f1); text-decoration: underline; }
+
+/* Markdown in a box, as written in the editor. A table zsazsa builds has a
+   class of its own and keeps its look. */
+.section-box h1,
+.section-box h2 {
+  font-size: 10pt;
+  font-weight: 700;
+  color: var(--c1, #0f2d52);
+  margin: 8pt 0 4pt;
+}
+
+/* No larger than the h3 that labels a field, for a heading written in it. */
+.section-box h4 {
+  font-size: 9pt;
+  font-weight: 700;
+  color: var(--c1, #0f2d52);
+  margin: 6pt 0 3pt;
+}
+
+.section-box h1:first-child,
+.section-box h2:first-child,
+.section-box h4:first-child { margin-top: 0; }
+
+.section-box table:not([class]) {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 0 0 6pt;
+  font-size: 8.5pt;
+}
+
+.section-box table:not([class]) th,
+.section-box table:not([class]) td {
+  border: 0.5pt solid #e2e8f0;
+  padding: 3pt 6pt;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.section-box table:not([class]) th {
+  background: #f8fafc;
+  font-weight: 700;
+  color: var(--c1, #0f2d52);
+}
+
+.story-body blockquote,
+.section-box blockquote {
+  margin: 0 0 6pt;
+  padding: 0 0 0 8pt;
+  border-left: 2pt solid #cbd5e1;
+  color: #475569;
+}
 
 .no-content {
   color: #94a3b8;

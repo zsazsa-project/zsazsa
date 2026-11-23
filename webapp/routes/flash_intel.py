@@ -51,7 +51,9 @@ def _form_data(form, fia_id=""):
         "tlp": form.get("tlp", "amber"),
         "summary": form.get("summary", ""),
         "action_required": form.get("action_required", ""),
-        "what_happened": misp_store._split_lines(form.get("what_happened")),
+        # Markdown, kept line for line as written: blank lines and indents are
+        # its paragraphs and nested lists.
+        "what_happened": (form.get("what_happened") or "").strip().splitlines(),
         "source_description": form.get("source_description", ""),
         "source_reliability": form.get("source_reliability", ""),
         "information_credibility": form.get("information_credibility", ""),

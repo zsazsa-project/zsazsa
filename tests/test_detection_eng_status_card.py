@@ -13,6 +13,7 @@ from pymisp import MISPEvent
 
 from webapp import misp_store
 from webapp.routes import detection_eng
+from webapp.utils import list_item_count, markdown_list
 
 
 class EngineeringStatusCard(unittest.TestCase):
@@ -26,6 +27,9 @@ class EngineeringStatusCard(unittest.TestCase):
             self.app.jinja_loader,
         ])
         self.app.jinja_env.filters["md_inline"] = lambda text: text
+        self.app.jinja_env.filters["md"] = lambda text: text
+        self.app.jinja_env.filters["markdown_list"] = markdown_list
+        self.app.jinja_env.filters["list_item_count"] = list_item_count
         self.app.jinja_env.filters["slug"] = lambda text: text.lower()
         self.app.jinja_env.filters["scope_rows"] = misp_store.briefing_story_scope_rows
         self.app.jinja_env.globals["csrf_token"] = lambda: "test-token"

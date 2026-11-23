@@ -36,7 +36,7 @@
 
 {% if tlr.executive_summary or tlr.key_judgements %}
 <div class="section-heading">Bottom line</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if tlr.executive_summary %}{{ tlr.executive_summary | md }}{% endif %}
   {% if tlr.key_judgements %}
   <table class="grid-table">

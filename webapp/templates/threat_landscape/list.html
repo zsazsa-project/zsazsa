@@ -163,7 +163,7 @@
         <tr id="tlr-preview-{{ t.uuid }}" style="display:none;">
           <td colspan="8" class="p-0">
             <div style="background:var(--surface-muted);border-top:1px solid var(--border-light);padding:1rem 1.25rem;">
-              {% if t.purpose %}<div class="report-md-body mb-2" data-md="{{ t.purpose | e }}"></div>{% endif %}
+              {% if t.purpose %}<div class="report-md-body md-body mb-2" data-md="{{ t.purpose | e }}"></div>{% endif %}
               <p class="small mb-2">
                 <strong>Scope:</strong>
                 {{ (t.scope_sectors + t.scope_geography) | join(', ') if t.scope_sectors or t.scope_geography else 'the whole organisation' }}
@@ -172,7 +172,7 @@
               </p>
               {% if t.top_threats %}
               <div class="fw-semibold small text-uppercase text-muted mb-1" style="letter-spacing:.05em;">Top threats</div>
-              <div class="report-md-body small" data-md="{{ t.top_threats | e }}"></div>
+              <div class="report-md-body md-body small" data-md="{{ t.top_threats | e }}"></div>
               {% endif %}
               <div class="mt-3 d-flex gap-2">
                 <a href="{{ url_for('threat_landscape.detail', id=t.uuid) }}" class="btn btn-sm btn-outline-primary">Open full report</a>

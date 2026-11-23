@@ -39,17 +39,17 @@
 {% endmacro %}
 
 <div class="section-heading">Trigger / hypothesis</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if hypothesis_html %}{{ hypothesis_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
 <div class="section-heading">Log sources</div>
-<div class="section-box">
-  {{ bullets(der.log_sources) }}
+<div class="section-box prose">
+  {% if der.log_sources %}{{ der.log_sources | markdown_list | md }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
 <div class="section-heading">Expected rule output</div>
-<div class="section-box">
+<div class="section-box prose">
   {% if expected_output_html %}{{ expected_output_html | safe }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
@@ -61,8 +61,8 @@
 {% endif %}
 
 <div class="section-heading">Test cases</div>
-<div class="section-box">
-  {{ bullets(der.test_cases) }}
+<div class="section-box prose">
+  {% if der.test_cases %}{{ der.test_cases | markdown_list | md }}{% else %}<p class="no-content">None recorded.</p>{% endif %}
 </div>
 
 </body>

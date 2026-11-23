@@ -1,0 +1,223 @@
+{# The Markdown field. Every textarea[data-markdown] on the page gets a slim bar
+   with Write, Preview and Side by side, and Ctrl+B and Ctrl+I (Cmd on a Mac)
+   for bold and italic, as GitHub's comment box has. Every field opens in
+   Write. The textarea stays the form field, so what is saved is what the
+   analyst typed.
+
+   A page that adds a textarea later calls zsazsaMarkdownField(textarea) on it,
+   and one that sets a field's text from a script calls
+   zsazsaRefreshMarkdown(textarea), since that fires no input event. #}
+{% include "_markdown_js.html" %}
+<script>
+(function () {
+  var ICON = {
+    write: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.6a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2L6 12.6l-3.3.8.8-3.3z"/><path d="M9.7 3.7l2.6 2.6"/></svg>',
+    preview: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
+    split: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5"/><path d="M8 2.75v10.5"/></svg>',
+    markdown: '<svg viewBox="0 0 22 14" aria-hidden="true"><rect x=".75" y=".75" width="20.5" height="12.5" rx="2"/><path d="M4 10V4l2.5 3L9 4v6M15 4v5.5M12.8 7.6 15 10l2.2-2.4"/></svg>'
+  };
+  var MODES = [['write', 'Write', ICON.write], ['preview', 'Preview', ICON.preview], ['split', 'Side by side', ICON.split]];
+  // The keys, and what they put around the selection, as GitHub does.
+  var SHORTCUTS = { b: '**', i: '_' };
+  var MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  // Narrower than this, side by side puts the preview under the text.
+  var STACK_BELOW = 480;
+  // What decides where a line wraps in the text area, copied to the measuring copy.
+  var TEXT_STYLE = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'wordSpacing', 'lineHeight',
+                    'textTransform', 'textIndent', 'tabSize', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+  var refreshers = new WeakMap();
+
+  function render(el, raw) {
+    return zsazsaRenderMarkdownBlocks(el, raw, '<p class="md-empty">Nothing to preview.</p>');
+  }
+
+  /* How far down the text area each offset of its text sits, measured on an
+     unseen copy that wraps its lines as the text area does. */
+  function lineTops(textarea, offsets) {
+    var style = getComputedStyle(textarea);
+    var copy = document.createElement('div');
+    TEXT_STYLE.forEach(function (name) { copy.style[name] = style[name]; });
+    Object.assign(copy.style, { position: 'absolute', top: '0', left: '-9999px', visibility: 'hidden', boxSizing: 'border-box',
+                                border: '0', width: textarea.clientWidth + 'px', whiteSpace: 'pre-wrap', overflowWrap: 'break-word' });
+    var marks = [];
+    var from = 0;
+    offsets.forEach(function (offset) {
+      copy.append(textarea.value.slice(from, offset));
+      marks.push(copy.appendChild(document.createElement('span')));
+      from = offset;
+    });
+    document.body.append(copy);
+    var tops = marks.map(function (mark) { return mark.offsetTop; });
+    copy.remove();
+    return tops;
+  }
+
+  // Where y on one side falls on the other, between the two anchors around it.
+  function across(y, from, to) {
+    var i = 1;
+    while (i < from.length - 1 && from[i] <= y) i++;
+    var share = (y - from[i - 1]) / (from[i] - from[i - 1]);
+    return to[i - 1] + share * (to[i] - to[i - 1]);
+  }
+
+  /* Put marker around the selection, or take it off when it is already
+     there. Spaces at the edges of the selection stay outside, since "** x**"
+     is not bold. The browser's own insertText keeps Ctrl+Z working. */
+  function toggle(textarea, marker) {
+    var value = textarea.value;
+    var selected = value.slice(textarea.selectionStart, textarea.selectionEnd);
+    var start = textarea.selectionStart + (selected.length - selected.trimStart().length);
+    var end = Math.max(start, textarea.selectionEnd - (selected.length - selected.trimEnd().length));
+    var inner = value.slice(start, end);
+    var n = marker.length;
+    var around = value.slice(Math.max(0, start - n), start) === marker && value.slice(end, end + n) === marker;
+    var within = inner.length >= 2 * n && inner.startsWith(marker) && inner.endsWith(marker);
+    var from = start, to = end, text, caret;
+    if (around) {
+      from = start - n;
+      to = end + n;
+      text = inner;
+      caret = from;
+    } else if (within) {
+      text = inner.slice(n, -n);
+      caret = from;
+    } else {
+      text = marker + inner + marker;
+      caret = from + n;
+    }
+    textarea.setSelectionRange(from, to);
+    if (!document.execCommand('insertText', false, text)) {
+      textarea.setRangeText(text, from, to);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    var length = around || within ? text.length : inner.length;
+    textarea.setSelectionRange(caret, caret + length);
+  }
+
+  window.zsazsaMarkdownField = function (textarea) {
+    if (textarea.closest('.md-field')) return;
+    var field = document.createElement('div');
+    field.className = 'md-field';
+    field.innerHTML = '<div class="md-bar"><span class="md-hint">' + ICON.markdown + 'Markdown</span>'
+                    + '<span class="md-modes" role="group" aria-label="How to show the text"></span></div>'
+                    + '<div class="md-panes"><div class="md-preview" hidden></div></div>';
+    textarea.before(field);
+    var preview = field.querySelector('.md-preview');
+    preview.before(textarea);
+
+    var buttons = {};
+    MODES.forEach(function (m) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.title = m[1];
+      button.setAttribute('aria-label', m[1]);
+      button.innerHTML = m[2];
+      button.addEventListener('click', function () {
+        show(m[0]);
+        if (m[0] !== 'preview') textarea.focus({ preventScroll: true });
+      });
+      field.querySelector('.md-modes').append(button);
+      buttons[m[0]] = button;
+    });
+
+    var mode = 'write';
+    var height = 0;       // the text area's height, kept while it is hidden
+    var anchors = null;   // {text: [...], preview: [...]}, side by side only
+    var following = null; // the pane being scrolled to follow the other
+    var timer = null;
+
+    // Pair each block of the preview with the line it starts on.
+    function measure() {
+      anchors = null;
+      if (mode !== 'split') return;
+      preview.style.height = textarea.offsetHeight + 'px';
+      var text = [0], shown = [0];
+      var starts = render(preview, textarea.value);
+      if (starts) {
+        var tops = lineTops(textarea, starts);
+        Array.prototype.forEach.call(preview.children, function (block, i) {
+          if (tops[i] > text[text.length - 1] && block.offsetTop > shown[shown.length - 1]) {
+            text.push(tops[i]);
+            shown.push(block.offsetTop);
+          }
+        });
+      }
+      text.push(Math.max(textarea.scrollHeight, text[text.length - 1] + 1));
+      shown.push(Math.max(preview.scrollHeight, shown[shown.length - 1] + 1));
+      anchors = { text: text, preview: shown };
+      follow(textarea, preview, anchors.text, anchors.preview);
+    }
+
+    function follow(source, target, from, to) {
+      if (following === source) {
+        following = null;
+        return;
+      }
+      if (!anchors) return;
+      var bottom = target.scrollHeight - target.clientHeight;
+      var y = source.scrollTop >= source.scrollHeight - source.clientHeight - 1 ? bottom : across(source.scrollTop, from, to);
+      var top = Math.round(Math.max(0, Math.min(bottom, y)));
+      if (Math.abs(target.scrollTop - top) >= 1) {
+        following = target;
+        target.scrollTop = top;
+      }
+    }
+
+    function show(next) {
+      if (!textarea.hidden) height = textarea.offsetHeight;
+      mode = next;
+      field.dataset.mode = mode;
+      Object.keys(buttons).forEach(function (name) {
+        buttons[name].classList.toggle('on', name === mode);
+        buttons[name].setAttribute('aria-pressed', name === mode ? 'true' : 'false');
+      });
+      textarea.hidden = mode === 'preview';
+      preview.hidden = mode === 'write';
+      preview.style.height = '';
+      preview.style.minHeight = mode === 'preview' ? height + 'px' : '';
+      if (mode === 'preview') render(preview, textarea.value);
+      measure();
+    }
+
+    function refresh() {
+      clearTimeout(timer);
+      if (mode === 'preview') render(preview, textarea.value);
+      else measure();
+    }
+    refreshers.set(textarea, refresh);
+
+    textarea.addEventListener('keydown', function (event) {
+      var marker = SHORTCUTS[event.key.toLowerCase()];
+      var command = MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (!marker || !command || event.altKey || event.shiftKey || textarea.readOnly || textarea.disabled) return;
+      event.preventDefault();
+      toggle(textarea, marker);
+    });
+    textarea.addEventListener('scroll', function () { if (anchors) follow(textarea, preview, anchors.text, anchors.preview); });
+    preview.addEventListener('scroll', function () { if (anchors) follow(preview, textarea, anchors.preview, anchors.text); });
+    textarea.addEventListener('input', function () {
+      if (mode === 'write') return;
+      clearTimeout(timer);
+      timer = setTimeout(refresh, 150);
+    });
+    // A field the browser has to point at, a required one left empty, cannot
+    // be hidden behind its preview.
+    textarea.addEventListener('invalid', function () { if (mode === 'preview') show('write'); });
+    // Resizing the text area, or the page, moves where its lines wrap.
+    new ResizeObserver(function () {
+      field.classList.toggle('md-stacked', field.clientWidth < STACK_BELOW);
+      if (mode === 'split') measure();
+    }).observe(field);
+    new ResizeObserver(function () { if (mode === 'split') measure(); }).observe(textarea);
+
+    show('write');
+  };
+
+  window.zsazsaRefreshMarkdown = function (textarea) {
+    var refresh = textarea && refreshers.get(textarea);
+    if (refresh) refresh();
+  };
+
+  document.querySelectorAll('textarea[data-markdown]').forEach(window.zsazsaMarkdownField);
+})();
+</script>

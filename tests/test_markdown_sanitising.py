@@ -7,8 +7,10 @@ analyst's page. Every call to marked.parse now sits inside DOMPurify.sanitize,
 and without DOMPurify the text is shown as text.
 
 Both libraries load from one include, _markdown_js.html, pinned by hash, and
-pages render through its zsazsaRenderMarkdown, so the fallback and the pin
-cannot drift apart page by page again. Every script from a CDN is pinned by hash.
+pages render through its zsazsaRenderMarkdown, or zsazsaRenderMarkdownBlocks
+for the Markdown field, so the fallback and the pin cannot drift apart page by
+page again. A page has that include itself or through _markdown_field_js.html.
+Every script from a CDN is pinned by hash.
 
     python -m unittest tests.test_markdown_sanitising
 """
@@ -26,7 +28,7 @@ class MarkedOutputIsSanitised(unittest.TestCase):
         offenders = []
         for path in sources:
             text = path.read_text(encoding="utf-8")
-            if text.count("marked.parse(") != text.count("DOMPurify.sanitize(marked.parse("):
+            if len(re.findall(r"marked\.parser?\(", text)) != len(re.findall(r"DOMPurify\.sanitize\(marked\.parser?\(", text)):
                 offenders.append(str(path.relative_to(_ROOT)))
         self.assertEqual(offenders, [])
 
@@ -39,13 +41,14 @@ class OneIncludeLoadsThem(unittest.TestCase):
     def test_no_page_loads_or_calls_the_libraries_itself(self):
         offenders = [name for name, text in self.templates().items()
                      if name != "templates/_markdown_js.html"
-                     and any(use in text for use in ("marked.min.js", "marked.parse(", "DOMPurify."))]
+                     and ("marked.min.js" in text or "DOMPurify." in text or re.search(r"\bmarked\.\w+\(", text))]
         self.assertEqual(offenders, [])
 
     def test_a_page_that_renders_markdown_includes_the_helper(self):
         offenders = [name for name, text in self.templates().items()
-                     if "zsazsaRenderMarkdown(" in text and name != "templates/_markdown_js.html"
-                     and '{% include "_markdown_js.html" %}' not in text]
+                     if "zsazsaRenderMarkdown" in text and name != "templates/_markdown_js.html"
+                     and '{% include "_markdown_js.html" %}' not in text
+                     and '{% include "_markdown_field_js.html" %}' not in text]
         self.assertEqual(offenders, [])
 
     def test_every_cdn_script_and_stylesheet_is_pinned_by_hash(self):
