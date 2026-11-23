@@ -622,7 +622,7 @@ def pdf(id):
         pdf_bytes = weasyprint.HTML(string=html).write_pdf()
     except Exception as exc:
         logger.warning("pdf: weasyprint failed for DER %s: %s", id, exc)
-        return f"PDF generation failed: {exc}", 500
+        return "The PDF could not be made.", 500
     filename = f"{der.der_id}.pdf"
     return Response(
         pdf_bytes,

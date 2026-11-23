@@ -1075,7 +1075,7 @@ def _pdf(id, template, suffix=""):
         pdf_bytes = weasyprint.HTML(string=html).write_pdf()
     except Exception as exc:
         logger.warning("pdf: weasyprint failed for TLR %s: %s", id, exc)
-        return f"PDF generation failed: {exc}", 500
+        return "The PDF could not be made.", 500
     return Response(pdf_bytes, mimetype="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{tlr.tlr_id}{suffix}.pdf"'})
 

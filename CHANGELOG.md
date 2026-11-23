@@ -33,6 +33,7 @@
 ### Security
 
 - soupsieve is updated to 4.1 for CVE-2026-126190, which affects 3.0.3. Installations on Python older than 3.11.5 keep soupsieve 2.10, the last release that supports them.
+- A product PDF that cannot be made no longer shows the error from the PDF library, which could name server paths. The error is in the log.
 
 ### Upgrading
 
