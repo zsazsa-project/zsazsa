@@ -13,11 +13,9 @@ their context, and has them made into collection events, which go to the
 threat landscape queue.
 """
 
-import datetime
 import hashlib
 import io
 import logging
-import re
 import threading
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
@@ -27,6 +25,7 @@ from core.db import log_pipeline_run_end, log_pipeline_run_start
 from core.report_document import ReportError
 from webapp import audit, collection_cache, job_store, misp_session, misp_store, report_stories
 from webapp.rate_limit import rate_limited
+from webapp.utils import iso_day
 
 logger = logging.getLogger(__name__)
 
@@ -81,30 +80,19 @@ def _busy(uuid: str):
     return job if job and _in_flight(job) else None
 
 
-def _norm(text: str) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", (text or "").casefold()).split())
-
-
 def _similar(report, reports) -> list:
     """Earlier imports of another file that look like the same threat report:
     from the same provider, with the same title or file name. A new version of
     a report, or the same one saved again, comes back that way."""
-    return [r for r in reports if r.uuid != report.uuid and _norm(r.provider) == _norm(report.provider)
-            and (_norm(r.title) == _norm(report.title) or (r.filename and r.filename == report.filename))]
+    norm = report_document._norm
+    return [r for r in reports if r.uuid != report.uuid and norm(r.provider) == norm(report.provider)
+            and (norm(r.title) == norm(report.title) or (r.filename and r.filename == report.filename))]
 
 
 def _known(reports) -> list:
     """The earlier imports, as the form checks a file against them before it is sent."""
     return [{"uuid": r.uuid, "title": r.title, "provider": r.provider, "filename": r.filename, "sha256": r.sha256,
              "published": r.published, "url": url_for(".detail", uuid=r.uuid)} for r in reports]
-
-
-def _date(value: str) -> str:
-    """An ISO date, or "" when value is not one."""
-    try:
-        return datetime.date.fromisoformat(value).isoformat()
-    except ValueError:
-        return ""
 
 
 _STATES = {"drafted": "Drafted", "reviewed": "Reviewed", "created": "Made into events"}
@@ -175,7 +163,7 @@ def _start_import(sources: dict):
         problem = "Pick a source reliability from A to F, or leave it unrated."
     elif tlp != "document" and tlp not in misp_store.FIA_TLP_LEVELS:
         problem = "Pick a TLP."
-    elif published and not _date(published):
+    elif published and not iso_day(published):
         problem = "The publication date is not a date."
     elif pdf is not None and len(pdf) > limit * 1024 * 1024:
         problem = f"The PDF is larger than {limit} MB."
@@ -383,7 +371,7 @@ def save_details(uuid):
         flash("Something is still being done to this threat report. Save its details when it is done.", "warning")
     elif not details["title"] or not details["provider"]:
         flash("A threat report needs a title and a provider.", "warning")
-    elif details["published"] and not _date(details["published"]):
+    elif details["published"] and not iso_day(details["published"]):
         flash("The publication date is not a date.", "warning")
     elif details["tlp"] not in misp_store.FIA_TLP_LEVELS:
         flash("Pick a TLP.", "warning")

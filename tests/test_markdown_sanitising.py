@@ -9,7 +9,8 @@ and without DOMPurify the text is shown as text.
 Both libraries load from one include, _markdown_js.html, pinned by hash, and
 pages render through its zsazsaRenderMarkdown, or zsazsaRenderMarkdownBlocks
 for the Markdown field, so the fallback and the pin cannot drift apart page by
-page again. A page has that include itself or through _markdown_field_js.html.
+page again. A page has that include itself, or through _markdown_field_js.html
+or _preview_toggle_js.html.
 Every script from a CDN is pinned by hash.
 
     python -m unittest tests.test_markdown_sanitising
@@ -48,7 +49,8 @@ class OneIncludeLoadsThem(unittest.TestCase):
         offenders = [name for name, text in self.templates().items()
                      if "zsazsaRenderMarkdown" in text and name != "templates/_markdown_js.html"
                      and '{% include "_markdown_js.html" %}' not in text
-                     and '{% include "_markdown_field_js.html" %}' not in text]
+                     and '{% include "_markdown_field_js.html" %}' not in text
+                     and '{% include "_preview_toggle_js.html" %}' not in text]
         self.assertEqual(offenders, [])
 
     def test_every_cdn_script_and_stylesheet_is_pinned_by_hash(self):

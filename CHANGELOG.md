@@ -34,6 +34,7 @@
 
 - soupsieve is updated to 4.1 for CVE-2026-126190, which affects 3.0.3. Installations on Python older than 3.11.5 keep soupsieve 2.10, the last release that supports them.
 - A product PDF that cannot be made no longer shows the error from the PDF library, which could name server paths. The error is in the log.
+- Fix mismatch in threat landscape tlp.
 
 ### Upgrading
 
@@ -44,6 +45,7 @@
 - Two new prompts, `split_report_stories.md` and `analyse_report_story.md`, are copied into a Docker installation's `docker/volumes/prompts` when it starts. `threat_landscape_trends.md` now also reads the stories of imported threat reports, drafts the executive summary and key judgements, and counts duplicate events once. If you changed it on the Prompts tab, or keep your own copy as a Docker installation does, take its new version.
 - `product_qa_review.md` tells the model to leave a product's own ID and date alone. If you changed that prompt on the Prompts tab, or keep your own copy, as a Docker installation does in `docker/volumes/prompts`, add that paragraph to it.
 - Product field labels change only in how they are shown. Nothing needs doing: products are stored as before.
+- The `zsazsa-threat-landscape-report` template is at version 3, for the executive summary, the key judgements, the threat ranking, the figures left out and what the AI drafted. `zsazsa-tlr-entry` is at version 3, for the incident an event belongs to and an event an analyst found no classification relevant to, and `zsazsa-collection-source` at version 2, for an internal source. Nothing needs doing: zsazsa reads these templates from its own copy, and a record saved before reads without the new values.
 
 ## 1.0.10
 

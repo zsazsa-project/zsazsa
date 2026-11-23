@@ -1593,7 +1593,9 @@ def queue_events_for_tlr(events, collected_only, audit_type, audit_id=None, audi
         problem = _queue_one_for_tlr(uuid, source_id, collected_only)
         if problem:
             problems.append(f"{_event_label(uuid)}: {problem}")
-            logger.warning("queue for the threat landscape: %s from %s not queued: %s", uuid, source_id, problem)
+            # Quoted: the ids come from the request, and a line break in one
+            # would start a log record of its own.
+            logger.warning("queue for the threat landscape: %r from %r not queued: %r", uuid, source_id, problem)
         else:
             tagged += 1
 

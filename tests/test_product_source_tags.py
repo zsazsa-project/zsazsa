@@ -196,15 +196,15 @@ class Editing(unittest.TestCase):
 
     def test_an_alert(self):
         self.assertEqual(self.record(misp_store.update_fia, misp_store._fia_obj, "list_fias",
-                                     ("_delete_fia_reports", "_write_fia_report")), ([C], [A]))
+                                     ("_delete_product_reports", "_write_product_report")), ([C], [A]))
 
     def test_an_advisory(self):
         self.assertEqual(self.record(misp_store.update_vea, misp_store._vea_obj, "list_veas",
-                                     ("_delete_vea_reports", "_write_vea_report")), ([C], [A]))
+                                     ("_delete_product_reports", "_write_product_report")), ([C], [A]))
 
     def test_a_detection_request(self):
         self.assertEqual(self.record(misp_store.update_der, misp_store._der_obj, "list_ders",
-                                     ("_delete_der_reports", "_write_der_report")), ([C], [A]))
+                                     ("_delete_product_reports", "_write_product_report")), ([C], [A]))
 
     def test_a_daily_briefing(self):
         stories = [{"title": "Kept", "source_event_uuid": B}, {"title": "Added", "source_event_uuid": C}]

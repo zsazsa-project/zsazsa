@@ -1,0 +1,33 @@
+{# The preview of a product list. A .preview-toggle-btn opens and closes the
+   row its data-target names, and while the row is open shows a crossed-out
+   eye instead of its own icon. Every control naming the row says whether it
+   is open in aria-expanded. The Markdown in the row is rendered the first
+   time it opens; a page that renders it beforehand removes data-md.
+
+   Another control that opens the same row, such as "Approve first" on the
+   detection engineering list, calls zsazsaSetPreview(row, true). #}
+{% include "_markdown_js.html" %}
+<script>
+(function () {
+  window.zsazsaSetPreview = function (row, open) {
+    row.style.display = open ? '' : 'none';
+    document.querySelectorAll('[data-target="' + row.id + '"]').forEach(function (control) {
+      control.setAttribute('aria-expanded', open ? 'true' : 'false');
+      var icon = control.classList.contains('preview-toggle-btn') && control.querySelector('i');
+      if (icon) icon.className = 'fas fa-fw ' + (open ? 'fa-eye-slash' : control.dataset.previewIcon || 'fa-eye');
+    });
+    if (!open) return;
+    row.querySelectorAll('.report-md-body[data-md]').forEach(function (el) {
+      zsazsaRenderMarkdown(el, el.getAttribute('data-md'));
+      el.removeAttribute('data-md');
+    });
+  };
+
+  document.querySelectorAll('.preview-toggle-btn').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var row = document.getElementById(button.dataset.target);
+      if (row) zsazsaSetPreview(row, row.style.display === 'none');
+    });
+  });
+})();
+</script>

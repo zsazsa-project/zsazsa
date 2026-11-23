@@ -115,6 +115,15 @@ class ThreatLandscapeQueue(unittest.TestCase):
                       reply["message"])
         self.assertNotIn("log", reply["message"])
 
+    def test_a_line_break_from_the_request_cannot_start_a_log_record_of_its_own(self):
+        """The ids come from the request, and the log writes a record per line
+        (code scanning alerts 253 to 255)."""
+        forged = "\n2026-11-23 09:00:00,000 webapp.audit ERROR every stakeholder deleted"
+        with self.assertLogs(data_collection.logger, level="WARNING") as logged:
+            self.queue([{"uuid": "x" + forged, "sourceId": SOURCE + forged}])
+        self.assertEqual(len(logged.records), 1)
+        self.assertNotIn("\n", logged.records[0].getMessage())
+
     def test_a_selection_that_is_no_event_is_named_rather_than_failing(self):
         with self.assertLogs(data_collection.logger, level="WARNING"):
             reply = self.queue([{"uuid": 5, "sourceId": SOURCE}, {"uuid": UUID, "sourceId": ["x"]}, "x"])

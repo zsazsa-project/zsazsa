@@ -79,6 +79,21 @@ class Coverage(unittest.TestCase):
                               _der(3, ["T1566"], status="Active", tlp="red")])
         self.assertEqual((rows["T1566"]["state"], rows["T1566"]["requests"]), ("gap", []))
 
+    def test_the_tlp_is_read_as_delivery_reads_it(self):
+        """A report stored as "Clear" goes to the stakeholders cleared for
+        TLP:CLEAR, so it names no AMBER request. One whose TLP names no level
+        names only what is CLEAR, and a request whose TLP names none counts as
+        RED."""
+        amber, clear = _der(1, ["T1566"], status="Active"), _der(2, ["T1190"], status="Active", tlp="TLP:CLEAR")
+        for report_tlp in ("Clear", "tlp:clear", " clear", "CLEAR", "unknown"):
+            with self.subTest(report_tlp):
+                rows = self.coverage([amber, clear], _report(ENTRIES, tlp=report_tlp))
+                self.assertEqual((rows["T1566"]["state"], rows["T1190"]["state"]), ("gap", "covered"))
+        secret = _der(3, ["T1566"], status="Active", tlp="secret")
+        for report_tlp, state in (("amber+strict", "gap"), ("red", "covered")):
+            with self.subTest(report_tlp):
+                self.assertEqual(self.coverage([secret], _report(ENTRIES, tlp=report_tlp))["T1566"]["state"], state)
+
     def test_requests_that_cannot_be_read_leave_every_technique_a_gap(self):
         with mock.patch.object(misp_store, "list_ders", side_effect=RuntimeError("down")), \
              self.assertLogs("webapp.routes.threat_landscape", level="WARNING"):

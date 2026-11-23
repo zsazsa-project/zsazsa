@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import review_state_badge %}
+{% from "_product_actions.html" import preview_button %}
 
 {% block title %}Threat landscapes | zsazsa CTI{% endblock %}
 {% block page_title %}Threat landscapes{% endblock %}
@@ -108,10 +109,7 @@
           <td class="text-end">
             <div class="d-inline-flex flex-nowrap align-items-center justify-content-end gap-2">
               <span class="d-inline-flex flex-nowrap gap-1">
-                <button type="button" class="btn btn-xs btn-outline-secondary preview-toggle-btn"
-                        data-target="tlr-preview-{{ t.uuid }}" title="Preview">
-                  <i class="fas fa-eye"></i>
-                </button>
+                {{ preview_button('tlr-preview-' ~ t.uuid) }}
                 <button type="button" class="btn btn-xs btn-outline-secondary feedback-btn"
                         data-action="{{ url_for('threat_landscape.add_feedback', id=t.uuid) }}" data-label="{{ t.tlr_id }}"
                         data-bs-toggle="modal" data-bs-target="#feedback-modal" title="Give feedback">
@@ -379,22 +377,9 @@
 {% endblock %}
 
 {% block scripts %}
-{% include "_markdown_js.html" %}
+{% include "_preview_toggle_js.html" %}
 <script>
 // The preview renders its Markdown the first time it opens.
-document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var row = document.getElementById(btn.dataset.target);
-    var open = row.style.display !== 'none';
-    row.style.display = open ? 'none' : '';
-    btn.querySelector('i').className = open ? 'fas fa-eye' : 'fas fa-eye-slash';
-    row.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
-      zsazsaRenderMarkdown(el, el.getAttribute('data-md'));
-      el.removeAttribute('data-md');
-    });
-  });
-});
-
 document.getElementById('feedback-modal').addEventListener('show.bs.modal', function(e) {
   var trigger = e.relatedTarget;
   if (!trigger) return;

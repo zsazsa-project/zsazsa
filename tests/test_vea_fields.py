@@ -101,7 +101,7 @@ class ReviewStateKeepsTheStoredFields(unittest.TestCase):
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
              mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
              mock.patch.object(misp_store, "_sync_object_attributes") as sync, \
-             mock.patch.object(misp_store, "_write_vea_report"), \
+             mock.patch.object(misp_store, "_write_product_report"), \
              mock.patch.object(misp_store.misp_session, "current_user_email",
                                return_value="reviewer@example.org"):
             misp_store.set_vea_review_state(VEA_UUID, state)

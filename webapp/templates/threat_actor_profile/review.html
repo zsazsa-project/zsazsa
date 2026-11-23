@@ -264,27 +264,9 @@
 {% endblock %}
 
 {% block scripts %}
-{% include "_markdown_js.html" %}
+{% include "_preview_toggle_js.html" %}
 <script>
 (function() {
-  document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var row = document.getElementById(btn.getAttribute('data-target'));
-      if (!row) return;
-      var open = row.style.display !== 'none';
-      row.style.display = open ? 'none' : '';
-      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-      var icon = btn.querySelector('i');
-      if (icon) icon.className = 'fas fa-fw ' + (open ? btn.dataset.previewIcon : 'fa-eye-slash');
-      if (!open) {
-        row.querySelectorAll('.report-md-body[data-md]').forEach(function(el) {
-          zsazsaRenderMarkdown(el, el.getAttribute('data-md'));
-          el.removeAttribute('data-md');
-        });
-      }
-    });
-  });
-
   var feedbackModal = document.getElementById('feedback-modal');
   if (feedbackModal) {
     feedbackModal.addEventListener('show.bs.modal', function(e) {

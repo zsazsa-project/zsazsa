@@ -65,8 +65,8 @@ _UNTRUSTED_FENCE = "===== UNTRUSTED SOURCE MATERIAL ====="
 def _untrusted_block(text: str) -> str:
     """Wrap scraped, third-party content in a labelled fence for a prompt.
 
-    Article and story text comes from external sites and feeds, so it can carry
-    text crafted to read as instructions to the model. Delimiting it and telling
+    Article and story text comes from external sites and feeds, so it can
+    contain text crafted to read as instructions to the model. Delimiting it and telling
     the model to treat it only as data reduces the chance a scraped article
     steers the output. This is a mitigation, not a guarantee - a model can still
     be led astray - so generated products stay subject to the usual review

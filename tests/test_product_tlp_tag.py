@@ -52,11 +52,11 @@ class Editing(unittest.TestCase):
     # besides that would reach MISP.
     PRODUCTS = {
         "alert": (misp_store.update_fia, misp_store._fia_obj, config.TAG_FLASH_INTEL,
-                  ("_delete_fia_reports", "_write_fia_report")),
+                  ("_delete_product_reports", "_write_product_report")),
         "advisory": (misp_store.update_vea, misp_store._vea_obj, config.TAG_VEA,
-                     ("_delete_vea_reports", "_write_vea_report")),
+                     ("_delete_product_reports", "_write_product_report")),
         "detection request": (misp_store.update_der, misp_store._der_obj, config.TAG_DETECTION_ENG,
-                              ("_delete_der_reports", "_write_der_report")),
+                              ("_delete_product_reports", "_write_product_report")),
         "briefing": (misp_store.update_briefing, misp_store._briefing_obj, config.TAG_BRIEFING,
                      ("_replace_reports",)),
         "landscape report": (misp_store.update_tlr, misp_store._tlr_obj, config.TAG_TLR, ()),

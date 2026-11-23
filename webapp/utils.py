@@ -65,6 +65,11 @@ def bold_lead_labels(text: str) -> str:
     For story drafts and for what a briefing stored before the labels were
     written this way. Lines in a fenced code block are left as they are.
     """
+    return _outside_code(text, lambda line: _LEAD_LABEL_LINE_RE.sub(r"\1**\2**", line))
+
+
+def _outside_code(text: str, change) -> str:
+    """The text with ``change`` made to each line that is not in fenced code."""
     lines = (text or "").split("\n")
     fence = None
     for i, line in enumerate(lines):
@@ -75,7 +80,7 @@ def bold_lead_labels(text: str) -> str:
         elif opening:
             fence = opening.group(1)
         else:
-            lines[i] = _LEAD_LABEL_LINE_RE.sub(r"\1**\2**", line)
+            lines[i] = change(line)
     return "\n".join(lines)
 
 
@@ -115,18 +120,8 @@ def nest_headings(text: str, levels: int = 2) -> str:
     """Move the headings an analyst wrote ``levels`` down, under the "## "
     sections of the product the text goes into, so a heading in a field does
     not start a section of the mail of its own. Fenced code is left alone."""
-    lines = (text or "").split("\n")
-    fence = None
-    for i, line in enumerate(lines):
-        opening = _FENCE_RE.match(line)
-        if fence:
-            if opening and opening.group(1) == fence:
-                fence = None
-        elif opening:
-            fence = opening.group(1)
-        else:
-            lines[i] = _HEADING_RE.sub(lambda m: m.group(1) + "#" * min(6, len(m.group(2)) + levels), line)
-    return "\n".join(lines)
+    return _outside_code(text, lambda line: _HEADING_RE.sub(
+        lambda m: m.group(1) + "#" * min(6, len(m.group(2)) + levels), line))
 
 
 def md_to_text(text: str) -> str:

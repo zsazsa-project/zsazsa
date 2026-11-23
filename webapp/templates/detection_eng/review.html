@@ -404,34 +404,14 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_preview_toggle_js.html" %}
 <script>
 (function() {
-  function setPreview(row, open) {
-    row.style.display = open ? '' : 'none';
-    document.querySelectorAll('[data-target="' + row.id + '"]').forEach(function(btn) {
-      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (btn.classList.contains('preview-toggle-btn')) {
-        var icon = btn.querySelector('i');
-        if (icon) icon.className = open ? 'fas fa-fw fa-eye-slash' : 'fas fa-fw fa-eye';
-      }
-    });
-  }
-
-  document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var targetId = btn.getAttribute('data-target');
-      var row = document.getElementById(targetId);
-      if (!row) return;
-      setPreview(row, row.style.display === 'none');
-    });
-  });
-
   document.querySelectorAll('.approval-open').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var row = document.getElementById(btn.dataset.target);
       if (!row) return;
-      setPreview(row, true);
+      zsazsaSetPreview(row, true);
       row.scrollIntoView({behavior: 'smooth', block: 'center'});
     });
   });

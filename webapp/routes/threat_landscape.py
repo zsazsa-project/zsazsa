@@ -356,10 +356,9 @@ def _cvss(value) -> float:
 
 def _shared_within(record, tlr) -> bool:
     """Whether a record may be named in the report: shared no more strictly
-    than the report itself."""
-    levels = misp_store.TLR_TLP_LEVELS
-    report = levels.index(tlr.tlp) if tlr.tlp in levels else levels.index("amber")
-    return record.tlp in levels and levels.index(record.tlp) <= report
+    than the report itself. Read as delivery reads both, so the report's
+    stakeholders are cleared for every record it names."""
+    return misp_store._tlp_cleared(tlr.tlp, record.tlp)
 
 
 def _vulnerabilities(tlr) -> dict:

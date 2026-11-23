@@ -383,7 +383,7 @@ class ChangingTheReviewStateKeepsTheContent(unittest.TestCase):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.get_event.return_value = event
         with mock.patch.object(misp_store, "_misp", return_value=misp), \
-             mock.patch.object(misp_store, "_write_fia_report"), \
+             mock.patch.object(misp_store, "_write_product_report"), \
              mock.patch.object(misp_store.misp_session, "current_user_email",
                                return_value="reviewer@example.org"):
             misp_store.set_fia_review_state(uuid, state)

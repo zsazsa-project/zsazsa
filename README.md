@@ -123,6 +123,8 @@ In **Review the stories**, the threat report is shown paragraph by paragraph wit
 
 From the same view, analysts **create a product** from selected source events.
 
+The longer text fields of a product, and of a manual entry, are Markdown, with **Write**, **Preview** and **Side by side**, and Ctrl+B and Ctrl+I (Cmd on a Mac) for bold and italic.
+
 **Add to threat landscape queue** tags the selected events with `zsazsa:product="threat-landscape-report"` and sets their workflow state to ongoing, leaving complete events complete. The table reloads with the updated tags and a confirmation showing how many events were queued. Any events that could not be queued are reported too.
 
 On the threat landscape page, **Remove from queue** removes that tag from the selected stories without deleting their MISP events. They remain in Data collection. An ongoing story returns to incomplete only if it has no other `zsazsa:product` tag; complete stories stay complete. Events already held by a report cannot be removed through the queue.
@@ -191,7 +193,7 @@ Products start as drafts, or submitted for review so a colleague looks at them f
 
 On the briefing, alert, advisory and threat actor profile lists, **Preview and approve** opens a draft inline, with **Approve & publish** beside **Recipients**, which shows who will receive the product and why the others will not. Approving takes MISP's publish permission. For alerts and advisories, **QA check against source** has the AI check the draft against its source events and list the claims to fix. Keep the page open for its result.
 
-Reject a draft you do not want, with a reason if you like, rather than delete it: the analyser reads a deleted product's source events again, so a deleted draft can come back. On the alert, advisory and briefing lists, drafts can be approved, rejected or deleted together, and each list can delete all its rejected products at once. The "How ... is made" line under each list's filters shows every step from collection to delivery, and who does it.
+Reject a draft you do not want, with a reason if you like, rather than delete it: the analyser reads a deleted product's source events again, so a deleted draft can come back. On the alert, advisory and briefing lists, drafts, and alerts and advisories submitted for review, can be approved, rejected or deleted together, and each list can delete all its rejected products at once. The "How ... is made" line under each list's filters shows every step from collection to delivery, and who does it.
 
 ### Indicator feed
 

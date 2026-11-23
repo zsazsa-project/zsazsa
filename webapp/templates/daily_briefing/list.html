@@ -311,7 +311,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% include "_markdown_js.html" %}
+{% include "_preview_toggle_js.html" %}
 {% include "_selection_js.html" %}
 <script>
 /* Same story-label marking as the briefing detail page. */
@@ -320,23 +320,12 @@ function markLeadLabels(html) {
   return html.replace(LEAD_LABEL, '$1$2<span class="pretext">$3</span>');
 }
 
+// Rendered here rather than when a preview opens, to mark the labels.
 document.querySelectorAll('.report-md-body').forEach(function(el) {
   if (zsazsaRenderMarkdown(el, el.getAttribute('data-md'), '<em class="text-muted">(no content)</em>')) {
     el.innerHTML = markLeadLabels(el.innerHTML);
   }
-});
-
-/* ── Preview toggle ── */
-document.querySelectorAll('.preview-toggle-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var targetId = btn.dataset.target;
-    var row = document.getElementById(targetId);
-    if (!row) return;
-    var visible = row.style.display !== 'none';
-    row.style.display = visible ? 'none' : '';
-    btn.setAttribute('aria-expanded', visible ? 'false' : 'true');
-    btn.querySelector('i').className = 'fas fa-fw ' + (visible ? btn.dataset.previewIcon : 'fa-eye-slash');
-  });
+  el.removeAttribute('data-md');
 });
 
 /* ── Feedback modal ── */

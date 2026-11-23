@@ -178,8 +178,8 @@ class StoredAlert(unittest.TestCase):
              mock.patch.object(misp_store, "_zsazsa_event", return_value=event), \
              mock.patch.object(misp_store, "_sync_object_attributes") as synced, \
              mock.patch.object(misp_store, "_sync_tlp_tag"), \
-             mock.patch.object(misp_store, "_delete_fia_reports"), \
-             mock.patch.object(misp_store, "_write_fia_report"), \
+             mock.patch.object(misp_store, "_delete_product_reports"), \
+             mock.patch.object(misp_store, "_write_product_report"), \
              mock.patch.object(misp_store, "_retag_product_sources"), \
              mock.patch.object(misp_store.misp_session, "current_user_email", return_value="a@example.org"):
             misp_store.update_fia("u" * 36, {"title": "Alert, edited"})

@@ -5678,30 +5678,28 @@ def render_fia_markdown(fia, fia_id=None, include_source_links=False, preview_ur
     return "\n".join(parts)
 
 
-def _delete_fia_reports(misp, event):
-    """Remove rendered FIA reports (name starts with 'FIA-') from the event.
+def _delete_product_reports(misp, event, prefix):
+    """Remove a product's rendered reports, named after its id ("FIA-", "VEA-",
+    "DER-"), from its event.
 
     Hard-delete: a soft delete leaves the report attached with deleted=True,
     where it would linger and accumulate on every re-render.
     """
     for r in getattr(event, "event_reports", []) or []:
-        if getattr(r, "deleted", False):
-            continue
-        name = getattr(r, "name", "") or ""
-        if name.startswith("FIA-"):
+        if not getattr(r, "deleted", False) and (getattr(r, "name", "") or "").startswith(prefix):
             try:
                 misp.delete_event_report(r.id, hard=True)
             except Exception as exc:
                 logger.warning("delete event report %s failed: %s", r.id, exc)
 
 
-def _write_fia_report(misp, event_uuid, fia_id, content):
+def _write_product_report(misp, event_uuid, product_id, content):
     from pymisp import MISPEventReport
     er = MISPEventReport()
-    er.name = fia_id
+    er.name = product_id
     er.content = content
     er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), "add FIA report")
+    _check(misp.add_event_report(event_uuid, er), f"add {product_id} report")
 
 
 def list_fias(review_state=None, strict=False):
@@ -5784,7 +5782,7 @@ def create_fia(data, creator=""):
     try:
         _check(misp.add_object(_event_ref(result), _fia_obj(data)), "add FIA object")
         fia = _fia_ns(_check(misp.get_event(uuid, pythonify=True), "read the new FIA"))
-        _write_fia_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
+        _write_product_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
     except Exception:
         _delete_unfinished(misp, uuid, "FIA")
         raise
@@ -5843,9 +5841,9 @@ def update_fia(uuid, data, approver=""):
 
     # Re-render report
     refreshed = misp.get_event(uuid, pythonify=True)
-    _delete_fia_reports(misp, refreshed)
+    _delete_product_reports(misp, refreshed, "FIA-")
     fia = _fia_ns(refreshed)
-    _write_fia_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
+    _write_product_report(misp, uuid, fia_id, render_fia_markdown(fia, fia_id))
     _retag_product_sources("flash-intel", before, _sources_of(fia), flash_intel_source_uuids)
     return uuid, fia_id
 
@@ -6656,29 +6654,6 @@ def render_vea_markdown(vea, vea_id=None, preview_url: str = ""):
     return "\n".join(lines)
 
 
-def _delete_vea_reports(misp, event):
-    """Hard-delete: a soft delete leaves the report attached with deleted=True,
-    where it would linger and accumulate on every re-render."""
-    for r in getattr(event, "event_reports", []) or []:
-        if getattr(r, "deleted", False):
-            continue
-        name = getattr(r, "name", "") or ""
-        if name.startswith("VEA-"):
-            try:
-                misp.delete_event_report(r.id, hard=True)
-            except Exception as exc:
-                logger.warning("delete VEA report %s failed: %s", r.id, exc)
-
-
-def _write_vea_report(misp, event_uuid, vea_id, content):
-    from pymisp import MISPEventReport
-    er = MISPEventReport()
-    er.name = vea_id
-    er.content = content
-    er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), "add VEA report")
-
-
 def list_veas(review_state=None, strict=False):
     events = _tagged_events(config.TAG_VEA, strict)
     result = [_vea_ns(e) for e in events]
@@ -6725,7 +6700,7 @@ def create_vea(data):
     try:
         _check(misp.add_object(_event_ref(result), _vea_obj(data)), "add VEA object")
         vea = _vea_ns(_check(misp.get_event(uuid, pythonify=True), "read the new VEA"))
-        _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
+        _write_product_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
     except Exception:
         _delete_unfinished(misp, uuid, "VEA")
         raise
@@ -6767,9 +6742,9 @@ def update_vea(uuid, data):
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
 
     refreshed = misp.get_event(uuid, pythonify=True)
-    _delete_vea_reports(misp, refreshed)
+    _delete_product_reports(misp, refreshed, "VEA-")
     vea = _vea_ns(refreshed)
-    _write_vea_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
+    _write_product_report(misp, uuid, vea_id, render_vea_markdown(vea, vea_id))
     _retag_product_sources("vea", before, _sources_of(vea), vea_source_uuids)
     return uuid, vea_id
 
@@ -7055,26 +7030,6 @@ def render_der_markdown(der, der_id=None, preview_url: str = ""):
     return "\n".join(lines)
 
 
-def _delete_der_reports(misp, event):
-    for r in getattr(event, "event_reports", []) or []:
-        if getattr(r, "deleted", False):
-            continue
-        if (getattr(r, "name", "") or "").startswith("DER-"):
-            try:
-                misp.delete_event_report(r.id, hard=True)
-            except Exception as exc:
-                logger.warning("delete DER report %s failed: %s", r.id, exc)
-
-
-def _write_der_report(misp, event_uuid, der_id, content):
-    from pymisp import MISPEventReport
-    er = MISPEventReport()
-    er.name = der_id
-    er.content = content
-    er.distribution = 0
-    _check(misp.add_event_report(event_uuid, er), "add DER report")
-
-
 def _der_source_uuids() -> set:
     return {uuid for der in list_ders() for uuid in der.source_event_uuids}
 
@@ -7124,7 +7079,7 @@ def create_der(data):
     try:
         _check(misp.add_object(_event_ref(result), _der_obj(data)), "add DER object")
         der = _der_ns(_check(misp.get_event(uuid, pythonify=True), "read the new DER"))
-        _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+        _write_product_report(misp, uuid, der_id, render_der_markdown(der, der_id))
     except Exception:
         _delete_unfinished(misp, uuid, "DER")
         raise
@@ -7161,9 +7116,9 @@ def update_der(uuid, data):
     _sync_tlp_tag(misp, event, _obj_attr(obj, "tlp"))
 
     refreshed = misp.get_event(uuid, pythonify=True)
-    _delete_der_reports(misp, refreshed)
+    _delete_product_reports(misp, refreshed, "DER-")
     der = _der_ns(refreshed)
-    _write_der_report(misp, uuid, der_id, render_der_markdown(der, der_id))
+    _write_product_report(misp, uuid, der_id, render_der_markdown(der, der_id))
     _retag_product_sources("detection-eng-request", before, _sources_of(der), _der_source_uuids)
     return uuid, der_id
 
@@ -8169,6 +8124,10 @@ def _tlr_ns(event):
 _RELEVANCE_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
+# What an incident takes from the first of its events that has it.
+_INCIDENT_FIRST = ("threat_type", "source_reliability", "information_credibility", "impact", "affected_assets")
+
+
 def tlr_incidents(entries) -> list:
     """The incidents among the entries left in the analysis, which the counts
     of a report are of: the events an analyst grouped as one incident merged,
@@ -8188,24 +8147,18 @@ def tlr_incidents(entries) -> list:
     incidents = []
     for members in groups.values():
         members.sort(key=lambda e: e.event_date or "9999")
-
-        def first(attr):
-            return next((getattr(m, attr) for m in members if getattr(m, attr)), "")
-
-        def every(attr):
-            return list(dict.fromkeys(v for m in members for v in getattr(m, attr)))
-
         relevance = min((m.relevance for m in members if m.relevance in _RELEVANCE_ORDER),
                         key=_RELEVANCE_ORDER.get, default="")
         lead = members[0]
         incidents.append(SimpleNamespace(
             event_uuid=lead.event_uuid, event_info=lead.event_info, event_date=lead.event_date,
-            source_id=lead.source_id, relevance=relevance, threat_type=first("threat_type"),
-            source_reliability=first("source_reliability"), information_credibility=first("information_credibility"),
-            impact=first("impact"), affected_assets=first("affected_assets"),
-            **{key: every(key) for key in TLR_ENTRY_LISTS}, events=len(members),
-            event_uuids=[m.event_uuid for m in members], source_ids=list(dict.fromkeys(m.source_id for m in members))))
+            source_id=lead.source_id, relevance=relevance,
+            **{key: next((getattr(m, key) for m in members if getattr(m, key)), "") for key in _INCIDENT_FIRST},
+            **{key: list(dict.fromkeys(v for m in members for v in getattr(m, key))) for key in TLR_ENTRY_LISTS},
+            events=len(members), event_uuids=[m.event_uuid for m in members],
+            source_ids=list(dict.fromkeys(m.source_id for m in members))))
     return incidents
+
 
 
 def tlr_annex(tlr):
