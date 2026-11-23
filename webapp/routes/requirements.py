@@ -366,20 +366,28 @@ def _sort_requirements(items, sort, direction, id_attr, text_attr, status_order)
     return items
 
 
+def _pir_status(pir) -> str:
+    """The status a PIR is listed and counted under: a rejected one has its own."""
+    return "Rejected" if pir.intake_status == "rejected" else pir.status
+
+
 @bp.route("/pirs")
 def pir_list():
     all_pirs = misp_store.list_pirs()
     intel_filter = (request.args.get("intel_level") or "").strip()
     priority_filter = (request.args.get("priority") or "").strip()
+    status_filter = (request.args.get("status") or "").strip()
     # Rejected PIRs are done with, so the list leaves them out until asked for
-    # them, as the RFI list does with closed RFIs.
+    # them, or for a status, as the RFI list does with closed RFIs.
     show_rejected = request.args.get("rejected") == "1"
     tests = {}
+    if status_filter:
+        tests["status"] = lambda p: _pir_status(p) == status_filter
     if intel_filter:
         tests["intel_level"] = lambda p: intel_filter in (p.intel_level or [])
     if priority_filter:
         tests["priority"] = lambda p: p.priority == priority_filter
-    if not show_rejected:
+    if not show_rejected and not status_filter:
         tests["rejected"] = lambda p: p.intake_status != "rejected"
     pirs = _sort_requirements(
         matching(all_pirs, tests), request.args.get("sort"), request.args.get("dir"),
@@ -395,8 +403,8 @@ def pir_list():
         today=date.today(),
         linked_girs=linked_girs,
         scope_counts={p.uuid: _scope_item_count(p) for p in pirs},
-        status_counts=ordered_counts(("Rejected" if p.intake_status == "rejected" else p.status for p in pirs),
-                                     PIR_STATUS_ORDER),
+        status_counts=ordered_counts(map(_pir_status, matching(all_pirs, tests, skip="status")), PIR_STATUS_ORDER),
+        status_filter=status_filter,
         priority_counts=ordered_counts((p.priority for p in matching(all_pirs, tests, skip="priority")),
                                        MOSCOW_PRIORITIES),
         level_counts=_level_counts(matching(all_pirs, tests, skip="intel_level")),
@@ -695,14 +703,18 @@ def gir_list():
     all_girs = misp_store.list_girs()
     intel_filter = (request.args.get("intel_level") or "").strip()
     cycle_filter = (request.args.get("review_cycle") or "").strip()
-    # Retired GIRs are done with, so the list leaves them out until asked for them.
+    status_filter = (request.args.get("status") or "").strip()
+    # Retired GIRs are done with, so the list leaves them out until asked for
+    # them, or for a status.
     show_retired = request.args.get("retired") == "1"
     tests = {}
+    if status_filter:
+        tests["status"] = lambda g: g.status == status_filter
     if intel_filter:
         tests["intel_level"] = lambda g: intel_filter in (g.intel_level or [])
     if cycle_filter:
         tests["review_cycle"] = lambda g: g.review_cycle == cycle_filter
-    if not show_retired:
+    if not show_retired and not status_filter:
         tests["retired"] = lambda g: g.status != "Retired"
     girs = _sort_requirements(
         matching(all_girs, tests), request.args.get("sort"), request.args.get("dir"),
@@ -720,7 +732,8 @@ def gir_list():
         today=date.today(),
         linked_pirs=linked_pirs,
         scope_counts={g.uuid: _scope_item_count(g) for g in girs},
-        status_counts=ordered_counts((g.status for g in girs), GIR_STATUS_ORDER),
+        status_counts=ordered_counts((g.status for g in matching(all_girs, tests, skip="status")), GIR_STATUS_ORDER),
+        status_filter=status_filter,
         level_counts=_level_counts(matching(all_girs, tests, skip="intel_level")),
         cycle_counts=ordered_counts((g.review_cycle for g in matching(all_girs, tests, skip="review_cycle")),
                                     REVIEW_CYCLES),

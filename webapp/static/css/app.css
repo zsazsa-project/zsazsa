@@ -2923,7 +2923,7 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .pipe-legs .leg small { color: var(--text-muted); text-align: right; }
 
 /* ─── Data collection: manual entry and newsletters ── */
-.product-tiles.source-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.product-tiles.source-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
 .scope-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.25rem; }
 /* The Admiralty scale as six choices a row, with the code they make. */
 .choice-group.admiralty { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .3rem; }
@@ -3291,7 +3291,9 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 15%, transparent); }
 .btn-check:checked + .choice::before { content: "\f00c"; font: var(--fa-font-solid); font-size: .72rem; color: var(--accent-blue); }
 .btn-check:focus-visible + .choice { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
-.product-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .5rem; }
+/* Wide enough for the longest product name to fit on two lines, and every row as
+   tall as the tallest, so the tiles are all the same size. */
+.product-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr)); grid-auto-rows: 1fr; gap: .5rem; }
 .product-tile { display: flex; align-items: center; gap: .6rem; margin: 0; padding: .5rem .7rem; border: 1px solid var(--border-light);
   border-radius: 10px; font-size: .84rem; font-weight: 600; cursor: pointer; }
 .product-tile:hover { border-color: var(--accent-blue); }

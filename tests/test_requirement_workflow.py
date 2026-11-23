@@ -498,7 +498,8 @@ class ProductLinks(unittest.TestCase):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.search.return_value = [_product(**{"linked-pir-uuid": UUID})]
         with mock.patch.object(misp_store, "_misp", return_value=misp):
-            products = misp_store.products_for_stakeholder(SimpleNamespace(products=[]), [_pir()], [])
+            products = misp_store.products_for_stakeholder(
+                SimpleNamespace(products=[], created_at=None), [_pir()], [])
         self.assertEqual([p.uuid for p in products], [OTHER])
 
 

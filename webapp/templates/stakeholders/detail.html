@@ -30,9 +30,11 @@
   .req-row .req-text { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .req-row .meta { font-size: .78rem; color: var(--text-muted); }
   .req-empty { padding: .3rem 1rem .9rem; font-size: .84rem; color: var(--text-muted); }
-  .sub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .45rem; }
+  /* Wide enough for a subscription and its badge on one line. */
+  .sub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(20.5rem, 1fr)); gap: .45rem; }
   .sub-item { display: flex; align-items: center; gap: .55rem; padding: .5rem .7rem; border: 1px solid var(--border-light);
               border-radius: 10px; font-size: .84rem; font-weight: 600; }
+  .sub-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub-item i { color: var(--accent-blue); }
   .sub-item.off { border-style: dashed; color: var(--text-muted); font-weight: 400; }
   .sub-item.off i { color: var(--text-muted); opacity: .6; }
@@ -244,7 +246,7 @@
         {% set mode = stakeholder.product_modes.get(p) if stakeholder.product_modes else None %}
         <div class="sub-item{{ '' if subscribed else ' off' }}" title="{{ 'Subscribed' if subscribed else 'Not subscribed' }}">
           <i class="fas fa-{{ product_icons.get(p, 'cube') }} fa-fw" aria-hidden="true"></i>
-          <span>{{ p }}</span>
+          <span class="sub-name">{{ p }}</span>
           {# Only an automated subscription says anything: the mode picker is
              hidden, so after-approval is what a stakeholder has by default
              rather than something anyone chose. #}

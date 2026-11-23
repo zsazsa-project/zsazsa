@@ -32,7 +32,7 @@
   <div class="hero-main">
     <span class="hero-icon" aria-hidden="true"><i class="fas fa-star"></i></span>
     <div class="record-kpis">
-      <div class="record-kpi"><b>{{ pirs | length }}</b><span>PIR{{ 's' if pirs | length != 1 }}{{ ', ' ~ rejected_count ~ ' rejected not shown' if rejected_count and not show_rejected }}</span></div>
+      <div class="record-kpi"><b>{{ pirs | length }}</b><span>PIR{{ 's' if pirs | length != 1 }}{{ ', ' ~ rejected_count ~ ' rejected not shown' if rejected_count and not show_rejected and not status_filter }}</span></div>
       <div class="record-kpi"><b>{{ kpi.active }}</b><span>active</span></div>
       <div class="record-kpi"><b>{{ kpi.triage }}</b><span>waiting for triage</span></div>
       <div class="record-kpi{{ ' warn' if kpi.late }}"><b>{{ kpi.late }}</b><span>active PIR{{ 's' if kpi.late != 1 }} past the review</span></div>
@@ -44,7 +44,7 @@
   </div>
   {% if priority_counts or level_counts %}
   <div class="record-panel list-stats">
-    <div>{{ charts.mix('Status', status_counts, charts.status_colors) }}</div>
+    <div>{{ charts.mix('Status', status_counts, charts.status_colors, param='status', selected=status_filter) }}</div>
     <div>{{ charts.mix('Priority', priority_counts, charts.priority_colors, param='priority', selected=priority_filter) }}</div>
     <div>{{ charts.mix('Intelligence level', level_counts, charts.intel_colors, param='intel_level', selected=intel_filter) }}</div>
   </div>
@@ -53,9 +53,10 @@
 
 <form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
   {% if show_rejected %}<input type="hidden" name="rejected" value="1">{% endif %}
+  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
   {{ charts.filter_select('intel_level', 'Intelligence level', 'fa-layer-group', 'All levels', intel_levels, intel_filter) }}
   {{ charts.filter_select('priority', 'Priority', 'fa-flag', 'All priorities', priorities, priority_filter) }}
-  {% if rejected_count %}
+  {% if not status_filter and rejected_count %}
   <a href="{{ url_for('requirements.pir_list', **dict(request.args.to_dict(), rejected=None if show_rejected else 1)) }}"
      class="btn btn-sm btn-outline-secondary">
     <i class="fas {{ 'fa-eye-slash' if show_rejected else 'fa-box-archive' }} me-1"></i>
@@ -64,7 +65,7 @@
   {% endif %}
   <div class="shown">
     <span>{{ pirs | length }} PIR{{ 's' if pirs|length != 1 }}</span>
-    {% if intel_filter or priority_filter %}
+    {% if intel_filter or priority_filter or status_filter %}
     <a href="{{ url_for('requirements.pir_list') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
     {% endif %}
   </div>

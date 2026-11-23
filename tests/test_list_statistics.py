@@ -3,7 +3,7 @@
 Each list counts what it shows beside its filters, and each field it filters on
 by what the other filters let through, so that a bar still offers every choice;
 a click on one filters the list and sets its dropdown. The RFI list leaves the
-closed ones out until asked for them, or for their status, the PIR list the
+closed ones out until asked for them, or for a status, the PIR list the
 rejected ones and the GIR list the retired ones, and the banner says how many
 it leaves out. The rows are grouped by status, the left out ones in a group of
 their own when they are shown. An alert or advisory the analyser drafted says why under its
@@ -110,7 +110,8 @@ class Lists(_Page):
             page = self.page("/pirs?intel_level=Strategic")
             must = self.page("/pirs?priority=Must+have")
         self.assertEqual([a["href"] for a in page.select(".list-stats a.chart-filter")],
-                         ["/pirs?intel_level=Strategic&priority=Must+have", "/pirs", "/pirs?intel_level=Operational"])
+                         ["/pirs?intel_level=Strategic&status=Active", "/pirs?intel_level=Strategic&priority=Must+have",
+                          "/pirs", "/pirs?intel_level=Operational"])
         self.assertIn("Intelligence level Strategic 1 Operational 1", self.stats(page))
         self.assertEqual([a.get_text() for a in must.select("tbody .req-id-badge")], ["PIR-001"])
         self.assertEqual(must.select_one('select[name="priority"] option[selected]')["value"], "Must have")
@@ -183,6 +184,31 @@ class Lists(_Page):
         self.assertEqual(len(page.select("tbody .req-id-badge")), 2)
         self.assertEqual(self.lanes(page), [("Active", "1 GIR"), ("Retired", "1 GIR")])
         self.assertIn("Hide retired GIRs", page.select_one(".list-filters a.btn").get_text(" ", strip=True))
+
+    def test_a_click_on_a_status_filters_the_pirs(self):
+        """The status bar of the PIR list was the one bar that could not be clicked."""
+        page = self.pirs("/pirs?status=Active")
+        self.assertEqual([a.get_text() for a in page.select("tbody .req-id-badge")], ["PIR-001"])
+        self.assertIn("Status Active 1 Rejected 2", self.stats(page))
+        self.assertIn("/pirs", [a["href"] for a in page.select(".list-stats a.chart-filter.selected")])
+        self.assertEqual(page.select_one('.list-filters input[name="status"]')["value"], "Active")
+        self.assertIn("/pirs?status=Active", [a["href"] for a in self.pirs("/pirs").select(".list-stats a.chart-filter")])
+
+    def test_the_rejected_pirs_are_shown_when_filtered_on(self):
+        page = self.pirs("/pirs?status=Rejected")
+        self.assertEqual([a.get_text() for a in page.select("tbody .req-id-badge")], ["PIR-002", "PIR-003"])
+        self.assertEqual(self.lanes(page), [("Rejected", "2 PIRs")])
+        self.assertNotIn("not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertIsNone(page.select_one(".list-filters a.btn-outline-secondary.btn-sm"))
+
+    def test_a_click_on_a_status_filters_the_girs(self):
+        for status, shown in (("Active", ["GIR-001"]), ("Retired", ["GIR-002"])):
+            with self.subTest(status):
+                page = self.girs(f"/girs?status={status}")
+                self.assertEqual([a.get_text() for a in page.select("tbody .req-id-badge")], shown)
+                self.assertIn("Status Active 1 Retired 1", self.stats(page))
+                self.assertNotIn("not shown", page.select_one(".record-kpis").get_text(" ", strip=True))
+        self.assertIn("/girs?status=Active", [a["href"] for a in self.girs("/girs").select(".list-stats a.chart-filter")])
 
     def rfis(self, path):
         rfis = [_rfi(1, "Acknowledged"), _rfi(2, "Closed"), _rfi(3, "Closed")]

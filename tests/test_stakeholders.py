@@ -6,7 +6,8 @@ is a small SQLite table filled from MISP by hand and by every SSO request, and
 the stakeholder page and export read both. A product type removed under
 Settings > Products is not shown as a subscription, as the edit form does not
 offer it. The page puts the scope of the stakeholder's PIRs and GIRs beside the
-focus points, and lists its products without zsazsa's prefix. The form asks the
+focus points, and lists its products without zsazsa's prefix, only those
+changed since the stakeholder was created. The form asks the
 clearance as choices and keeps the subscription modes it does not show. Where MISP is called it is an autospec
 of PyMISP, and the databases are temporary.
 
@@ -15,6 +16,7 @@ of PyMISP, and the databases are temporary.
 
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -164,18 +166,44 @@ class Delete(unittest.TestCase):
 
 
 class RecentProducts(unittest.TestCase):
+    FIA = SimpleNamespace(uuid="f" * 36, fia_id="FIA-00001", title="Wiper on the grid",
+                          created_at=None, misp_url="")
+
+    def listed(self, stakeholder, changed):
+        """The products listed for ``stakeholder`` when MISP has changed the events
+        in ``changed`` since the timestamp it is asked for."""
+        events = []
+        for uuid in changed:
+            event = MISPEvent()
+            event.uuid, event.info = uuid, "[zsazsa:fia] Wiper on the grid"
+            events.append(event)
+        self.misp = mock.create_autospec(PyMISP, instance=True)
+        self.misp.search.return_value = events
+        with mock.patch.object(misp_store, "_misp", return_value=self.misp), \
+             mock.patch.object(misp_store, "list_fias", return_value=[self.FIA]):
+            return misp_store.products_for_stakeholder(stakeholder, [], [])
+
     def test_a_subscription_shows_without_any_requirement(self):
         """Nothing was listed for a stakeholder who owns no PIR or GIR, whatever
         they subscribe to."""
-        fia = SimpleNamespace(uuid="f" * 36, fia_id="FIA-00001", title="Wiper on the grid",
-                              created_at=None, misp_url="")
-        misp = mock.create_autospec(PyMISP, instance=True)
-        with mock.patch.object(misp_store, "_misp", return_value=misp), \
-             mock.patch.object(misp_store, "list_fias", return_value=[fia]):
-            products = misp_store.products_for_stakeholder(
-                _stakeholder(products=["Flash intel alert"]), [], [])
+        products = self.listed(_stakeholder(products=["Flash intel alert"]), [self.FIA.uuid])
         self.assertEqual([p.info for p in products], ["[zsazsa:fia] Wiper on the grid"])
-        misp.search.assert_not_called()
+
+    def test_a_new_stakeholder_does_not_start_with_the_products_from_before(self):
+        """A stakeholder created today listed every approved alert there ever was."""
+        created = datetime(2026, 11, 23)
+        self.assertEqual(self.listed(_stakeholder(products=["Flash intel alert"], created_at=created), []), [])
+        self.assertEqual(self.misp.search.call_args.kwargs["timestamp"],
+                         int(datetime(2026, 11, 23, tzinfo=timezone.utc).timestamp()))
+
+    def test_a_product_changed_since_the_stakeholder_was_created_is_listed(self):
+        products = self.listed(_stakeholder(products=["Flash intel alert"], created_at=datetime(2026, 11, 23)),
+                               [self.FIA.uuid])
+        self.assertEqual([p.uuid for p in products], [self.FIA.uuid])
+
+    def test_nothing_is_asked_of_misp_for_a_stakeholder_with_no_requirement_or_subscription(self):
+        self.assertEqual(self.listed(_stakeholder(), []), [])
+        self.misp.search.assert_not_called()
 
 
 class Organisations(TempDatabase):

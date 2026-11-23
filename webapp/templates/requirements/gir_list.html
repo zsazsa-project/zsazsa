@@ -24,7 +24,7 @@
   <div class="hero-main">
     <span class="hero-icon" aria-hidden="true"><i class="fas fa-list-check"></i></span>
     <div class="record-kpis">
-      <div class="record-kpi"><b>{{ girs | length }}</b><span>GIR{{ 's' if girs | length != 1 }}{{ ', ' ~ retired_count ~ ' retired not shown' if retired_count and not show_retired }}</span></div>
+      <div class="record-kpi"><b>{{ girs | length }}</b><span>GIR{{ 's' if girs | length != 1 }}{{ ', ' ~ retired_count ~ ' retired not shown' if retired_count and not show_retired and not status_filter }}</span></div>
       <div class="record-kpi"><b>{{ kpi.active }}</b><span>active</span></div>
       <div class="record-kpi"><b>{{ kpi.scope }}</b><span>scope items watched</span></div>
       <div class="record-kpi{{ ' warn' if kpi.late }}"><b>{{ kpi.late }}</b><span>active GIR{{ 's' if kpi.late != 1 }} past the review</span></div>
@@ -36,7 +36,7 @@
   </div>
   {% if level_counts or cycle_counts %}
   <div class="record-panel list-stats">
-    <div>{{ charts.mix('Status', status_counts, charts.status_colors) }}</div>
+    <div>{{ charts.mix('Status', status_counts, charts.status_colors, param='status', selected=status_filter) }}</div>
     <div>{{ charts.mix('Intelligence level', level_counts, charts.intel_colors, param='intel_level', selected=intel_filter) }}</div>
     <div>{{ charts.mix('Review cycle', cycle_counts, charts.cycle_colors, param='review_cycle', selected=cycle_filter) }}</div>
   </div>
@@ -45,9 +45,10 @@
 
 <form method="get" class="card content-card list-filters record-filters rise rise-1 mb-4">
   {% if show_retired %}<input type="hidden" name="retired" value="1">{% endif %}
+  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
   {{ charts.filter_select('intel_level', 'Intelligence level', 'fa-layer-group', 'All levels', intel_levels, intel_filter) }}
   {{ charts.filter_select('review_cycle', 'Review cycle', 'fa-arrows-rotate', 'All review cycles', review_cycles, cycle_filter) }}
-  {% if retired_count %}
+  {% if not status_filter and retired_count %}
   <a href="{{ url_for('requirements.gir_list', **dict(request.args.to_dict(), retired=None if show_retired else 1)) }}"
      class="btn btn-sm btn-outline-secondary">
     <i class="fas {{ 'fa-eye-slash' if show_retired else 'fa-box-archive' }} me-1"></i>
@@ -56,7 +57,7 @@
   {% endif %}
   <div class="shown">
     <span>{{ girs | length }} GIR{{ 's' if girs|length != 1 }}</span>
-    {% if intel_filter or cycle_filter %}
+    {% if intel_filter or cycle_filter or status_filter %}
     <a href="{{ url_for('requirements.gir_list') }}" class="btn btn-xs btn-outline-secondary">Clear</a>
     {% endif %}
   </div>

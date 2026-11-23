@@ -3857,17 +3857,25 @@ def products_for_stakeholder(stakeholder, pirs, girs, limit=20):
     distribution of. A product is listed when it answers one of those PIRs, or
     its title or a tag names one of them, or when it is an approved alert or
     advisory, or a published briefing, of a type the stakeholder subscribes to.
+    Only products last changed on or after the day the stakeholder was created
+    are listed, so a new stakeholder does not start with the products from
+    before them.
     """
     needles = {p.pir_id for p in pirs} | {g.gir_id for g in girs} | {r.uuid for r in pirs + girs}
     needles.discard("")
+    subscribed_products = set(stakeholder.products)
     events = []
-    if needles:
+    if needles or subscribed_products:
+        filters = {}
+        if stakeholder.created_at:
+            filters["timestamp"] = int(stakeholder.created_at.replace(tzinfo=timezone.utc).timestamp())
         try:
-            events = _search_all(_misp(), tags=['zsazsa:ctiproduct="%"'], metadata=False, pythonify=True)
+            events = _search_all(_misp(), tags=['zsazsa:ctiproduct="%"'], metadata=False, pythonify=True, **filters)
         except Exception as exc:
             logger.warning("products_for_stakeholder MISP search failed: %s", exc)
         if isinstance(events, dict):
             events = []
+    changed_since = {ev.uuid for ev in events}
 
     matches = []
     for ev in events:
@@ -3887,9 +3895,8 @@ def products_for_stakeholder(stakeholder, pirs, girs, limit=20):
                 product_type=ptype,
                 misp_url=f"{config.MISP_WEBAPP_URL}/events/view/{ev.uuid}",
             ))
-    # Include directly delivered products for subscribed product types.
-    subscribed_products = set(stakeholder.products)
 
+    # Include directly delivered products for subscribed product types.
     if "Daily threat briefing" in subscribed_products:
         for briefing in list_briefings():
             if getattr(briefing, "review_state", "") != BRIEFING_REVIEW_PUBLISHED:
@@ -3941,7 +3948,7 @@ def products_for_stakeholder(stakeholder, pirs, girs, limit=20):
     deduped = []
     seen = set()
     for item in sorted(matches, key=lambda r: (r.date or ""), reverse=True):
-        if item.uuid in seen:
+        if item.uuid in seen or item.uuid not in changed_since:
             continue
         seen.add(item.uuid)
         deduped.append(item)
