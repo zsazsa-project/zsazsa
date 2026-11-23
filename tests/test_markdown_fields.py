@@ -118,7 +118,9 @@ class App(unittest.TestCase):
             mock.patch.multiple(misp_store, galaxy_geography=mock.Mock(return_value=[]),
                                 galaxy_sectors=mock.Mock(return_value=[]),
                                 galaxy_threat_actors=mock.Mock(return_value=[]),
-                                galaxy_mitre_attack_patterns=mock.Mock(return_value=[])),
+                                galaxy_mitre_attack_patterns=mock.Mock(return_value=[]),
+                                list_product_feedback=mock.Mock(return_value=[]),
+                                list_stakeholders=mock.Mock(return_value=[])),
         ):
             self.enterContext(patch)
         app = create_app()
@@ -286,7 +288,8 @@ class ManualEntry(App):
 
         misp = mock.create_autospec(PyMISP, instance=True)
         created = mock.Mock(id="7", uuid="u1")
-        with mock.patch.object(misp_store, "_tag_local"):
+        with mock.patch.object(misp_store, "_tag_local"), \
+             mock.patch.object(misp_store, "_build_scope_tags", return_value=[]):
             misp_store._fill_manual_collection_event(misp, created, data, "Web shells")
         reports = [c.args[1] for c in misp.add_event_report.call_args_list]
         self.assertEqual([r.content for r in reports], [MARKDOWN, MARKDOWN])

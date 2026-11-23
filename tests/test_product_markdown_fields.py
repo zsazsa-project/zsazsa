@@ -136,7 +136,9 @@ class App(unittest.TestCase):
                                 galaxy_threat_actors=mock.Mock(return_value=[]),
                                 galaxy_mitre_attack_patterns=mock.Mock(return_value=[]),
                                 list_pirs=mock.Mock(return_value=[]),
-                                list_stakeholders=mock.Mock(return_value=[])),
+                                list_stakeholders=mock.Mock(return_value=[]),
+                                list_product_feedback=mock.Mock(return_value=[]),
+                                list_indicator_feeds=mock.Mock(return_value=[])),
         ):
             self.enterContext(patch)
         app = create_app()
