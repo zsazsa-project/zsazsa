@@ -261,6 +261,13 @@ class AnotherServer(ReaderTest):
         misp = _misp([_event("article"), _event("indicators", reports=())])
         self.assertEqual(self.read(self.partner(misp)), ["article"])
 
+    def test_an_indicator_lookup_an_analyst_added_is_not_a_report(self):
+        """It lists other events. Read for it, the event had no article and
+        the run rejected it as empty."""
+        lookup = SimpleNamespace(name="[zsazsa-lookup] 45.227.254.43 on Partner", content="| 342392 |")
+        misp = _misp([_event("article"), _event("indicators", reports=(lookup,))])
+        self.assertEqual(self.read(self.partner(misp)), ["article"])
+
     def test_an_event_the_analyser_closed_is_not_read_again(self):
         event_state.close("partner", "turned down", "Not relevant")
         event_state.close("other server", "elsewhere", "Not relevant")

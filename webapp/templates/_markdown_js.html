@@ -23,6 +23,8 @@
       return false;
     }
     el.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+    // On a page with _indicator_lookup.html, its indicators can be looked up.
+    if (window.zsazsaMarkIndicators) window.zsazsaMarkIndicators(el);
     return true;
   };
 
@@ -43,7 +45,9 @@
       at += token.raw.length;
     });
     el.innerHTML = DOMPurify.sanitize(marked.parser(tokens));
-    return el.children.length === starts.length ? starts : null;
+    var paired = el.children.length === starts.length ? starts : null;
+    if (window.zsazsaMarkIndicators) window.zsazsaMarkIndicators(el);
+    return paired;
   };
 })();
 </script>

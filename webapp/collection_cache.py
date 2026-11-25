@@ -55,6 +55,8 @@ def _db():
 AI_SUMMARY_PREFIX = "[AI-Summary]"
 # A summary of the whole event, written by the AI-connector MISP module.
 AI_EVENT_SUMMARY_PREFIX = "[AI-Event-Summary]"
+# What an indicator lookup found, added to the event by an analyst.
+LOOKUP_REPORT_PREFIX = "[zsazsa-lookup]"
 
 WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
 # Puts an event in the threat landscape queue, which is read from this cache.
@@ -80,9 +82,10 @@ def is_set_aside(tags) -> bool:
     return WORKFLOW_REJECTED_TAG in tags or dismissed_tag() in tags
 
 
-def is_ai_summary_report(name: str) -> bool:
-    """True for a report zsazsa wrote as an AI summary, of a report or of the event."""
-    return (name or "").startswith((AI_SUMMARY_PREFIX, AI_EVENT_SUMMARY_PREFIX))
+def is_own_report(name: str) -> bool:
+    """True for a report zsazsa wrote itself: an AI summary, of a report or of
+    the event, or an indicator lookup. None of them is the article."""
+    return (name or "").startswith((AI_SUMMARY_PREFIX, AI_EVENT_SUMMARY_PREFIX, LOOKUP_REPORT_PREFIX))
 
 
 def init_db():
@@ -354,8 +357,8 @@ def _extract_row(e, source_id: str) -> dict:
         "report_count": len(reports),
         "has_ai_summary": any(n.startswith(AI_SUMMARY_PREFIX) for n in names),
         "has_ai_event_summary": any(n.startswith(AI_EVENT_SUMMARY_PREFIX) for n in names),
-        # The reports a summary can be made from: the ones that are not AI summaries.
-        "source_report_count": sum(not is_ai_summary_report(n) for n in names),
+        # The reports a summary can be made from: the ones zsazsa did not write.
+        "source_report_count": sum(not is_own_report(n) for n in names),
         "vulnerability_ids": event_cves(e),
         "source_id": source_id,
         "indicators": _extract_indicators(e),

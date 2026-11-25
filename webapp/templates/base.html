@@ -1292,7 +1292,8 @@
     // at stake; asking here means one dialog that says it.
     document.addEventListener('click', function(ev) {
       var link = ev.target.closest('a[href]');
-      if (!link) return;
+      // An indicator marked in a link opens its lookup card, not the link.
+      if (!link || ev.target.closest('.ioc')) return;
       var href = link.getAttribute('href') || '';
       if (!href || href.charAt(0) === '#') return;
       // mailto:, tel: and javascript: links leave the page where it is.

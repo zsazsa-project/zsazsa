@@ -6,7 +6,9 @@
 
    A page that adds a textarea later calls zsazsaMarkdownField(textarea) on it,
    and one that sets a field's text from a script calls
-   zsazsaRefreshMarkdown(textarea), since that fires no input event. #}
+   zsazsaRefreshMarkdown(textarea), since that fires no input event.
+   zsazsaInsertAfter(node, text) puts text into the field after the block of
+   its preview that node is in, as the indicator lookup does with an answer. #}
 {% include "_markdown_js.html" %}
 <script>
 (function () {
@@ -26,9 +28,22 @@
   var TEXT_STYLE = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'wordSpacing', 'lineHeight',
                     'textTransform', 'textIndent', 'tabSize', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
   var refreshers = new WeakMap();
+  // Where in the text each block of a preview starts, as it was last rendered.
+  var blockStarts = new WeakMap();
 
   function render(el, raw) {
-    return zsazsaRenderMarkdownBlocks(el, raw, '<p class="md-empty">Nothing to preview.</p>');
+    var starts = zsazsaRenderMarkdownBlocks(el, raw, '<p class="md-empty">Nothing to preview.</p>');
+    blockStarts.set(el, starts);
+    return starts;
+  }
+
+  // Replace from..to with text the way typing would, so Ctrl+Z takes it back.
+  function replace(textarea, from, to, text) {
+    textarea.setSelectionRange(from, to);
+    if (!document.execCommand('insertText', false, text)) {
+      textarea.setRangeText(text, from, to);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   }
 
   /* How far down the text area each offset of its text sits, measured on an
@@ -85,11 +100,7 @@
       text = marker + inner + marker;
       caret = from + n;
     }
-    textarea.setSelectionRange(from, to);
-    if (!document.execCommand('insertText', false, text)) {
-      textarea.setRangeText(text, from, to);
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+    replace(textarea, from, to, text);
     var length = around || within ? text.length : inner.length;
     textarea.setSelectionRange(caret, caret + length);
   }
@@ -211,6 +222,24 @@
     new ResizeObserver(function () { if (mode === 'split') measure(); }).observe(textarea);
 
     show('write');
+  };
+
+  /* Put text into the field after the block of its preview that node is in,
+     as a block of its own. When the preview could not be paired with the text
+     (zsazsaRenderMarkdownBlocks says so), it goes at the end. */
+  window.zsazsaInsertAfter = function (node, text) {
+    var preview = node.closest('.md-preview');
+    var textarea = preview.closest('.md-field').querySelector('textarea');
+    // Blocks the page added to the preview since, such as an answer, are not in the text.
+    var blocks = Array.prototype.filter.call(preview.children, function (b) { return !b.matches('.ioc-results'); });
+    var i = blocks.findIndex(function (b) { return b.contains(node); });
+    var starts = blockStarts.get(preview);
+    var at = starts && i !== -1 && i + 1 < starts.length ? starts[i + 1] : textarea.value.length;
+    var before = textarea.value.slice(0, at);
+    var lead = !before || /\n\n$/.test(before) ? '' : /\n$/.test(before) ? '\n' : '\n\n';
+    var after = at < textarea.value.length ? '\n\n' : '\n';
+    if (!textarea.hidden) textarea.focus({ preventScroll: true });
+    replace(textarea, at, at, lead + text.replace(/\s+$/, '') + after);
   };
 
   window.zsazsaRefreshMarkdown = function (textarea) {

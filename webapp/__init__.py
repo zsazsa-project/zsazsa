@@ -5,14 +5,14 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import Flask, abort, g, redirect, request, session, jsonify, render_template
+from flask import Flask, abort, g, redirect, request, session, jsonify, render_template, url_for
 from markupsafe import Markup
 from pymisp.exceptions import PyMISPError
 from requests.exceptions import RequestException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import config
-from core import pymisp_compat, rulezet_lookup
+from core import indicators, pymisp_compat, rulezet_lookup
 from webapp import audit, misp_session, org_store, sso_users, collection_cache, indicator_meta_store
 from webapp.models import subscribed_products
 from webapp.utils import (bold_lead_labels, fill_product_tag_defaults, human_size, list_item_count, markdown_list,
@@ -97,6 +97,17 @@ def create_app():
     app.jinja_env.globals["csrf_token"] = _csrf_token
 
     app.jinja_env.globals["app_version"] = APP_VERSION
+
+    def _indicator_lookup_config():
+        """What _indicator_lookup.html hands the page: the patterns, the servers
+        an indicator can be looked up on and where to ask. Config only."""
+        from webapp import misp_store
+        return {**indicators.browser_config(),
+                "servers": [{"id": s["id"], "label": s["label"]} for s in misp_store.lookup_servers()],
+                "lookupUrl": url_for("api.indicator_lookup"), "cveUrl": url_for("api.cve_lookup")}
+
+    app.jinja_env.globals["indicator_lookup_config"] = _indicator_lookup_config
+    app.jinja_env.globals["indicator_kind"] = indicators.kind_of
 
     @app.context_processor
     def _inject_globals():

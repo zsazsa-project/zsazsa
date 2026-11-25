@@ -38,7 +38,7 @@ from analyser import event_state, tagger
 from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
-from webapp.collection_cache import AI_SUMMARY_PREFIX, source_slug
+from webapp.collection_cache import AI_SUMMARY_PREFIX, LOOKUP_REPORT_PREFIX, event_tlp, source_slug
 from webapp.models import STAKEHOLDER_ROLES
 from webapp.utils import PRODUCT_TAG_PREFIX, human_size, markdown_list, nest_headings, ordered_counts, scraper_enabled
 
@@ -2874,18 +2874,9 @@ def _feed_client(s):
     return cache[key]
 
 
-def indicator_stat_servers():
-    """The server configs the pipeline counts indicators on: zsazsa's own store,
-    the scraper and every enabled collection-source server, each once.
-
-    Once by URL, as the scraper is often the store itself, and counting one
-    server twice doubles its numbers. A server without an API key is left out.
-    """
-    configs = [s for s in [_webapp_store_server()] if s]
-    if scraper_enabled():
-        configs.append({"id": "scraper", "label": "MISP scraper", "url": config.MISP_URL,
-                        "api_key": config.MISP_KEY, "verify_tls": config.MISP_VERIFYCERT})
-    configs += [s for s in getattr(config, "MISP_SERVERS", []) or [] if s.get("enabled", True)]
+def _distinct_servers(configs):
+    """The usable server configs, each URL once: the scraper is often the store
+    itself, and asking one server twice doubles what it answers."""
     servers, seen = [], set()
     for s in configs:
         url = (s.get("url") or "").rstrip("/")
@@ -2893,6 +2884,22 @@ def indicator_stat_servers():
             seen.add(url)
             servers.append(s)
     return servers
+
+
+def _collection_servers():
+    """The scraper and every enabled collection-source server, as server configs."""
+    configs = []
+    if scraper_enabled():
+        configs.append({"id": "scraper", "label": "MISP scraper", "url": config.MISP_URL,
+                        "api_key": config.MISP_KEY, "verify_tls": config.MISP_VERIFYCERT})
+    return configs + [s for s in getattr(config, "MISP_SERVERS", []) or [] if s.get("enabled", True)]
+
+
+def indicator_stat_servers():
+    """The server configs the pipeline counts indicators on: zsazsa's own store,
+    the scraper and every enabled collection-source server, each once. A server
+    without an API key is left out."""
+    return _distinct_servers([s for s in [_webapp_store_server()] if s] + _collection_servers())
 
 
 def indicator_feed_servers():
@@ -3127,6 +3134,8 @@ def _indicator_search_kwargs(filters):
         "include_context": True,
         "limit": indicator_limit(filters),
     }
+    if filters.get("value"):
+        kwargs["value"] = filters["value"]
     if filters.get("types"):
         kwargs["type_attribute"] = list(filters["types"])
     if filters.get("to_ids") in ("yes", "no"):
@@ -3188,7 +3197,7 @@ def _indicator_search_kwargs(filters):
 
 
 # The order the search arguments are written out in, for the card and the script.
-_PYMISP_ARG_ORDER = ["controller", "type_attribute", "to_ids", "published", "enforce_warninglist",
+_PYMISP_ARG_ORDER = ["controller", "value", "type_attribute", "to_ids", "published", "enforce_warninglist",
                      "org", "tags", "eventid", "timestamp", "date_from", "date_to",
                      "limit", "include_context", "pythonify"]
 
@@ -3567,6 +3576,119 @@ def search_indicators(filters, server_ids=None, limit=None):
         raise RuntimeError(reason)
     rows.sort(key=lambda r: r["_ts"], reverse=True)
     return rows
+
+
+# An indicator lookup from a report answers with at most this many attributes.
+LOOKUP_LIMIT = 50
+
+
+def lookup_servers():
+    """The servers an indicator in a report can be looked up on, as id, label
+    and url: the scraper and every enabled MISP server of the data collection,
+    each once. Not zsazsa's own store. Config only, no request."""
+    return [{"id": _server_id(s), "label": s.get("label") or s["url"], "url": s["url"].rstrip("/")}
+            for s in _distinct_servers(_collection_servers())]
+
+
+def lookup_server_label(server):
+    """How a lookup names where it looked: a server's label, "every server" for
+    "all", or None for a server it cannot look on."""
+    if server == "all":
+        return "every server"
+    return next((s["label"] for s in lookup_servers() if s["id"] == server), None)
+
+
+def lookup_indicator(value, server="all"):
+    """The to_ids attributes of published events that hold this value, on one
+    server, by its id, or on "all".
+
+    Returns (rows, more, failures): the indicator feed's rows, newest first and
+    at most LOOKUP_LIMIT, each linking to the event on the server it came from;
+    whether a server had more; and the servers that did not answer. zsazsa's own
+    records are left out, as in a feed. When no server answers it raises.
+    """
+    servers = [s for s in _distinct_servers(_collection_servers()) if server in ("all", _server_id(s))]
+    if not servers:
+        raise RuntimeError("no MISP server to look it up on")
+    kwargs = _indicator_search_kwargs({"value": value, "to_ids": "yes", "published": "yes", "limit": LOOKUP_LIMIT})
+    rows, failures, more, seen = [], [], False, set()
+    for s in servers:
+        sid, label = _server_id(s), s.get("label") or s["url"]
+        try:
+            attrs = _attributes_from(_feed_client(s).search(**kwargs))
+        except Exception as exc:
+            logger.warning("Indicator lookup failed on server %r: %s", sid, exc)
+            failures.append(f"{label} {_server_failure(exc)}")
+            continue
+        more = more or len(attrs) >= LOOKUP_LIMIT
+        # The same event synced to two servers is one answer, from the first.
+        for row in _parse_attribute_rows(attrs, sid, label, s["url"].rstrip("/"), {}):
+            key = (row["event_uuid"], row["type"], row["value"])
+            if key not in seen:
+                seen.add(key)
+                # What a product's text it goes into has to be cleared for.
+                row["tlp"] = event_tlp(row["tags"])
+                # Without a tag it counts as amber, and the page says it has none.
+                row["tlp_tagged"] = any(t.lower().startswith("tlp:") for t in row["tags"])
+                rows.append(row)
+    if len(failures) == len(servers):
+        raise RuntimeError("; ".join(failures))
+    rows.sort(key=lambda r: r["_ts"], reverse=True)
+    return rows[:LOOKUP_LIMIT], more or len(rows) > LOOKUP_LIMIT, failures
+
+
+def _md_cell(text) -> str:
+    """Text from MISP for a Markdown table cell: on one line, and nothing in it
+    read as Markdown or HTML where the report is shown."""
+    return re.sub(r"([\\`*_{}\[\]()<>#!|~])", r"\\\1", " ".join(str(text or "").split()))
+
+
+def lookup_report_content(value, where, rows, more, failures=(), heading=True) -> str:
+    """The Markdown of a lookup: what was asked, where and when, the servers
+    that did not answer, and the answer as the page showed it. As a report
+    added to an event it has a heading; put into a product's text it has not."""
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    asked = f"Looked up on {_md_cell(where)} on {when}, in published events, attributes with to_ids set."
+    lines = ([f"# Lookup of {_md_cell(value)}", "", asked, ""] if heading
+             else [f"**Lookup of {_md_cell(value)}.** {asked}", ""])
+    lines += [f"{_md_cell(f)}, so it is not in this answer." for f in failures] + ([""] if failures else [])
+    if not rows:
+        return "\n".join(lines + ["Nothing found."]) + "\n"
+    lines += ["| Event ID | Event title | Creator org | Value | Event date | Attribute timestamp | Type | Server |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for r in rows:
+        event = _md_cell(r["event_id"])
+        if r["event_url"].startswith(("https://", "http://")):
+            event = f"[{event}]({r['event_url']})"
+        lines.append("| " + " | ".join([event] + [_md_cell(r[f]) for f in (
+            "event_title", "creator_org", "value", "event_date", "attribute_timestamp", "type", "server_label")]) + " |")
+    if more:
+        lines += ["", f"The answer stops at {LOOKUP_LIMIT} attributes; there are more."]
+    return "\n".join(lines) + "\n"
+
+
+def cve_report_content(cve_id, info, heading=True) -> str:
+    """The Markdown of a CVE lookup at Vulnerability-Lookup, as a report added to
+    an event (with a heading) or put into a product's text (without)."""
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    facts = [("CVSS", " ".join(x for x in (info.get("cvss_score"), info.get("cvss_severity")) if x)),
+             ("CVSS vector", info.get("cvss_vector")), ("CISA KEV", info.get("cisa_kev")),
+             ("Exploit", info.get("exploit_availability")),
+             ("Affected", ", ".join(info.get("products") or [])), ("Versions", ", ".join(info.get("versions") or [])),
+             ("Weakness", ", ".join(info.get("cwes") or []))]
+    asked = f"Looked up at Vulnerability-Lookup (vulnerability.circl.lu) on {when}."
+    lines = [f"# {cve_id}", "", asked, ""] if heading else [f"**{cve_id}.** {asked}", ""]
+    if not info:
+        return "\n".join(lines + ["Vulnerability-Lookup does not have it."]) + "\n"
+    if info.get("title"):
+        lines += [_md_cell(info["title"]), ""]
+    if info.get("description"):
+        lines += [_md_cell(info["description"]), ""]
+    lines += [f"- **{name}:** {_md_cell(text)}" for name, text in facts if text]
+    refs = [u for u in info.get("references") or [] if str(u).startswith(("https://", "http://"))]
+    if refs:
+        lines += ["", "References:", ""] + [f"- <{u}>" for u in refs if not any(c in u for c in "<> ")]
+    return "\n".join(lines) + "\n"
 
 
 def count_indicators(filters, server_ids=None, cap=100000):
@@ -4210,6 +4332,9 @@ def format_event_attributes_text(event) -> str:
 
     report_texts = []
     for r in live_reports(event):
+        # A lookup lists other events, whatever their TLP: not story text.
+        if (getattr(r, "name", "") or "").startswith(LOOKUP_REPORT_PREFIX):
+            continue
         content = (getattr(r, "content", "") or "").strip()
         if content:
             report_texts.append(content)
@@ -4659,19 +4784,20 @@ def _fill_manual_collection_event(misp, created, data: dict, info: str) -> None:
 
     summary = (data.get("summary") or "").strip()
     if summary:
-        add_ai_summary_report(misp, created.id, info or "Manual entry", summary)
+        add_own_report(misp, created.id, info or "Manual entry", summary)
 
 
-def add_ai_summary_report(misp, event_id, title: str, summary: str, distribution: int = 5,
-                          prefix: str = AI_SUMMARY_PREFIX) -> None:
-    """Add an AI summary to an event as a report named by ``prefix``, which is
-    how the collection page and the briefing recognise one."""
+def add_own_report(misp, event_id, title: str, content: str, distribution: int = 5,
+                   prefix: str = AI_SUMMARY_PREFIX) -> None:
+    """Add a report zsazsa wrote to an event, named by ``prefix``, which is how
+    the collection page and the briefing tell it from the article: an AI
+    summary, or with LOOKUP_REPORT_PREFIX an indicator lookup."""
     from pymisp import MISPEventReport
     report = MISPEventReport()
     report.name = f"{prefix} {title[:80]}"
-    report.content = summary
+    report.content = content
     report.distribution = distribution
-    _check(misp.add_event_report(event_id, report), "add AI summary report")
+    _check(misp.add_event_report(event_id, report), f"add {prefix} report")
 
 
 NEWSLETTER_PENDING_TAG = 'zsazsa:newsletter-status="pending-review"'
@@ -7834,6 +7960,9 @@ def scraper_existing_uuids(uuids):
 def _event_text(ev):
     parts = [ev.info or ""]
     for r in getattr(ev, "event_reports", []) or []:
+        # A lookup lists other events: their titles are not this event's text.
+        if (getattr(r, "name", "") or "").startswith(LOOKUP_REPORT_PREFIX):
+            continue
         if getattr(r, "name", None):
             parts.append(r.name)
         if getattr(r, "content", None):

@@ -963,7 +963,7 @@ class OneFailedCall(unittest.TestCase):
              mock.patch.object(analyser_pipeline, "_build_galaxy_lookup", return_value={}), \
              mock.patch.object(analyser_pipeline.event_state, "reject", return_value=rejected), \
              mock.patch.object(analyser_pipeline.collection_cache, "mark_ai_summary"), \
-             mock.patch.object(analyser_pipeline.misp_store, "add_ai_summary_report"), \
+             mock.patch.object(analyser_pipeline.misp_store, "add_own_report"), \
              mock.patch.object(analyser_pipeline.llm, "summarise_report", return_value=""), \
              mock.patch.object(analyser_pipeline, "_log"):
             return analyser_pipeline._common_candidate_events(reading), reading

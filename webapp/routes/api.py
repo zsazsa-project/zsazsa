@@ -12,12 +12,13 @@ import config
 from flask import Blueprint, jsonify, url_for
 
 from analyser.products.flash_intel import parse_fia_draft
+from core import indicators
 from core.net_safety import pinned_curl_options, resolve_public_url
 from core.rulezet_lookup import (enabled as rulezet_enabled, get_rule, search_rules_by_attack,
                                  search_rules_by_cve, validate_rule)
 from core.vuln_lookup import CVE_RE, fetch_cve_info
 from webapp import analyser_pipeline, audit, collection_cache, job_store, misp_session, misp_store
-from webapp.collection_cache import is_ai_summary_report
+from webapp.collection_cache import is_own_report
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object, scraper_enabled
 
@@ -55,7 +56,7 @@ def _get_event_content_and_scope(event_uuid: str, source_id: str = ""):
     reports = getattr(event, "event_reports", []) or []
     content = None
     for r in reports:
-        if not is_ai_summary_report(getattr(r, "name", "")):
+        if not is_own_report(getattr(r, "name", "")):
             c = getattr(r, "content", None)
             if c:
                 content = c
@@ -775,7 +776,10 @@ def _report_content(source_events, raw_only=False):
     parts = []
     for ev in source_events:
         for r in ev.get('reports', []):
-            if raw_only and is_ai_summary_report(r.get('name')):
+            # A lookup is about other events, so never source text; an AI
+            # summary is, unless only the raw reports are asked for.
+            name = r.get('name') or ''
+            if name.startswith(collection_cache.LOOKUP_REPORT_PREFIX) or (raw_only and is_own_report(name)):
                 continue
             c = (r.get('content') or '').strip()
             if c: parts.append(c)
@@ -923,7 +927,8 @@ def _id_list(body: dict, key: str) -> tuple[list[str], str]:
 def cve_lookup():
     """Proxy CVE details from vulnerability.circl.lu.
 
-    POST JSON: {"cve_ids": ["CVE-2024-1234", ...]}
+    POST JSON: {"cve_ids": ["CVE-2024-1234", ...]}, and "markdown": true from a
+    product's Markdown editor, for the text each would be put in as.
     Returns: {"ok": true, "results": [{...}, ...]}
     """
     body, err = _json_object()
@@ -941,10 +946,60 @@ def cve_lookup():
         info = fetch_cve_info(cve_id)
         if info:
             results.append({"cve_id": cve_id, "ok": True, **info})
+            if body.get("markdown") is True:
+                results[-1]["markdown"] = misp_store.cve_report_content(cve_id.upper(), info, heading=False)
         else:
             results.append({"cve_id": cve_id, "ok": False, "error": "Lookup failed"})
 
     return jsonify({"ok": True, "results": results})
+
+
+# The fields of an attribute row the answer shows; tags and ids stay here.
+_LOOKUP_ROW_FIELDS = ("event_id", "event_uuid", "event_url", "event_title", "creator_org", "value",
+                      "event_date", "attribute_timestamp", "type", "server_label", "tlp", "tlp_tagged")
+
+
+@bp.route("/indicator-lookup", methods=["POST"])
+@rate_limited("api_indicator_lookup", limit=30, window_s=60)
+def indicator_lookup():
+    """Look an indicator from a report up in the data collection's MISP servers.
+
+    POST JSON: {"kind": "ip", "value": "45.227.254[.]43", "server": "<id>" or "all"}
+    Returns: {"ok": true, "value", "server", "rows": [...], "more", "failures"}.
+    Only to_ids attributes of published events. A CVE goes to /api/cve-lookup.
+
+    From a product's Markdown editor, "for_tlp" is the product's TLP: the
+    answer then also holds the Markdown to put into the text, with only the
+    rows of events that TLP allows, and how many were "withheld".
+    """
+    body, err = _json_object()
+    if err:
+        return err
+    kind = body.get("kind")
+    value = indicators.parse(kind, body.get("value")) if kind != "cve" else None
+    if value is None:
+        return jsonify({"ok": False, "error": "That is not an indicator zsazsa looks up."}), 400
+    server = body.get("server")
+    where = misp_store.lookup_server_label(server)
+    if where is None:
+        return jsonify({"ok": False, "error": "Unknown MISP server."}), 400
+    for_tlp = body.get("for_tlp")
+    if for_tlp is not None and misp_store._tlp_level(for_tlp) is None:
+        return jsonify({"ok": False, "error": "Unknown TLP."}), 400
+    try:
+        rows, more, failures = misp_store.lookup_indicator(value, server)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    answer = {"ok": True, "value": value, "server": where,
+              "rows": [{f: r[f] for f in _LOOKUP_ROW_FIELDS} for r in rows],
+              "more": more, "failures": failures}
+    if for_tlp is not None:
+        for shown in answer["rows"]:
+            shown["withheld"] = not misp_store._tlp_cleared(for_tlp, shown["tlp"])
+        cleared = [r for r, shown in zip(rows, answer["rows"]) if not shown["withheld"]]
+        answer["withheld"] = len(rows) - len(cleared)
+        answer["markdown"] = misp_store.lookup_report_content(value, where, cleared, more, failures, heading=False)
+    return jsonify(answer)
 
 
 @bp.route("/rulezet-lookup", methods=["POST"])
@@ -1082,7 +1137,7 @@ def _add_summary_to_event(event: dict, summary: str) -> None:
     """Write a summary into the manual entry that was saved without it."""
     misp = misp_store._misp()
     saved = misp.get_event(event["uuid"], pythonify=True)
-    misp_store.add_ai_summary_report(misp, saved.id, event["title"] or "Manual entry", summary)
+    misp_store.add_own_report(misp, saved.id, event["title"] or "Manual entry", summary)
     collection_cache.mark_ai_summary(event["uuid"], collection_cache.manual_source_id(event["source"]))
 
 

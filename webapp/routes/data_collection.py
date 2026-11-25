@@ -22,7 +22,7 @@ from pymisp import MISPEvent, PyMISP
 
 import config
 from analyser import event_state, relevance, settings, tagger
-from core import ai_connector
+from core import ai_connector, indicators, vuln_lookup
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
                     misp_session, misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
@@ -445,6 +445,16 @@ def _event_with_reports(src, uuid):
     return event, report_views, None
 
 
+def _lookup_event(src, uuid):
+    """What the indicator lookup on an event's page knows of the event: the
+    lookup server it lives on, to start from, and whether the answer may be
+    added to it as a report, as an AI summary may."""
+    url = (src.get("url") or "").rstrip("/")
+    return {"uuid": uuid, "source": src["id"], "writable": _may_summarise(src),
+            "server": next((s["id"] for s in misp_store.lookup_servers() if s["url"] == url), ""),
+            "reportUrl": url_for("data_collection.lookup_report", uuid=uuid)}
+
+
 def _standing(tags):
     """Where an event stands, read from its tags: its TLP and workflow state,
     the product queues it is tagged for (zsazsa:product="<label>"), and the
@@ -483,6 +493,7 @@ def detail(uuid):
         source_label=src["label"],
         source_id=source_id,
         draft_briefings=_draft_briefings(),
+        lookup_event=_lookup_event(src, event.uuid),
     )
 
 
@@ -583,7 +594,7 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
         return False, "Could not load event reports", 502
 
     # A summary zsazsa wrote earlier, of a report or of the event, is not the article.
-    reports = [r for r in reports if not collection_cache.is_ai_summary_report(getattr(r, "name", ""))]
+    reports = [r for r in reports if not collection_cache.is_own_report(getattr(r, "name", ""))]
     if not reports:
         return False, "No reports attached to this event", 400
 
@@ -607,8 +618,8 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
         return False, summary, 400
 
     try:
-        misp_store.add_ai_summary_report(misp, event.id, event.info or uuid, summary,
-                                         distribution=0 if kind == "misp" else 5)
+        misp_store.add_own_report(misp, event.id, event.info or uuid, summary,
+                                  distribution=0 if kind == "misp" else 5)
     except Exception as exc:
         logger.warning("Could not add summary report to %s: %s", uuid, exc)
         return False, "Could not save summary to MISP.", 502
@@ -672,7 +683,7 @@ def _generate_event_summary(misp, event, misp_json, source_id, user=""):
     # what the event says either.
     misp_json = {**misp_json, "EventReport": [
         r for r in misp_json.get("EventReport") or []
-        if not r.get("deleted") and not collection_cache.is_ai_summary_report(r.get("name"))]}
+        if not r.get("deleted") and not collection_cache.is_own_report(r.get("name"))]}
     try:
         summary = ai_connector.summarise_event(ai_connector.settings(), misp_json)
     except ai_connector.ModuleError as exc:
@@ -680,8 +691,8 @@ def _generate_event_summary(misp, event, misp_json, source_id, user=""):
         return False, f"The AI-connector module did not summarise the event. {exc}", 502
 
     try:
-        misp_store.add_ai_summary_report(misp, event.id, event.info or uuid, summary, distribution=0,
-                                         prefix=collection_cache.AI_EVENT_SUMMARY_PREFIX)
+        misp_store.add_own_report(misp, event.id, event.info or uuid, summary, distribution=0,
+                                  prefix=collection_cache.AI_EVENT_SUMMARY_PREFIX)
     except Exception as exc:
         logger.warning("Could not add event summary report to %s: %s", uuid, exc)
         return False, "Could not save the event summary to MISP.", 502
@@ -737,6 +748,70 @@ def summarise(uuid):
     return jsonify({"ok": True, "job_id": job["id"]})
 
 
+@bp.route("/<string:uuid>/lookup-report", methods=["POST"])
+@rate_limited("collection_lookup_report", limit=30, window_s=60)
+def lookup_report(uuid):
+    """Add what an indicator lookup found to the event as a report, for our
+    organisation alone.
+
+    POST JSON: {"source", "kind", "value", "server"} as the lookup was asked.
+    The lookup runs again here, so the report holds what MISP answers rather
+    than what the page sent. Offered where an AI summary may be added: the
+    scraper, the manual entries, and another MISP server that allows adding
+    reports, where the event is then published again.
+    """
+    data, err = _json_object()
+    if err:
+        return err
+    source_id = data.get("source") or _SCRAPER_SOURCE_ID
+    src = _find_source(source_id)
+    if src is None or not _may_summarise(src):
+        return jsonify({"ok": False, "error": "Reports can only be added to scraper and manual events, and on "
+                                              "MISP servers that allow adding reports."}), 400
+    if not _is_collected(uuid, source_id):
+        return jsonify({"ok": False, "error": "Event not found"}), 404
+    kind, server = data.get("kind"), data.get("server")
+    value = indicators.parse(kind, data.get("value"))
+    if value is None:
+        return jsonify({"ok": False, "error": "That is not an indicator zsazsa looks up."}), 400
+    if kind == "cve":
+        info = vuln_lookup.lookup_cve(value)
+        if info is None:
+            return jsonify({"ok": False, "error": "Vulnerability-Lookup did not answer."}), 502
+        where, content = "Vulnerability-Lookup", misp_store.cve_report_content(value, info)
+    else:
+        where = misp_store.lookup_server_label(server)
+        if where is None:
+            return jsonify({"ok": False, "error": "Unknown MISP server."}), 400
+        try:
+            rows, more, failures = misp_store.lookup_indicator(value, server)
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+        content = misp_store.lookup_report_content(value, where, rows, more, failures)
+
+    misp, why = _connect_source(src)
+    if misp is None:
+        return jsonify({"ok": False, "error": why}), 502
+    try:
+        event = misp.get_event(uuid, pythonify=True)
+        if not event or isinstance(event, dict):
+            return jsonify({"ok": False, "error": "Event not found"}), 404
+        title = f"{value} on {where}"
+        misp_store.add_own_report(misp, event.id, title, content, distribution=0,
+                                  prefix=collection_cache.LOOKUP_REPORT_PREFIX)
+    except Exception as exc:
+        logger.warning("Could not add the lookup of %r to %s: %s", value, uuid, exc)
+        return jsonify({"ok": False, "error": "Could not add the report to the MISP event."}), 502
+    message = (f'Added to this event as the report "{collection_cache.LOOKUP_REPORT_PREFIX} {title}", '
+               "for your organisation only.")
+    if src["kind"] == "misp" and not _publish_again(misp, event):
+        message += _NOT_PUBLISHED_AGAIN
+    _refresh_cached_event(uuid, source_id, misp, context="lookup report")
+    audit.record("add-lookup-report", "misp-event", entity_id=uuid, entity_label=event.info or uuid,
+                 details=f"Lookup of {value} on {where}")
+    return jsonify({"ok": True, "message": message})
+
+
 @bp.route("/<string:uuid>/preview")
 def preview(uuid):
     source_id = request.args.get("source") or _SCRAPER_SOURCE_ID
@@ -753,6 +828,7 @@ def preview(uuid):
         "misp_url": misp_url,
         "detail_url": misp_url,
         "source_label": src["label"],
+        "lookup_event": _lookup_event(src, event.uuid),
     })
 
 
@@ -1190,7 +1266,11 @@ def manual_detail(uuid):
     if event is None:
         return "Event not found", 404
     misp_url = f"{config.MISP_WEBAPP_URL.rstrip('/')}/events/view/{uuid}"
-    return render_template("data_collection/manual_detail.html", event=event, misp_url=misp_url)
+    # The cache knows which manual source the entry is under; the event does not say.
+    cached = collection_cache.get_events_by_uuids([uuid])
+    src = _find_source(cached[0]["source_id"]) if cached else None
+    return render_template("data_collection/manual_detail.html", event=event, misp_url=misp_url,
+                           lookup_event=_lookup_event(src, uuid) if src else None)
 
 
 @bp.route("/manual/<string:uuid>/attach", methods=["POST"])
