@@ -161,7 +161,7 @@ class AddSummaryToEvent(unittest.TestCase):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.get_event.return_value = SimpleNamespace(id=7)
         with mock.patch.object(api.misp_store, "_misp", return_value=misp), \
-             mock.patch.object(api.misp_store, "add_ai_summary_report") as add, \
+             mock.patch.object(api.misp_store, "add_own_report") as add, \
              mock.patch.object(api.collection_cache, "mark_ai_summary") as mark:
             api._add_summary_to_event({"uuid": "e" * 36, "source": "Newsletter", "title": "An article"},
                                       "Two hauliers were hit.")
@@ -223,7 +223,7 @@ class AiSummaryReport(unittest.TestCase):
     def test_it_is_named_the_way_the_pages_recognise_one(self):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.add_event_report.return_value = {}
-        misp_store.add_ai_summary_report(misp, 7, "An article", "Two hauliers were hit.")
+        misp_store.add_own_report(misp, 7, "An article", "Two hauliers were hit.")
         event_id, report = misp.add_event_report.call_args.args
         self.assertEqual(event_id, 7)
         self.assertEqual(report.name, f"{misp_store.AI_SUMMARY_PREFIX} An article")
@@ -233,7 +233,7 @@ class AiSummaryReport(unittest.TestCase):
         misp = mock.create_autospec(PyMISP, instance=True)
         misp.add_event_report.return_value = {"errors": "Invalid event"}
         with self.assertRaises(RuntimeError):
-            misp_store.add_ai_summary_report(misp, 7, "An article", "Two hauliers were hit.")
+            misp_store.add_own_report(misp, 7, "An article", "Two hauliers were hit.")
 
 
 _SCRAPER_SOURCE = {"id": "scraper", "kind": "scraper", "label": "MISP scraper"}

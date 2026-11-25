@@ -105,6 +105,8 @@ An analyst can **enrich an event** with scope from the [MISP galaxies](https://m
 
 ![docs/6-addscope.png](docs/6-addscope.png)
 
+An **indicator in a report** can be looked up where it is, on the data collection's MISP servers or, for a CVE, at Vulnerability-Lookup. IP addresses, hashes and CVEs are underlined, and domains and URLs when written defanged (`evil[.]com`, `hxxps://`). The answer opens under the paragraph. On an event's page it can be added to that event as a report, for your organisation only. In the preview of a product's Markdown field it can be put into the text, with only the events the product's TLP allows.
+
 When something relevant did not come in through a source, an analyst adds the article by hand. Its AI summary ticks the scope items it names.
 
 ![docs/6-manualentry.png](docs/6-manualentry.png)
@@ -217,7 +219,7 @@ The statistics pages combine operational metrics with CTI maturity.
 
 The scope and focus points statistics count how often each scope value is used across PIRs, GIRs, threat actor profiles, daily briefings and flash intel alerts.
 
-The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, or for a domain, hostname or URL to the country of its top-level domain, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. The wall in the top left corner lists the five PIRs, GIRs and RFIs that have caught the most indicators so far in the replay. A top-level domain says where a domain is registered, not hosted, so a generic one such as .com has no country. Hashes, CVEs, and addresses and domains without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. It leaves out file hashes unless **Include hashes** is ticked, and can fill the browser window.
+The pew-pew map replays the indicators collected in the last day, week or month. Each one flies from the collection means that brought it in to the country of its address, or for a domain, hostname or URL to the country of its top-level domain, and Zsa Zsa the cat pounces on the ones whose event matches an active PIR or GIR, naming any open RFI linked to it. She only sniffs at the rest. The wall in the top left corner lists the five PIRs, GIRs and RFIs that have caught the most indicators so far in the replay. A top-level domain says where a domain is registered, not hosted, so a generic one such as .com has no country. Hashes, CVEs, and addresses and domains without a country land in her litter box. The map shows TLP:CLEAR unless TLP:GREEN or TLP:AMBER is chosen, and never TLP:AMBER+STRICT or TLP:RED. An event without a TLP tag counts as TLP:AMBER, so its indicators show only when TLP:AMBER is chosen, and its addresses are not looked up at ip.circl.lu. It leaves out file hashes unless **Include hashes** is ticked, and can fill the browser window.
 
 After each refresh, the collection cache looks up the country of up to 200 new addresses at [ip.circl.lu](https://ip.circl.lu). It only sends addresses from TLP:CLEAR and TLP:GREEN events, and never a private one. The service knows the country, not the city, so an address lands near the middle of its country.
 
@@ -792,7 +794,7 @@ The "Other MISP servers" card has the servers in `MISP_SERVERS`, such as communi
 | Events from last (days) | How far back to look, by event date |
 | Max events | Most events per query, and per analyser run |
 | Analyse its events | The analyser reads this server's events that have a report. Off for a new server: their text then goes to the AI features, whatever their TLP, and to a cloud provider where the AI tab sets one |
-| Allow adding reports to events | Offer AI summaries on this server's events. zsazsa adds one as a report for your organisation only and publishes the event again without an e-mail, which on another organisation's event takes a site admin key. Off for a new server |
+| Allow adding reports to events | Offer AI summaries and indicator lookups as reports on this server's events. zsazsa adds one for your organisation only and publishes the event again without an e-mail, which on another organisation's event takes a site admin key. Off for a new server |
 | Enabled | Whether the server is active |
 
 #### Manual collection sources

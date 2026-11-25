@@ -317,7 +317,7 @@ class FirstReport(unittest.TestCase):
                                                SimpleNamespace(name="Article", content="The article")]
         event = SimpleNamespace(id=7, uuid=UUID, info="Overlord", tags=[])
         with mock.patch("analyser.llm.summarise_report", return_value="## Summary") as llm, \
-             mock.patch.object(data_collection.misp_store, "add_ai_summary_report"), \
+             mock.patch.object(data_collection.misp_store, "add_own_report"), \
              mock.patch.object(data_collection.collection_cache, "mark_ai_summary"), \
              mock.patch.object(data_collection, "_refresh_cached_event"), \
              mock.patch.object(data_collection.audit, "record"):

@@ -1,0 +1,594 @@
+{# Indicators in rendered Markdown, looked up from a card that opens when the
+   pointer rests on one: in the data collection's MISP servers, or for a CVE at
+   Vulnerability-Lookup. What is marked is core/indicators.py's, handed over by
+   indicator_lookup_config(). The answer opens inside the text, under the block
+   the indicator is in.
+
+   Include it on a page that shows reports or products for reading, and on a
+   product's form for the preview of its Markdown fields, before the scripts
+   that render them: _markdown_js.html marks what it renders once this is on
+   the page, and the .report-md-body and .md-body the server rendered are
+   marked when the page has loaded. Not on the manual entry, whose text is the
+   article.
+   An event's page sets lookup_event first (data_collection._lookup_event), so
+   the answer marks that event and can be added to it as a report; a page
+   that shows events one after another calls zsazsaLookupEvent(event). In the
+   preview of a product's Markdown field the answer can be put into the text
+   instead, holding only what the product's TLP allows.
+
+   Text from MISP, a report or Vulnerability-Lookup goes in with textContent
+   and DOM methods only. #}
+<script>
+(function () {
+  var CONFIG = {{ indicator_lookup_config() | tojson }};
+  var event = {{ (lookup_event or none) | tojson }};
+  var OPEN_DELAY = 400, CLOSE_DELAY = 250, SERVER_KEY = 'zsazsa.lookupServer';
+  var ICONS = {ip: 'fa-network-wired', domain: 'fa-globe', url: 'fa-link', cve: 'fa-bug'};
+  var SKIP = 'a, script, style, textarea, select, button, .ioc, .ioc-card, .ioc-results';
+  // In the analyst's own text a link is theirs too, so only the rest is skipped.
+  var SKIP_OWN = 'script, style, textarea, select, button, .ioc, .ioc-card, .ioc-results';
+  var SCOPE = 'Published events, attributes with to_ids set';
+
+  var patterns = CONFIG.patterns.map(function (p) { return {kind: p.kind, re: new RegExp(p.source, 'gi')}; });
+  var notPublic = CONFIG.notPublic.map(function (cidr) {
+    var parts = cidr.split('/');
+    return {size: Math.pow(2, 32 - Number(parts[1])), start: toInt(parts[0])};
+  });
+
+  function toInt(ip) {
+    return ip.split('.').reduce(function (n, octet) { return n * 256 + Number(octet); }, 0);
+  }
+
+  function isPublic(ip) {
+    var n = toInt(ip);
+    return !notPublic.some(function (net) { return Math.floor(n / net.size) === Math.floor(net.start / net.size); });
+  }
+
+  function refang(value) {
+    return value.replace(/\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)/gi, '.').replace(/\[:\]/g, ':').replace(/^hxxp/i, 'http');
+  }
+
+  // As core.indicators.find(): a URL is tried first and keeps what is inside
+  // it, marked or not; a domain or URL only when defanged, unless plain, as in
+  // the analyst's own text, and then a domain only in lower case and not a
+  // file name; an IP only public.
+  function find(text, plain) {
+    var taken = [], found = [];
+    patterns.forEach(function (p) {
+      var m;
+      p.re.lastIndex = 0;
+      while ((m = p.re.exec(text)) !== null) {
+        var raw = p.kind === 'url' ? m[0].replace(/[.,;:)\]]+$/, '') : m[0];
+        var start = m.index, end = start + raw.length;
+        if (taken.some(function (t) { return start < t[1] && end > t[0]; })) continue;
+        var value = refang(raw);
+        if (p.kind === 'url') {
+          taken.push([start, end]);
+          if (value !== raw || plain) found.push({kind: p.kind, start: start, end: end, value: value});
+          continue;
+        }
+        if (p.kind === 'domain' && value === raw && !(plain && value === value.toLowerCase()
+            && CONFIG.fileExtensions.indexOf(value.split('.').pop()) === -1)) continue;
+        if (p.kind === 'ip' && !isPublic(value)) continue;
+        taken.push([start, end]);
+        found.push({kind: p.kind, start: start, end: end, value: p.kind === 'cve' ? value.toUpperCase() : value});
+      }
+    });
+    return found.sort(function (a, b) { return a.start - b.start; });
+  }
+
+  // The preview of a product's Markdown field is the analyst's own text.
+  window.zsazsaMarkIndicators = function (root) {
+    var own = !!root.closest('.md-field'), skip = own ? SKIP_OWN : SKIP;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [];
+    while (walker.nextNode()) {
+      var parent = walker.currentNode.parentElement;
+      if (parent && !parent.closest(skip)) nodes.push(walker.currentNode);
+    }
+    nodes.forEach(function (node) {
+      var text = node.nodeValue, found = find(text, own), at = 0;
+      if (!found.length) return;
+      var parts = document.createDocumentFragment();
+      found.forEach(function (f) {
+        parts.appendChild(document.createTextNode(text.slice(at, f.start)));
+        var mark = el('span', 'ioc', text.slice(f.start, f.end));
+        mark.dataset.iocKind = f.kind;
+        mark.dataset.iocValue = f.value;
+        parts.appendChild(mark);
+        at = f.end;
+      });
+      parts.appendChild(document.createTextNode(text.slice(at)));
+      node.parentNode.replaceChild(parts, node);
+    });
+  };
+
+  // The event a page shows one after another, as the list's preview does.
+  window.zsazsaLookupEvent = function (value) { event = value || null; };
+  // As core.indicators.kind_of(): the kind an attribute is looked up as, or ''
+  // when its type is not one or the lookup would refuse its value.
+  var whole = {};
+  CONFIG.patterns.forEach(function (p) { whole[p.kind] = new RegExp('^(?:' + p.source + ')$', 'i'); });
+  window.zsazsaIndicatorKind = function (type, value) {
+    var kind = CONFIG.mispTypes[type];
+    if (!kind || typeof value !== 'string' || value.length > 2048) return '';
+    value = refang(value.trim());
+    return whole[kind].test(value) && (kind !== 'ip' || isPublic(value)) ? kind : '';
+  };
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function icon(className) {
+    var i = el('i', className);
+    i.setAttribute('aria-hidden', 'true');
+    return i;
+  }
+
+  function serverSelect(id, chosen) {
+    var select = el('select', 'form-select form-select-sm');
+    if (id) select.id = id;
+    CONFIG.servers.forEach(function (s) { var o = el('option', '', s.label); o.value = s.id; select.appendChild(o); });
+    var all = el('option', '', 'Every server');
+    all.value = 'all';
+    select.appendChild(all);
+    select.value = chosen;
+    return select;
+  }
+
+  // The server last picked, else the event's own, else the first.
+  function defaultServer() {
+    var stored = null;
+    try { stored = localStorage.getItem(SERVER_KEY); } catch (e) { /* private window */ }
+    var known = CONFIG.servers.map(function (s) { return s.id; }).concat('all');
+    if (stored && known.indexOf(stored) !== -1) return stored;
+    if (event && event.server && known.indexOf(event.server) !== -1) return event.server;
+    return known[0];
+  }
+
+  function remember(server) {
+    try { localStorage.setItem(SERVER_KEY, server); } catch (e) { /* private window */ }
+  }
+
+  function post(url, body) {
+    var csrf = document.querySelector('meta[name="csrf-token"]');
+    return fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf ? csrf.content : ''},
+      body: JSON.stringify(body),
+    }).then(function (response) {
+      return zsazsaReadJson(response).then(function (data) {
+        if (response.status === 429) return {ok: false, error: 'Too many lookups in the last minute. Try again in a moment.'};
+        return data;
+      });
+    }).catch(function (err) { return {ok: false, error: 'The lookup failed: ' + err.message}; });
+  }
+
+  /* ── The card ─────────────────────────────────────────────────────────── */
+
+  var card = null, target = null, openTimer = 0, closeTimer = 0;
+  // Until when hovering opens no card: a lookup scrolls the page to its answer,
+  // and the text then moving under a still pointer is not the analyst asking.
+  var quietUntil = 0;
+
+  function closeCard() {
+    clearTimeout(openTimer);
+    clearTimeout(closeTimer);
+    if (card) card.remove();
+    if (target) target.classList.remove('is-open');
+    card = target = null;
+  }
+
+  // Whether the analyst is working in the card: the server list open takes the
+  // pointer out of the page, which must not close it. Esc or a click elsewhere does.
+  function inUse() {
+    return card && card.contains(document.activeElement);
+  }
+
+  function scheduleClose() {
+    clearTimeout(closeTimer);
+    if (!inUse()) closeTimer = setTimeout(closeCard, CLOSE_DELAY);
+  }
+
+  function place(mark) {
+    var r = mark.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
+    var left = Math.min(Math.max(8, r.left - 12), document.documentElement.clientWidth - w - 8);
+    var below = r.bottom + 8 + h <= window.innerHeight || r.top - 8 - h < 0;
+    card.classList.toggle('above', !below);
+    card.style.left = (left + window.scrollX) + 'px';
+    card.style.top = ((below ? r.bottom + 8 : r.top - 8 - h) + window.scrollY) + 'px';
+    card.style.setProperty('--ioc-arrow', Math.max(12, Math.min(w - 24, r.left - left + 8)) + 'px');
+  }
+
+  function openCard(mark) {
+    closeCard();
+    target = mark;
+    mark.classList.add('is-open');
+    var kind = mark.dataset.iocKind, value = mark.dataset.iocValue;
+    card = el('div', 'ioc-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', 'Look up ' + value);
+
+    var head = el('div', 'ioc-card-head'), tile = el('span', 'tile-icon');
+    tile.appendChild(icon('fas ' + (ICONS[kind] || 'fa-fingerprint')));
+    head.append(tile, el('span', 'ioc-card-type', CONFIG.labels[kind]));
+    if (refang(mark.textContent) !== mark.textContent) {
+      head.appendChild(el('span', 'badge text-bg-light text-muted', 'defanged in the report'));
+    }
+
+    var shown = el('div', 'ioc-card-value');
+    shown.appendChild(el('span', '', value));
+    if (navigator.clipboard) {
+      var copy = el('button', 'btn btn-link btn-sm');
+      copy.type = 'button';
+      copy.setAttribute('aria-label', 'Copy ' + value);
+      copy.appendChild(icon('far fa-copy'));
+      copy.addEventListener('click', function () {
+        navigator.clipboard.writeText(value).then(function () { copy.firstChild.className = 'fas fa-check'; });
+      });
+      shown.appendChild(copy);
+    }
+    card.append(head, shown);
+
+    var select = null;
+    if (kind === 'cve') {
+      card.appendChild(el('div', 'ioc-card-scope', 'Looked up at Vulnerability-Lookup (vulnerability.circl.lu)'));
+    } else {
+      var label = el('label', '', 'Look up in');
+      label.htmlFor = 'ioc-card-server';
+      select = serverSelect('ioc-card-server', defaultServer());
+      card.append(label, select, el('div', 'ioc-card-scope', SCOPE));
+    }
+
+    var actions = el('div', 'ioc-card-actions'), go = el('button', 'btn btn-sm btn-primary');
+    go.type = 'button';
+    go.append(icon('fas fa-magnifying-glass me-1'), 'Look up');
+    go.addEventListener('click', function () {
+      var server = select ? select.value : null;
+      if (server) remember(server);
+      closeCard();
+      lookUp(mark, kind, value, server);
+    });
+    actions.append(go, el('span', 'hint', 'Esc closes'));
+    card.appendChild(actions);
+
+    card.addEventListener('mouseenter', function () { clearTimeout(closeTimer); });
+    card.addEventListener('mouseleave', scheduleClose);
+    document.body.appendChild(card);
+    place(mark);
+  }
+
+  document.addEventListener('mouseover', function (e) {
+    var mark = e.target.closest && e.target.closest('.ioc');
+    if (!mark) return;
+    clearTimeout(closeTimer);
+    if (mark === target || inUse() || Date.now() < quietUntil) return;
+    clearTimeout(openTimer);
+    openTimer = setTimeout(function () { openCard(mark); }, OPEN_DELAY);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var mark = e.target.closest && e.target.closest('.ioc');
+    if (!mark || mark.contains(e.relatedTarget)) return;
+    clearTimeout(openTimer);
+    if (mark === target) scheduleClose();
+  });
+  document.addEventListener('click', function (e) {
+    var mark = e.target.closest('.ioc');
+    // A mark in a link opens its card rather than the link, which in an
+    // editor's preview would leave the form.
+    if (mark && mark.closest('a')) e.preventDefault();
+    if (mark && !String(window.getSelection())) {
+      openCard(mark);
+    } else if (card && !card.contains(e.target)) {
+      closeCard();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && card) closeCard();
+  });
+
+  /* ── The answer ───────────────────────────────────────────────────────── */
+
+  // Under the block the indicator is in, inside a list item; one per value there.
+  function answerFor(mark, value) {
+    var block = mark.closest('li, p, pre, blockquote, table, h1, h2, h3, h4, h5, h6, dd') || mark.parentElement;
+    var inside = block.tagName === 'LI';
+    var next = inside ? block.firstElementChild : block.nextElementSibling;
+    for (; next; next = next.nextElementSibling) {
+      if (next.classList.contains('ioc-results') && next.dataset.value === value) return next;
+      if (!inside && !next.classList.contains('ioc-results')) break;
+    }
+    var answer = el('div', 'ioc-results');
+    answer.dataset.value = value;
+    answer.setAttribute('role', 'region');
+    if (inside) block.appendChild(answer); else block.after(answer);
+    // A long report shown in part would hide the answer: show all of it.
+    var clamped = answer.closest('.clamped');
+    if (clamped) {
+      clamped.classList.remove('clamped');
+      clamped.dispatchEvent(new CustomEvent('zsazsa:unclamped'));
+    }
+    return answer;
+  }
+
+  function header(answer, kind, value, where, server, mark) {
+    var head = el('div', 'ioc-results-head'), title = el('span', 'ioc-results-title');
+    title.append(el('code', '', value), (kind === 'cve' ? ' at ' : ' on ') + where);
+    head.append(icon('fas ' + (kind === 'cve' ? 'fa-bug' : 'fa-magnifying-glass') + ' text-muted'), title);
+    var tools = el('span', 'tools');
+    if (server) {
+      var again = serverSelect(null, server);
+      again.setAttribute('aria-label', 'Look up on another server');
+      again.addEventListener('change', function () { remember(again.value); lookUp(mark, kind, value, again.value); });
+      tools.appendChild(again);
+    }
+    var close = el('button', 'btn btn-sm btn-link text-muted p-0 ms-1');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close the answer');
+    close.appendChild(icon('fas fa-xmark'));
+    close.addEventListener('click', function () { answer.remove(); });
+    tools.appendChild(close);
+    head.appendChild(tools);
+    answer.setAttribute('aria-label', value + (kind === 'cve' ? ' at ' : ' on ') + where);
+    return {head: head, tools: tools};
+  }
+
+  var asking = 0;
+
+  // A spinner that says where it is asking, and how long it has been once that
+  // is long enough to wonder.
+  function waiting(where) {
+    var line = el('div', 'ioc-results-loading'), spinner = el('span', 'spinner-border spinner-border-sm');
+    var said = el('span', '', 'Looking it up on ' + where + '…'), started = Date.now();
+    spinner.setAttribute('aria-hidden', 'true');
+    line.setAttribute('role', 'status');
+    line.append(spinner, said);
+    var timer = setInterval(function () {
+      if (!line.isConnected) { clearInterval(timer); return; }
+      var seconds = Math.round((Date.now() - started) / 1000);
+      if (seconds >= 3) said.textContent = 'Looking it up on ' + where + '… ' + seconds + ' s';
+    }, 1000);
+    return line;
+  }
+
+  function lookUp(mark, kind, value, server) {
+    var answer = answerFor(mark, value), asked = String(++asking);
+    var where = kind === 'cve' ? 'Vulnerability-Lookup' : labelOf(server);
+    var parts = header(answer, kind, value, where, server, mark);
+    answer.dataset.asked = asked;
+    answer.replaceChildren(parts.head, waiting(where));
+    // The answer goes under the block, which for a long table is out of sight.
+    quietUntil = Date.now() + 1500;
+    answer.scrollIntoView({block: 'nearest'});
+    var marks = Array.prototype.filter.call(document.querySelectorAll('.ioc'), function (m) {
+      return m.dataset.iocValue === value;
+    });
+    marks.forEach(function (m) { m.classList.add('is-busy'); });
+
+    var tlp = productTlp(mark);
+    var request = kind === 'cve' ? post(CONFIG.cveUrl, {cve_ids: [value], markdown: tlp !== null})
+      : post(CONFIG.lookupUrl, tlp === null ? {kind: kind, value: value, server: server}
+        : {kind: kind, value: value, server: server, for_tlp: tlp});
+    request.then(function (data) {
+      // Asked again meanwhile, on another server: that answer is the one shown.
+      if (answer.dataset.asked !== asked) return;
+      marks.forEach(function (m) { m.classList.remove('is-busy'); });
+      var result = kind === 'cve' && data.ok ? (data.results || [])[0] : data;
+      if (!data.ok || !result || !result.ok) {
+        problem(answer, parts.head, (result && result.error) || data.error || 'The lookup failed.');
+        return;
+      }
+      marks.forEach(function (m) { m.classList.add('is-looked-up'); });
+      result.forTlp = tlp;
+      if (kind === 'cve') showCve(answer, parts, result, value, mark);
+      else showRows(answer, parts, data, kind, value, server, mark);
+    });
+  }
+
+  // In a product's Markdown field, the TLP the product is set to; else null.
+  // None picked yet counts as clear, so nothing goes in that a clear text could not hold.
+  function productTlp(mark) {
+    var field = mark.closest('.md-field');
+    if (!field) return null;
+    var form = field.querySelector('textarea').form;
+    var picked = form && form.elements.tlp ? form.elements.tlp.value : '';
+    return picked || 'clear';
+  }
+
+  function untaggedBadge() {
+    var badge = el('span', 'badge text-bg-light text-muted', 'No TLP');
+    badge.title = 'The event has no TLP tag, so it is read as TLP:AMBER';
+    return badge;
+  }
+
+  function tlpBadge(tlp) {
+    return el('span', 'tlp-badge tlp-' + tlp.replace('+', '-'), 'TLP:' + tlp.toUpperCase());
+  }
+
+  function labelOf(server) {
+    if (server === 'all') return 'every server';
+    var found = CONFIG.servers.filter(function (s) { return s.id === server; })[0];
+    return found ? found.label : server;
+  }
+
+  function problem(answer, head, message) {
+    var line = el('div', 'ioc-results-error');
+    line.append(icon('fas fa-triangle-exclamation'), el('span', '', message));
+    answer.replaceChildren(head, line);
+  }
+
+  function link(href, text) {
+    var a = el('a', 'text-decoration-none', text);
+    if (/^https?:\/\//i.test(href || '')) {
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+    }
+    return a;
+  }
+
+  function showRows(answer, parts, data, kind, value, server, mark) {
+    var rows = data.rows || [];
+    if (!rows.length) {
+      var none = el('div', 'ioc-results-empty');
+      none.append(icon('fas fa-circle-minus'),
+        el('span', '', 'Not on ' + data.server + ' as a to_ids attribute of a published event.'));
+      answer.replaceChildren(parts.head, none, footer(kind, value, server, data, mark));
+      return;
+    }
+    var events = {}, ours = false;
+    rows.forEach(function (r) {
+      events[r.event_uuid] = true;
+      if (event && r.event_uuid === event.uuid) ours = true;
+    });
+    var count = Object.keys(events).length;
+    var said = data.more ? rows.length + ' shown, there are more'
+      : rows.length + ' attribute' + (rows.length === 1 ? '' : 's') + ' on ' + count + ' event' + (count === 1 ? '' : 's');
+    if (ours) said += count === 1 ? ', this event' : ', one of them this event';
+    parts.head.insertBefore(el('span', 'count', said), parts.tools);
+
+    var table = el('table', 'table table-hover zsazsa-table mb-0'), head = el('tr'), body = el('tbody');
+    ['Event ID', 'Event title', 'Creator org', 'Value', 'Event date', 'Attribute timestamp', 'Type', 'Server']
+      .forEach(function (name) { head.appendChild(el('th', '', name)); });
+    table.appendChild(el('thead')).appendChild(head);
+    rows.forEach(function (r) {
+      var tr = el('tr'), id = el('td');
+      id.appendChild(link(r.event_url, r.event_id));
+      if (event && r.event_uuid === event.uuid) {
+        tr.className = 'this-event';
+        id.appendChild(el('span', 'badge text-bg-light text-muted this-event-mark', 'this event'));
+      }
+      var title = el('td', 'ioc-results-event-title', r.event_title);
+      if (r.withheld) {
+        tr.classList.add('ioc-withheld');
+        title.prepend(r.tlp_tagged ? tlpBadge(r.tlp) : untaggedBadge(), ' ');
+      }
+      var shown = el('td', 'ioc-results-value');
+      shown.appendChild(el('strong', '', r.value));
+      var type = el('td');
+      type.appendChild(el('span', 'badge text-bg-light text-muted', r.type));
+      tr.append(id, title, el('td', 'text-muted', r.creator_org), shown, el('td', 'text-muted text-nowrap', r.event_date),
+        el('td', 'text-muted text-nowrap', r.attribute_timestamp), type, el('td', 'text-muted', r.server_label));
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    var scroll = el('div', 'table-responsive');
+    scroll.appendChild(table);
+    answer.replaceChildren(parts.head, scroll, footer(kind, value, server, data, mark));
+  }
+
+  var SEVERITY = {CRITICAL: 'bg-danger', HIGH: 'cvss-high', MEDIUM: 'bg-warning text-dark', LOW: 'bg-info text-dark'};
+
+  function showCve(answer, parts, info, cve, mark) {
+    if (info.cvss_score || info.cvss_severity) {
+      var severity = (info.cvss_severity || '').toUpperCase();
+      parts.head.insertBefore(el('span', 'badge ' + (SEVERITY[severity] || 'bg-secondary'),
+        [info.cvss_score, severity].filter(Boolean).join(' ')), parts.tools);
+    }
+    if (info.cisa_kev === 'Yes') parts.head.insertBefore(el('span', 'badge text-bg-dark', 'CISA KEV'), parts.tools);
+    var source = link('https://vulnerability.circl.lu/vuln/' + encodeURIComponent(cve), 'vulnerability.circl.lu');
+    source.className = 'btn btn-sm btn-outline-secondary py-0';
+    parts.tools.insertBefore(source, parts.tools.firstChild);
+
+    var content = [parts.head];
+    var text = [info.title, info.description].filter(Boolean).join('. ');
+    if (text) content.push(el('p', 'cve-description', text));
+    var facts = el('dl', 'cve-facts');
+    [['Affected', (info.products || []).join(', ') + ((info.versions || []).length ? ', ' + info.versions.join(', ') : '')],
+     ['Exploit', info.exploit_availability], ['CVSS vector', info.cvss_vector],
+     ['Weakness', (info.cwes || []).join(', ')]].forEach(function (fact) {
+      if (fact[1]) facts.append(el('dt', '', fact[0]), el('dd', '', fact[1]));
+    });
+    var refs = (info.references || []).filter(function (u) { return /^https?:\/\//i.test(u); });
+    if (refs.length) {
+      var dd = el('dd');
+      refs.slice(0, 5).forEach(function (u, i) {
+        if (i) dd.appendChild(document.createElement('br'));
+        dd.appendChild(link(u, u.replace(/^https?:\/\//i, '')));
+      });
+      facts.append(el('dt', '', 'References'), dd);
+    }
+    if (facts.children.length) content.push(facts);
+    content.push(footer('cve', cve, null, info, mark));
+    answer.replaceChildren.apply(answer, content);
+  }
+
+  function footer(kind, value, server, data, mark) {
+    var foot = el('div', 'ioc-results-foot d-flex align-items-center gap-2 flex-wrap'), note = el('span');
+    note.append(icon('fas fa-' + (kind === 'cve' ? 'circle-info' : 'filter') + ' fa-xs me-1'),
+      kind === 'cve' ? 'From vulnerability.circl.lu.'
+        : SCOPE + '. The event ID opens the event on the MISP server that has it.');
+    foot.appendChild(note);
+    (data.failures || []).forEach(function (f) { foot.appendChild(el('span', 'text-warning-emphasis', f + '.')); });
+    if (data.markdown !== undefined) {
+      insertInto(foot, mark, kind, value, server, data);
+    } else if (event && event.writable) {
+      var add = el('button', 'btn btn-sm btn-outline-primary py-0 ms-auto');
+      add.type = 'button';
+      add.append(icon('fas fa-file-circle-plus me-1'), 'Add to this event as a report');
+      add.addEventListener('click', function () {
+        add.disabled = true;
+        var spinner = el('span', 'spinner-border spinner-border-sm me-1');
+        spinner.setAttribute('aria-hidden', 'true');
+        add.replaceChildren(spinner, 'Adding it to the event…');
+        post(event.reportUrl, {source: event.source, kind: kind, value: value, server: server}).then(function (data) {
+          var said = el('span', 'ms-auto ' + (data.ok ? 'text-success-emphasis' : 'text-danger-emphasis'));
+          said.append(icon('fas fa-' + (data.ok ? 'circle-check' : 'triangle-exclamation') + ' me-1'),
+            data.ok ? data.message : (data.error || 'The report was not added.'));
+          add.replaceWith(said);
+        });
+      });
+      foot.appendChild(add);
+    }
+    return foot;
+  }
+
+  /* "Insert into the text", for an answer in a product's Markdown field. A
+     lookup in MISP puts in only the attributes the product's TLP allows, and
+     a line says how many that is. The TLP changed since the lookup, it asks
+     again for the one set now rather than put in what that might not allow. */
+  // Why the rows held back are: a stricter TLP, or no TLP tag, read as amber.
+  function withheldReason(rows, kept) {
+    var held = rows.filter(function (r) { return r.withheld; });
+    var untagged = held.filter(function (r) { return !r.tlp_tagged; }).length;
+    var one = held.length === 1;
+    var who = kept ? (one ? 'the other comes from an event ' : 'the others come from events ')
+      : (one ? 'it comes from an event ' : 'they come from events ');
+    var why = !untagged ? 'with a stricter TLP'
+      : untagged === held.length ? 'without a TLP tag, read as TLP:AMBER'
+        : 'with a stricter TLP or without a TLP tag, read as TLP:AMBER';
+    return who + why + '.';
+  }
+
+  function insertInto(foot, mark, kind, value, server, data) {
+    var tlp = data.forTlp, total = (data.rows || []).length, kept = total - (data.withheld || 0);
+    var button = el('button', 'btn btn-sm btn-outline-primary py-0 ms-auto');
+    button.type = 'button';
+    button.append(icon('fas fa-file-import me-1'), 'Insert into the text');
+    button.addEventListener('click', function () {
+      if (kind !== 'cve' && productTlp(mark) !== tlp) lookUp(mark, kind, value, server);
+      else zsazsaInsertAfter(mark, data.markdown);
+    });
+    if (kind !== 'cve' && total) {
+      var all = total === 1 ? 'it goes in.' : total === 2 ? 'both go in.' : 'all ' + total + ' go in.';
+      var said = 'TLP:' + tlp.toUpperCase() + ' product: ' + (!data.withheld ? all
+        : (kept ? kept + ' of ' + total + ' go in; ' : total === 1 ? 'it cannot go in, as ' : 'none of the ' + total + ' can go in, as ')
+          + withheldReason(data.rows, kept));
+      var box = el('div', 'ioc-results-tlp w-100');
+      box.append(icon('fas fa-shield-halved me-1'), said);
+      foot.prepend(box);
+      button.disabled = !kept;
+    }
+    foot.appendChild(button);
+  }
+
+  function markPage() {
+    document.querySelectorAll('.report-md-body, .md-body').forEach(window.zsazsaMarkIndicators);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', markPage);
+  else markPage();
+})();
+</script>

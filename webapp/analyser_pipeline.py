@@ -27,7 +27,7 @@ from core.db import log_event, log_pipeline_run_end, log_pipeline_run_start
 from core.vuln_lookup import CVE_RE, lookup_cve
 from pymisp import MISPEventReport
 from webapp import audit, collection_cache, job_store, matching as req_matching, misp_store
-from webapp.collection_cache import AI_SUMMARY_PREFIX, is_ai_summary_report
+from webapp.collection_cache import AI_SUMMARY_PREFIX, is_own_report
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ def _article_report(reports):
     """The report with the article: the first with content that zsazsa did
     not write itself, as it writes an AI summary or a rejection note."""
     for report in reports:
-        if _content(report) and not is_ai_summary_report(report.name) and not report.name.startswith(_REJECTION_PREFIX):
+        if _content(report) and not is_own_report(report.name) and not report.name.startswith(_REJECTION_PREFIX):
             return report
     return None
 
@@ -337,8 +337,8 @@ def _ensure_ai_summary(source, event, reports, galaxy_lookup: dict, progress=Non
         return "", False
 
     _emit(progress, "generate-summaries", "in_progress", f"Writing the AI summary of {(event.info or event.uuid)[:80]}")
-    misp_store.add_ai_summary_report(misp, event.id, event.info or event.uuid, summary,
-                                     distribution=5 if source.own else 0)
+    misp_store.add_own_report(misp, event.id, event.info or event.uuid, summary,
+                              distribution=5 if source.own else 0)
     _delete_outdated_summaries(misp, event, reports)
     if not source.own and not misp_store.publish_event(misp, event, f"{event.uuid} again after its summary"):
         # Unpublished, it drops out of the server's search: neither the

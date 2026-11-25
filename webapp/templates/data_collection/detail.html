@@ -5,6 +5,13 @@
 
 {% block misp_object_url %}{{ misp_url }}{% endblock %}
 
+{# An attribute value that can be looked up as an indicator, marked as one. #}
+{% macro ioc_value(a) %}
+{%- set kind = indicator_kind(a.type, a.value) -%}
+{%- if kind %}<span class="ioc" data-ioc-kind="{{ kind }}" data-ioc-value="{{ a.value }}">{{ a.value }}</span>
+{%- else %}{{ a.value }}{% endif -%}
+{% endmacro %}
+
 {% block content %}
 {% set workflow_badges = {'incomplete': 'bg-secondary', 'ongoing': 'bg-info text-dark', 'complete': 'bg-success'} %}
 <section class="record-hero record-hero-compact record-hero-detail rise mb-3">
@@ -196,7 +203,7 @@
               <tr>
                 <td class="text-muted small">{{ a.category }}</td>
                 <td><code class="small">{{ a.type }}</code></td>
-                <td style="word-break:break-all;max-width:28rem;font-size:.82rem;">{{ a.value }}</td>
+                <td style="word-break:break-all;max-width:28rem;font-size:.82rem;">{{ ioc_value(a) }}</td>
                 <td class="text-muted small">{{ a.comment or '' }}</td>
                 <td class="text-center">
                   {% if a.to_ids %}
@@ -237,7 +244,7 @@
               {% for a in obj.attributes %}
               <tr>
                 <td class="text-muted" style="width:25%;white-space:nowrap;">{{ a.relation or a.type }}</td>
-                <td style="word-break:break-all;">{{ a.value }}</td>
+                <td style="word-break:break-all;">{{ ioc_value(a) }}</td>
                 {% if a.comment %}
                 <td class="text-muted fst-italic">{{ a.comment }}</td>
                 {% endif %}
@@ -355,6 +362,7 @@
 
 {% block scripts %}
 {% include "_markdown_js.html" %}
+{% include "_indicator_lookup.html" %}
 <style>
 .report-md-body { font-size: .92rem; line-height: 1.6; color: var(--text-primary); }
 .report-md-body h1, .report-md-body h2, .report-md-body h3,
@@ -413,6 +421,8 @@
     more.className = 'btn btn-sm btn-outline-secondary mt-2';
     more.textContent = 'Show the whole report';
     more.addEventListener('click', function() { el.classList.remove('clamped'); more.remove(); });
+    // A lookup's answer opens the whole report too.
+    el.addEventListener('zsazsa:unclamped', function() { more.remove(); });
     el.after(more);
   });
 })();

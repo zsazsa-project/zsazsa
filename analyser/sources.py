@@ -211,10 +211,14 @@ def _still_open(event, source: Source) -> bool:
 def _has_report(event, source: Source) -> bool:
     """A manual entry or another server's event without a report has nothing for
     the model to read, and is left for the analyst. A scraper event is read
-    either way: the analyser rejects the ones it could not fetch an article for."""
+    either way: the analyser rejects the ones it could not fetch an article for.
+    An indicator lookup an analyst added is not a report here: it lists other
+    events, and the run would reject the event as empty."""
     from webapp import misp_store
+    from webapp.collection_cache import LOOKUP_REPORT_PREFIX
 
-    return source.kind == "scraper" or bool(misp_store.live_reports(event))
+    return source.kind == "scraper" or any(not (getattr(r, "name", "") or "").startswith(LOOKUP_REPORT_PREFIX)
+                                           for r in misp_store.live_reports(event))
 
 
 def _from_report(event) -> bool:

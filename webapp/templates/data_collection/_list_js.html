@@ -1456,8 +1456,16 @@
     return parts.join(' · ');
   }
 
+  // An attribute value the lookup can take, as a mark it opens its card on.
+  function iocValue(a) {
+    var kind = window.zsazsaIndicatorKind ? zsazsaIndicatorKind(a.type, a.value) : '';
+    if (!kind) return esc(a.value);
+    return '<span class="ioc" data-ioc-kind="' + kind + '" data-ioc-value="' + escAttr(a.value) + '">' + esc(a.value) + '</span>';
+  }
+
   function renderPreview(data) {
     if (!previewContent) return;
+    if (window.zsazsaLookupEvent) zsazsaLookupEvent(data.lookup_event);
     var ev = data.event; var html = '';
     if (ev.tags && ev.tags.length) {
       html += '<div class="mb-3 d-flex flex-wrap gap-1">';
@@ -1486,7 +1494,7 @@
       ev.attributes.forEach(function(a) {
         html += '<tr><td class="text-muted pe-2" style="white-space:nowrap;">' + esc(a.category) + '</td>';
         html += '<td class="font-monospace text-muted pe-2" style="white-space:nowrap;font-size:.7rem;">' + esc(a.type) + '</td>';
-        html += '<td class="font-monospace" style="word-break:break-all;">' + esc(a.value) + '</td>';
+        html += '<td class="font-monospace" style="word-break:break-all;">' + iocValue(a) + '</td>';
         if (a.comment) html += '<td class="text-muted" style="font-size:.72rem;">' + esc(a.comment) + '</td>';
         html += '</tr>';
       });
@@ -1499,7 +1507,7 @@
         html += '<div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed py-1 small" type="button" data-bs-toggle="collapse" data-bs-target="#prev-obj-' + i + '">' + esc(obj.name) + '</button></h2>';
         html += '<div id="prev-obj-' + i + '" class="accordion-collapse collapse" data-bs-parent="#preview-objs-acc"><div class="accordion-body py-1">';
         html += '<table class="table table-sm mb-0" style="font-size:.76rem;">';
-        (obj.attributes||[]).forEach(function(a) { html += '<tr><td class="text-muted pe-2" style="white-space:nowrap;">' + esc(a.relation) + '</td><td class="font-monospace" style="word-break:break-all;">' + esc(a.value) + '</td></tr>'; });
+        (obj.attributes||[]).forEach(function(a) { html += '<tr><td class="text-muted pe-2" style="white-space:nowrap;">' + esc(a.relation) + '</td><td class="font-monospace" style="word-break:break-all;">' + iocValue(a) + '</td></tr>'; });
         html += '</table></div></div></div>';
       });
       html += '</div></div>';

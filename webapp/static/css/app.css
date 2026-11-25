@@ -3550,3 +3550,69 @@ tr:hover .run-decisions-link, .run-decisions-link:focus-visible { text-decoratio
 .md-preview a, .md-body a { color: var(--accent-blue); }
 .md-preview .md-empty { color: var(--text-muted); font-style: italic; }
 @media (prefers-reduced-motion: no-preference) { .md-modes button { transition: color .12s, background-color .12s; } }
+
+/* ─── Indicator lookup (_indicator_lookup.html) ─────────────────────────────── */
+/* An indicator in a report: a dotted underline, so a report full of hashes still
+   reads as text. */
+.ioc { border-bottom: 1px dotted var(--accent-blue); border-radius: 2px; }
+.ioc:hover, .ioc.is-open { background: var(--pill-active-bg); }
+.ioc.is-open { border-bottom-style: solid; }
+.ioc.is-looked-up { border-bottom-color: var(--accent-green); }
+/* Being looked up: the mark pulses where the analyst clicked, as the answer may be further down. */
+.ioc.is-busy { border-bottom-style: solid; cursor: progress; background: var(--pill-active-bg); }
+@keyframes ioc-busy { 50% { background: transparent; } }
+@media (prefers-reduced-motion: no-preference) { .ioc.is-busy { animation: ioc-busy 1s ease-in-out infinite; } }
+.ioc-card { position: absolute; z-index: 1080; width: 360px; max-width: calc(100vw - 16px); padding: .8rem .9rem .75rem;
+  background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-light); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 60, 75, .16), 0 2px 6px rgba(15, 60, 75, .08); font-size: .8rem; line-height: 1.45; }
+.ioc-card::before { content: ""; position: absolute; top: -6px; left: var(--ioc-arrow, 22px); width: 10px; height: 10px;
+  background: var(--card-bg); border-left: 1px solid var(--border-light); border-top: 1px solid var(--border-light); transform: rotate(45deg); }
+.ioc-card.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
+.ioc-card-head { display: flex; align-items: center; gap: .55rem; margin-bottom: .55rem; }
+.ioc-card-head .tile-icon { display: grid; place-items: center; flex-shrink: 0; width: 1.7rem; height: 1.7rem; border-radius: 7px;
+  background: var(--surface-muted); color: var(--accent-blue); font-size: .78rem; }
+.ioc-card-type { font-weight: 600; font-size: .82rem; }
+.ioc-card-head .badge { margin-left: auto; font-weight: 500; }
+.ioc-card-value { display: flex; align-items: flex-start; gap: .4rem; margin-bottom: .65rem; padding: .4rem .5rem;
+  background: var(--surface-muted); border-radius: 6px; font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .76rem; word-break: break-all; }
+.ioc-card-value span { flex: 1; }
+.ioc-card-value button { flex-shrink: 0; padding: 0 .2rem; line-height: 1.2; color: var(--text-muted); }
+.ioc-card label { display: block; margin-bottom: .2rem; font-size: .72rem; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em; }
+.ioc-card .form-select { font-size: .78rem; }
+.ioc-card-scope { margin: .35rem 0 .7rem; font-size: .72rem; color: var(--text-muted); }
+.ioc-card-actions { display: flex; align-items: center; gap: .45rem; }
+.ioc-card-actions .hint { margin-left: auto; font-size: .7rem; color: var(--text-muted); }
+/* The answer, inside the report under the block the indicator is in. The
+   report's own table and code styles are taken back off it. */
+.ioc-results { margin: .4rem 0 1rem; border: 1px solid var(--border-light); border-radius: 10px; background: var(--card-bg);
+  box-shadow: var(--card-shadow); overflow: hidden; font-size: .8rem; line-height: 1.45; color: var(--text-primary); }
+.ioc-results-head { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .75rem; padding: .55rem .8rem;
+  background: var(--surface-muted); border-bottom: 1px solid var(--border-light); }
+.ioc-results-title { font-weight: 600; }
+.ioc-results .ioc-results-head code { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .76rem;
+  color: var(--text-primary); background: none; padding: 0; }
+.ioc-results-head .count { color: var(--text-muted); }
+.ioc-results-head .tools { display: flex; align-items: center; gap: .4rem; margin-left: auto; }
+.ioc-results-head .form-select { width: auto; font-size: .74rem; padding-top: .1rem; padding-bottom: .1rem; }
+.ioc-results .table { margin: 0; font-size: .725rem; }
+/* Eight columns in the width of a report: the dates stay on one line, the rest wrap. */
+.ioc-results .table th, .ioc-results .table td { border-width: 0 0 1px; border-color: var(--border-light); padding: .3rem .5rem;
+  background: none; }
+.ioc-results .table td.ioc-results-event-title { min-width: 9rem; max-width: 15rem; }
+.ioc-results .table td.ioc-results-value { min-width: 7.5rem; max-width: 18rem; overflow-wrap: anywhere; }
+.ioc-results tr.this-event td { background: var(--surface-tint); }
+.ioc-results .this-event-mark { display: block; width: fit-content; margin-top: .15rem; font-weight: 500; }
+.ioc-results-foot { padding: .45rem .8rem; border-top: 1px solid var(--border-light); font-size: .72rem; color: var(--text-muted); }
+/* In a product's Markdown field: what its TLP lets go into the text. */
+.ioc-results-tlp { padding: .3rem .5rem; border-radius: 6px; background: var(--surface-tint); color: var(--text-primary); }
+.ioc-results tr.ioc-withheld td { color: var(--text-muted); }
+.ioc-results tr.ioc-withheld .tlp-badge { font-size: .62rem; }
+.ioc-results-empty, .ioc-results-loading, .ioc-results-error { display: flex; align-items: center; gap: .6rem; padding: .8rem; color: var(--text-muted); }
+.ioc-results-error { color: var(--text-primary); }
+.ioc-results-error i { color: var(--accent-orange); }
+.ioc-results .cve-description { padding: .6rem .8rem 0; margin: 0; }
+.ioc-results .cve-facts { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: .3rem .9rem; margin: 0; padding: .6rem .8rem; }
+.ioc-results .cve-facts dt { font-size: .7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding-top: .1rem; }
+.ioc-results .cve-facts dd { margin: 0; word-break: break-word; }
+@media (prefers-reduced-motion: no-preference) { .ioc { transition: background-color .15s ease; } }

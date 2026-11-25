@@ -20,6 +20,7 @@
 - The threat types of a threat landscape report can be changed under Settings, Products, and "Vulnerability exploitation" is one besides ENISA's prime threats.
 - A manual collection source can be marked as the organisation's own, for its incidents and SOC/CSIRT detections. A threat landscape report lists the events from it under "What hit us", and its threat ranking counts them per threat.
 - Improve Markdown editor in products
+- An indicator in a report or a product can be looked up on the data collection's MISP servers, and a CVE at Vulnerability-Lookup. The answer can be added to the event as a report, or put into a product's text from its Markdown preview (#81).
 
 ### Changed
 
