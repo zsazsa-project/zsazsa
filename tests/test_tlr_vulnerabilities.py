@@ -5,7 +5,9 @@ those of the vulnerability advisories made in its period, each with how far it
 is exploited and whether it is in a product the organisation runs: as the
 analyser found it, or as the asset inventory has the affected product. An
 advisory shared more strictly than the report is left out, as is a rejected
-one, and the section is empty without CVEs. The report page links each to its
+one, and the section is empty without CVEs. Each CVE of an advisory is a row
+of its own, ranked by the score its CVSS opens with, as the analyser writes it
+("9.8 CRITICAL"). The report page links each to its
 advisory; the PDF and the mail list them too. "Vulnerability exploitation" is a
 threat type besides ENISA's prime threats. MISP and the cache are patched out;
 the database and log are temporary.
@@ -24,6 +26,7 @@ from bs4 import BeautifulSoup
 
 import config
 from core import asset_inventory
+from core.vuln_lookup import cvss_score
 from webapp import collection_cache, create_app, misp_store
 from webapp.routes import threat_landscape
 
@@ -41,7 +44,7 @@ def _entry(n, **fields):
 def _vea(cve, made="2026-08-10", **fields):
     data = dict(uuid=f"vea-{cve}", vea_id=f"VEA-{cve[-4:]}", cve_id=cve, tlp="amber", review_state="approved",
                 created_at=datetime.fromisoformat(made), affected_product="Fortinet FortiOS", cvss="9.8", cwe="CWE-787",
-                exposure="", observed_exploitation="", cisa_kev="", exploit_availability="")
+                exposure="", observed_exploitation="", cisa_kev="", exploit_availability="", cve_baselines={})
     data.update(fields)
     return SimpleNamespace(**data)
 
@@ -101,6 +104,30 @@ class Section(unittest.TestCase):
             v = threat_landscape._vulnerabilities(report)
         self.assertEqual([r["cve"] for r in v["rows"]], ["CVE-2026-0009"])
 
+    def test_the_cvss_the_analyser_writes_is_ranked_by_its_score(self):
+        """It stores "9.8 CRITICAL", which read as 0 and sank below every
+        advisory an analyst wrote with a bare number."""
+        veas = [_vea("CVE-2026-0001", cvss="5.3"), _vea("CVE-2026-0002", cvss="9.8 CRITICAL"),
+                _vea("CVE-2026-0003", cvss="7.5 (HIGH)"), _vea("CVE-2026-0004", cvss="")]
+        v = self.section(_report([_entry(1)]), veas)
+        self.assertEqual([r["cve"] for r in v["rows"]], ["CVE-2026-0002", "CVE-2026-0003", "CVE-2026-0001",
+                                                          "CVE-2026-0004"])
+
+    def test_each_cve_of_an_advisory_is_a_row_of_its_own(self):
+        """The analyser joins them with newlines, the form with commas; read as
+        one, they matched none of the CVEs the incidents name."""
+        analyser = _vea("CVE-2026-0001", cve_id="CVE-2026-0001\ncve-2026-0002", cvss="9.8 CRITICAL",
+                        cve_baselines={"CVE-2026-0001": {"cvss": "9.8"}, "CVE-2026-0002": {"cvss": "7.5"}})
+        analyst = _vea("CVE-2026-0003", cve_id="CVE-2026-0003, CVE-2026-0004", cvss="6.1")
+        v = self.section(_report([_entry(1)]), [analyser, analyst], {"ev-1": ["CVE-2026-0002"]})
+        rows = {r["cve"]: r for r in v["rows"]}
+        self.assertEqual(sorted(rows), ["CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003", "CVE-2026-0004"])
+        self.assertEqual((rows["CVE-2026-0002"]["vea"], rows["CVE-2026-0002"]["incidents"]), (analyser, 1))
+        self.assertEqual({cve: r["cvss"] for cve, r in rows.items()},
+                         {"CVE-2026-0001": "9.8 CRITICAL", "CVE-2026-0002": "7.5", "CVE-2026-0003": "6.1",
+                          "CVE-2026-0004": ""}, "a CVE after the first has its own score, or none")
+        self.assertEqual((v["cves"], v["advisories"]), (4, 2))
+
     def test_without_cves_there_is_no_section(self):
         self.assertEqual(self.section(_report([_entry(1)])), {})
 
@@ -118,6 +145,14 @@ class Section(unittest.TestCase):
         text = misp_store.render_tlr_markdown(tlr, vulnerabilities=v)
         self.assertIn("1 CVE in the period, 1 of them exploited, 1 in products the organisation runs; 1 vulnerability advisory.", text)
         self.assertIn("- **CVE-2026-0001**: Fortinet FortiOS, CVSS 9.8, Active, in our assets, VEA-0001", text)
+
+
+class CvssScore(unittest.TestCase):
+    def test_the_score_a_cvss_value_opens_with(self):
+        for value, score in (("9.8", 9.8), ("9.8 CRITICAL", 9.8), ("7.5 (HIGH)", 7.5), (" 10", 10.0), (7.2, 7.2),
+                             ("", None), (None, None), ("CRITICAL", None), ("CVSS:3.1/AV:N", None)):
+            with self.subTest(value=value):
+                self.assertEqual(cvss_score(value), score)
 
 
 class ThreatType(unittest.TestCase):

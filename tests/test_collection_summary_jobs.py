@@ -653,7 +653,7 @@ class SummaryOnAnotherMispServer(unittest.TestCase):
 
     def summarise(self, kind="misp", published=None):
         misp = mock.create_autospec(PyMISP, instance=True)
-        misp.get_event_reports.return_value = [SimpleNamespace(content="An article about a RAT.")]
+        misp.get_event_reports.return_value = [SimpleNamespace(name="Article", content="An article about a RAT.")]
         misp.add_event_report.return_value = {"EventReport": {"id": "3"}}
         misp.publish.return_value = published or {"saved": True, "success": True}
         event = SimpleNamespace(id=7, uuid="u" * 36, info="Overlord RAT campaign", tags=[])

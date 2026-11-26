@@ -14,7 +14,7 @@ import weasyprint
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 from webapp import (audit, branding, collection_cache, job_store, misp_session,
                     misp_store, notify_jobs, product_log)
-from webapp.collection_cache import AI_SUMMARY_PREFIX
+from webapp.models import TLP_LEVELS
 from webapp.utils import (TLP_NAMES, dedup_lower, mark_lead_labels, matching, md_to_html, ordered_counts,
                           sort_products, tlp_counts, tlp_of)
 from webapp.routes import data_collection
@@ -112,7 +112,7 @@ def _render_briefing_form(
         briefing_title=title,
         briefing_author=author,
         briefing_tlp=tlp,
-        tlp_levels=misp_store.FIA_TLP_LEVELS,
+        tlp_levels=TLP_LEVELS,
         briefing_escalations=escalations,
         briefing_notes=notes,
         briefing_detection_rules=detection_rules,
@@ -148,14 +148,6 @@ def _render_briefing_form(
 
 
 
-def _extract_ai_summary(event) -> str:
-    """Return the AI-generated summary report content if one exists on this event."""
-    for r in (getattr(event, "event_reports", []) or []):
-        if (getattr(r, "name", "") or "").startswith(AI_SUMMARY_PREFIX):
-            return (getattr(r, "content", "") or "").strip()
-    return ""
-
-
 def _seed_story_from_event(ev_uuid, source_hint=""):
     """Build a story stub dict from a MISP event, for pre-loading into a briefing draft.
 
@@ -181,7 +173,7 @@ def _seed_story_from_event(ev_uuid, source_hint=""):
         "source_url": source_url,
         "source_event_uuid": ev.uuid,
         "source_id": source_id,
-        "ai_summary": _extract_ai_summary(ev),
+        "ai_summary": collection_cache.ai_summary(misp_store.live_reports(ev)),
         "report_count": len(misp_store.live_reports(ev)),
         "source_tlp": misp_store.source_events_tlp([ev], "clear"),
     }

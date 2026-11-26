@@ -5,6 +5,8 @@ country can arrive twice. requirements.py runs those lists through dedup_lower
 before storing them, and for a while it did so without importing the function:
 every PIR and GIR create and edit answered HTTP 500. These checks post the forms
 the way a browser does, so a missing name fails here rather than in production.
+Adding, syncing or removing a scope item on the detail page is in the audit
+log, with what changed.
 
     python -m unittest tests.test_requirements_scope_dedup
 """
@@ -222,6 +224,39 @@ class GirScopeItems(unittest.TestCase):
             {"category": "Vendor", "value": "Moxa"},
             {"category": "Vendor", "value": "Bosch"},
         ])
+
+
+
+class ScopeChangesAreAudited(unittest.TestCase):
+    """Adding, syncing and removing a scope item changes what the requirement
+    matches, so each is in the audit log with what changed."""
+
+    def post(self, kind, path, **form):
+        req = SimpleNamespace(uuid="u" * 36, pir_id="PIR-00001", gir_id="GIR-00001",
+                              focus_points=[_fp("Vendor", "Ivanti")])
+        store = requirements.misp_store
+        with mock.patch.object(store, f"get_{kind}", return_value=req), \
+             mock.patch.object(store, "add_focus_point_with_scope"), \
+             mock.patch.object(store, "sync_focus_points_category"), \
+             mock.patch.object(store, "remove_focus_point_with_scope"), \
+             mock.patch.object(store, "sync_scope_tags_from_store"), \
+             mock.patch.object(requirements._matching, "invalidate_cache"), \
+             mock.patch.object(requirements.audit, "record") as record:
+            _app().test_client().post(f"/{kind}s/{'u' * 36}/{path}", data=form)
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args, ("update", kind))
+        self.assertEqual(record.call_args.kwargs["entity_label"], f"{kind.upper()}-00001")
+        return record.call_args.kwargs["details"]
+
+    def test_each_change_names_what_changed(self):
+        for kind in ("pir", "gir"):
+            with self.subTest(kind=kind):
+                self.assertEqual(self.post(kind, "focus_points", category="Sector", value="Energy"),
+                                 "scope: added Sector Energy")
+                self.assertEqual(self.post(kind, "scope/sync", category="Geography", value=["Belgium", "France"]),
+                                 "scope: Geography set to Belgium, France")
+                self.assertEqual(self.post(kind, "scope/sync", category="Geography"), "scope: Geography set to nothing")
+                self.assertEqual(self.post(kind, "focus_points/Vendor-Ivanti/delete"), "scope: removed Vendor Ivanti")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ from core.db import next_sequence_value
 from pymisp import MISPAttribute, MISPEvent, MISPObject, PyMISP
 from webapp import misp_session
 from webapp.collection_cache import AI_SUMMARY_PREFIX, LOOKUP_REPORT_PREFIX, event_tlp, source_slug
-from webapp.models import STAKEHOLDER_ROLES
+from webapp.models import STAKEHOLDER_ROLES, TLP_LEVELS
 from webapp.utils import PRODUCT_TAG_PREFIX, human_size, markdown_list, nest_headings, ordered_counts, scraper_enabled
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1057,7 +1057,7 @@ def _published_at(event):
             return None
         if epoch <= 0:
             return None
-        dt = datetime.utcfromtimestamp(epoch)
+        dt = datetime.fromtimestamp(epoch, timezone.utc)
     if dt.year <= 1971:
         return None
     return dt.replace(tzinfo=None) if dt.tzinfo else dt
@@ -2454,10 +2454,6 @@ def _indicator_feed_ns(event):
     )
 
 
-def next_indicator_feed_id():
-    return _next_id(config.TAG_INDICATOR_FEED, "FEED")
-
-
 def list_indicator_feeds():
     misp = _misp()
     events = _search_all(misp, tags=[config.TAG_INDICATOR_FEED], pythonify=True)
@@ -3337,7 +3333,8 @@ def _parse_attribute_rows(raw, server_id, server_label, server_url, filters):
         ts = a.get("timestamp")
         try:
             ts_epoch = int(ts) if ts else 0
-            ts_display = datetime.utcfromtimestamp(ts_epoch).strftime("%Y-%m-%d %H:%M") if ts_epoch else ""
+            ts_display = (datetime.fromtimestamp(ts_epoch, timezone.utc).strftime("%Y-%m-%d %H:%M")
+                          if ts_epoch else "")
         except (TypeError, ValueError):
             ts_epoch, ts_display = 0, ""
         event_id = a.get("event_id") or event.get("id", "")
@@ -4094,9 +4091,8 @@ FIA_REVIEW_STATES = [
 ]
 
 FIA_AUDIENCES = list(STAKEHOLDER_ROLES)
-FIA_TLP_LEVELS = ["clear", "green", "amber", "amber+strict", "red"]
 # Least to most restrictive, so a clearance covers every level at or below its own.
-_TLP_RANK = {level: i for i, level in enumerate(FIA_TLP_LEVELS)}
+_TLP_RANK = {level: i for i, level in enumerate(TLP_LEVELS)}
 FIA_RELIABILITIES = ["A", "B", "C", "D", "E", "F"]
 FIA_CREDIBILITIES = ["1", "2", "3", "4", "5", "6"]
 
@@ -6475,42 +6471,6 @@ def recipient_preview(product_type: str, tlp: str, audience_str: str) -> list:
     return result
 
 
-def export_focus_points_to_file():
-    """Build focus points from active PIR/GIR requirements.
-
-    Maps focus point categories to the organisation-wide keys used by AI helpers:
-      Geography  -> geographies
-      Sector     -> sectors
-      Technology -> technologies
-      Threat Type -> threat_types
-      Threat Actor -> threat_actors
-    """
-    cat_map = {
-        "Geography": "geographies",
-        "Sector": "sectors",
-        "Technology": "technologies",
-        "Threat Type": "threat_types",
-        "Threat Actor": "threat_actors",
-    }
-    result = {v: [] for v in cat_map.values()}
-    seen = {v: set() for v in cat_map.values()}
-
-    for req in list_pirs() + list_girs():
-        if getattr(req, "status", "") == "Retired":
-            continue
-        for fp in getattr(req, "focus_points", []):
-            key = cat_map.get(fp.category)
-            if not key:
-                continue
-            v = (fp.value or "").strip()
-            if v and v.lower() not in seen[key]:
-                seen[key].add(v.lower())
-                result[key].append(v)
-
-    logger.info("focus points rebuilt from requirements: %s", {k: len(v) for k, v in result.items()})
-    return result
-
-
 # ── Vulnerability Exploitation Advisory (VEA) ────────────────────────────────
 
 
@@ -8075,7 +8035,6 @@ TLR_NEXT_STATES = {
 # it back to draft first.
 TLR_LOCKED_STATES = (TLR_REVIEW_APPROVED, TLR_REVIEW_PUBLISHED)
 
-TLR_TLP_LEVELS = ["clear", "green", "amber", "amber+strict", "red"]
 
 # Form field, label and icon of the actor categories under trending threat actors.
 # The MISP attribute is the field name with hyphens.

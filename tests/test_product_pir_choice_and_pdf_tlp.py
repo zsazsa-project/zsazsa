@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from webapp import misp_store
+from webapp.models import TLP_LEVELS
 from webapp.routes import flash_intel
 
 
@@ -106,7 +107,7 @@ class TheClassificationHeaderFollowsTheDocument(unittest.TestCase):
 
     def test_every_tlp_the_app_offers_has_a_header_colour(self):
         css = _CSS.read_text()
-        for tlp in misp_store.FIA_TLP_LEVELS:
+        for tlp in TLP_LEVELS:
             slug = tlp.replace("+", "-")
             self.assertIn(f':root[data-tlp="{slug}"]', css, f"no header colour for tlp:{tlp}")
 
@@ -134,7 +135,7 @@ class TheClassificationHeaderFollowsTheDocument(unittest.TestCase):
         """Reading the stylesheet the way the renderer does: the pill rules must
         not be reachable from :root under any TLP the app offers."""
         css = _CSS.read_text()
-        for tlp in misp_store.FIA_TLP_LEVELS:
+        for tlp in TLP_LEVELS:
             slug = tlp.replace("+", "-")
             self.assertNotIn(f":root.tlp-{slug}", css)
 

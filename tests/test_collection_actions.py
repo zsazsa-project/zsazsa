@@ -283,7 +283,7 @@ class PartnerConnection(unittest.TestCase):
 class AiSummary(unittest.TestCase):
     def test_a_report_misp_refuses_is_not_called_saved(self):
         misp = mock.create_autospec(PyMISP, instance=True)
-        misp.get_event_reports.return_value = [SimpleNamespace(content="An article about a RAT.")]
+        misp.get_event_reports.return_value = [SimpleNamespace(name="Article", content="An article about a RAT.")]
         misp.add_event_report.return_value = {"errors": (403, {"message": "Not allowed"})}
         # A summary that is wrongly taken as saved goes on to the audit log and
         # the cache, which belong to this install.

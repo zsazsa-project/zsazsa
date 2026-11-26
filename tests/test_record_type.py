@@ -275,12 +275,14 @@ class Routes(unittest.TestCase):
         sync.assert_not_called()
 
         # The same request on a PIR does reach the store.
-        with mock.patch.object(misp_store, "get_pir", return_value=SimpleNamespace(uuid=UUID)), \
+        with mock.patch.object(misp_store, "get_pir", return_value=SimpleNamespace(uuid=UUID, pir_id="PIR-00001")), \
              mock.patch.object(misp_store, "add_focus_point_with_scope") as add, \
              mock.patch.object(misp_store, "sync_scope_tags_from_store"), \
-             mock.patch.object(requirements._matching, "invalidate_cache"):
+             mock.patch.object(requirements._matching, "invalidate_cache"), \
+             mock.patch.object(requirements.audit, "record") as record:
             client.post(f"/pirs/{UUID}/focus_points", data={"category": "Sector", "value": "x"})
         add.assert_called_once()
+        record.assert_called_once()
 
 
 if __name__ == "__main__":

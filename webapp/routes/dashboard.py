@@ -1,5 +1,4 @@
 import logging
-import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -9,6 +8,7 @@ from flask import Blueprint, jsonify, render_template
 import config
 from analyser import event_state, llm, run_lock, settings as analyser_settings
 from analyser.sources import last_completed_at
+from core.db import row_connection
 from webapp import analyser_pipeline, audit, collection_cache
 from webapp import job_store, misp_session, misp_store
 from webapp.routes import setup_wizard
@@ -51,7 +51,7 @@ def _pipeline_status():
 
     # Outcomes over the last 24h from analyser DB
     try:
-        with sqlite3.connect(config.DB_FILE) as conn:
+        with row_connection() as conn:
             rows = conn.execute(
                 "SELECT outcome, COUNT(*) FROM event_log "
                 "WHERE processed_at >= datetime('now', '-1 day') "

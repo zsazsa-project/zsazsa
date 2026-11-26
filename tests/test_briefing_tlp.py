@@ -18,6 +18,7 @@ from pymisp import PyMISP
 
 import config
 from webapp import audit, collection_cache, create_app, job_store, misp_store
+from webapp.models import TLP_LEVELS
 
 UUID = "11111111-2222-3333-4444-555555555555"
 SOURCE = "aaaaaaaa-2222-3333-4444-555555555555"
@@ -93,7 +94,7 @@ class BriefingForm(unittest.TestCase):
                                     data={"csrf_token": "test-token", "selected_events": f"{SOURCE}|scraper"})
 
     def test_every_level_opens_selected_on_the_edit_form(self):
-        for level in misp_store.FIA_TLP_LEVELS:
+        for level in TLP_LEVELS:
             with self.subTest(level=level), \
                  mock.patch.object(misp_store, "get_briefing", return_value=_briefing(level)):
                 self.assertEqual(self.selected(self.client.get(f"/briefing/{UUID}/edit")), level)

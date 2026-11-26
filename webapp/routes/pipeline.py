@@ -10,7 +10,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 import config
 from analyser import settings
 from core.db import get_latest_pipeline_run, get_recent_pipeline_runs, row_connection
-from webapp import analyser_pipeline, collection_cache, job_store, misp_store
+from webapp import analyser_pipeline, audit, collection_cache, job_store, misp_store
 from webapp.utils import age_text, iso_day, long_day, scraper_enabled
 
 logger = logging.getLogger(__name__)
@@ -739,6 +739,7 @@ def purge_orphaned():
         elif deleted == 0:
             flash(f"Reconciled {scanned} entries; nothing to purge.", "info")
         else:
+            audit.record("delete", "event-log", details=f"purged {deleted} orphaned entries of {scanned}")
             flash(f"Purged {deleted} orphaned entries (scanned {scanned}).", "success")
     except Exception as exc:
         flash(f"Purge failed: {exc}", "warning")

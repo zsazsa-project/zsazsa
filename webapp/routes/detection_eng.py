@@ -25,7 +25,7 @@ from webapp.routes.source_event_utils import (
 from core.rulezet_lookup import validate_rule
 from core.vuln_lookup import CVE_RE
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
-from webapp.models import STAKEHOLDER_ROLES
+from webapp.models import STAKEHOLDER_ROLES, TLP_LEVELS
 from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ def _wizard_context(der=None, source_events=None):
     return {
         "der": der,
         "audiences": misp_store.FIA_AUDIENCES,
-        "tlp_levels": misp_store.FIA_TLP_LEVELS,
+        "tlp_levels": TLP_LEVELS,
         "review_states": misp_store.DER_REVIEW_STATES,
         "priorities": misp_store.DER_PRIORITIES,
         "formats": misp_store.DER_FORMATS,

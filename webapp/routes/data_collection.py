@@ -26,6 +26,7 @@ from core import ai_connector, indicators, vuln_lookup
 from core.db import log_pipeline_run_start, log_pipeline_run_end
 from webapp import (analyser_pipeline, audit, collection_cache, job_store, matching as _matching,
                     misp_session, misp_store, newsletter_ingest, newsletter_parsers, scraper_queue)
+from webapp.models import TLP_LEVELS
 from webapp.rate_limit import rate_limited
 from webapp.utils import json_body as _json_object, matching, ordered_counts, record_title, scraper_enabled
 
@@ -577,7 +578,7 @@ def _publish_again(misp, event) -> bool:
 
 
 def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
-    """Generate an LLM summary from an event's first MISP report and save it back to MISP.
+    """Generate an LLM summary of an event's article and save it back to MISP.
 
     Runs on a worker thread, so ``user`` is the analyst who asked for it, for
     the audit entry. On another MISP server (``kind`` "misp") only
@@ -593,14 +594,11 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
         logger.warning("Could not load reports for %s: %s", uuid, exc)
         return False, "Could not load event reports", 502
 
-    # A summary zsazsa wrote earlier, of a report or of the event, is not the article.
-    reports = [r for r in reports if not collection_cache.is_own_report(getattr(r, "name", ""))]
-    if not reports:
-        return False, "No reports attached to this event", 400
-
-    report_content = getattr(reports[0], "content", "") or ""
-    if not report_content.strip():
-        return False, "First report has no content", 400
+    # As the analyser picks it: not a report zsazsa wrote, nor a deleted one.
+    article = collection_cache.article_report(reports)
+    if article is None:
+        return False, "No report on this event has an article to summarise", 400
+    report_content = article.content
 
     ev_tags = [t.name for t in getattr(event, "tags", []) or []]
 
@@ -626,7 +624,7 @@ def _generate_ai_summary(misp, event, source_id, user="", kind="scraper"):
 
     collection_cache.mark_ai_summary(uuid, source_id)
 
-    details = "LLM summary created from first MISP report"
+    details = "LLM summary created from the article"
     message = "Summary created and added to MISP event"
     if kind == "misp":
         if not _publish_again(misp, event):
@@ -708,7 +706,7 @@ def _generate_event_summary(misp, event, misp_json, source_id, user=""):
     return True, message, 200
 
 
-# "report" summarises the first report with zsazsa's own LLM, "event" has the
+# "report" summarises the article with zsazsa's own LLM, "event" has the
 # AI-connector MISP module summarise the whole event, and "both" does the two.
 _SUMMARY_MODES = ("report", "event", "both")
 
@@ -899,7 +897,7 @@ def manual_new():
     ctx = {
         "manual_sources": manual_sources,
         "today": str(datetime.date.today()),
-        "tlp_levels": misp_store.FIA_TLP_LEVELS,
+        "tlp_levels": TLP_LEVELS,
         "reliabilities": misp_store.FIA_RELIABILITIES,
         "credibilities": misp_store.FIA_CREDIBILITIES,
         "galaxy_countries": misp_store.galaxy_geography(),

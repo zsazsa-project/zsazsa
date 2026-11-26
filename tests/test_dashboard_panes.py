@@ -12,6 +12,7 @@ numbers and links, and an empty state. The requirement panes add the mix of
 priorities or review cycles. A load reads the alerts once for the two panes
 that use them and the advisories once for the two that use those, counts
 stakeholders from their metadata, and has MISP count the pending scraper events.
+The pipeline panel counts what the analyser logged in the last day, by outcome.
 
 The fragment the dashboard loads is rendered with stand-in data, MISP is an
 autospec of PyMISP, and the database and log are temporary.
@@ -31,6 +32,7 @@ from flask import render_template, url_for
 from pymisp import PyMISP
 
 import config
+from core import db
 from webapp import collection_cache, create_app, misp_store
 from webapp.models import MOSCOW_PRIORITIES, REVIEW_CYCLES
 from webapp.routes import dashboard
@@ -198,6 +200,23 @@ class Shell(unittest.TestCase):
     def test_a_failed_load_stops_both_spinners(self):
         """The slot beside the pipeline kept its spinner when the panes did not come."""
         self.assertIn("[mount, document.querySelector('#waiting-slot .card-body')].forEach", self.shell())
+
+
+class PipelineCounts(unittest.TestCase):
+    def test_the_outcomes_of_the_last_day_are_counted(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.object(config, "DB_FILE", str(Path(tmp.name) / "test.db"), create=True), \
+             mock.patch.object(dashboard, "last_completed_at", return_value=None), \
+             mock.patch.object(dashboard, "scraper_enabled", return_value=False):
+            db.init_db()
+            for uuid, outcome in (("a", "accepted"), ("b", "accepted"), ("c", "rejected")):
+                db.log_event(uuid, "An event", "scraper", outcome)
+            with db.connection() as conn:
+                conn.execute("UPDATE event_log SET processed_at = datetime('now', '-2 days') WHERE event_uuid = 'c'")
+            db.log_event("d", "An event", "scraper", "rejected")
+            status = dashboard._pipeline_status()
+        self.assertEqual((status["processed_24h"], status["total_24h"]), ({"accepted": 2, "rejected": 1}, 3))
 
 
 class Loading(unittest.TestCase):

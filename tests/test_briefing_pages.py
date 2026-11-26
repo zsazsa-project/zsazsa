@@ -33,6 +33,7 @@ import test_briefing_rejection  # noqa: E402
 from test_briefing_rejection import UUID, _event  # noqa: E402
 
 from webapp import audit, misp_store  # noqa: E402
+from webapp.models import TLP_LEVELS  # noqa: E402
 from webapp.routes import data_collection  # noqa: E402
 
 EVENT_A = "0c1d6a8e-61b4-4f0b-9a55-1f4f1d2f0a01"
@@ -124,7 +125,7 @@ class BriefingPages(unittest.TestCase):
                          ["#step-details", "#step-summary", "#step-stories", "#step-scope", "#step-notes"])
         for step in ("details", "summary", "stories", "scope", "notes"):
             self.assertIsNotNone(page.select_one(f".form-step#step-{step}"), step)
-        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], misp_store.FIA_TLP_LEVELS)
+        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], TLP_LEVELS)
         card = page.select_one(".col-lg-4 > .form-save")
         self.assertEqual(card.select_one(".card-header").get_text(strip=True), "As it will appear")
         self.assertEqual(card.select_one("#preview-title").get_text(strip=True), "Daily briefing")

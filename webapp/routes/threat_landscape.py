@@ -10,9 +10,10 @@ from flask import Blueprint, Response, flash, jsonify, redirect, render_template
 
 from analyser import tagger
 from core import asset_inventory
+from core.vuln_lookup import CVE_RE, cvss_score
 from webapp import (audit, branding, collection_cache, matching, misp_session, misp_store, notify_jobs, product_log,
                     report_stories)
-from webapp.models import INTEL_LEVELS
+from webapp.models import INTEL_LEVELS, TLP_LEVELS
 from webapp.rate_limit import rate_limited
 
 logger = logging.getLogger(__name__)
@@ -347,11 +348,13 @@ def _in_inventory(vea) -> bool:
     return asset_inventory.find("", vea.affected_product) is not None
 
 
-def _cvss(value) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+def _advisory_cves(vea) -> list:
+    """(CVE, its CVSS) for each CVE an advisory names. The advisory's CVSS is
+    that of its first CVE, as the analyser reads it; another has the score the
+    analyser recorded for it, if any."""
+    cves = [cve.upper() for cve in CVE_RE.findall(vea.cve_id or "")]
+    scores = {cve.upper(): baseline.get("cvss") for cve, baseline in vea.cve_baselines.items()}
+    return [(cve, vea.cvss) for cve in cves[:1]] + [(cve, scores.get(cve) or "") for cve in cves[1:]]
 
 
 def _shared_within(record, tlr) -> bool:
@@ -383,30 +386,31 @@ def _vulnerabilities(tlr) -> dict:
         try:
             for vea in misp_store.list_veas():
                 made = vea.created_at.date().isoformat() if vea.created_at else ""
-                if (vea.cve_id and vea.review_state != misp_store.VEA_REVIEW_REJECTED and start <= made <= end
+                if (vea.review_state != misp_store.VEA_REVIEW_REJECTED and start <= made <= end
                         and _shared_within(vea, tlr)):
-                    advisories.setdefault(vea.cve_id.upper(), vea)
+                    for cve, cvss in _advisory_cves(vea):
+                        advisories.setdefault(cve, (vea, cvss))
         except Exception as exc:
             logger.warning("TLR: could not read the vulnerability advisories: %s", exc)
     try:
-        ours = {cve for cve, vea in advisories.items() if _in_inventory(vea)}
+        ours = {cve for cve, (vea, _) in advisories.items() if _in_inventory(vea)}
     except asset_inventory.InventoryError as exc:
         logger.warning("TLR: %s", exc)
-        ours = {cve for cve, vea in advisories.items() if (vea.exposure or "").startswith(_IN_INVENTORY)}
+        ours = {cve for cve, (vea, _) in advisories.items() if (vea.exposure or "").startswith(_IN_INVENTORY)}
     rows = []
     for cve in set(named) | set(advisories):
-        vea = advisories.get(cve)
+        vea, cvss = advisories.get(cve, (None, ""))
         rows.append({"cve": cve, "incidents": named[cve], "vea": vea, "ours": cve in ours,
-                     "product": vea.affected_product if vea else "", "cvss": vea.cvss if vea else "",
+                     "product": vea.affected_product if vea else "", "cvss": cvss,
                      "cwe": vea.cwe if vea else "", "exploitation": misp_store.vea_exploitation(vea) if vea else ""})
     if not rows:
         return {}
-    rows.sort(key=lambda r: (not r["ours"], r["exploitation"] not in _EXPLOITED, -_cvss(r["cvss"]), -r["incidents"],
-                             r["cve"]))
+    rows.sort(key=lambda r: (not r["ours"], r["exploitation"] not in _EXPLOITED, -(cvss_score(r["cvss"]) or 0.0),
+                             -r["incidents"], r["cve"]))
     return {
         "rows": rows,
         "cves": len(rows),
-        "advisories": len(advisories),
+        "advisories": len({vea.uuid for vea, _ in advisories.values()}),
         "exploited": sum(1 for r in rows if r["exploitation"] in _EXPLOITED),
         "ours": sum(1 for r in rows if r["ours"]),
         # As (name, count, none) rows, as the charts take them.
@@ -608,7 +612,7 @@ def _wizard_context(tlr):
     """What the wizard needs besides the report itself."""
     incidents = misp_store.tlr_incidents(tlr.entries) if tlr else []
     return {
-        "tlp_levels": misp_store.TLR_TLP_LEVELS,
+        "tlp_levels": TLP_LEVELS,
         "audiences": misp_store.FIA_AUDIENCES,
         "intel_levels": INTEL_LEVELS,
         "threat_types": misp_store.tlr_threat_types(),

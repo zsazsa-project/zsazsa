@@ -4,6 +4,7 @@ import re
 import requests
 
 import config
+from core import vuln_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +12,6 @@ logger = logging.getLogger(__name__)
 _VULNERABILITY_OBJECT_TEMPLATE = {"uuid": "81650945-f186-437b-8945-9f31715d32da", "name": "vulnerability"}
 _WEAKNESS_OBJECT_TEMPLATE = {"uuid": "b8713fc0-d7a2-4b27-a182-38ed47966802", "name": "weakness"}
 
-# Matches a CVSS score (e.g. "9.8" out of "9.8 (CRITICAL)").
-_CVSS_SCORE_RE = re.compile(r"\d+(?:\.\d+)?")
 # Matches CWE-style weakness ids (e.g. "CWE-77" out of "CWE-77, CWE-89").
 _CWE_ID_RE = re.compile(r"cwe-\d+", re.IGNORECASE)
 # Matches Flowintel template identifiers (numeric IDs or UUIDs).
@@ -446,11 +445,11 @@ def send_vea_to_flowintel(instance: dict, vea, markdown: str, preview_url: str =
     # vulnerability (and thus the same subject) each get their own case.
     case_title = f"{vea.vea_id}: {subject}" if vea.vea_id else subject
 
-    cvss_match = _CVSS_SCORE_RE.search(vea.cvss or "")
+    score = vuln_lookup.cvss_score(vea.cvss)
     cve_ids = [c.strip() for c in re.split(r"[,\n]", vea.cve_id or "") if c.strip()]
     vulnerability = {
         "cve_ids": cve_ids,
-        "cvss_score": cvss_match.group(0) if cvss_match else None,
+        "cvss_score": str(score) if score is not None else None,
         "description": vea.summary,
         "summary": subject,
     }

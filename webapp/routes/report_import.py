@@ -24,6 +24,7 @@ from core import report_document
 from core.db import log_pipeline_run_end, log_pipeline_run_start
 from core.report_document import ReportError
 from webapp import audit, collection_cache, job_store, misp_session, misp_store, report_stories
+from webapp.models import TLP_LEVELS
 from webapp.rate_limit import rate_limited
 from webapp.utils import iso_day
 
@@ -128,7 +129,7 @@ def new():
         providers=misp_store.report_providers(reports),
         job=job if job and job.get("action") == JOB_ACTION else None,
         form=request.form if request.method == "POST" else {},
-        tlp_levels=misp_store.FIA_TLP_LEVELS, reliabilities=misp_store.FIA_RELIABILITIES,
+        tlp_levels=TLP_LEVELS, reliabilities=misp_store.FIA_RELIABILITIES,
         max_mb=report_document.max_mb(),
     )
 
@@ -161,7 +162,7 @@ def _start_import(sources: dict):
         problem = "Name the provider who published the threat report."
     elif reliability and reliability not in misp_store.FIA_RELIABILITIES:
         problem = "Pick a source reliability from A to F, or leave it unrated."
-    elif tlp != "document" and tlp not in misp_store.FIA_TLP_LEVELS:
+    elif tlp != "document" and tlp not in TLP_LEVELS:
         problem = "Pick a TLP."
     elif published and not iso_day(published):
         problem = "The publication date is not a date."
@@ -353,7 +354,7 @@ def detail(uuid):
                            made=sum(1 for s in manifest["stories"] if s.get("event")),
                            providers=misp_store.report_providers(reports), earlier=request.args.get("earlier") == "1",
                            similar=_similar(report, reports),
-                           report_tag=misp_store.report_tag(report.uuid), tlp_levels=misp_store.FIA_TLP_LEVELS)
+                           report_tag=misp_store.report_tag(report.uuid), tlp_levels=TLP_LEVELS)
 
 
 @bp.route("/<string:uuid>/details", methods=["POST"])
@@ -373,7 +374,7 @@ def save_details(uuid):
         flash("A threat report needs a title and a provider.", "warning")
     elif details["published"] and not iso_day(details["published"]):
         flash("The publication date is not a date.", "warning")
-    elif details["tlp"] not in misp_store.FIA_TLP_LEVELS:
+    elif details["tlp"] not in TLP_LEVELS:
         flash("Pick a TLP.", "warning")
     else:
         try:
