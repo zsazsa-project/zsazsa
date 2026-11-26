@@ -33,6 +33,7 @@ from pymisp import MISPEvent, PyMISP
 
 import config
 from webapp import audit, collection_cache, create_app, job_store, misp_session, misp_store
+from webapp.models import TLP_LEVELS
 from webapp.routes import data_collection, threat_landscape
 
 UUID = "8261112b-619c-4ee0-9409-c898df74520c"
@@ -292,7 +293,7 @@ class FlashIntelPages(Pages):
         self.assertEqual(card.select_one(".card-header").get_text(strip=True), "As it will appear")
         self.assertIsNotNone(card.select_one("#btn-fia-save"))
         self.assertIsNotNone(card.select_one("#btn-fia-submit"))
-        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], misp_store.FIA_TLP_LEVELS)
+        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], TLP_LEVELS)
         self.assertEqual(page.select_one("input[name=audience][value=SOC]").has_attr("checked"), True)
 
 
@@ -686,7 +687,7 @@ class ThreatLandscapePages(Pages):
         card = page.select_one(".col-lg-4 > .form-save")
         self.assertEqual(card.select_one(".card-header").get_text(strip=True), "As it will appear")
         self.assertEqual(card.select_one("button[type=submit]").get_text(strip=True), "Update report")
-        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], misp_store.FIA_TLP_LEVELS)
+        self.assertEqual([r["value"] for r in page.select("input[name=tlp]")], TLP_LEVELS)
         self.assertIsNone(page.select_one("#tlr-draft-btn"), "a report with no events has nothing to draft from")
 
 

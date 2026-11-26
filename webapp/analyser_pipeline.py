@@ -24,15 +24,14 @@ from analyser.relevance import Judge
 from analyser.sources import Reading
 from core import asset_inventory
 from core.db import log_event, log_pipeline_run_end, log_pipeline_run_start
-from core.vuln_lookup import CVE_RE, lookup_cve
+from core.vuln_lookup import CVE_RE, cvss_score, lookup_cve
 from pymisp import MISPEventReport
 from webapp import audit, collection_cache, job_store, matching as req_matching, misp_store
-from webapp.collection_cache import AI_SUMMARY_PREFIX, is_own_report
+from webapp.collection_cache import AI_SUMMARY_PREFIX, REJECTION_PREFIX, ai_summary, article_report
 
 logger = logging.getLogger(__name__)
 
 _HTTP_ERROR_PREFIX = "misp-scraper:HTTP="
-_REJECTION_PREFIX = "zsazsa:analyser-rejection"
 
 _SECTOR_LINE_RE = re.compile(r'\*\*Targeted sector:\*\*\s*(.+)', re.IGNORECASE)
 _GEO_LINE_RE = re.compile(r'\*\*Geographic scope:\*\*\s*(.+)', re.IGNORECASE)
@@ -196,50 +195,16 @@ def _event_http_error(event) -> bool:
     return any(tag.name.startswith(_HTTP_ERROR_PREFIX) for tag in event.tags)
 
 
-def _content(report) -> str:
-    return (report.content or "").strip()
-
-
-def _changed_at(report) -> float:
-    stamp = getattr(report, "timestamp", None)
-    return stamp.timestamp() if isinstance(stamp, datetime) else 0
-
-
-def _article_report(reports):
-    """The report with the article: the first with content that zsazsa did
-    not write itself, as it writes an AI summary or a rejection note."""
-    for report in reports:
-        if _content(report) and not is_own_report(report.name) and not report.name.startswith(_REJECTION_PREFIX):
-            return report
-    return None
-
-
 def _article_text(reports) -> str:
-    report = _article_report(reports)
-    return _content(report) if report else ""
-
-
-def _summary_report(reports):
-    """The newest AI summary of the event, or None when there is none or the
-    article changed after it was written: it would tell the old story."""
-    summary = max((r for r in reports if r.name.startswith(AI_SUMMARY_PREFIX)),
-                  key=_changed_at, default=None)
-    article = _article_report(reports)
-    if summary is None or (article is not None and _changed_at(article) > _changed_at(summary)):
-        return None
-    return summary
-
-
-def _extract_ai_summary(reports) -> str:
-    summary = _summary_report(reports)
-    return _content(summary) if summary else ""
+    report = article_report(reports)
+    return report.content.strip() if report else ""
 
 
 def _add_rejection_note(misp, event, reasons: list[str]) -> None:
     """A report on the event saying why the analyser rejected it."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     note = MISPEventReport()
-    note.name = f"{_REJECTION_PREFIX} {ts}"
+    note.name = f"{REJECTION_PREFIX} {ts}"
     note.content = "\n".join([
         "Decision: rejected by the analyser, as no product wants it",
         f"Time (UTC): {ts}",
@@ -320,7 +285,7 @@ def _ensure_ai_summary(source, event, reports, galaxy_lookup: dict, progress=Non
     stays in that server's search, and without galaxy tags, as the event's tags
     are that server's.
     """
-    existing = _extract_ai_summary(reports)
+    existing = ai_summary(reports)
     if existing or not source.may_add_reports:
         return existing, False
     misp = source.client
@@ -361,7 +326,7 @@ def _delete_outdated_summaries(misp, event, reports) -> None:
     """Delete the summaries written before the article changed, now that a
     new one is there. Deleted softly, as MISP keeps them that way."""
     for report in reports:
-        if report.name.startswith(AI_SUMMARY_PREFIX):
+        if report.name.startswith(AI_SUMMARY_PREFIX) and not getattr(report, "deleted", False):
             try:
                 misp_store._check(misp.delete_event_report(report.id), "delete the outdated summary")
             except Exception as exc:
@@ -389,7 +354,7 @@ def _write_summaries(kept: list, sources: dict, reports: dict, reading: Reading,
     # minutes, so the job says which one it is on. A slow run then looks alive,
     # and one that died shows how far it got.
     to_write = {e.uuid for e in kept
-                if sources[e.uuid].may_add_reports and not _extract_ai_summary(reports[e.uuid])}
+                if sources[e.uuid].may_add_reports and not ai_summary(reports[e.uuid])}
     missing = len(to_write)
     _emit(progress, "generate-summaries", "in_progress",
           f"{missing} of {len(kept)} event(s) need an AI summary.")
@@ -1128,12 +1093,6 @@ def run_flash_intel_action(reading: Reading, progress=None) -> dict:
 _NOT_CHECKED = "Not checked: the CVE record names no product, and neither does the article."
 
 
-def _cvss(value) -> float | None:
-    """A CVSS score from a record or an advisory, "9.8 CRITICAL" included."""
-    found = re.match(r"\s*(\d+(?:\.\d+)?)", str(value or ""))
-    return float(found.group(1)) if found else None
-
-
 def _covered(vea, cvss, cisa_kev) -> SimpleNamespace:
     """A CVE as an advisory covers it, with what it was then. None for a
     value not known."""
@@ -1172,7 +1131,7 @@ def _material_change(earlier, record: dict) -> str:
     to be worth a new one."""
     if record.get("cisa_kev") == "Yes" and earlier.cisa_kev is not None and earlier.cisa_kev != "Yes":
         return "it is on the CISA KEV list now"
-    now, then = _cvss(record.get("cvss_score")), _cvss(earlier.cvss)
+    now, then = cvss_score(record.get("cvss_score")), cvss_score(earlier.cvss)
     if now is not None and then is not None and now - then >= settings.get("ANALYSER_ADVISORY_CVSS_RISE"):
         return f"its CVSS score rose from {then} to {now}"
     return ""
@@ -1237,7 +1196,7 @@ def _in_scope(record: dict, text: str, terms: list, checking_assets: bool) -> st
 def _severe_enough(record: dict) -> bool:
     if settings.get("ANALYSER_ADVISORY_KEV_ONLY") and record.get("cisa_kev") != "Yes":
         return False
-    score = _cvss(record.get("cvss_score"))
+    score = cvss_score(record.get("cvss_score"))
     return score is None or score >= settings.get("ANALYSER_ADVISORY_CVSS_FLOOR")
 
 

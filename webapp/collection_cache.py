@@ -57,6 +57,8 @@ AI_SUMMARY_PREFIX = "[AI-Summary]"
 AI_EVENT_SUMMARY_PREFIX = "[AI-Event-Summary]"
 # What an indicator lookup found, added to the event by an analyst.
 LOOKUP_REPORT_PREFIX = "[zsazsa-lookup]"
+# The note the analyser leaves on an event it turned down.
+REJECTION_PREFIX = "zsazsa:analyser-rejection"
 
 WORKFLOW_REJECTED_TAG = 'workflow:state="rejected"'
 # Puts an event in the threat landscape queue, which is read from this cache.
@@ -86,6 +88,40 @@ def is_own_report(name: str) -> bool:
     """True for a report zsazsa wrote itself: an AI summary, of a report or of
     the event, or an indicator lookup. None of them is the article."""
     return (name or "").startswith((AI_SUMMARY_PREFIX, AI_EVENT_SUMMARY_PREFIX, LOOKUP_REPORT_PREFIX))
+
+
+def _live(reports) -> list:
+    """The reports minus the deleted ones, which MISP keeps on the event."""
+    return [r for r in reports if not getattr(r, "deleted", False)]
+
+
+def _text(report) -> str:
+    return (report.content or "").strip()
+
+
+def _changed_at(report) -> float:
+    stamp = getattr(report, "timestamp", None)
+    return stamp.timestamp() if isinstance(stamp, _dt.datetime) else 0
+
+
+def article_report(reports):
+    """The report with the article: the first with content that zsazsa did
+    not write itself, as it writes an AI summary or a rejection note."""
+    for report in _live(reports):
+        if _text(report) and not is_own_report(report.name) and not report.name.startswith(REJECTION_PREFIX):
+            return report
+    return None
+
+
+def ai_summary(reports) -> str:
+    """The newest AI summary of an event, or "" when there is none or the
+    article changed after it was written: it would tell the old story."""
+    summary = max((r for r in _live(reports) if r.name.startswith(AI_SUMMARY_PREFIX)),
+                  key=_changed_at, default=None)
+    article = article_report(reports)
+    if summary is None or (article is not None and _changed_at(article) > _changed_at(summary)):
+        return ""
+    return _text(summary)
 
 
 def init_db():
@@ -341,7 +377,7 @@ def _extract_row(e, source_id: str) -> dict:
         orgc_name = getattr(orgc_obj, "name", "") or ""
     # An event carries its soft-deleted reports too; those are not shown anywhere,
     # so leave them out of the count and the AI-summary marker.
-    reports = [r for r in (getattr(e, "event_reports", []) or []) if not getattr(r, "deleted", False)]
+    reports = _live(getattr(e, "event_reports", []) or [])
     names = [getattr(r, "name", "") or "" for r in reports]
     return {
         "uuid": e.uuid,

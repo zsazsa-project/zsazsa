@@ -355,7 +355,7 @@ class Candidates(unittest.TestCase):
                               timestamp=datetime(2026, 10, 30, 9, tzinfo=timezone.utc))
         article = SimpleNamespace(id="4", name="Article", content="Exploited now",
                                   timestamp=datetime(2026, 10, 30, 11, tzinfo=timezone.utc))
-        self.assertEqual(pipeline._extract_ai_summary([article, old]), "")
+        self.assertEqual(pipeline.collection_cache.ai_summary([article, old]), "")
         webapp = mock.create_autospec(PyMISP, instance=True)
         webapp.add_event_report.return_value = webapp.delete_event_report.return_value = {}
         manual = Source("manual", "manual", "Manual entries", webapp, True)
@@ -367,7 +367,7 @@ class Candidates(unittest.TestCase):
         webapp.delete_event_report.assert_called_once_with("5")
         # One written after the article stands.
         old.timestamp = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
-        self.assertEqual(pipeline._extract_ai_summary([article, old]), "Not exploited")
+        self.assertEqual(pipeline.collection_cache.ai_summary([article, old]), "Not exploited")
 
     def test_a_manual_entry_s_summary_is_marked_on_its_collection_source(self):
         """The collection cache keeps a manual entry under its own source, not

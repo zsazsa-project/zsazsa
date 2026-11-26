@@ -30,6 +30,7 @@
 - The "As it will appear" card of a form stays in place when the page scrolls.
 - The dataset page of a threat landscape report opens with a banner that counts the events outside the scope, the events without a threat type and the PIR gaps, and shows how far the triage is. Its events can be filtered.
 - Update style field labels #80.
+- Sending the response to an RFI needs the MISP publish permission.
 
 ### Security
 

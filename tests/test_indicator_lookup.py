@@ -26,7 +26,7 @@ from flask import Flask
 from pymisp import MISPEvent, MISPEventReport, PyMISP
 
 import config
-from webapp import analyser_pipeline, collection_cache, create_app, misp_store
+from webapp import collection_cache, create_app, misp_store
 from webapp.routes import api, data_collection
 
 UUID = "3947bfb3-0115-45a2-b757-ad66a7d9f629"
@@ -308,7 +308,7 @@ class AddedAsReport(unittest.TestCase):
         lookup, article = MISPEventReport(), MISPEventReport()
         lookup.name, lookup.content = names[0], "| table |"
         article.name, article.content = "Article", "The investigation began"
-        self.assertIs(analyser_pipeline._article_report([lookup, article]), article)
+        self.assertIs(collection_cache.article_report([lookup, article]), article)
         self.event.add_event_report(name=names[0], content="| table |")
         self.assertEqual(collection_cache._extract_row(self.event, self.SOURCE)["source_report_count"], 0)
 

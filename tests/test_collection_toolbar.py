@@ -7,7 +7,8 @@ and every refresh or reject reloads the page. They are now all of one size and
 styled before the table. This pins that, where the toolbar's buttons sit, that
 the script's messages float over the page rather than move it, that what the
 script fills in after the load keeps its size, that the actions column has no
-gear that looks clickable, that an event's organisation filters the list, and
+gear that looks clickable, that an event's organisation filters the list, that
+a TLP tag has the colour of its level, and
 that the Filters and actions card has the look of the stakeholder banner
 without cutting off its menus, that a filter button stays white and readable
 while its panel is open or a filter is set and shows a green check for the
@@ -44,7 +45,7 @@ class TheToolbar(unittest.TestCase):
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        rows = [{"uuid": "a" * 36, "source_id": "scraper", "info": "Collected event", "tags": [],
+        rows = [{"uuid": "a" * 36, "source_id": "scraper", "info": "Collected event", "tags": ["tlp:amber+strict"],
                  "orgc": "CIRCL", "date": "2026-10-01"},
                 {"uuid": "b" * 36, "source_id": "scraper", "info": "Event without an org", "tags": [],
                  "orgc": "", "date": "2026-10-02"}]
@@ -131,6 +132,12 @@ class TheToolbar(unittest.TestCase):
         link = rows["a" * 36].select_one(".org-filter-link")
         self.assertEqual((link["data-org"], link.get_text(strip=True)), ("CIRCL", "CIRCL"))
         self.assertIsNone(rows["b" * 36].select_one(".org-filter-link"))
+
+    def test_a_tlp_tag_has_the_colour_of_its_level(self):
+        """AMBER+STRICT lost its "+strict" and was coloured as AMBER."""
+        badge = self.page.select_one('tr.event-row .tlp-badge[data-tag="tlp:amber+strict"]')
+        self.assertIn("tlp-amber-strict", badge["class"])
+        self.assertEqual(badge.get_text(strip=True), "TLP:AMBER+STRICT")
 
     def threat_report_menu(self, page):
         split = page.select_one(".chip-split")

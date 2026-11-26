@@ -1,9 +1,11 @@
-"""RFI saves and the SLA clock.
+"""RFI saves, the SLA clock and notifying the owner of an RFI.
 
 An RFI is stored as one MISP object, and update_rfi writes whatever the caller
 hands it: a field left out of that dict is removed from the object and, for the
 id, from the event title too. So every save has to carry the whole RFI, not only
-the part of the form the analyst touched.
+the part of the form the analyst touched. Notifying the owner of an RFI sends
+its response only when they are cleared for the RFI's TLP, and the button is
+disabled for an analyst who may not send it.
 
     python -m unittest tests.test_rfi
 """
@@ -200,6 +202,73 @@ class RenderedPages(unittest.TestCase):
         page = self.page("/rfis/rfi-uuid", _rfi(output_format_list=[{"format": "Indicator feed", "tlp": "green"}]))
         details = page.find("dt", string="Preferred output formats").find_next_sibling("dd")
         self.assertIsNotNone(details.select_one("i.fa-satellite-dish"))
+
+    def test_without_the_publish_right_a_response_cannot_be_sent(self):
+        for response, can_publish, enabled in (("Yes.", False, False), ("Yes.", True, True), ("", False, True)):
+            with self.subTest(response=response, can_publish=can_publish), \
+                 mock.patch("webapp.misp_session.current_user_can_publish", return_value=can_publish):
+                page = self.page("/rfis/rfi-uuid", _rfi(response=response))
+                button = next(b for b in page.select("button") if "Notify stakeholders" in b.get_text())
+                self.assertEqual(not button.has_attr("disabled"), enabled)
+
+
+class Notify(unittest.TestCase):
+    """A response is intelligence under the RFI's TLP: it reaches the owner
+    only when they are cleared for it, as a product reaches its stakeholders.
+    The question alone goes to them whatever their clearance."""
+
+    def setUp(self):
+        app = Flask(__name__)
+        app.secret_key = "test"
+        app.config["TESTING"] = True
+        app.register_blueprint(rfi_routes.bp)
+        self.client = app.test_client()
+        for patcher in (
+            mock.patch("webapp.misp_session.current_user_can_publish", return_value=True),
+            mock.patch("notifier.dispatcher.describe_delivery", side_effect=lambda stakeholders: {
+                "recipients": len(stakeholders), "recipient_names": [s.name for s in stakeholders],
+                "channel_types": [], "channels_by_type": {}}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def notify(self, clearance, method="GET", **rfi):
+        owner = SimpleNamespace(id="stakeholder-uuid", name="Ada", tlp_clearance=clearance)
+        with mock.patch.object(rfi_routes.misp_store, "get_rfi", return_value=_rfi(**{"deliverable_tlp": "amber", **rfi})), \
+             mock.patch.object(rfi_routes.misp_store, "list_stakeholders", return_value=[owner]), \
+             mock.patch.object(rfi_routes.notify_jobs, "start_preview") as start, \
+             mock.patch("notifier.dispatcher.send_rfi_preview", return_value={}) as send:
+            reply = self.client.open("/rfis/rfi-uuid/notify", method=method)
+            if start.called:
+                start.call_args.args[2]()
+        return reply, send
+
+    def test_an_owner_cleared_for_the_tlp_gets_the_response(self):
+        reply, _send = self.notify("amber")
+        self.assertEqual((reply.json["recipient_count"], reply.json["not_cleared"]), (1, ""))
+        _reply, send = self.notify("amber", method="POST")
+        self.assertEqual([s.name for s in send.call_args.kwargs["stakeholders"]], ["Ada"])
+
+    def test_an_owner_not_cleared_for_the_tlp_does_not_get_the_response(self):
+        reply, _send = self.notify("green")
+        self.assertEqual(reply.json["recipient_count"], 0)
+        self.assertEqual(reply.json["not_cleared"], "Ada is not cleared for TLP:AMBER")
+        _reply, send = self.notify("green", method="POST")
+        self.assertEqual(send.call_args.kwargs["stakeholders"], [])
+
+    def test_an_owner_named_without_a_uuid_is_found_by_name(self):
+        reply, _send = self.notify("amber", owner_uuid="")
+        self.assertEqual(reply.json["recipient_names"], ["Ada"])
+        reply, _send = self.notify("amber", owner_uuid="", owner_name="Someone else")
+        self.assertEqual(reply.json["recipient_count"], 0)
+
+    def test_an_rfi_without_a_tlp_is_read_as_amber(self):
+        reply, _send = self.notify("green", deliverable_tlp="")
+        self.assertEqual(reply.json["not_cleared"], "Ada is not cleared for TLP:AMBER")
+
+    def test_without_a_response_the_owner_is_told_whatever_their_clearance(self):
+        reply, _send = self.notify("clear", response="")
+        self.assertEqual((reply.json["recipient_count"], reply.json["not_cleared"]), (1, ""))
 
 
 class IntakeAnswers(unittest.TestCase):

@@ -53,7 +53,12 @@
     </div>
     <div class="hero-actions">
       <a href="{{ url_for('rfi.rfi_edit', id=rfi.id) }}" class="btn btn-sm btn-hero"><i class="fas fa-pen me-1"></i> Edit</a>
-      {% if rfi.status != 'New' %}
+      {% if rfi.status != 'New' and rfi.response and not can_publish %}
+      <span class="d-inline-block" style="cursor:not-allowed;"
+            title="Only users with MISP publish rights can send the response to an RFI.">
+        <button class="btn btn-sm btn-hero-ghost" disabled style="pointer-events:none;"><i class="fas fa-bell me-1"></i> Notify stakeholders</button>
+      </span>
+      {% elif rfi.status != 'New' %}
       <button type="button" class="btn btn-sm btn-hero-ghost" id="notify-btn"
               data-notify-url="{{ url_for('rfi.rfi_notify', id=rfi.id) }}">
         <i class="fas fa-bell me-1"></i> Notify stakeholders
@@ -412,7 +417,8 @@
           diagnosticsEl.textContent =
             'Eligible recipients: ' + (data.recipient_count || 0) +
             (names ? ' (' + names + extra + ')' : '') +
-            (channels ? ' | Channels: ' + channels : ' | Channels: none configured');
+            (channels ? ' | Channels: ' + channels : ' | Channels: none configured') +
+            (data.not_cleared ? ' | ' + data.not_cleared + ', so the response is not sent to them.' : '');
         }
       })
       .catch(function(e) { textarea.value = 'Error loading preview: ' + e; });

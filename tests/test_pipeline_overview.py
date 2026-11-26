@@ -2,7 +2,8 @@
 and by reason, what "Needs a look" lists and in what order, the counts beside
 each filter choice, each counted under the other filters, a day of the chart
 opening the activity on it, and a feed of the scraper opening Data collection
-on the events with its tag.
+on the events with its tag. Purging orphaned entries returns to the activity
+and is in the audit log.
 
 The database is temporary; MISP is not asked.
 
@@ -308,6 +309,21 @@ class PurgeReturnsToTheActivity(unittest.TestCase):
             reply = app.test_client().post("/pipeline/purge-orphaned")
         self.assertEqual(reply.status_code, 302)
         self.assertTrue(reply.headers["Location"].endswith("/pipeline#activity"))
+
+    def test_what_is_purged_is_in_the_audit_log(self):
+        app = Flask(__name__)
+        app.secret_key = "test"
+        app.register_blueprint(pipeline.bp)
+        for purged, entries in (((2, 5), 1), ((0, 5), 0)):
+            with self.subTest(purged=purged), \
+                 mock.patch.object(pipeline, "scraper_enabled", return_value=True), \
+                 mock.patch.object(pipeline, "_purge_orphaned_rows", return_value=purged), \
+                 mock.patch.object(pipeline.audit, "record") as record:
+                app.test_client().post("/pipeline/purge-orphaned")
+            self.assertEqual(record.call_count, entries)
+            if entries:
+                self.assertEqual(record.call_args.args, ("delete", "event-log"))
+                self.assertIn("purged 2 orphaned entries of 5", record.call_args.kwargs["details"])
 
 
 if __name__ == "__main__":

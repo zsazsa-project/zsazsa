@@ -252,7 +252,7 @@
                   {% endif %}
                   {# TLP #}
                   {% for t in e.tags %}{% set _s = namespace(skip=false) %}{% if t == marker_tag or t.startswith('scraper:data-collection-source') or t.startswith('scraper:primary-data-collection-source') or t.startswith('admiralty-scale:') or t.startswith('workflow:state') or t.startswith('retention') %}{% set _s.skip = true %}{% endif %}{% if not _s.skip %}{% for hp in collection_tag_hide_prefixes %}{% if not _s.skip and t.startswith(hp) %}{% set _s.skip = true %}{% endif %}{% endfor %}{% endif %}
-                    {% if not _s.skip and t.startswith('tlp:') %}{% set tlp_val = t[4:] | lower %}<span class="badge tag-row-badge tlp-badge tlp-{{ tlp_val | replace('+strict','') | replace('+','') }}" data-tag="{{ t }}" style="cursor:pointer;" title="TLP classification · Click to filter">TLP:{{ tlp_val | upper }}</span>{% endif %}
+                    {% if not _s.skip and t.startswith('tlp:') %}{% set tlp_val = t[4:] | lower %}<span class="badge tag-row-badge tlp-badge tlp-{{ tlp_val | slug }}" data-tag="{{ t }}" style="cursor:pointer;" title="TLP classification · Click to filter">TLP:{{ tlp_val | upper }}</span>{% endif %}
                   {% endfor %}
                   {# CTI evaluation #}
                   {% for t in e.tags %}{% set _s = namespace(skip=false) %}{% if t == marker_tag or t.startswith('scraper:data-collection-source') or t.startswith('scraper:primary-data-collection-source') or t.startswith('admiralty-scale:') or t.startswith('workflow:state') or t.startswith('retention') %}{% set _s.skip = true %}{% endif %}{% if not _s.skip %}{% for hp in collection_tag_hide_prefixes %}{% if not _s.skip and t.startswith(hp) %}{% set _s.skip = true %}{% endif %}{% endfor %}{% endif %}
@@ -403,7 +403,7 @@
                 <div class="btn-group summary-actions">
                   <button class="btn btn-xs btn-outline-secondary create-summary-btn summary-icon-btn" data-mode="report"
                           data-uuid="{{ e.uuid }}" data-source-id="{{ e.source_id }}"
-                          title="Generate LLM summary from first MISP report"
+                          title="Generate LLM summary of the article"
                           {{ 'disabled' if _busy_job }}>
                     <i class="fas fa-wand-magic-sparkles"></i>
                   </button>
@@ -416,7 +416,7 @@
                   </button>
                   <ul class="dropdown-menu dropdown-menu-end" style="font-size:.8rem;max-width:22rem;">
                     {% for mode, label in (('report', 'Generate LLM summary'),
-                                           ('both', 'Generate LLM summary of the first report, and an LLM summary of the event as a separate report'),
+                                           ('both', 'Generate LLM summary of the article, and an LLM summary of the event as a separate report'),
                                            ('event', 'Generate summary of the event as a report')) %}
                     <li>
                       <button type="button" class="dropdown-item text-wrap create-summary-btn" data-mode="{{ mode }}"

@@ -14,6 +14,13 @@ _SSVC_EXPLOIT_MAP = {"active": "Weaponised", "poc": "PoC public", "none": "None 
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
 
 
+def cvss_score(value) -> float | None:
+    """The score a CVSS value opens with, as an advisory stores it: "9.8",
+    "9.8 CRITICAL" or "9.8 (CRITICAL)". None when it opens with no number."""
+    found = re.match(r"\s*(\d+(?:\.\d+)?)", str(value or ""))
+    return float(found.group(1)) if found else None
+
+
 def fetch_cve_info(cve_id: str) -> dict:
     """Fetch and parse CVE details from vulnerability.circl.lu.
 

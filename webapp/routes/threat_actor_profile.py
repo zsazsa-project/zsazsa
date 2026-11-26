@@ -13,7 +13,7 @@ import config
 from webapp import audit, branding, misp_session, misp_store, notify_jobs
 from webapp.rate_limit import rate_limited
 from webapp.diamond import render_diamond_png
-from webapp.models import STAKEHOLDER_ROLES
+from webapp.models import STAKEHOLDER_ROLES, TLP_LEVELS
 from webapp.utils import TLP_NAMES, matching, nest_headings, ordered_counts, sort_products, tlp_counts, tlp_of
 from notifier import dispatcher
 
@@ -74,7 +74,7 @@ def _form_context(tap=None):
     return {
         "tap": tap,
         "audiences": misp_store.FIA_AUDIENCES,
-        "tlp_levels": misp_store.FIA_TLP_LEVELS,
+        "tlp_levels": TLP_LEVELS,
         "reliabilities": misp_store.FIA_RELIABILITIES,
         "credibilities": misp_store.FIA_CREDIBILITIES,
         "threat_actor_items": misp_store.galaxy_threat_actors(),

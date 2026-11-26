@@ -2,7 +2,8 @@
 
 The detail pages disable the buttons for an analyst without perm_publish, but the
 routes behind them take a plain POST, so each one has to refuse on its own:
-approving or publishing, publishing from the wizard, resending and notifying.
+approving or publishing, publishing from the wizard, resending and notifying,
+and sending the response to an RFI.
 A published alert or advisory cannot be edited at all, or a resend would deliver
 something other than what was approved, and publishing it again is a resend.
 
@@ -20,7 +21,7 @@ from unittest import mock
 from flask import Flask
 from werkzeug.datastructures import MultiDict
 
-from webapp.routes import (daily_briefing, detection_eng, flash_intel, indicator_feed, stakeholders,
+from webapp.routes import (daily_briefing, detection_eng, flash_intel, indicator_feed, rfi, stakeholders,
                            threat_actor_profile, threat_landscape, vea)
 
 UUID = "u" * 36
@@ -415,6 +416,40 @@ class IndicatorFeedPublisher(_IndicatorFeedFixture):
 
     def test_notify_delivers(self):
         self.client.post(f"/products/indicator-feed/{UUID}/notify")
+        self.deliver.assert_called_once()
+
+
+class _RfiFixture(_Gate):
+    def setUp(self):
+        super().setUp()
+        self.client = _client(rfi.bp)
+        self.rfi = SimpleNamespace(id=UUID, rfi_id="RFI-00042", status="In Progress", priority="High",
+                                   deliverable_tlp="amber", question="Is our sector targeted?", context="",
+                                   requester_name="", requester_team="", due_date=None, owner_uuid="", owner_name="",
+                                   response="Yes, twice this month.", response_confidence="")
+        self.stub(rfi.misp_store, "get_rfi", return_value=self.rfi)
+        self.stub(rfi.misp_store, "list_stakeholders", return_value=[])
+        self.deliver = self.stub(rfi.notify_jobs, "start_preview")
+
+
+class Rfi(_RfiFixture):
+    """The response to an RFI is intelligence, sent as a product is."""
+
+    def test_sending_the_response_is_refused(self):
+        self.assertRefused(self.client.post(f"/rfis/{UUID}/notify"))
+        self.deliver.assert_not_called()
+
+    def test_without_a_response_the_rfi_is_sent(self):
+        self.rfi.response = ""
+        self.client.post(f"/rfis/{UUID}/notify")
+        self.deliver.assert_called_once()
+
+
+class RfiPublisher(_RfiFixture):
+    can_publish = True
+
+    def test_the_response_is_sent(self):
+        self.client.post(f"/rfis/{UUID}/notify")
         self.deliver.assert_called_once()
 
 

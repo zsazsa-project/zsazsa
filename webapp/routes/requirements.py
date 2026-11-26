@@ -618,9 +618,15 @@ def pir_triage(id):
     return redirect(url_for("requirements.pir_list"))
 
 
+def _focus_point_label(req, fp_id):
+    fp = next((fp for fp in req.focus_points if fp.id == fp_id), None)
+    return f"{fp.category} {fp.value}" if fp else fp_id
+
+
 @bp.route("/pirs/<string:id>/focus_points", methods=["POST"])
 def pir_add_focus_point(id):
-    if misp_store.get_pir(id) is None:
+    pir = misp_store.get_pir(id)
+    if pir is None:
         return "PIR not found", 404
     try:
         misp_store.add_focus_point_with_scope(
@@ -630,6 +636,8 @@ def pir_add_focus_point(id):
         )
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "pir", entity_id=id, entity_label=pir.pir_id,
+                     details=f"scope: added {request.form['category']} {request.form['value']}")
     except Exception as exc:
         flash(f"Could not add scope item: {exc}", "warning")
     return redirect(url_for("requirements.pir_detail", id=id))
@@ -637,7 +645,8 @@ def pir_add_focus_point(id):
 
 @bp.route("/pirs/<string:id>/scope/sync", methods=["POST"])
 def pir_sync_scope(id):
-    if misp_store.get_pir(id) is None:
+    pir = misp_store.get_pir(id)
+    if pir is None:
         return "PIR not found", 404
     category = request.form.get("category", "").strip()
     if category not in misp_store.GALAXY_FP_CATEGORIES:
@@ -648,6 +657,8 @@ def pir_sync_scope(id):
         misp_store.sync_focus_points_category(id, category, values)
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "pir", entity_id=id, entity_label=pir.pir_id,
+                     details=f"scope: {category} set to {', '.join(values) or 'nothing'}")
     except Exception as exc:
         flash(f"Could not sync {category} scope: {exc}", "warning")
     return redirect(url_for("requirements.pir_detail", id=id))
@@ -685,12 +696,15 @@ def pir_scope_preview(id):
 
 @bp.route("/pirs/<string:id>/focus_points/<string:fp_id>/delete", methods=["POST"])
 def pir_delete_focus_point(id, fp_id):
-    if misp_store.get_pir(id) is None:
+    pir = misp_store.get_pir(id)
+    if pir is None:
         return "PIR not found", 404
     try:
         misp_store.remove_focus_point_with_scope(id, fp_id)
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "pir", entity_id=id, entity_label=pir.pir_id,
+                     details=f"scope: removed {_focus_point_label(pir, fp_id)}")
     except Exception as exc:
         flash(f"Could not delete scope item: {exc}", "warning")
     return redirect(url_for("requirements.pir_detail", id=id))
@@ -866,7 +880,8 @@ def gir_delete(id):
 
 @bp.route("/girs/<string:id>/focus_points", methods=["POST"])
 def gir_add_focus_point(id):
-    if misp_store.get_gir(id) is None:
+    gir = misp_store.get_gir(id)
+    if gir is None:
         return "GIR not found", 404
     try:
         misp_store.add_focus_point_with_scope(
@@ -876,6 +891,8 @@ def gir_add_focus_point(id):
         )
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "gir", entity_id=id, entity_label=gir.gir_id,
+                     details=f"scope: added {request.form['category']} {request.form['value']}")
     except Exception as exc:
         flash(f"Could not add scope item: {exc}", "warning")
     return redirect(url_for("requirements.gir_detail", id=id))
@@ -883,7 +900,8 @@ def gir_add_focus_point(id):
 
 @bp.route("/girs/<string:id>/scope/sync", methods=["POST"])
 def gir_sync_scope(id):
-    if misp_store.get_gir(id) is None:
+    gir = misp_store.get_gir(id)
+    if gir is None:
         return "GIR not found", 404
     category = request.form.get("category", "").strip()
     if category not in misp_store.GALAXY_FP_CATEGORIES:
@@ -894,6 +912,8 @@ def gir_sync_scope(id):
         misp_store.sync_focus_points_category(id, category, values)
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "gir", entity_id=id, entity_label=gir.gir_id,
+                     details=f"scope: {category} set to {', '.join(values) or 'nothing'}")
     except Exception as exc:
         flash(f"Could not sync {category} scope: {exc}", "warning")
     return redirect(url_for("requirements.gir_detail", id=id))
@@ -931,12 +951,15 @@ def gir_scope_preview(id):
 
 @bp.route("/girs/<string:id>/focus_points/<string:fp_id>/delete", methods=["POST"])
 def gir_delete_focus_point(id, fp_id):
-    if misp_store.get_gir(id) is None:
+    gir = misp_store.get_gir(id)
+    if gir is None:
         return "GIR not found", 404
     try:
         misp_store.remove_focus_point_with_scope(id, fp_id)
         misp_store.sync_scope_tags_from_store(id)
         _matching.invalidate_cache()
+        audit.record("update", "gir", entity_id=id, entity_label=gir.gir_id,
+                     details=f"scope: removed {_focus_point_label(gir, fp_id)}")
     except Exception as exc:
         flash(f"Could not delete scope item: {exc}", "warning")
     return redirect(url_for("requirements.gir_detail", id=id))

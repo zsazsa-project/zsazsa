@@ -13,7 +13,7 @@ import config as _cfg
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for, Response
 
 from webapp import audit, branding, misp_session, misp_store, notify_jobs, product_log
-from webapp.models import STAKEHOLDER_ROLES
+from webapp.models import STAKEHOLDER_ROLES, TLP_LEVELS
 from webapp.utils import TLP_NAMES, matching, md_to_html, ordered_counts, sort_products, tlp_counts, tlp_of
 from webapp.routes import data_collection
 from webapp.routes.source_event_utils import (
@@ -93,7 +93,7 @@ def _wizard_context(fia=None, source_events=None):
     return {
         "fia": fia,
         "audiences": misp_store.FIA_AUDIENCES,
-        "tlp_levels": misp_store.FIA_TLP_LEVELS,
+        "tlp_levels": TLP_LEVELS,
         "reliabilities": misp_store.FIA_RELIABILITIES,
         "credibilities": misp_store.FIA_CREDIBILITIES,
         "review_states": misp_store.FIA_REVIEW_STATES,

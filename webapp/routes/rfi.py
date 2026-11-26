@@ -258,6 +258,7 @@ def rfi_detail(id):
         output_formats=cti_products(),
         tlp_levels=TLP_LEVELS,
         estimative_confidence=misp_store.ESTIMATIVE_CONFIDENCE,
+        can_publish=misp_session.current_user_can_publish(),
     )
 
 
@@ -470,10 +471,19 @@ def rfi_notify(id):
     lines += ["", "[Open RFI preview](" + preview_url + ")", "", "---", f"*Sent from zsazsa CTI on {today}*"]
     md = "\n".join(lines)
     recipients = _rfi_notify_recipients(rfi)
+    # The response is intelligence under the RFI's TLP: like a product, it only
+    # reaches a stakeholder cleared for it.
+    blocked = [s for s in recipients
+               if rfi.response and not misp_store._tlp_cleared(s.tlp_clearance, rfi.deliverable_tlp)]
+    recipients = [s for s in recipients if s not in blocked]
 
     from notifier import dispatcher
 
     if request.method == "POST":
+        # Sending the response takes the same right as delivering a product.
+        if rfi.response and not misp_session.current_user_can_publish():
+            flash(misp_session.publish_denied_message("send the response to an RFI"), "warning")
+            return redirect(url_for("rfi.rfi_detail", id=id))
         try:
             message_md = request.form.get("markdown", "").strip() or md
             notify_jobs.start_preview(
@@ -499,6 +509,8 @@ def rfi_notify(id):
         "recipient_names": diagnostics["recipient_names"],
         "channel_types": diagnostics["channel_types"],
         "channels_by_type": diagnostics["channels_by_type"],
+        "not_cleared": (f"{blocked[0].name} is not cleared for TLP:{(rfi.deliverable_tlp or 'amber').upper()}"
+                        if blocked else ""),
     })
 
 
